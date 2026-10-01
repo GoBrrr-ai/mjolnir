@@ -13,7 +13,9 @@
     mjolnir verify                      kernel correctness suites
     mjolnir plot|history                charts (+ README.md with --readme) + the raw-data log
     mjolnir litellm up|down|status|logs  the LiteLLM proxy stack (independent
-                                        of the vLLM server)
+                                         of the vLLM server)
+    mjolnir perses up|down|status|logs   the Perses + Prometheus observability
+                                         stack (independent of the vLLM server)
 """
 from __future__ import annotations
 
@@ -35,8 +37,8 @@ from mjolnir import __version__
 from mjolnir.config import (BACKEND_LABELS, BASELINE_QUANT, DEFAULT_QUANT,
                             Settings, ConfigEntry, load_layout, resolve,
                             scan_all_configs, user_configs_dir)
-from mjolnir import (benchy, dockerctl, litellm, plots, picker, readme, tasks,
-                    thor, vfa)
+from mjolnir import (benchy, dockerctl, litellm, perses, plots, picker,
+                    readme, tasks, thor, vfa)
 
 _console = Console()
 
@@ -98,6 +100,15 @@ litellm_app = typer.Typer(
          "litellm data dir, ~/.local/share/mjolnir/litellm/ (see "
          "docker/litellm/).",
      no_args_is_help=True, context_settings=_HELP_CTX)
+perses_app = typer.Typer(
+    help="The Perses + Prometheus observability stack for the vLLM server — "
+          "independent of the vLLM server: 'perses down' leaves the server "
+          "running, and 'serve down' leaves the stack up. Prometheus scrapes "
+          "the server's /metrics (host.docker.internal + the resolved port); "
+          "Perses serves the two vLLM dashboards (vendored from "
+          "vllm-project/vllm, docker/perses/). Data: "
+          "~/.local/share/mjolnir/perses/.",
+    no_args_is_help=True, context_settings=_HELP_CTX)
 hw_app = typer.Typer(
     help="Thor host pre-configuration — one-time, idempotent provisioning "
          "(sudo where needed): headless boot target, apt upgrade, Docker + "
@@ -118,6 +129,7 @@ app.add_typer(model_app, name="model")
 app.add_typer(image_app, name="image")
 app.add_typer(vfa_app, name="vfa")
 app.add_typer(litellm_app, name="litellm")
+app.add_typer(perses_app, name="perses")
 app.add_typer(hw_app, name="hw")
 
 
@@ -210,6 +222,10 @@ def serve_status(port: Optional[int] = typer.Option(None, "--port")):
     load = server_load(s.metrics_url)
     if load is not None:
         typer.echo(f"  queue: running={load[0]:g} waiting={load[1]:g}")
+    pport = perses.running_port()
+    if pport:
+        typer.echo(f"  dashboard: http://127.0.0.1:{pport} "
+                   f"(mjolnir perses status)")
 
 
 @serve_app.command("logs")
@@ -545,6 +561,61 @@ def litellm_config(model: Optional[str] = typer.Option(None, "--model"),
                 fg=typer.colors.GREEN)
     if show:
         typer.echo(p.read_text())
+
+
+# ── perses ──────────────────────────────────────────────────────────────────
+
+@perses_app.command("up")
+def perses_up(port: Optional[int] = typer.Option(None, "--port",
+                                                 help=f"host port of the "
+                                                      f"Perses UI (default "
+                                                      f"{perses.DEFAULT_PORT})"),
+              wait: bool = typer.Option(True, "--wait/--no-wait",
+                                         help="wait for the Perses API "
+                                              "before returning"),
+              wait_timeout: float = typer.Option(300.0, "--wait-timeout"),
+              dry_run: bool = typer.Option(False, "--dry-run")):
+    """Start the observability stack (prometheus + perses) with the two vLLM
+    dashboards provisioned. The vLLM scrape target = the resolved server port
+    (state/$MJOLNIR_PORT — the same one `mjolnir serve` uses; override with
+    PERSER_VLLM_TARGET in the perses env file). The server may be up or down."""
+    s = _settings(None, None, None, None)
+    try:
+        perses.up(s, port=port, wait=wait, wait_timeout_s=wait_timeout,
+                  dry_run=dry_run)
+    except (perses.PersesError, FileNotFoundError) as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(4 if "not found" in str(e) else 1)
+    typer.secho(f"\n  dashboards:  mjolnir perses status  "
+                f"(UI: http://127.0.0.1:{port or perses.DEFAULT_PORT})",
+                fg=typer.colors.GREEN)
+
+
+@perses_app.command("down")
+def perses_down(purge: bool = typer.Option(False, "--purge",
+                                            help="also wipe the stack data "
+                                                 "(prometheus TSDB + "
+                                                 "perses db)"),
+                dry_run: bool = typer.Option(False, "--dry-run")):
+    """Stop the stack (the vLLM server keeps running; data kept by default,
+    --purge wipes the prometheus TSDB + the perses db)."""
+    raise typer.Exit(perses.down(purge=purge, dry_run=dry_run))
+
+
+@perses_app.command("status")
+def perses_status(port: Optional[int] = typer.Option(None, "--port")):
+    """Container state + API health + the vLLM scrape target + the data dir."""
+    s = _settings(None, None, None, None)
+    typer.echo(json.dumps(perses.status(s, port), indent=2))
+
+
+@perses_app.command("logs")
+def perses_logs(follow: bool = typer.Option(False, "--follow", "-f"),
+                tail: int = typer.Option(100, "--tail"),
+                service: Optional[str] = typer.Option(
+                    None, "--service", help="perses (default) | prometheus")):
+    """Tail a stack service's logs (default: perses)."""
+    raise typer.Exit(perses.logs(follow=follow, tail=tail, service=service))
 
 
 # ── hw ─────────────────────────────────────────────────────────────────────

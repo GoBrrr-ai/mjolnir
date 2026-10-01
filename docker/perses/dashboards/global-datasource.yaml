@@ -1,0 +1,17 @@
+# The Prometheus datasource the vLLM dashboards reference. The name is fixed
+# by the upstream dashboard files (every panel/variable points at
+# "accelerators-thanos-querier-datasource"); the URL is the compose-network
+# prometheus service. Provisioned into Perses from this folder at startup
+# (and re-synced hourly — see perses.yml).
+kind: GlobalDatasource
+metadata:
+  name: accelerators-thanos-querier-datasource
+spec:
+  default: true
+  plugin:
+    kind: PrometheusDatasource
+    spec:
+      proxy:
+        kind: HTTPProxy
+        spec:
+          url: http://prometheus:9090

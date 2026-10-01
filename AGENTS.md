@@ -60,12 +60,33 @@ here.
    recommended|max|cool|quiet`, `--skip <steps>`, `--dry-run` (plan only).
    **Run before serving or benchmarking**; sudo where needed. `hw status`
    shows the installed profiles/default/backup (no sudo). Conf path
-   overridable for testing via `MJOLNIR_NVFANCONF` (also honored by
-   `hw status`).
- - **The `mjolnir` CLI is shippable**: `serve`,
-   `bench perf|ab|kernel`, `hw` (Thor host pre-config — see below),
-    `model` / `image` (bare = arrow-key picker over `configs/` / local docker
-    images), `vfa prepare`, `verify`, `plot`, `history`, `litellm` — defaults
+    overridable for testing via `MJOLNIR_NVFANCONF` (also honored by
+    `hw status`).
+  - **Perses observability stack (2026-09-30)**:
+    `mjolnir perses up|down|status|logs` drives the Perses + Prometheus
+    stack (`docker/perses/`, `docker compose` under the hood) —
+    **independent of the vLLM server** (Prometheus scrapes its
+    `/metrics` via `host.docker.internal` + the resolved port, same as
+    `mjolnir serve`; `perses down` never touches vLLM, and vice versa).
+    The scrape target renders on every `up` from
+    `prometheus.template.yaml` → `${PERSER_DATA_DIR}/prometheus.yml`.
+    **All user-persisted files live in one dir** —
+    `~/.local/share/mjolnir/perses/`: env `perses.env` + rendered
+    `prometheus.yml` + `db/` (Perses file DB) + `prom/` (TSDB) (override:
+    `$MJOLNIR_PERSER_DATA`). The two vLLM dashboards
+    (`docker/perses/dashboards/`, vendored from `vllm-project/vllm`) + the
+    Prometheus datasource + a `vllm` project are **provisioned** by Perses
+    at startup (no percli import) — see
+    `docker/perses/README.md` for the three standalone adaptations
+    (`kind: Dashboard`, `project: vllm`, target-label `namespace`/
+    `service`). UI: `http://127.0.0.1:8080`; Prometheus `:9090`.
+    `up|down|status|logs` all run on the same generic compose-stack driver
+    as litellm — `src/mjolnir/stack.py`.
+  - **The `mjolnir` CLI is shippable**: `serve`,
+    `bench perf|ab|kernel`, `hw` (Thor host pre-config — see below),
+     `model` / `image` (bare = arrow-key picker over `configs/` / local docker
+     images), `vfa prepare`, `verify`, `plot`, `history`, `litellm`, `perses`
+     — defaults
    bake in FA4 + GEMV-on for `Qwen/Qwen3.8-27B` / `NVFP4_FA4hd256`, port 6001.
   Selections persist to `$MJOLNIR_STATE` (default `~/.mjolnir-state.json`:
   model + quant + image); precedence: CLI flag > state > `$MJOLNIR_*` >
@@ -99,7 +120,9 @@ or run it as a CLI; do not copy its logic into a new bench.
   (the gate), `tasks.py` (kernel test/bench registry + docker launcher),
   `benchy.py` (llama-benchy wrapper: raw JSON + history), `history.py`
   (the append-only log), `plots.py` + `theme.py` (charts + design system),
-  `vfa.py` (build a live GEMV'd `vllm_flash_attn` tree for kernel iteration).
+   `vfa.py` (build a live GEMV'd `vllm_flash_attn` tree for kernel iteration),
+   `stack.py` (the generic `docker compose` side-stack driver), `litellm.py`
+   + `perses.py` (the stack glue on top of it).
 - `docker/vllm-thor/` — **the build.** `Dockerfile` (thin overlay on the vllm
   aarch64 nightly) + `patches/` (14 hand-adapted patches) +
   `apply_patches.py` + `verify_patches.py` (the authoritative build gate) +
@@ -108,9 +131,13 @@ or run it as a CLI; do not copy its logic into a new bench.
    pre-configuration the `mjolnir hw setup` command runs (port of the ~/thor
    setup script + the tuned fan profiles merged in; self-contained,
    Thor-only, idempotent).
-- `docker/vllm-thor/fa4-gemv-kernel/` — the **GEMV decode kernel package**
-  (kernel source + `interface-gemv-dispatch.diff` reference + bench/verify
-  scripts + docs). Ships **default-on** in the image (see Current state).
+ - `docker/vllm-thor/fa4-gemv-kernel/` — the **GEMV decode kernel package**
+   (kernel source + `interface-gemv-dispatch.diff` reference + bench/verify
+   scripts + docs). Ships **default-on** in the image (see Current state).
+ - `docker/litellm/` + `docker/perses/` — the **side stacks** (the LiteLLM
+   proxy; the Perses + Prometheus observability dashboards), driven by
+   `mjolnir litellm` / `mjolnir perses` via `src/mjolnir/stack.py`
+   (independent of the vLLM server; see their READMEs).
 - `benchmarks/` — `raw/` (committed raw JSONs; perf raws land here at
   runtime) + `history.jsonl` (append-only e2e bench history — the substrate
   for the README charts).

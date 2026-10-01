@@ -1,0 +1,51 @@
+# Perses + Prometheus observability stack for the vLLM server.
+#
+# Driven by the `mjolnir perses` CLI (docker compose under the hood), on the
+# same terms as docker/litellm/:
+#
+#   - INDEPENDENT of the vLLM server: prometheus scrapes the server's
+#     /metrics through host.docker.internal (the host-published port), so
+#     the stack works whether mjolnir's vLLM container is up or down, and
+#     never shares a network with it
+#   - the scrape target is rendered per-run by `mjolnir perses up` from
+#     prometheus.template.yaml -> ${PERSER_DATA_DIR}/prometheus.yml (the
+#     port = the resolved server port, same as `mjolnir serve`)
+#   - the vllm project, the two vLLM dashboards (vendored from
+#     vllm-project/vllm, dashboards/) + the Prometheus datasource are
+#     PROVISIONED from the read-only dashboards/ folder — Perses loads them
+#     at startup and re-syncs hourly; no manual import (percli) ever needed
+#   - data lives under ${PERSER_DATA_DIR} (default
+#     ~/.local/share/mjolnir/perses): db/ (Perses file DB) + prom/ (TSDB —
+#     scrape history survives restarts)
+#
+# All ${...} are interpolated at `docker compose` time; the values come from
+# the env file ($MJOLNIR_PERSER_ENV, default
+# ~/.local/share/mjolnir/perses/perses.env) with the :-defaults below as
+# fallback.
+
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-v3.15.0}
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${PERSER_DATA_DIR}/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PERSER_DATA_DIR}/prom:/prometheus
+
+  perses:
+    image: persesdev/perses:${PERSER_IMAGE_TAG:-v0.54.0}
+    restart: unless-stopped
+    ports:
+      - "${PERSER_PORT:-8080}:8080"
+    volumes:
+      # over the image's bundled config (the entrypoint's --config path):
+      # file-backed DB + the provisioning folder
+      - ./perses.yml:/etc/perses/config.yaml:ro
+      - ${PERSER_DATA_DIR}/db:/perses
+      # the vLLM dashboards + the Prometheus datasource (repo, read-only):
+      - ./dashboards:/provisioning:ro
+    depends_on:
+      - prometheus

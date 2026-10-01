@@ -1,0 +1,16 @@
+# Perses standalone config (static — mounted over the image's bundled
+# /etc/perses/config.yaml, which is the entrypoint's --config path).
+#
+#   - database.file: the dashboards/datasource live as JSON files in /perses
+#     (bind-mounted to the data dir's db/ — survives `perses down`)
+#   - provisioning: at startup (and re-synced hourly) Perses loads every
+#     known resource from /provisioning — the vllm project, the two vLLM
+#     dashboards + the Prometheus datasource from docker/perses/dashboards/.
+#     No percli import ever needed.
+database:
+  file:
+    folder: /perses
+    extension: json
+provisioning:
+  folders:
+    - /provisioning

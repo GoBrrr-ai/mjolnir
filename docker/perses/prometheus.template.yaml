@@ -1,0 +1,20 @@
+# Rendered by `mjolnir perses up` into the perses data dir
+# (${PERSER_DATA_DIR}/prometheus.yml) — the vLLM scrape target comes from the
+# active model/config (the same port `mjolnir serve` exposes; override with
+# PERSER_VLLM_TARGET in the perses env file), so the rendered file is user data,
+# not a repo artifact.
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: vllm
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["${VLLM_METRICS_TARGET}"]  # host:port — the path is
+        # given by metrics_path (a full URL is NOT a valid prom target)
+        # The upstream vLLM dashboards filter EVERY panel by
+        # namespace=<v>,service=<v> (k8s-shaped label matchers). Standalone,
+        # those values come from the target labels of this scrape job — this
+        # is what makes the dashboards work verbatim (see README.md).
+        labels:
+          namespace: mjolnir
+          service: mjolnir-vllm

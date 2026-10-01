@@ -1,0 +1,13 @@
+# The single Perses project the vLLM dashboards live in.
+#
+# Standalone Perses is project-centric: the UI only renders a dashboard if a
+# Project with a matching metadata.name exists (it groups dashboards by
+# project and drops any that don't match a known project). The upstream vLLM
+# dashboards ship with `project: ""`, which is invisible in the UI — so we
+# provision a named project here and point the two dashboards at it.
+kind: Project
+metadata:
+  name: vllm
+spec:
+  display:
+    name: vLLM
