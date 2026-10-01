@@ -19,6 +19,14 @@ identical ncu conditions** (`--clock-control none --cache-control none`, L2 warm
 Warps active/SM: GEMV ns20 ≈ 12; FI-gemv 14.1; FI-tc 7.4; FI-tc_ns 4.0 — i.e. the FI-tc
 winner runs at *lower* occupancy than the GEMV variants. Occupancy is not the axis.
 
+> **CORRECTION (2026-09-29):** the "FI FA2 ~192 KB in-flight (384-row K + 384-row V tiles)"
+> figure is **2× the real per-tile size** (misread `MemoryClockRate` 665 600 kHz as smem
+> bytes → 650 KB/SM instead of 228 KiB/SM, and took the 227 KiB opt-in instead of the
+> 2-CTA/SM 114 KiB budget). Measured real geometry: **NUM_MMA_KV=3, CTA_TILE_KV=192 rows,
+> 104 KiB smem/CTA, 96 KiB in-flight KV/CTA** (40 CTAs, 128 threads, one wave). See
+> `gemv-long-context-diagnosis.md` §4. The §2/§5 conclusions (per-CTA in-flight depth +
+> CTA count are the axes; access/coalescing/LDGSTS are null) still hold.
+
 ## 2. The two axes that explain the gap (disentangled by the 4-CTA pair)
 
 **(a) CTA count (split-KV / ns).** Same GEMV kernel, shallow ring, 4 → 80 CTAs:

@@ -9,6 +9,16 @@ kv_layout=NHD, hd=256, M=1, L=8192. (Verified in-script: `NUM_Q_HEADS=24`,
 
 Device facts (NVIDIA Thor, cc 11.0, queried live): **20 SM**, 1536 threads/SM,
 **665600 B (650KB) smem/SM**, **232448 B (227KB) opt-in smem/block**.
+
+> **CORRECTION (2026-09-29, see `gemv-long-context-diagnosis.md` §4):** "665600 B smem/SM"
+> is a **misread of `cudaDevAttrMemoryClockRate`** (665 600 **kHz**), not shared-memory bytes.
+> Measured: `MaxSharedMemoryPerMultiprocessor` = **233 472 B (228 KiB/SM)**, opt-in = 232 448 B.
+> Because the kernel runs **2 CTAs/SM**, the per-CTA smem budget is `min(228 KiB/2, 227 KiB)
+> = 114 KiB`, **not** 227 KiB. So the §1 tile config below (NUM_MMA_KV=6, 384-row tiles,
+> 200 KiB smem) is **2× the real tile**: actually **NUM_MMA_KV=3, CTA_TILE_KV=192 rows,
+> 104 KiB smem/CTA (96 KiB in-flight KV)** — verified by a `sizeof(SharedStoragePaged)` probe
+> on the byte-identical 0.6.18.post1 headers + live device attrs. The in-flight "~192 KB"
+> figure (smem + next-tile) is approximately right, but the per-tile numbers are halved.
 Result: `decode-microbench-results.json` → `B3_flashinfer|M1|L8192` median **72.53μs**.
 
 ## 0. THE CORE CORRECTION

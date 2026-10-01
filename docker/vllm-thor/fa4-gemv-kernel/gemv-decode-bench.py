@@ -159,11 +159,11 @@ def auto_ns(L: int) -> int:
 class Cases:
     """Shared KV dataset (identical values for every leg), per-L layouts."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_L: int = LS[-1]) -> None:
         torch.manual_seed(20260925)
         self.q = torch.randn(NUM_Q_HEADS, HEAD_DIM, device=DEVICE, dtype=torch.float32).to(torch.bfloat16)
-        self.k = torch.randn(LS[-1], NUM_KV_HEADS, HEAD_DIM, device=DEVICE, dtype=torch.float32).to(FP8)
-        self.v = torch.randn(LS[-1], NUM_KV_HEADS, HEAD_DIM, device=DEVICE, dtype=torch.float32).to(FP8)
+        self.k = torch.randn(max_L, NUM_KV_HEADS, HEAD_DIM, device=DEVICE, dtype=torch.float32).to(FP8)
+        self.v = torch.randn(max_L, NUM_KV_HEADS, HEAD_DIM, device=DEVICE, dtype=torch.float32).to(FP8)
         self.qd = torch.full((1, NUM_KV_HEADS), 1.06, dtype=torch.float32, device=DEVICE)
         self.kd = torch.full((1, NUM_KV_HEADS), 1.125, dtype=torch.float32, device=DEVICE)
         self.vd = torch.full((1, NUM_KV_HEADS), 1.25, dtype=torch.float32, device=DEVICE)
@@ -194,6 +194,31 @@ def gemv_leg(cases: Cases, L: int, ns: int | str, page_size: int):
     def fn() -> None:
         _flash_attn_fwd(
             q_in, k_in, v_in, page_table=pt,
+            max_seqlen_q=1, max_seqlen_k=L,
+            softmax_scale=SOFTMAX_SCALE, causal=True,
+            q_descale=cases.qd, k_descale=cases.kd, v_descale=cases.vd,
+        )
+
+    return fn
+
+
+def tc_leg(cases: Cases, L: int):
+    """TC (mma.sync) hd256 decode leg: the tensor-core streamer, fp8 KV +
+    descales (the fp8 MmaFP8Op halves the KV DRAM bytes vs the bf16 mma; the
+    descales are the bench's non-unity [1.06, 1.125, 1.25]). Dense-only gate
+    (page_table/seqused None) — the shared fp8 KV dataset is passed as-is."""
+    import os as _os
+    from vllm.vllm_flash_attn.cute.interface import _flash_attn_fwd
+
+    _os.environ["VLLM_FA4_HD256_TC"] = "1"
+    _os.environ["VLLM_FA4_HD256_GEMV"] = "0"
+    k_in = cases.k[:L].unsqueeze(0).contiguous()
+    v_in = cases.v[:L].unsqueeze(0).contiguous()
+    q_in = cases.q.unsqueeze(0).unsqueeze(0)  # (1, 1, H, D)
+
+    def fn() -> None:
+        _flash_attn_fwd(
+            q_in, k_in, v_in, page_table=None,
             max_seqlen_q=1, max_seqlen_k=L,
             softmax_scale=SOFTMAX_SCALE, causal=True,
             q_descale=cases.qd, k_descale=cases.kd, v_descale=cases.vd,
@@ -306,10 +331,17 @@ def install_ctor_hook() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=("gemv_dense", "gemv_paged", "fa4_1cta", "flashinfer"), required=True)
+    ap.add_argument("--mode", choices=("gemv_dense", "gemv_paged", "fa4_1cta", "flashinfer", "tc_decode"), required=True)
     ap.add_argument("--out", default=None)
     ap.add_argument("--no-gate", action="store_true")
+    ap.add_argument("--L", default=None,
+                    help="comma-separated context lengths (overrides the default LS); "
+                         "the KV dataset is sized to the max L")
     args = ap.parse_args()
+    if args.L is not None:
+        LS_OVERRIDE = tuple(int(x) for x in args.L.split(","))
+    else:
+        LS_OVERRIDE = LS
     if args.out is None:
         # Default: the host's benchmarks/raw (the /raw mount under
         # ``mjolnir bench kernel``) so a bare run updates the committed raw
@@ -322,6 +354,7 @@ def main() -> int:
     props = torch.cuda.get_device_properties(0)
     env = {
         "mode": args.mode,
+        "Ls": list(LS_OVERRIDE),
         "device": str(props.name),
         "capability": list(torch.cuda.get_device_capability()),
         "sms": int(props.multi_processor_count),
@@ -341,10 +374,10 @@ def main() -> int:
 
     # --- Phase A: prep (JIT compiles happen here, outside the clean window) ---
     print(f"[{args.mode}] prep: building cases + compiling/warming all legs...", flush=True)
-    cases = Cases()
+    cases = Cases(max_L=max(LS_OVERRIDE))
     legs: dict[str, object] = {}
     try:
-        for L in LS:
+        for L in LS_OVERRIDE:
             if args.mode == "gemv_dense":
                 for ns in GEMV_NS_DENSE:
                     tag = f"ns{ns}" if ns != "auto" else f"ns{auto_ns(L)}(auto)"
@@ -355,6 +388,8 @@ def main() -> int:
                     legs[f"L{L}|{tag}"] = gemv_leg(cases, L, ns, page_size=128)
             elif args.mode == "fa4_1cta":
                 legs[f"L{L}"] = Fa4Leg(cases, L)
+            elif args.mode == "tc_decode":
+                legs[f"L{L}"] = tc_leg(cases, L)
             else:
                 leg = FiLeg(cases, L)
                 leg.setup()
@@ -439,7 +474,7 @@ def main() -> int:
     # Roofline per L (K+V fp8 bytes at ROOFLINE_BW).
     roofline = {
         f"L{L}": round(L * NUM_KV_HEADS * HEAD_DIM * 2 / ROOFLINE_BW * 1e6, 2)
-        for L in LS
+        for L in LS_OVERRIDE
     }
 
     report = {

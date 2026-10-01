@@ -90,6 +90,11 @@ TASKS: list[Task] = [
          "docker/vllm-thor/fa4-gemv-kernel/ncu-gemv-ring.py",
          "GEMV ncu driver (NCU_L/NCU_NS/NCU_STAGES/NCU_ITERS env) — for ncu",
          tmpdir="/tmp/kt-gemv-ncu"),
+    Task("gemv-sweep", "bench",
+         "docker/vllm-thor/fa4-gemv-kernel/gemv-geom-sweep.py",
+         "GEMV B3 re-tile geometry sweep: (tile footprint 48/96/192 KiB) x "
+         "(ns CTA count) + FI/fa4 baselines, one gated window (dense; "
+         "--layout paged, --out)", tmpdir="/tmp/kt-gemv-sweep"),
 ]
 
 BY_NAME = {t.name: t for t in TASKS}

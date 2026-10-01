@@ -61,6 +61,7 @@ presence (``mO_partial is not None``) is the compile-time split flag.
 from typing import Optional
 
 import math
+import os
 
 import cuda.bindings.driver as cuda
 
@@ -95,13 +96,20 @@ class BlackwellHd256DecodeGEMV:
         self.page_size = page_size
         self.bdx = self.HEAD_DIM // self.VEC  # 16 threads per KV row
         self.bdy = qhead_per_kvhead  # one q-head per (ty) thread
-        self.tile = tile_size_per_bdx  # rows per (ty) thread (Phase A: 1)
-        # KV ring depth (in-flight stages). S=16 -> S*R*D elems per K and V
-        # (g=6: 16*6*256 = 24 KiB each, 48 KiB total) — deep enough to hide
-        # LPDDR/L2 latency of the strided per-row access; the rolling
-        # cp_async_wait_group(2*S-1) loop and the S-stage prologue preload
-        # are S-agnostic (verified: only this value + smem shapes change).
-        self.stages = 16
+        # rows per (ty) thread. B3 re-tile iteration knob:
+        # VLLM_FA4_HD256_GEMV_TILE (default: the constructor value, 1).
+        # In-flight KV/CTA = stages * bdy * tile * D * 2 bytes (K+V), so with
+        # g=6, D=256, fp8: tile=1 -> 48 KiB (shipped), tile=2 -> 96 KiB,
+        # tile=4 -> 192 KiB (FlashInfer FA2-tc footprint).
+        _tile_env = int(os.environ.get("VLLM_FA4_HD256_GEMV_TILE", "0") or 0)
+        self.tile = _tile_env if _tile_env > 0 else tile_size_per_bdx
+        # KV ring depth (in-flight stages). B3 re-tile iteration knob:
+        # VLLM_FA4_HD256_GEMV_STAGES (default 16, the shipped ring depth).
+        # The rolling cp_async_wait_group(2*S-1) loop and the S-stage prologue
+        # preload are S-agnostic (verified: only this value + smem shapes
+        # change); S*bdy*tile = resident rows, S*R*D*2 = in-flight KV/CTA.
+        _stages_env = int(os.environ.get("VLLM_FA4_HD256_GEMV_STAGES", "0") or 0)
+        self.stages = _stages_env if _stages_env > 0 else 16
         self.rows_per_stage = self.bdy * self.tile  # R
         self.num_threads = self.bdx * self.bdy
 
