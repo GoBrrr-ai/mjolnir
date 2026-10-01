@@ -37,7 +37,6 @@ from vllm.vllm_flash_attn.cute.pack_gqa import pack_gqa_layout, PackGQA
 from vllm.vllm_flash_attn.cute.flash_fwd_sm100 import DescaleTensors
 from vllm.vllm_flash_attn.cute.softmax import Softmax
 from vllm.vllm_flash_attn.cute.cute_dsl_utils import assume_tensor_aligned
-DBG_STAGE = 0  # 0=full 1=after-Qload 2=after-KVload 3=after-QK 4=after-PV
 
 
 @cute.jit
@@ -78,49 +77,20 @@ def _qk_mma_fp8(
     acc_S: cute.Tensor,
     tSrQ: cute.Tensor,
     tSrK: cute.Tensor,
-    tSsK: cute.Tensor,
-    tSrK_cp: cute.Tensor,
-    smem_thr_copy_K: cute.TiledCopy,
+    sK_b: cute.Tensor,
 ):
-    """fp8 QK mma (Q already in regs; K read element-wise from smem).
-    Mirrors sm80_utils.gemm(A_in_regs=True) but k-consistent with the fp8 mma
-    (k-tile 32, D/32 blocks). The K smem->reg load is element-wise (the b16
-    ldmatrix B-path faults on the fp8 B-operand on sm_110a). tSrK_cp =
-    retile(tSrK) is the mma B-fragment in the COPY's value order, and tSsK is
-    the smem in the same copy order, so a straight per-element copy aligns
-    (a manual _e//per_k, _e%per_k decomposition does NOT — tSrK's layout
-    interleaves the k-blocks, k-mode stride 32 < the d-mode stride 256)."""
-    num_k = cute.size(tSsK.shape[2])
-    for _e in cutlass.range_constexpr(cute.size(tSrK_cp)):
-        tSrK_cp[_e] = tSsK[_e]
+    """fp8 QK mma (Q already in regs; K loaded ELEMENT-WISE from the mma's own
+    B-partition sK_b). sK_b = thr_mma_qk.partition_B(sK) maps each fragment
+    slot _e to the correct (n_kv, d), so a straight per-_e copy (tSrK[_e] =
+    sK_b[_e]) is correct. This BYPASSES the b16-ldmatrix-typed-fp8 K-major
+    tiled-copy retile (tSrK_cp = retile(tSrK) / tSsK = partition_S), which is
+    broken on sm_110a: its partition delivers only ~33 of the 256 d-values
+    (probe kdump). The mma is the native fp8 m16n8k32 (k-tile 32, D/32 blocks)."""
+    num_k = cute.size(sK_b.shape[2])
+    for _e in cutlass.range_constexpr(cute.size(tSrK)):
+        tSrK[_e] = sK_b[_e]
     for k in cutlass.range_constexpr(num_k):
         cute.gemm(tiled_mma_qk, acc_S, tSrQ[None, None, k], tSrK[None, None, k], acc_S)
-
-
-@cute.jit
-def _pv_mma_fp8(
-    tiled_mma_pv: cute.TiledMma,
-    acc_O: cute.Tensor,
-    tOrP: cute.Tensor,
-    tOrVt: cute.Tensor,
-    tOsVt: cute.Tensor,
-    smem_thr_copy_V: cute.TiledCopy,
-):
-    # fp8 leg PV: load V into the bf16 PV B-fragment ELEMENT-WISE (no ldmatrix,
-    # which faults on the fp8 B-operand on sm_110a) + the bf16 PV mma. The read
-    # goes through the SAME swizzle-aware smem view the proven bf16 ldmatrix
-    # path uses (tOsVt = smem_thr_copy_V.partition_S(sVt), retiled into the
-    # fragment's copy-value order) — NOT a raw sV[n_kv,d] index (which does not
-    # survive the smem swizzle: the V=n_kv fragment dump showed raw sV reads
-    # land +16 n_kv off on the c>=1 columns). retile puts tOrVt in the copy's
-    # value order; autovec_copy moves the swizzled smem elements into it (the
-    # O-store path proves this smem->reg form on sm_110a) with the implicit
-    # fp8->bf16 cast.
-    tOrVt_cv = smem_thr_copy_V.retile(tOrVt)
-    for _e in cutlass.range_constexpr(cute.size(tOrVt_cv)):
-        tOrVt_cv[_e] = tOsVt[_e]
-    for k in cutlass.range_constexpr(cute.size(tOrP.shape[2])):
-        cute.gemm(tiled_mma_pv, acc_O, tOrP[None, None, k], tOrVt[None, None, k], acc_O)
 
 
 @cute.jit
@@ -227,7 +197,7 @@ class BlackwellHd256DecodeTC:
         seqlen_k: Int32,
         softmax_scale_log2: Float32,
         num_splits: Int32,
-        mDbgV: Optional[cute.Tensor] = None,
+        mPageTable: Optional[cute.Tensor] = None,
     ):
         D = self.HEAD_DIM
         G = self.g
@@ -242,8 +212,6 @@ class BlackwellHd256DecodeTC:
         KVTYPE = mK.element_type         # fp8 e4m3 or bf16 (K, V streamed)
         FP8T = Float8E4M3FN
         FP8_KV = const_expr(KVTYPE.width == 8)
-        import os as _os_ew
-        _FORCE_EW = _os_ew.environ.get("TC_FORCE_EW") == "1"
         # Q smem dtype: fp8 e4m3 on the fp8 leg (the interface pre-casts Q —
         # the native fp8 mma.sync needs an fp8 A-operand and its A fragment
         # (m16n8k32: 4-b32 regs of 4 consecutive k) has no ldmatrix 8-bit A
@@ -437,7 +405,15 @@ class BlackwellHd256DecodeTC:
             tSrQ = thr_mma_qk.make_fragment_A(tCsQ)
         else:
             tSrQ = thr_mma_qk.make_fragment_A(thr_mma_qk.partition_A(sQ))
-        tSrK = thr_mma_qk.make_fragment_B(thr_mma_qk.partition_B(sK[None, None, 0]))
+        # sK_b: the mma's OWN B-operand smem view (partition_B) — each fragment
+        # slot _e maps to the correct (n_kv, d). The K fragment is loaded from
+        # this ELEMENT-WISE (tSrK[_e] = sK_b[_e]); the b16-ldmatrix-typed-fp8
+        # K-major tiled-copy retile (tSrK_cp = retile(tSrK) / tSsK =
+        # partition_S) is BROKEN on sm_110a — it delivers only ~33 of the 256
+        # d-values (probe: kdump) because the partition's k-tile does not map to
+        # the smem d-stride. (The N-major/transpose=True V path is fine.)
+        sK_b = thr_mma_qk.partition_B(sK[None, None, 0])
+        tSrK = thr_mma_qk.make_fragment_B(sK_b)
         tOrVt = thr_mma_pv.make_fragment_B(thr_mma_pv.partition_B(sVt[None, None, 0]))
         acc_shape_O = thr_mma_pv.partition_shape_C((TILE_M, D))
         acc_O = cute.make_rmem_tensor(acc_shape_O, Float32)
@@ -471,9 +447,9 @@ class BlackwellHd256DecodeTC:
             tSsQ = smem_thr_copy_Q.partition_S(sQ)
         smem_thr_copy_K = utils.make_tiled_copy_B(smem_copy_atom_K, tiled_mma_qk).get_slice(tidx)
         if const_expr(FP8_KV):
-            # The PV mma is bf16 (see above) but the V smem is fp8. tOsVt is
-            # only a coordinate source for the per-element V reads in
-            # _pv_mma_fp8, so it must carry the PV mma's B-fragment per-thread
+            # The PV mma is bf16 (see above) but the V smem is fp8. tOsVt is the
+            # V ldmatrix source for the bf16 PV mma (gemm_rs), so it must carry
+            # the PV mma's B-fragment per-thread
             # geometry (the make_tiled_copy_B invariant: retiled smem view
             # element order == mma fragment order) — pair a bf16-typed atom
             # with tiled_mma_pv, NOT the fp8 QK mma (whose k=32 geometry has
@@ -508,19 +484,6 @@ class BlackwellHd256DecodeTC:
             # tOsVt needs no re-stamp here: the fp8 leg's V is the bf16 staged
             # copy sVb (transposed), so partition_S keeps the bf16 16-bit
             # default the b16 ldmatrix wants — identical to the bf16 leg.
-
-        import os as _dbg_os
-        if _dbg_os.environ.get("TC_DBG_LAYOUT") == "1":
-            print("DBG tOrVt.shape =", tOrVt.shape)
-            print("DBG tOrVt.layout =", tOrVt.layout)
-            print("DBG tOsVt.shape =", tOsVt.shape)
-            print("DBG tOsVt.layout =", tOsVt.layout)
-            print("DBG tOsVt_cv.shape =", smem_thr_copy_V.retile(tOrVt).shape)
-            print("DBG tSrK.shape =", tSrK.shape)
-            print("DBG tSrK.layout =", tSrK.layout)
-            print("DBG tSsK.shape =", tSsK.shape)
-            print("DBG tSsK.layout =", tSsK.layout)
-            print("DBG per_k =", cute.size(tSsK.shape[0]) * cute.size(tSsK.shape[1]))
 
         acc_S_shape = thr_mma_qk.partition_shape_C((TILE_M, TILE_N))
         acc_S = cute.make_rmem_tensor(acc_S_shape, Float32)
@@ -609,93 +572,81 @@ class BlackwellHd256DecodeTC:
         if num_nblocks >= 1:
             nb = Int32(0)
             kv_limit = kv_len - nb * TILE_N
-            if cutlass.const_expr(DBG_STAGE < 2):
-                for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
-                    if t0KcK[0, n, 0][0] < kv_limit:
-                        cute.copy(
-                            gmem_thr_copy_K, tKgK[None, n, None, nb],
-                            tKsK[None, n, None, 0], pred=tKpK[None, n, None])
-                cute.arch.cp_async_commit_group()
-                for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
+            for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
+                if t0KcK[0, n, 0][0] < kv_limit:
                     cute.copy(
-                        gmem_thr_copy_V, tVgV[None, n, None, nb],
-                        tVsV[None, n, None, 0], pred=tVpV[None, n, None])
-                cute.arch.cp_async_commit_group()
-                cute.arch.cp_async_wait_group(0)
-                cute.arch.sync_threads()
-            if cutlass.const_expr(DBG_STAGE < 3):
-                if const_expr(FP8_KV):
-                    _qk_mma_fp8(tiled_mma_qk, acc_S, tSrQ_mma, tSrK, tSsK, tSrK_cp,
-                                smem_thr_copy_K)
-                else:
-                    sm80_utils.gemm(
-                        thr_mma_qk, acc_S, tSrQ_mma, tSrK, tSsQ, tSsK[None, None, None, 0],
-                        smem_thr_copy_Q, smem_thr_copy_K, A_in_regs=True)
-                # OOB mask (first block, see steady-state note).
-                if kv_len < TILE_N:
-                    _mask_partial_kv(acc_S, tScS, nb, kv_len, TILE_N)
-                row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(True))
-                softmax.rescale_O(acc_O, row_scale)
-            if cutlass.const_expr(DBG_STAGE < 4):
-                rP = cute.make_fragment_like(acc_S, PT)
-                rP.store(acc_S.load().to(PT))
-                tOrP = layout_utils.reshape_acc_to_frgA(rP)
-                if const_expr(FP8_KV):
-                    # Stage V fp8 -> bf16, then the PV ldmatrix reads sVb exactly
-                    # like the bf16 leg (proven; an fp8 B-operand faults on sm_110a).
-                    _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
-                if _FORCE_EW:
-                    _pv_mma_fp8(tiled_mma_pv, acc_O, tOrP, tOrVt, tOsVt, smem_thr_copy_V)
-                else:
-                    sm80_utils.gemm_rs(
-                        thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
-                        smem_thr_copy_V)
+                        gmem_thr_copy_K, tKgK[None, n, None, nb],
+                        tKsK[None, n, None, 0], pred=tKpK[None, n, None])
+            cute.arch.cp_async_commit_group()
+            for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
+                cute.copy(
+                    gmem_thr_copy_V, tVgV[None, n, None, nb],
+                    tVsV[None, n, None, 0], pred=tVpV[None, n, None])
+            cute.arch.cp_async_commit_group()
+            cute.arch.cp_async_wait_group(0)
+            cute.arch.sync_threads()
+            if const_expr(FP8_KV):
+                _qk_mma_fp8(tiled_mma_qk, acc_S, tSrQ_mma, tSrK, sK_b)
+            else:
+                sm80_utils.gemm(
+                    thr_mma_qk, acc_S, tSrQ_mma, tSrK, tSsQ, tSsK[None, None, None, 0],
+                    smem_thr_copy_Q, smem_thr_copy_K, A_in_regs=True)
+            # OOB mask (first block, see steady-state note).
+            if kv_len < TILE_N:
+                _mask_partial_kv(acc_S, tScS, nb, kv_len, TILE_N)
+            row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(True))
+            softmax.rescale_O(acc_O, row_scale)
+            rP = cute.make_fragment_like(acc_S, PT)
+            rP.store(acc_S.load().to(PT))
+            tOrP = layout_utils.reshape_acc_to_frgA(rP)
+            if const_expr(FP8_KV):
+                # Stage V fp8 -> bf16, then the PV ldmatrix reads sVb exactly
+                # like the bf16 leg (proven; an fp8 B-operand faults on sm_110a).
+                _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
+            sm80_utils.gemm_rs(
+                thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
+                smem_thr_copy_V)
 
         # Steady-state n_blocks (is_first=False).
-        if cutlass.const_expr(DBG_STAGE < 5):
-            for nb in cutlass.range(1, num_nblocks):
-                kv_limit = kv_len - nb * TILE_N
-                for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
-                    if t0KcK[0, n, 0][0] < kv_limit:
-                        cute.copy(
-                            gmem_thr_copy_K, tKgK[None, n, None, nb],
-                            tKsK[None, n, None, 0], pred=tKpK[None, n, None])
-                cute.arch.cp_async_commit_group()
-                for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
+        for nb in cutlass.range(1, num_nblocks):
+            kv_limit = kv_len - nb * TILE_N
+            for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
+                if t0KcK[0, n, 0][0] < kv_limit:
                     cute.copy(
-                        gmem_thr_copy_V, tVgV[None, n, None, nb],
-                        tVsV[None, n, None, 0], pred=tVpV[None, n, None])
-                cute.arch.cp_async_commit_group()
-                cute.arch.cp_async_wait_group(0)
-                cute.arch.sync_threads()
-                if const_expr(FP8_KV):
-                    _qk_mma_fp8(tiled_mma_qk, acc_S, tSrQ_mma, tSrK, tSsK, tSrK_cp,
-                                smem_thr_copy_K)
-                else:
-                    sm80_utils.gemm(
-                        thr_mma_qk, acc_S, tSrQ_mma, tSrK, tSsQ, tSsK[None, None, None, 0],
-                        smem_thr_copy_Q, smem_thr_copy_K, A_in_regs=True)
-                # OOB mask (see the first-block mask). The guard is the verify3
-                # shape (a per-block single runtime-if): only the last block can
-                # contain OOB columns, and full kv_len keeps the zero-overhead
-                # path. (A `nb == num_nblocks - 1` guard here measurably
-                # re-scheduled the hot loop and corrupted large-L single-batch
-                # runs — keep the loop structure stable.)
-                if kv_len % TILE_N != 0:
-                    _mask_partial_kv(acc_S, tScS, nb, kv_len, TILE_N)
-                row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(False))
-                softmax.rescale_O(acc_O, row_scale)
-                rP = cute.make_fragment_like(acc_S, PT)
-                rP.store(acc_S.load().to(PT))
-                tOrP = layout_utils.reshape_acc_to_frgA(rP)
-                if const_expr(FP8_KV):
-                    _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
-                if _FORCE_EW:
-                    _pv_mma_fp8(tiled_mma_pv, acc_O, tOrP, tOrVt, tOsVt, smem_thr_copy_V)
-                else:
-                    sm80_utils.gemm_rs(
-                        thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
-                        smem_thr_copy_V)
+                        gmem_thr_copy_K, tKgK[None, n, None, nb],
+                        tKsK[None, n, None, 0], pred=tKpK[None, n, None])
+            cute.arch.cp_async_commit_group()
+            for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
+                cute.copy(
+                    gmem_thr_copy_V, tVgV[None, n, None, nb],
+                    tVsV[None, n, None, 0], pred=tVpV[None, n, None])
+            cute.arch.cp_async_commit_group()
+            cute.arch.cp_async_wait_group(0)
+            cute.arch.sync_threads()
+            if const_expr(FP8_KV):
+                _qk_mma_fp8(tiled_mma_qk, acc_S, tSrQ_mma, tSrK, sK_b)
+            else:
+                sm80_utils.gemm(
+                    thr_mma_qk, acc_S, tSrQ_mma, tSrK, tSsQ, tSsK[None, None, None, 0],
+                    smem_thr_copy_Q, smem_thr_copy_K, A_in_regs=True)
+            # OOB mask (see the first-block mask). The guard is the verify3
+            # shape (a per-block single runtime-if): only the last block can
+            # contain OOB columns, and full kv_len keeps the zero-overhead
+            # path. (A `nb == num_nblocks - 1` guard here measurably
+            # re-scheduled the hot loop and corrupted large-L single-batch
+            # runs — keep the loop structure stable.)
+            if kv_len % TILE_N != 0:
+                _mask_partial_kv(acc_S, tScS, nb, kv_len, TILE_N)
+            row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(False))
+            softmax.rescale_O(acc_O, row_scale)
+            rP = cute.make_fragment_like(acc_S, PT)
+            rP.store(acc_S.load().to(PT))
+            tOrP = layout_utils.reshape_acc_to_frgA(rP)
+            if const_expr(FP8_KV):
+                _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
+            sm80_utils.gemm_rs(
+                thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
+                smem_thr_copy_V)
 
         cute.arch.cp_async_wait_group(0)
         cute.arch.sync_threads()
