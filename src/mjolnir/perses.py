@@ -18,6 +18,7 @@ The compose machinery (env file, data dir, up/down/status/logs, rollback,
 health-wait) lives in :mod:`mjolnir.stack`; this module is the stack's glue:
 the spec, the prometheus.yml rendering, the health URL, the banner.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,8 +49,8 @@ class PersesError(stack.StackError):
 
 # ── prometheus.yml rendering ───────────────────────────────────────────────
 
-def vllm_metrics_target(s: Settings,
-                        override: str | None = None) -> str:
+
+def vllm_metrics_target(s: Settings, override: str | None = None) -> str:
     """The Prometheus scrape target for the VLLM server as ``host:port``
     (prometheus target form — the path comes from ``metrics_path``): the
     resolved port on host.docker.internal (the host-published port the
@@ -58,24 +59,19 @@ def vllm_metrics_target(s: Settings,
     return override or f"host.docker.internal:{s.port}"
 
 
-def render_prometheus(s: Settings,
-                      vllm_target: str | None = None) -> Path:
+def render_prometheus(s: Settings, vllm_target: str | None = None) -> Path:
     """Render ``prometheus.template.yaml`` → ``data_dir()/prometheus.yml``
     with the vLLM scrape target of the active config."""
     tpl = find_repo_root() / SPEC.compose_rel.parent / "prometheus.template.yaml"
     if not tpl.exists():
         raise PersesError(f"prometheus template not found: {tpl}")
-    rendered, missing = stack.render(tpl.read_text(),
-                                     {"VLLM_METRICS_TARGET":
-                                      vllm_metrics_target(s, vllm_target)})
+    rendered, missing = stack.render(tpl.read_text(), {"VLLM_METRICS_TARGET": vllm_metrics_target(s, vllm_target)})
     if missing:
-        raise PersesError("unresolved variable(s) in the prometheus "
-                          f"template: {', '.join(missing)}")
+        raise PersesError(f"unresolved variable(s) in the prometheus template: {', '.join(missing)}")
     try:
         yaml.safe_load(rendered)
     except yaml.YAMLError as e:
-        raise PersesError(f"rendered prometheus config invalid: "
-                          f"{e}".replace("\n", " "))
+        raise PersesError(f"rendered prometheus config invalid: {e}".replace("\n", " "))
     out = SPEC.data_dir() / "prometheus.yml"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(rendered)
@@ -83,6 +79,7 @@ def render_prometheus(s: Settings,
 
 
 # ── stack glue (the compose driver is mjolnir.stack) ───────────────────────
+
 
 def _port_of(env: dict[str]) -> int:
     try:
@@ -98,8 +95,9 @@ def _prom_port_of(env: dict[str]) -> int:
         return PROMETHEUS_DEFAULT_PORT
 
 
-def up(s: Settings, port: int | None = None, wait: bool = True,
-       wait_timeout_s: float = 300.0, dry_run: bool = False) -> int:
+def up(
+    s: Settings, port: int | None = None, wait: bool = True, wait_timeout_s: float = 300.0, dry_run: bool = False
+) -> int:
     """Start the stack (prometheus + perses) with the vLLM dashboards
     provisioned. The vLLM scrape target = the active config's port (the
     server may be up or down)."""
@@ -130,16 +128,21 @@ def up(s: Settings, port: int | None = None, wait: bool = True,
     def banner(env: dict[str]) -> list[str]:
         p, pp = _port_of(env), _prom_port_of(env)
         return [
-            f"perses:     http://127.0.0.1:{p}  (dashboards: Performance "
-            f"Statistics, Query Statistics)",
-            f"prometheus: http://127.0.0.1:{pp}  (scrapes "
-            f"{target}/metrics — targets: http://127.0.0.1:{pp}/targets)",
+            f"perses:     http://127.0.0.1:{p}  (dashboards: Performance Statistics, Query Statistics)",
+            f"prometheus: http://127.0.0.1:{pp}  (scrapes {target}/metrics — targets: http://127.0.0.1:{pp}/targets)",
         ]
 
     try:
-        stack.up(SPEC, s, prepare=prepare, wait=wait,
-                 wait_timeout_s=wait_timeout_s, dry_run=dry_run,
-                 health=health, banner=banner)
+        stack.up(
+            SPEC,
+            s,
+            prepare=prepare,
+            wait=wait,
+            wait_timeout_s=wait_timeout_s,
+            dry_run=dry_run,
+            health=health,
+            banner=banner,
+        )
     except stack.StackError as e:
         raise PersesError(str(e))
     return 0
@@ -148,8 +151,7 @@ def up(s: Settings, port: int | None = None, wait: bool = True,
 def down(purge: bool = False, dry_run: bool = False) -> int:
     """Stop the stack (the vLLM server keeps running; data kept by default,
     ``purge`` wipes the perses db + prometheus TSDB)."""
-    return stack.down(SPEC, purge=purge, dry_run=dry_run,
-                      keep_note="prometheus TSDB + perses db survive")
+    return stack.down(SPEC, purge=purge, dry_run=dry_run, keep_note="prometheus TSDB + perses db survive")
 
 
 def _rendered_target() -> str | None:
@@ -173,27 +175,31 @@ def _rendered_target() -> str | None:
 
 
 def status(s: Settings, port: int | None = None) -> dict:
-    env = stack.resolve_env(
-        SPEC, {"PERSER_PORT": str(port)} if port else None)
+    env = stack.resolve_env(SPEC, {"PERSER_PORT": str(port)} if port else None)
     p, pp = _port_of(env), _prom_port_of(env)
     target = _rendered_target() or vllm_metrics_target(
-        s, stack.load_env_file(SPEC.env_file_path()).get("PERSER_VLLM_TARGET"))
+        s, stack.load_env_file(SPEC.env_file_path()).get("PERSER_VLLM_TARGET")
+    )
     services = stack.project_services(SPEC)
     live = any(v.get("state") == "running" for v in services.values())
-    return stack.status(SPEC, extra={
-        "perses": {"url": f"http://127.0.0.1:{p}",
-                   "api": stack.probe(f"http://127.0.0.1:{p}/api/v1/projects")
-                   if live else "down"},
-        "prometheus": {"url": f"http://127.0.0.1:{pp}",
-                       "health": stack.probe(f"http://127.0.0.1:{pp}/-/healthy")
-                       if live else "down"},
-        "vllm_target": f"http://{target}/metrics",
-        "data_dir": str(SPEC.data_dir()),
-    })
+    return stack.status(
+        SPEC,
+        extra={
+            "perses": {
+                "url": f"http://127.0.0.1:{p}",
+                "api": stack.probe(f"http://127.0.0.1:{p}/api/v1/projects") if live else "down",
+            },
+            "prometheus": {
+                "url": f"http://127.0.0.1:{pp}",
+                "health": stack.probe(f"http://127.0.0.1:{pp}/-/healthy") if live else "down",
+            },
+            "vllm_target": f"http://{target}/metrics",
+            "data_dir": str(SPEC.data_dir()),
+        },
+    )
 
 
-def logs(follow: bool = False, tail: int = 100,
-         service: str | None = None) -> int:
+def logs(follow: bool = False, tail: int = 100, service: str | None = None) -> int:
     """Tail a stack service's logs (default ``perses``; ``--service
     prometheus`` for the scraper)."""
     return stack.logs(SPEC, follow=follow, tail=tail, service=service)

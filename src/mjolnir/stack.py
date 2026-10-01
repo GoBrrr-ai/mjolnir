@@ -24,6 +24,7 @@ Adding a new stack = ``docker/<name>/docker-compose.yaml`` (+ templates) + a
 thin ``src/mjolnir/<name>.py`` (a ``StackSpec`` + glue: what to render, the
 health URL, the banner) + a typer group in ``cli.py``.
 """
+
 from __future__ import annotations
 
 import json
@@ -83,8 +84,7 @@ class StackSpec:
         ``$MJOLNIR_DATA/<name>`` (default ``~/.local/share/mjolnir/<name>``)."""
         env = self.data_dir_var and os.environ.get(self.data_dir_var)
         if not env:
-            mjolnir_data = os.environ.get(
-                "MJOLNIR_DATA", str(Path.home() / ".local" / "share" / "mjolnir"))
+            mjolnir_data = os.environ.get("MJOLNIR_DATA", str(Path.home() / ".local" / "share" / "mjolnir"))
             env = str(Path(mjolnir_data).expanduser() / self.name)
         return Path(env).expanduser()
 
@@ -101,6 +101,7 @@ class StackSpec:
 
 
 # ── env file + rendering ────────────────────────────────────────────────────
+
 
 def load_env_file(path: Path) -> dict[str, str]:
     """Parse a ``KEY=VALUE`` env file (comments/blank lines ignored, optional
@@ -121,8 +122,7 @@ def load_env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def resolve_env(spec: StackSpec,
-                extra: dict[str, str] | None = None) -> dict[str, str]:
+def resolve_env(spec: StackSpec, extra: dict[str, str] | None = None) -> dict[str, str]:
     """Merged env for rendering + compose interpolation:
     user env file < extra (injected by the stack's glue) < stack defaults
     (data dir, main port)."""
@@ -131,8 +131,7 @@ def resolve_env(spec: StackSpec,
         env.update(extra)
     if spec.data_dir_var:
         # the value the compose file interpolates ($LITELLM_DATA_DIR, ...)
-        env.setdefault(spec.data_dir_env or spec.data_dir_var,
-                       str(spec.data_dir()))
+        env.setdefault(spec.data_dir_env or spec.data_dir_var, str(spec.data_dir()))
     if spec.port_env:
         env.setdefault(spec.port_env, str(spec.default_port))
     return env
@@ -141,8 +140,10 @@ def resolve_env(spec: StackSpec,
 def render(template_text: str, env: dict[str, str]) -> tuple[str, list[str]]:
     """envsubst-style substitution; returns (rendered, missing-vars).
     Comment lines keep their placeholders (they may document ${...})."""
+
     def sub(m: re.Match) -> str:
         return env.get(m.group(1), m.group(0))
+
     rendered = VAR_RE.sub(sub, template_text)
     missing: list[str] = []
     for line in rendered.splitlines():
@@ -156,6 +157,7 @@ def render(template_text: str, env: dict[str, str]) -> tuple[str, list[str]]:
 
 # ── compose plumbing ────────────────────────────────────────────────────────
 
+
 def _docker() -> str:
     if shutil.which("docker") is None:
         raise StackError("docker not found on PATH")
@@ -163,33 +165,25 @@ def _docker() -> str:
 
 
 def compose_ok() -> None:
-    p = subprocess.run(["docker", "compose", "version", "--short"],
-                       capture_output=True, text=True)
+    p = subprocess.run(["docker", "compose", "version", "--short"], capture_output=True, text=True)
     if p.returncode != 0:
-        raise StackError(
-            "docker compose v2 plugin not found (needed: "
-            "sudo apt install docker-compose-plugin)")
+        raise StackError("docker compose v2 plugin not found (needed: sudo apt install docker-compose-plugin)")
 
 
-def compose_argv(spec: StackSpec, extra: list[str],
-                 env: dict[str] | None = None) -> list[str]:
+def compose_argv(spec: StackSpec, extra: list[str], env: dict[str] | None = None) -> list[str]:
     """The full ``docker compose ...`` argv for one subcommand."""
-    return [_docker(), "compose", "-f", str(spec.compose_file()),
-            "-p", spec.project, *extra]
+    return [_docker(), "compose", "-f", str(spec.compose_file()), "-p", spec.project, *extra]
 
 
-def _run_compose(spec: StackSpec, extra: list[str], env: dict[str],
-                 **kw) -> subprocess.CompletedProcess:
+def _run_compose(spec: StackSpec, extra: list[str], env: dict[str], **kw) -> subprocess.CompletedProcess:
     compose_ok()
-    return subprocess.run(compose_argv(spec, extra, env),
-                          env={**os.environ, **env}, **kw)
+    return subprocess.run(compose_argv(spec, extra, env), env={**os.environ, **env}, **kw)
 
 
 def project_services(spec: StackSpec) -> dict[str, dict]:
     """``{service: {name, state, health, status}}`` from ``compose ps -a``
     (empty dict when the project has no containers)."""
-    p = _run_compose(spec, ["ps", "-a", "--format", "json"],
-                    resolve_env(spec), capture_output=True, text=True)
+    p = _run_compose(spec, ["ps", "-a", "--format", "json"], resolve_env(spec), capture_output=True, text=True)
     if p.returncode != 0 or not p.stdout.strip():
         return {}
     # compose v5 emits NDJSON (one object per line), older v2 an array
@@ -208,12 +202,9 @@ def project_services(spec: StackSpec) -> dict[str, dict]:
         name = r.get("Name") or ""
         svc = r.get("Service")
         if not svc:
-            base = name[len(spec.project) + 1:] \
-                if name.startswith(spec.project + "-") else name
+            base = name[len(spec.project) + 1 :] if name.startswith(spec.project + "-") else name
             svc = base.rsplit("-", 1)[0] if base.endswith("-1") else base
-        out[svc] = {"name": name, "state": r.get("State"),
-                    "health": r.get("Health"),
-                    "status": r.get("Status")}
+        out[svc] = {"name": name, "state": r.get("State"), "health": r.get("Health"), "status": r.get("Status")}
     return out
 
 
@@ -228,11 +219,19 @@ def probe(url: str, timeout_s: float = 5.0) -> str:
 
 # ── up / down / status / logs ────────────────────────────────────────────────
 
-def up(spec: StackSpec, s: object,
-       prepare: object = None, *, wait: bool = True,
-       wait_timeout_s: float | None = None, dry_run: bool = False,
-       health: object = None, banner: object = None,
-       compose_wait: bool = False) -> None:
+
+def up(
+    spec: StackSpec,
+    s: object,
+    prepare: object = None,
+    *,
+    wait: bool = True,
+    wait_timeout_s: float | None = None,
+    dry_run: bool = False,
+    health: object = None,
+    banner: object = None,
+    compose_wait: bool = False,
+) -> None:
     """Start the stack.
 
     ``prepare(s) -> extra env vars`` — the stack's glue renders its files
@@ -241,8 +240,7 @@ def up(spec: StackSpec, s: object,
     output. ``compose_wait`` adds ``--wait`` to ``up -d`` (only useful when
     the services define healthchecks; the URL poll always does the real
     waiting). A failed up rolls the stack back down (no partial state)."""
-    wait_timeout_s = spec.wait_timeout_s if wait_timeout_s is None \
-        else wait_timeout_s
+    wait_timeout_s = spec.wait_timeout_s if wait_timeout_s is None else wait_timeout_s
     extra = prepare(s) if prepare is not None else None
     env = resolve_env(spec, extra)
     up_args = ["up", "-d"] + (["--wait"] if (wait and compose_wait) else [])
@@ -256,9 +254,7 @@ def up(spec: StackSpec, s: object,
         err = (p.stderr or "").strip()
         # best-effort rollback: a failed up never leaves partial state
         _run_compose(spec, ["down"], env, capture_output=True, text=True)
-        raise StackError(
-            f"docker compose up failed ({p.returncode}); "
-            f"rolled the stack back down:\n{err}")
+        raise StackError(f"docker compose up failed ({p.returncode}); rolled the stack back down:\n{err}")
     if wait and health is not None:
         url = health(env)
         t0 = time.time()
@@ -268,15 +264,14 @@ def up(spec: StackSpec, s: object,
             time.sleep(3)
         else:
             raise StackError(
-                f"{spec.name} not responsive at {url} after "
-                f"{wait_timeout_s:.0f}s — check: mjolnir {spec.name} logs")
+                f"{spec.name} not responsive at {url} after {wait_timeout_s:.0f}s — check: mjolnir {spec.name} logs"
+            )
     if banner is not None:
         for line in banner(env):
             print(line)
 
 
-def down(spec: StackSpec, purge: bool = False, dry_run: bool = False,
-         keep_note: str = "stack state survives") -> int:
+def down(spec: StackSpec, purge: bool = False, dry_run: bool = False, keep_note: str = "stack state survives") -> int:
     """Stop the stack. Data kept under the data dir by default; ``purge``
     wipes the ``data_subdirs``."""
     env = resolve_env(spec)
@@ -286,14 +281,15 @@ def down(spec: StackSpec, purge: bool = False, dry_run: bool = False,
     if dry_run:
         print(" ".join(compose_argv(spec, ["down"], env)))
         if purge:
-            print(f"(purge: rm -rf {' '.join(str(spec.data_dir() / s) for s in spec.data_subdirs)}"
-                  " — via a throwaway root container)")
+            print(
+                f"(purge: rm -rf {' '.join(str(spec.data_dir() / s) for s in spec.data_subdirs)}"
+                " — via a throwaway root container)"
+            )
         return 0
     _run_compose(spec, ["down"], env, text=True)
     if purge:
         _purge_data(spec)
-        print(f"stopped + purged the stack data "
-              f"({', '.join(str(spec.data_dir() / s) for s in spec.data_subdirs)})")
+        print(f"stopped + purged the stack data ({', '.join(str(spec.data_dir() / s) for s in spec.data_subdirs)})")
     else:
         print(f"stopped (data kept under {spec.data_dir()} — {keep_note})")
     return 0
@@ -312,9 +308,10 @@ def _purge_data(spec: StackSpec) -> None:
     rm = " ".join(f"/d/{sub}" for sub in spec.data_subdirs)
     try:
         subprocess.run(
-            ["docker", "run", "--rm", "-v", f"{data_dir}:/d",
-             "busybox", "sh", "-c", f"rm -rf {rm}"],
-            check=True, capture_output=True)
+            ["docker", "run", "--rm", "-v", f"{data_dir}:/d", "busybox", "sh", "-c", f"rm -rf {rm}"],
+            check=True,
+            capture_output=True,
+        )
         return
     except Exception:  # noqa: BLE001 — fall back to host rmtree
         pass
@@ -330,8 +327,7 @@ def status(spec: StackSpec, extra: dict | None = None) -> dict:
     return st
 
 
-def logs(spec: StackSpec, follow: bool = False, tail: int = 100,
-         service: str | None = None) -> int:
+def logs(spec: StackSpec, follow: bool = False, tail: int = 100, service: str | None = None) -> int:
     """Tail one service's logs (default: the service named ``spec.name``)."""
     env = resolve_env(spec)
     args = compose_argv(spec, ["logs", "--tail", str(tail)], env)

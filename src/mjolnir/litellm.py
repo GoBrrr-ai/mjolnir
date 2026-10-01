@@ -23,6 +23,7 @@ The compose machinery (env file, data dir, up/down/status/logs, rollback,
 health-wait) lives in :mod:`mjolnir.stack`; this module is the stack's glue:
 the spec, the template rendering, the model-variable injection.
 """
+
 from __future__ import annotations
 
 import os
@@ -52,6 +53,7 @@ class LitellmError(stack.StackError):
 
 
 # ── paths ──────────────────────────────────────────────────────────────────
+
 
 def template_path() -> Path:
     """The user's template: ``$MJOLNIR_LITELLM_TEMPLATE`` or, by default,
@@ -84,6 +86,7 @@ def compose_file() -> Path:
 
 # ── env loading + rendering ────────────────────────────────────────────────
 
+
 def _model_field(s: Settings) -> str:
     """The raw ``model:`` field of the config yaml (falls back to the model
     path) — the ``MAIN_LLM_MODEL_NAME`` the template's alias table wants."""
@@ -97,8 +100,7 @@ def injected_env(s: Settings, override_base_url: str | None = None) -> dict[str,
         "MAIN_LLM_MODEL": s.served_model,
         "MAIN_LLM_MODEL_NAME": name,
         "RAW_MODEL_SUFFIXED": f"{name}-{s.quant}",
-        "LITELLM_MAIN_MODEL_BASE_URL": override_base_url
-        or f"http://host.docker.internal:{s.port}/v1",
+        "LITELLM_MAIN_MODEL_BASE_URL": override_base_url or f"http://host.docker.internal:{s.port}/v1",
     }
 
 
@@ -107,8 +109,7 @@ def resolved_env(s: Settings, proxy_port: int | None = None) -> dict[str, str]:
     user env file < injected model variables (the CLI selection wins) <
     stack defaults (data dir, proxy port)."""
     env = stack.load_env_file(env_file_path())
-    extra = injected_env(s, override_base_url=env.get(
-        "LITELLM_MAIN_MODEL_BASE_URL"))
+    extra = injected_env(s, override_base_url=env.get("LITELLM_MAIN_MODEL_BASE_URL"))
     # CLI flag > env file > default
     if proxy_port:
         extra["LITELLM_PORT"] = str(proxy_port)
@@ -129,8 +130,7 @@ def validate(rendered: str) -> list[str]:
         for i, e in enumerate(ml):
             name = (e or {}).get("model_name")
             if not name or not str(name).strip():
-                problems.append(f"model_list[{i}] has an empty model_name — "
-                                f"check the template variables")
+                problems.append(f"model_list[{i}] has an empty model_name — check the template variables")
     return problems
 
 
@@ -139,12 +139,13 @@ def render_config(s: Settings, proxy_port: int | None = None) -> Path:
     ``LitellmError`` on a missing template or unresolved variables."""
     tpl = template_path()
     if not tpl.exists():
-        example = compose_file().parent \
-            / "litellm_config.template.example.yaml"
-        msg = (f"template not found: {tpl}\n"
-               "  start from the example (or override the location with "
-               "$MJOLNIR_LITELLM_TEMPLATE):\n"
-               f"  cp {example} {tpl}")
+        example = compose_file().parent / "litellm_config.template.example.yaml"
+        msg = (
+            f"template not found: {tpl}\n"
+            "  start from the example (or override the location with "
+            "$MJOLNIR_LITELLM_TEMPLATE):\n"
+            f"  cp {example} {tpl}"
+        )
         legacy = Path.home() / "litellm_config.template.yaml"
         if legacy.exists() and legacy != tpl:
             msg += f"\n  found a legacy copy — move it:  mv {legacy} {tpl}"
@@ -154,10 +155,11 @@ def render_config(s: Settings, proxy_port: int | None = None) -> Path:
     if missing:
         src = env_file_path()
         raise LitellmError(
-            "unresolved template variable(s): " + ", ".join("${" + m + "}"
-                                                             for m in missing) +
-            f"\n  define them in {src} (see the examples in "
-            f"{compose_file().parent})")
+            "unresolved template variable(s): "
+            + ", ".join("${" + m + "}" for m in missing)
+            + f"\n  define them in {src} (see the examples in "
+            f"{compose_file().parent})"
+        )
     problems = validate(rendered)
     if problems:
         raise LitellmError("rendered config invalid: " + "; ".join(problems))
@@ -169,6 +171,7 @@ def render_config(s: Settings, proxy_port: int | None = None) -> Path:
 
 # ── stack glue (the compose driver is mjolnir.stack) ───────────────────────
 
+
 def _port_of(env: dict[str]) -> int:
     try:
         return int(env.get("LITELLM_PORT", DEFAULT_PROXY_PORT))
@@ -176,8 +179,9 @@ def _port_of(env: dict[str]) -> int:
         return DEFAULT_PROXY_PORT
 
 
-def up(s: Settings, proxy_port: int | None = None, wait: bool = True,
-       wait_timeout_s: float = 600.0, dry_run: bool = False) -> int:
+def up(
+    s: Settings, proxy_port: int | None = None, wait: bool = True, wait_timeout_s: float = 600.0, dry_run: bool = False
+) -> int:
     """Render the config and start the stack (proxy + postgres + redis)."""
     cfg_path: Path | None = None
 
@@ -194,44 +198,56 @@ def up(s: Settings, proxy_port: int | None = None, wait: bool = True,
     def banner(env: dict[str]) -> list[str]:
         p = _port_of(env)
         return [
-            f"litellm proxy: http://127.0.0.1:{p} "
-            f"(master key: {env.get('LITELLM_MASTER_KEY', 'sk-1234')})",
+            f"litellm proxy: http://127.0.0.1:{p} (master key: {env.get('LITELLM_MASTER_KEY', 'sk-1234')})",
             f"  UI:  http://127.0.0.1:{p}/ui"
             f"  ({env.get('LITELLM_UI_USERNAME', 'admin')}/"
             f"{env.get('LITELLM_UI_PASSWORD', 'admin')})",
-            f"  vllm main model: {env['MAIN_LLM_MODEL']} @ "
-            f"{env['LITELLM_MAIN_MODEL_BASE_URL']}",
+            f"  vllm main model: {env['MAIN_LLM_MODEL']} @ {env['LITELLM_MAIN_MODEL_BASE_URL']}",
         ]
 
     try:
-        stack.up(SPEC, s, prepare=prepare, wait=wait,
-                 wait_timeout_s=wait_timeout_s, dry_run=dry_run,
-                 health=health, banner=banner, compose_wait=True)
+        stack.up(
+            SPEC,
+            s,
+            prepare=prepare,
+            wait=wait,
+            wait_timeout_s=wait_timeout_s,
+            dry_run=dry_run,
+            health=health,
+            banner=banner,
+            compose_wait=True,
+        )
     except stack.StackError as e:
         env = resolved_env(s, proxy_port)
-        hint = (f"\n  is host port {_port_of(env)} already taken? "
-                f"try: mjolnir litellm up --port <other>"
-                if "port is already allocated" in str(e) else "")
+        hint = (
+            f"\n  is host port {_port_of(env)} already taken? try: mjolnir litellm up --port <other>"
+            if "port is already allocated" in str(e)
+            else ""
+        )
         raise LitellmError(str(e) + hint)
     return 0
 
 
 def down(purge: bool = False, dry_run: bool = False) -> int:
     """Stop the stack (data kept; ``purge`` wipes postgres + redis data)."""
-    return stack.down(SPEC, purge=purge, dry_run=dry_run,
-                      keep_note="postgres/redis state survives")
+    return stack.down(SPEC, purge=purge, dry_run=dry_run, keep_note="postgres/redis state survives")
 
 
 def status(s: Settings, proxy_port: int | None = None) -> dict:
     env = resolved_env(s, proxy_port)
     port = _port_of(env)
     url = f"http://127.0.0.1:{port}"
-    return stack.status(SPEC, extra={
-        "proxy": {"url": url,
-                  "liveliness": stack.probe(url + "/health/liveliness"),
-                  "config": str(data_dir() / "litellm_config.yaml"),
-                  "template": str(template_path())},
-    })
+    return stack.status(
+        SPEC,
+        extra={
+            "proxy": {
+                "url": url,
+                "liveliness": stack.probe(url + "/health/liveliness"),
+                "config": str(data_dir() / "litellm_config.yaml"),
+                "template": str(template_path()),
+            },
+        },
+    )
 
 
 def logs(follow: bool = False, tail: int = 100) -> int:
