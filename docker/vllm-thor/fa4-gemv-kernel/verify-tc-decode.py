@@ -20,7 +20,11 @@ Run inside the image with the vfa tree mounted:
 from __future__ import annotations
 
 import os
+import sys
+import threading
+import time
 import traceback
+import urllib.request
 
 import torch
 
@@ -50,6 +54,81 @@ FP8_Q_DESCALE = 1.06
 FP8_K_DESCALE = 1.125
 FP8_V_DESCALE = 1.25
 FP8 = torch.float8_e4m3fn
+
+# --- clean-window gate (inline copy of src/mjolnir/gate.py) -------------------
+# The Thor GPU is shared with the live vLLM server that serves the subagents.
+# This verify runs inside the image (mjolnir/gate.py is not importable here), so
+# it carries the same gate logic inline as the GEMV bench scripts (the single
+# source of truth on the host is src/mjolnir/gate.py; these inline copies are
+# required for in-container runs). The window is clean when the vLLM request
+# queue (running+waiting) reads (0,0) for CONFIRM consecutive samples. The
+# server is NEVER stopped — the gate only waits for a clean window to open.
+METRICS_URL = os.environ.get("MJOLNIR_METRICS_URL",
+                            "http://127.0.0.1:6001/metrics")
+POLL_S = 2.0
+CONFIRM = 3
+WAIT_TIMEOUT_S = 1800
+OFFLINE_CONFIRM = 3  # consecutive unreachable samples => server offline
+
+
+def server_load() -> tuple[float, float] | None:
+    """(num_running, num_waiting) from the co-located vLLM server, or None."""
+    try:
+        with urllib.request.urlopen(METRICS_URL, timeout=5) as r:
+            text = r.read().decode()
+    except Exception:  # noqa: BLE001
+        return None
+    out: dict[str, float] = {}
+    for line in text.splitlines():
+        for key in ("vllm:num_requests_running", "vllm:num_requests_waiting"):
+            if line.startswith(key + "{") or line.startswith(key + " "):
+                out[key.split(":")[1]] = float(line.rsplit(" ", 1)[1])
+    if "num_requests_running" not in out or "num_requests_waiting" not in out:
+        return None
+    return (out["num_requests_running"], out["num_requests_waiting"])
+
+
+class _Monitor(threading.Thread):
+    def __init__(self) -> None:
+        super().__init__(daemon=True)
+        self.trace: list[tuple[float, tuple[float, float] | None]] = []
+        self._stop = threading.Event()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            self.trace.append((time.time(), server_load()))
+            self._stop.wait(POLL_S)
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+def wait_for_idle(mon: _Monitor) -> float | str | None:
+    """Window-start ts; ``"offline"`` if the endpoint stays unreachable (the
+    co-located server is down -> nothing to gate against); ``None`` on timeout."""
+    t_start = time.perf_counter()
+    consumed = 0
+    streak = 0
+    offline_streak = 0
+    while time.perf_counter() - t_start < WAIT_TIMEOUT_S:
+        while consumed < len(mon.trace):
+            _ts, load = mon.trace[consumed]
+            consumed += 1
+            if load is None:
+                streak = 0
+                offline_streak += 1
+            else:
+                offline_streak = 0
+                if load == (0.0, 0.0):
+                    streak += 1
+                else:
+                    streak = 0
+        if offline_streak >= OFFLINE_CONFIRM:
+            return "offline"
+        if streak >= CONFIRM:
+            return mon.trace[consumed - 1][0]
+        time.sleep(1.0)
+    return None
 
 
 def _rand(dtype: torch.dtype, *shape) -> torch.Tensor:
@@ -195,6 +274,33 @@ def main() -> int:
     print("legs: dense bf16 (regression) + dense fp8 KV + descales "
           f"({FP8_Q_DESCALE}/{FP8_K_DESCALE}/{FP8_V_DESCALE}) + varlen bf16\n")
 
+    # --- clean-window gate ----------------------------------------------------
+    no_gate = "--no-gate" in sys.argv
+    offline = False
+    window_start = 0.0
+    mon = _Monitor()
+    mon.start()
+    if no_gate:
+        window_start = time.time()
+        print(f"GATE: SMOKE MODE (--no-gate): window not gated ({METRICS_URL})", flush=True)
+    else:
+        window = wait_for_idle(mon)
+        if window is None:
+            print(f"GATE: TIMEOUT waiting for {CONFIRM} consecutive 0/0 samples "
+                  f"after {WAIT_TIMEOUT_S}s", flush=True)
+            mon.stop()
+            return 3
+        if window == "offline":
+            window_start = time.time()
+            offline = True
+            print(f"GATE: vLLM metrics unreachable ({METRICS_URL}) — server "
+                  f"offline; running UNGATED (nothing co-located to gate against)",
+                  flush=True)
+        else:
+            window_start = window
+            print(f"GATE: CLEAN WINDOW OPEN ({CONFIRM} consecutive 0/0 samples)",
+                  flush=True)
+
     results: list[bool] = []
 
     # ---------------- dense bf16 cases --------------------------------------
@@ -271,8 +377,16 @@ def main() -> int:
     global kv_offset
     kv_offset = [0, 5, 6]
     q = _rand(torch.bfloat16, batch, NUM_Q_HEADS, D)  # (total_q=3, H, D)
-    k = _rand(torch.bfloat16, total_k, NUM_KV_HEADS, D)
-    v = _rand(torch.bfloat16, total_k, NUM_KV_HEADS, D)
+    # Pad the flat KV pool to a whole tile beyond total_k: the TC V load is
+    # un-predicated, so each batch's 64-row tile reads past its own (possibly
+    # short/empty) span into the next batch's rows or OOB — those rows must be
+    # FINITE (masked out by -inf scores, but 0 * NaN != 0). Production pools are
+    # the full KV cache (always in-bounds); mirror that by zeroing the padding.
+    pool = total_k + TILE_N
+    k = _rand(torch.bfloat16, pool, NUM_KV_HEADS, D)
+    v = _rand(torch.bfloat16, pool, NUM_KV_HEADS, D)
+    k[total_k:] = 0
+    v[total_k:] = 0
     cu_q = torch.tensor([0, 1, 2, 3], dtype=torch.int32, device=DEVICE)
     cu_k = torch.tensor([0, 5, 6, 6], dtype=torch.int32, device=DEVICE)
     out, lse = _run(
@@ -291,9 +405,34 @@ def main() -> int:
     results.append(ok)
     _report_row(f"varlen bf16 lens={lens}", ok, d_abs, rel, lse_err)
 
+    # --- window audit: did it stay clean for the whole run? ------------------
+    window_end = time.time()
+    mon.stop()
+    in_window = [(ts, load) for ts, load in mon.trace if window_start <= ts <= window_end]
+    # Unreachable samples count as contamination only if the server WAS
+    # reachable earlier in this run (a drop after being up may hide load);
+    # if it is offline the whole time, "unreachable" == "nothing on the GPU".
+    saw_reachable = any(load is not None for _, load in mon.trace)
+    dirty = [
+        s for s in in_window
+        if (s[1] is not None and s[1] != (0.0, 0.0))
+        or (s[1] is None and saw_reachable)
+    ]
+    clean = not dirty
+    gated = not no_gate and not offline
+
     n_ok = sum(results)
-    print(f"\ncases passing: {n_ok}/{len(results)}")
-    print(f"TC-VERIFY VERDICT: {'GO' if all(results) else 'NO-GO'}")
+    state = "gated" if gated else ("offline/ungated" if offline else "no-gate")
+    print(f"\nwindow: {state}, {'clean' if clean else 'DIRTY'} "
+          f"({len(in_window)} samples, {len(dirty)} dirty)")
+    print(f"cases passing: {n_ok}/{len(results)}")
+    go = all(results) and clean
+    print(f"TC-VERIFY VERDICT: {'GO' if go else 'NO-GO'}")
+    # Exit codes (the bench convention): 0 = GO (all pass + clean window);
+    # 1 = NO-GO (a case failed in a clean window); 2 = dirty window (re-run);
+    # 3 = timeout (handled at the gate open).
+    if not clean:
+        return 2
     return 0 if all(results) else 1
 
 

@@ -42,22 +42,33 @@ from vllm.vllm_flash_attn.cute.cute_dsl_utils import assume_tensor_aligned
 @cute.jit
 def _mask_partial_kv(
     acc_S: cute.Tensor,
-    tScS: cute.Tensor,
+    thr_mma: cute.TiledMma,
     nb: Int32,
     kv_len: Int32,
+    tile_m,
     tile_n,
 ):
-    """Write -inf into the OOB kv-columns of the acc_S rows, through mn-view
-    row round-trips (the exact access path online_softmax consumes — a linear
-    `acc_S[i]` store alone is dropped before the row-vector loads see it).
-    Per-element stores are UNCONDITIONAL (a runtime-`if` around an rmem
-    element store is dropped at trace); the OOB select is a runtime ternary
-    (the GEMV `s = s if ... else -inf` idiom). Per-thread the mn view's
-    (r, c) slot maps to tScS own-modes (r%2, r//2, c) (probe-verified; a
-    coord read through the mn reshape is garbage)."""
+    """Write -inf into the OOB kv-columns of the acc_S rows. The mma C-fragment
+    is per-thread (each thread owns a 16-column block, not columns 0..15), so
+    the mn-view column index is not the absolute kv column. The identity tensor
+    ``cS`` partitioned by the same mma holds, per mn-slot, the coordinate each
+    slot represents — ``tScS_mn[r, c][1]`` is the absolute kv column. That
+    coordinate is abstract and constant-folds to a fixed value when used inline,
+    so it is first materialized into rmem (the true per-thread column). The
+    -inf select then goes through an mn-view row round-trip (the access path
+    ``online_softmax`` consumes); a runtime-``if`` around an rmem element store
+    is dropped at trace, so the store is unconditional and the OOB pick is a
+    runtime ternary (the GEMV ``s = s if ... else -inf`` idiom)."""
     acc_S_mn = layout_utils.reshape_acc_to_mn(acc_S)
+    cS = cute.make_identity_tensor((tile_m, tile_n))
+    tScS_mn = layout_utils.reshape_acc_to_mn(thr_mma.partition_C(cS))
     _nr = cute.size(acc_S_mn.shape[0])
     _nc = cute.size(acc_S_mn.shape[1])
+    # Materialize the per-thread absolute kv column for every mn-slot to rmem.
+    _col = cute.make_rmem_tensor((_nr, _nc), Int32)
+    for _r in cutlass.range_constexpr(_nr):
+        for _c in cutlass.range_constexpr(_nc):
+            _col[_r, _c] = tScS_mn[_r, _c][1]
     for _r in cutlass.range_constexpr(_nr):
         _row_t = cute.make_rmem_tensor(_nc, Float32)
         _row_t.store(acc_S_mn[_r, None].load())
@@ -65,7 +76,7 @@ def _mask_partial_kv(
             _v = _row_t[_c]
             _row_t[_c] = (
                 -Float32.inf
-                if nb * tile_n + tScS[(_r % 2, _r // 2), 0, _c][1] >= kv_len
+                if nb * tile_n + _col[_r, _c] >= kv_len
                 else _v
             )
         acc_S_mn[_r, None].store(_row_t.load())
@@ -233,9 +244,14 @@ class BlackwellHd256DecodeTC:
             num_head_kv = mO.shape[2]
             if const_expr(not is_varlen_q):
                 # dense mLSE is (B, L_q, H); pack_gqa_layout(head_idx=1) wants the
-                # head dim at mode 1, so permute to (L_q, H, B) first (the varlen
-                # mLSE is already (total_q, H) with the head dim at mode 1).
+                # head dim at mode 1, so permute to (L_q, H, B) first.
                 mLSE = cute.make_tensor(mLSE.iterator, cute.select(mLSE.layout, mode=[1, 2, 0]))
+            else:
+                # varlen mLSE is (H, total_q) — the head dim is at mode 0.
+                # pack_gqa_layout(head_idx=1) wants it at mode 1, so permute to
+                # (total_q, H). (The old comment claimed it was already (total_q, H);
+                # the interface allocates (num_head, total_q), so it is not.)
+                mLSE = cute.make_tensor(mLSE.iterator, cute.select(mLSE.layout, mode=[1, 0]))
             mLSE = pack_gqa_layout(mLSE, G, num_head_kv, head_idx=1)
 
         # Per-batch bases / lengths.
@@ -532,15 +548,6 @@ class BlackwellHd256DecodeTC:
             cute.copy(smem_thr_copy_Q, tSsQ, tSrQ_copy_view)
             tSrQ_mma = tSrQ
 
-        # S-coord fragment for the n-OOB mask (identity tensor over the S tile).
-        # Indexed by its OWN modes (see the mask loops below): reshape_acc_to_mn
-        # on a coordinate tensor does not yield the true (m, n) coords, so the
-        # mask must read tScS[(a, b), 0, c] directly (verified probe: raw-fragment
-        # element access + per-element store + SSA ternary all land reliably,
-        # while the mn-view coord reshape is garbage).
-        cS = cute.make_identity_tensor((TILE_M, TILE_N))
-        tScS = thr_mma_qk.partition_C(cS)
-
         # KV gmem partition + row predicates (the tail n_block is predicated to
         # avoid OOB gmem reads; the mma n-OOB mask handles the -inf scores).
         cK = cute.make_identity_tensor((TILE_N, D))
@@ -593,7 +600,7 @@ class BlackwellHd256DecodeTC:
                     smem_thr_copy_Q, smem_thr_copy_K, A_in_regs=True)
             # OOB mask (first block, see steady-state note).
             if kv_len < TILE_N:
-                _mask_partial_kv(acc_S, tScS, nb, kv_len, TILE_N)
+                _mask_partial_kv(acc_S, thr_mma_qk, nb, kv_len, TILE_M, TILE_N)
             row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(True))
             softmax.rescale_O(acc_O, row_scale)
             rP = cute.make_fragment_like(acc_S, PT)
@@ -636,7 +643,7 @@ class BlackwellHd256DecodeTC:
             # re-scheduled the hot loop and corrupted large-L single-batch
             # runs — keep the loop structure stable.)
             if kv_len % TILE_N != 0:
-                _mask_partial_kv(acc_S, tScS, nb, kv_len, TILE_N)
+                _mask_partial_kv(acc_S, thr_mma_qk, nb, kv_len, TILE_M, TILE_N)
             row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(False))
             softmax.rescale_O(acc_O, row_scale)
             rP = cute.make_fragment_like(acc_S, PT)
@@ -662,7 +669,13 @@ class BlackwellHd256DecodeTC:
 
         if const_expr(mLSE is not None):
             if const_expr(is_varlen_q):
-                mLSE_cur = mLSE[None, kv_head]
+                # Varlen LSE (H, total_q) is transposed to (total_q, H) above and
+                # packed to ((qhead, seqlen), nkv) — the nkv mode is flat, so
+                # mLSE[None, kv_head] selects the right kv_head. But the store must
+                # also offset the (qhead, seqlen) mode by the batch's q_row_base
+                # (the O store does this via domain_offset; the LSE store must too,
+                # else every batch writes to global query row 0).
+                mLSE_cur = cute.domain_offset(((0, q_row_base),), mLSE[None, kv_head])
             else:
                 mLSE_cur = mLSE[None, kv_head, batch_idx]
             pack_gqa.store_LSE(mLSE_cur, softmax.row_sum, tiled_mma_pv, tidx, 0, seqlen_q)
@@ -680,7 +693,11 @@ class BlackwellHd256DecodeTC:
         tOrO = cute.make_fragment_like(tOsO, DTYPE)
         cute.autovec_copy(tOsO, tOrO)
         if const_expr(is_varlen_q):
-            mO_cur = mO[None, None, kv_head]
+            # The GQA-packed M-mode is (qhead, total_q): offset only the
+            # total_q sub-mode by q_row_base (the batch's global query row) —
+            # a scalar would land on the fastest (total_q) sub-mode only when
+            # the strides happen to agree, so be explicit.
+            mO_cur = cute.domain_offset(((0, q_row_base), 0), mO[None, None, kv_head])
         else:
             mO_cur = mO[None, None, kv_head, batch_idx]
         pack_gqa.store_O(mO_cur, tOrO, gmem_tiled_copy_O, tidx, 0, seqlen_q)
