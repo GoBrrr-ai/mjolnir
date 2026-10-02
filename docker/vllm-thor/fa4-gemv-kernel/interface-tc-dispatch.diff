@@ -1,0 +1,162 @@
+--- a/vllm/vllm_flash_attn/cute/interface.py	2026-10-02 09:55:57.789392727 +0200
++++ b/vllm/vllm_flash_attn/cute/interface.py	2026-10-02 09:17:59.778761207 +0200
+@@ -62,6 +62,7 @@
+ from vllm.vllm_flash_attn.cute.sm100_hd256_2cta_fmha_forward import BlackwellFusedMultiHeadAttentionForward
+ from vllm.vllm_flash_attn.cute.sm100_hd256_2cta_fmha_backward import BlackwellFusedMultiHeadAttentionBackward
+ from vllm.vllm_flash_attn.cute.sm100_hd256_decode_gemv import BlackwellHd256DecodeGEMV
++from vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc import BlackwellHd256DecodeTC
+ 
+ from vllm.vllm_flash_attn.cute.utils import AuxData
+ from vllm.vllm_flash_attn.cute.block_sparsity import (
+@@ -763,10 +764,12 @@
+         input_tensors = {"q": q, "k": k, "v": v, "qv": qv}
+         present = {name: t for name, t in input_tensors.items() if t is not None}
+         names = list(present.keys())
+-        # The GEMV decode knob (VLLM_FA4_HD256_GEMV, default-on) allows mixed Q/KV dtypes
++        # The GEMV decode knob (VLLM_FA4_HD256_GEMV, default-on) or the TC
++        # decode knob (VLLM_FA4_HD256_TC, default-off) allow mixed Q/KV dtypes
+         # (bf16/fp16 Q with fp8 KV) for the M=1 hd256 shape only.
+         _gemv_dtype_ok = (
+-            os.environ.get("VLLM_FA4_HD256_GEMV", "1") == "1"
++            (os.environ.get("VLLM_FA4_HD256_GEMV", "1") == "1"
++             or os.environ.get("VLLM_FA4_HD256_TC", "0") == "1")
+             and head_dim == 256
+             and max_seqlen_q == 1
+             and all(
+@@ -955,6 +958,136 @@
+     if cu_seqlens_k is None and seqused_k is None:
+         min_seqlen_k = seqlen_k
+ 
++    # Tensor-core (mma.sync) hd256 decode (env-gated, DEFAULT-OFF; enable with
++    # VLLM_FA4_HD256_TC=1): the mma QK/PV streamer (sm100_hd256_decode_tc.py).
++    # bf16 Q + bf16 or fp8-e4m3 KV (fp8 with the per-(batch, kv_head) descales;
++    # the fp8 mma halves the KV DRAM bytes), dense+varlen, num_splits=1
++    # (SplitKV/paged/ring are follow-up passes). Takes precedence over the GEMV
++    # gate.
++    use_tc_hd256 = (
++        os.environ.get("VLLM_FA4_HD256_TC", "0") == "1"
++        and arch // 10 in [10, 11]
++        and head_dim == 256
++        and head_dim_v == 256
++        and max_seqlen_q == 1
++        and k is not None
++        and k.dtype == v.dtype
++        and (
++            (v.dtype == torch.bfloat16 and q.dtype == torch.bfloat16)
++            or (v.dtype == torch.float16 and q.dtype == torch.float16)
++            or (v.dtype == torch.float8_e4m3fn
++                and q.dtype in (torch.bfloat16, torch.float8_e4m3fn))
++        )
++        and page_table is None
++        and seqused_q is None
++        and seqused_k is None
++        and dynamic_causal is None
++        and softcap is None
++        and learnable_sink is None
++        and block_sparse_tensors is None
++        and gather_kv_indices is None
++        and aux_tensors is None
++        and mask_mod is None
++        and score_mod is None
++        and qv is None
++        and output_scale is None
++    )
++    if use_tc_hd256:
++        if getattr(_flash_attn_fwd, "tc_compile_cache", None) is None:
++            _flash_attn_fwd.tc_compile_cache = {}
++        tc_cache = _flash_attn_fwd.tc_compile_cache
++        sm_scale_log2 = softmax_scale * math.log2(math.e)
++        # Dense kv_len is the ACTUAL sequence length, not the (possibly padded)
++        # KV buffer size: the TC V load is un-predicated, so the dense buffer may
++        # be padded to a whole tile (finite pool data) while the true kv_len comes
++        # from max_seqlen_k. In production these agree (an unpadded dense buffer
++        # has v.shape[-3] == kv_len == max_seqlen_k); passing max_seqlen_k keeps
++        # the partial-tail mask correct on the padded pool layout. Varlen derives
++        # kv_len from cu_seqlens_k in-kernel, so seqlen_k is a dummy there.
++        tc_seqlen_k = max_seqlen_k if cu_seqlens_k is None else seqlen_k
++        # fp8 KV: the native fp8 mma.sync QK needs an fp8 A-operand (no
++        # bf16xfp8 mixed mma exists), so Q is pre-cast to e4m3 here (the
++        # kernel then streams Q fp8 and reads it once from smem). The
++        # reference/verify mirror the same raw cast.
++        q_tc = (
++            q.to(torch.float8_e4m3fn)
++            if v.dtype in (torch.float8_e4m3fn,)
++            else q
++        )
++        tc_key = (
++            qhead_per_kvhead,
++            q.dtype,
++            v.dtype,
++            cu_seqlens_q is not None,
++            cu_seqlens_k is not None,
++            lse is not None,
++            q_descale is not None,
++        )
++        if tc_key not in tc_cache:
++            current_stream = cute.runtime.make_fake_stream(use_tvm_ffi_env_stream=True)
++            tc_cache[tc_key] = cute.compile(
++                BlackwellHd256DecodeTC(qhead_per_kvhead),
++                to_cute_tensor(q_tc, assumed_align=128),
++                to_cute_tensor(k, assumed_align=128),
++                to_cute_tensor(v, assumed_align=128),
++                to_cute_tensor(out, assumed_align=128),
++                to_cute_tensor(lse, assumed_align=4) if lse is not None else None,
++                to_cute_tensor(cu_seqlens_q, assumed_align=4, leading_dim=0)
++                if cu_seqlens_q is not None
++                else None,
++                to_cute_tensor(cu_seqlens_k, assumed_align=4, leading_dim=0)
++                if cu_seqlens_k is not None
++                else None,
++                (
++                    DescaleTensors(
++                        q_descale=to_cute_tensor(q_descale, assumed_align=4, leading_dim=1),
++                        k_descale=to_cute_tensor(k_descale, assumed_align=4, leading_dim=1),
++                        v_descale=to_cute_tensor(v_descale, assumed_align=4, leading_dim=1),
++                    )
++                    if q_descale is not None
++                    else None
++                ),
++                None,  # mPageTable (dense first pass)
++                max_seqlen_q,  # per-batch q length bound for load_Q/store_LSE/O (M=1 => 1)
++                tc_seqlen_k,
++                sm_scale_log2,
++                1,  # num_splits (1 = first correct pass; SplitKV later)
++                current_stream,
++                options="--enable-tvm-ffi",
++            )
++        if not fake_mode:
++            k_call = k.detach()
++            v_call = v.detach()
++            q_call = q_tc.detach()
++            # FP8 FFI workaround (same as the GEMV/fp8 paths): pass as uint8.
++            if v.dtype in (torch.float8_e4m3fn,):
++                q_call = q_call.view(torch.uint8)
++                k_call = k_call.view(torch.uint8)
++                v_call = v_call.view(torch.uint8)
++            descale_tensors = (
++                DescaleTensors(
++                    q_descale=q_descale, k_descale=k_descale, v_descale=v_descale
++                )
++                if q_descale is not None
++                else None
++            )
++            tc_cache[tc_key](
++                q_call,
++                k_call,
++                v_call,
++                out.detach(),
++                lse,
++                cu_seqlens_q,
++                cu_seqlens_k,
++                descale_tensors,
++                None,
++                max_seqlen_q,  # per-batch q length bound for load_Q/store_LSE/O (M=1 => 1)
++                tc_seqlen_k,
++                sm_scale_log2,
++                1,
++            )
++        return out, lse, None, None
++
+     # GEMV decode kernel (env-gated, DEFAULT-ON; opt out with
+     # VLLM_FA4_HD256_GEMV=0): pure-FMA GEMV for M=1 dense/varlen decode on
+     # SM100/SM110 (docs/fa4-hd256-fp8/gemv-decode-design.md). Bypasses the

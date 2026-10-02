@@ -1,9 +1,14 @@
 # TC (mma.sync) hd256 decode — GEMV feature-parity plan
 
-**Status: Phase 1 (correctness) — dense fully green, varlen O green, varlen LSE
-diagnosed-but-open (§1.3, two bugs: head/seqlen mixup fixed, dynamic-base pointer-path
-loss open). The varlen LSE fix is a small `pack_gqa` change with a dense-path
-regression surface, deferred to a focused follow-up.** This is the workplan to bring the tensor-core
+**Status: Phase 1 (correctness) — FULLY GREEN; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02).**
+Dense (bf16 + fp8) and varlen (O + LSE) all pass; the 4-combo dtype gate
+(`(bf16,bf16)`, `(fp16,fp16)`, `(bf16,fp8)`, `(fp8,fp8)`) is live — fp16 and
+native fp8-Q (no pre-cast) verified green. The varlen LSE bug (§1.3) is fixed by
+three changes: the head/seqlen transpose (bug A), the per-CTA base carried in the LSE
+store *coordinate* rather than a `domain_offset` (bug B), and a varlen Q-load
+`domain_offset` fix — the flat `(q_row_base, 0)` was offsetting the qhead sub-mode (or
+dropping it), so every batch read row 0's Q and the QK scores (hence LSE) were wrong
+for batch>0 (bug C). Phase 1 is done; Parts 2–4 are the remaining work. This is the workplan to bring the tensor-core
 decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`) to full feature parity
 with the FMA GEMV decode kernel (`sm100_hd256_decode_gemv`), so the TC kernel can
 **serve production** (paged KV) and match GEMV's capability surface. Every item is
@@ -40,10 +45,10 @@ rest of the capability surface.
 |---|---|---|
 | Compute model | pure FMA — compute/issue-bound | `mma.sync` — memory-bound streamer |
 | M / head_dim | M=1, hd256 | M=1, hd256 |
-| Q dtype | bf16 / fp16 / fp8 | bf16 / fp8 (fp8-Q pre-cast in the dispatch) |
-| KV dtype + descales | bf16 / fp16 / fp8 + descales | bf16 / fp8 + descales |
+| Q dtype | bf16 / fp16 / fp8 | bf16 / fp16 / fp8 (fp8-Q native, no pre-cast) |
+| KV dtype + descales | bf16 / fp16 / fp8 + descales | bf16 / fp16 / fp8 + descales |
 | Dense KV | ✅ | ✅ (L=1…65536, B=1/4, gated) |
-| Varlen (cu_seqlens) | ✅ | ✅ O (LSE pending, §1.3) |
+| Varlen (cu_seqlens) | ✅ | ✅ O + LSE (§1.3 fixed) |
 | Paged KV (16/128) | ✅ | ❌ |
 | SplitKV (ns>1 + combine) | ✅ | ❌ (ns=1) |
 | Partial-tail (L < tile) | ✅ (clamp + mask) | ✅ (mask, §1.1) |
@@ -96,9 +101,10 @@ invariant at `interface.py:712`.)
   below (§1.3), not a separate finalize `0/0` (the `Softmax.finalize` row-sum=0 →
   LSE=−inf path is correct; it is the *store* that misroutes the varlen LSE).
 
-### 1.3 Varlen LSE store — **OPEN (last Phase 1 item; deep bug, diagnosed)**
+### 1.3 Varlen LSE store — **FIXED (all three bugs landed, 2026-10-02)**
 
-Two distinct bugs, both now root-caused (web-researcher + debugger, 2026-10-02):
+Three distinct bugs, all root-caused and fixed. The varlen LSE now matches the fp32
+reference for every batch (including the empty one, `lse_err≈7e-7` gated):
 
 - **Bug A — head/seqlen mixup (FIXED).** The interface allocates the varlen LSE as
   `(num_head, total_q)` = `(H, total_q)` (head at mode 0), but the kernel assumed
@@ -110,29 +116,37 @@ Two distinct bugs, both now root-caused (web-researcher + debugger, 2026-10-02):
   the debugger's layout print. (The nkv mode is flat, not ranked; a scalar
   `mLSE[None, kv_head]` correctly selects the kv_head.)
 
-- **Bug B — dynamic per-CTA base lost in the LSE pointer path (OPEN).** Even with the
-  layout correct, `store_LSE`/`compute_ptr`/`elem_pointer` drop the per-CTA base
+- **Bug B — dynamic per-CTA base lost in the LSE pointer path (FIXED).** Even with the
+  layout correct, `store_LSE`/`compute_ptr`/`elem_pointer` dropped the per-CTA base
   `18·kv_head + q_row_base`: the dynamic `q_row_base` is 16-B-rounded in transit
-  (b1/b2 → +4 elems) and the store pointers from **all 12 CTAs** fall in offsets
-  `[0,16]` of the 72-elem buffer. Every CTA writes the same low cells → cross-batch
-  clobber (batch1's row never written; batch2's `-inf` overwrites batch0's). The O is
-  exact because `store_O` goes through TiledCopy (a proven `domain_offset` path), not
-  this ptr/shuffle path. A one-line `domain_offset(((0, q_row_base),), …)` fix (v1)
-  does **not** survive to the store pointer (the offset is corrupted in `elem_pointer`).
-  - **Fix (planned, option 1):** bypass the broken path — pass the per-CTA base
-    explicitly as a runtime `Int32` (`lse_base_off = kv_head·G·seqlen_q + q_row_base`)
-    to `store_LSE`/`compute_ptr` and build the store pointer with raw
-    `buffer_base + 4·(lse_base_off + total_q·h_idx + m_idx)` arithmetic (no tensor
-    base / `domain_offset` / `elem_pointer`). Requires threading `total_q` (the dynamic
-    `seqlen` stride) through. Detail: `task/debug/tc-varlen-lse-store.md` (v2).
-  - **Possible bug C:** in one codegen batch1's in-register `row_sum` read ~`ln 1.96`
-    off vs ref while O was exact (O rescales with the same `row_scale`) — likely a
-    printf artifact under the broken codegen; re-verify after the pointer fix.
+  (b1/b2 → +4 elems) and the store pointers from **all 12 CTAs** fell in offsets
+  `[0,16]` of the 72-elem buffer. Every CTA wrote the same low cells → cross-batch
+  clobber. The O was exact because `store_O` goes through TiledCopy (a proven
+  `domain_offset` path), not this ptr/shuffle path.
+  - **Fix (landed):** carry the base in the *store coordinate* instead of a
+    `domain_offset`. `compute_ptr`/`store_LSE` take an explicit `row_base: Int32`
+    and feed it to the seqlen index — `elem_pointer(tensor, ((h_idx, m_idx +
+    row_base),))` — so the base enters via `crd2idx` (pure integer offset on the
+    static layout strides), never through the 16-B-aligned `domain_offset` path. The
+    varlen call site drops the `domain_offset` and passes `row_base=q_row_base`; the
+    dense path is unchanged (`row_base=0`). Detail: `task/debug/tc-varlen-lse-store.md`.
 
-The varlen **O is fully correct** (all batches/heads incl. the empty one) — that is the
-primary output. The LSE is secondary; the fix is a real (if small) `pack_gqa` change with
-a regression surface on the dense path, so it is deferred to a focused follow-up rather
-than landed mid-Phase-1.
+- **Bug C — varlen Q-load `domain_offset` offset the wrong sub-mode (FIXED).** With
+  bugs A+B fixed, batch1's LSE was still wrong (finite, deterministic): the Q load
+  used `domain_offset((q_row_base, 0), mQ[None, None, kv_head])` — a *flat* coord that
+  applied `q_row_base` to the **qhead** sub-mode (or dropped it) instead of the seqlen
+  sub-mode, so every batch read row 0's Q and the QK scores (hence the LSE) were wrong
+  for batch>0. The O was unaffected for L=1 (P=1 for a single kv row, so O = v[kv]
+  regardless of Q) — which is why the O looked right while the LSE did not.
+  - **Fix (landed):** the nested coord `domain_offset(((0, q_row_base), 0), …)` (qhead
+    by 0, seqlen by `q_row_base`) — the same idiom as the varlen O store. Confirmed by
+    the isolation diag: batch1's LSE matched `(q_row=0, kv_row=5)` before the fix
+    (the Q was read from row 0) and matches the fp32 reference after.
+
+The varlen **O and LSE are both fully correct** (all batches/heads incl. the empty
+one). The `compute_ptr` change is additive (`row_base` defaults to 0), so the dense
+path and the Q/O `compute_ptr` callers are untouched — the dense bf16 regression
+legs confirm no regression.
 
 ---
 
@@ -181,23 +195,30 @@ than landed mid-Phase-1.
     None` (the `IS_SPLIT` compile flag, GEMV `:194`);
   - **reuse** `_flash_attn_fwd_combine` unchanged.
 
-### 2.3 fp16 KV dtype + descales
+### 2.3 fp16 KV dtype + descales — **DONE (2026-10-02, verified green)**
 
 - **TC caveat (important):** `mma.sync` requires **matching A/B dtype** — unlike GEMV's
   FMA (all-fp32), there is **no bf16×fp16 mixed mma**. So parity means the **all-fp16**
   path (Q and KV both fp16), not mixed. Descales are dtype-agnostic (folded into the
   score scale / epilogue, already correct at `:258-267` and `:661`).
-- **Change-points:** `get_smem_layout_atom(KVTYPE, D)` (`:305-306`) already keys on
-  dtype; the 16-bit mma path (`sm80_utils.gemm/gemm_rs`) handles fp16 identically to
-  bf16. Widen the interface gate to allow `(q, v)` both-fp16.
+- **Change-points (landed):** the mma is `MmaF16BF16Op(DTYPE, …)` where
+  `DTYPE = mO.element_type` — so the all-fp16 leg (O fp16 → `DTYPE=fp16`) is handled
+  by the existing 16-bit mma path, no kernel change. The only change is the **interface
+  gate** (`interface.py:975-976`): widened from `q.dtype in (bf16,)` to a 4-combo gate
+  — `(bf16,bf16)`, `(fp16,fp16)`, `(bf16,fp8)`, `(fp8,fp8)` — so fp16 Q/KV is admitted
+  and mixed classes (e.g. bf16-Q / fp16-KV) stay rejected.
+- **Verify:** `dense fp16 L=64/256 B=1/4` pass at rel 3e-4–1.8e-2 (O fp16).
 
-### 2.4 fp8(e4m3) Q dtype
+### 2.4 fp8(e4m3) Q dtype — **DONE (2026-10-02, verified green)**
 
 - **Low effort:** the kernel already pre-casts Q to fp8 for the fp8 leg
   (`interface.py:1000-1003`) and streams Q as fp8 in smem (`QDTYPE = FP8T`, `:220`).
-  fp8-Q input is just a **gate widening** (`interface.py:975` `q.dtype in
-  (torch.bfloat16,)` → `{bf16, fp8}`) + skip the cast when Q is already fp8.
-  (fp8-Q pairs with fp8-KV; 16-bit-Q pairs with 16-bit-KV — same dtype class.)
+  fp8-Q input is just a **gate widening** (the 4-combo gate above admits `(fp8,fp8)`;
+  the `q.to(fp8)` pre-cast at `:1009` is a no-op when Q is already fp8, so native
+  fp8-Q needs no kernel change).
+- **Verify:** `dense fp8-Q L=64/256 B=1/4` (native fp8-Q, O bf16) pass at
+  rel 2.8e-3–1.6e-2.
+- (fp8-Q pairs with fp8-KV; 16-bit-Q pairs with 16-bit-KV — same dtype class.)
 
 ### 2.5 B3 re-tile knobs (TILE_N / ring depth)
 
@@ -232,8 +253,10 @@ than landed mid-Phase-1.
   - **paged** (page_size 16/128) for dense + varlen;
   - **partial-tail** (L=100, L=37);
   - **empty-batch** (kv_len=0);
-  - **SplitKV** (ns>1, cross-checked against the ns=1 write-through);
-  - **fp16** leg; **fp8-Q** leg.
+   - **SplitKV** (ns>1, cross-checked against the ns=1 write-through);
+   - **fp16** leg ✅ + **fp8-Q** leg ✅ (added 2026-10-02; small-L L=64/256 B=1/4,
+     pass at rel ≤ 1.8e-2 — the fp8 large-L legs are left to the gated run since they
+     are co-tenancy-sensitive).
 - **Bench:** add the TC `tc_decode` leg to `gemv-geom-sweep.py` / `gemv-decode-bench.py`
   (the `tc_decode` leg already exists) so paged + SplitKV perf is measured in a gated
   window.
@@ -242,10 +265,10 @@ than landed mid-Phase-1.
 
 | Phase | Items | Effort | Unlocks |
 |---|---|---|---|
-| **1 — correctness** | 1.1 tail ✅, 1.2 empty-batch O ✅, 1.3 varlen LSE (A fixed / B open), gate ✅ | S–M | dense green; varlen O green; varlen LSE → focused follow-up |
+| **1 — correctness** | 1.1 tail ✅, 1.2 empty-batch O ✅, 1.3 varlen LSE ✅ (A/B/C fixed), gate ✅ | S–M | dense green; varlen O + LSE green (27/27 gated) |
 | **2 — production** | 2.1 paged (reuse 1.1 tail-clamp) | **L** | TC can *serve* (paged) |
 | **3 — perf parity** | 2.2 SplitKV, 2.5 re-tile | M–L | fills SMs at low batch |
-| **4 — dtype parity** | 2.3 fp16, 2.4 fp8-Q | S | full dtype matrix |
+| **4 — dtype parity** ✅ | 2.3 fp16 ✅, 2.4 fp8-Q ✅ | S | full dtype matrix (4-combo gate live, verified green) |
 
 Dependencies: 1.1 (tail) is needed *inside* 2.1 (paged's last block is partial); 2.2 is
 independent but pairs with 2.1 in the production long-context path; the dtype items are
@@ -257,17 +280,19 @@ independent.
   - [x] 1.1 diagnose + fix `L < TILE_N` (interface `tc_seqlen_k` + mn-view mask; verify
         L=1/3/5 → green, gated)
   - [x] 1.2 empty-batch `O=0` (varlen O store offset by `q_row_base`)
-  - [ ] 1.3 varlen LSE — **bug A (head/seqlen transpose) fixed**; **bug B (dynamic per-CTA
-        base lost in `store_LSE`/`compute_ptr`/`elem_pointer` ptr path) open** → explicit-base
-        pointer-arithmetic fix (bypass the ptr path), see `task/debug/tc-varlen-lse-store.md`
+  - [x] 1.3 varlen LSE — **all three bugs fixed** (A: head/seqlen transpose; B: per-CTA base
+        carried in the `compute_ptr`/`store_LSE` coordinate, not a `domain_offset`; C: varlen
+        Q-load nested `domain_offset(((0, q_row_base), 0), …)`). `lse_err≈7e-7` gated.
+        Detail: `task/debug/tc-varlen-lse-store.md`.
   - [x] clean-window gate in `verify-tc-decode.py` (+ co-tenancy finding)
-  - [ ] verify cells: L=100/L=37 partial-tail + empty-batch
+  - [ ] verify cells: L=100/L=37 partial-tail (untested path, §1.1) — empty-batch already
+        covered by the varlen `lens=[5,1,0]` cell
 - [ ] **Phase 2**
   - [ ] 2.1 paged KV (design spike: per-row vs gathered-view) + `page_size` ctor
 - [ ] **Phase 3**
   - [ ] 2.2 SplitKV (grid + chunk + partial + combine)
   - [ ] 2.5 re-tile knobs (TILE_N / ring depth)
-- [ ] **Phase 4**
-  - [ ] 2.3 all-fp16 path
-  - [ ] 2.4 fp8-Q gate
+- [x] **Phase 4** ✅ (2026-10-02)
+  - [x] 2.3 all-fp16 path (gate widened; mma `MmaF16BF16Op(DTYPE=fp16)` — verify green)
+  - [x] 2.4 fp8-Q gate (4-combo gate admits `(fp8,fp8)`; native fp8-Q no pre-cast — verify green)
 - [ ] bench: TC `tc_decode` leg in the geometry sweep + `gemv-decode-bench`

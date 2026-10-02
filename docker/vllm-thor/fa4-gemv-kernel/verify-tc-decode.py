@@ -332,6 +332,34 @@ def main() -> int:
             results.append(ok)
             _report_row(f"dense bf16 L={L} B={batch}", ok, d_abs, rel, lse_err)
 
+    # ---------------- dense fp16 (dtype parity) --------------------------------
+    # O is fp16 (out_torch_dtype = q_dtype when not fp8). The mma is MmaF16BF16Op
+    # (fp16) via DTYPE=mO.element_type=fp16. Small-L (deterministic, no co-tenancy).
+    for L in (64, 256):
+        for batch in (1, 4):
+            torch.manual_seed(777 + L * 13 + batch + 500)
+            L_pad = ((L + TILE_N - 1) // TILE_N) * TILE_N
+            q = _rand(torch.float16, batch, 1, NUM_Q_HEADS, D)
+            k = _rand(torch.float16, batch, L_pad, NUM_KV_HEADS, D)
+            v = _rand(torch.float16, batch, L_pad, NUM_KV_HEADS, D)
+            if L_pad > L:
+                k[:, L:, :, :] = 0
+                v[:, L:, :, :] = 0
+            out, lse = _run(
+                q, k, v, cu_q=None, cu_k=None,
+                max_seqlen_q=1, max_seqlen_k=L,
+            )
+            out = out.squeeze(1)
+            lse = lse.squeeze(-1)
+            ref, ref_lse = _fp32_ref(q, k, v, [L] * batch)
+            d_abs = float((out.float() - ref).abs().max())
+            ref_max = float(ref.abs().max())
+            rel = d_abs / ref_max
+            lse_err = float((lse - ref_lse).abs().max())
+            ok = d_abs <= MAX_ABS_TOL and rel <= MAX_REL_TOL and lse_err <= LSE_TOL
+            results.append(ok)
+            _report_row(f"dense fp16 L={L} B={batch}", ok, d_abs, rel, lse_err)
+
     # ---------------- dense fp8 KV + non-unity descales ----------------------
     # L>=64 only: the partial-tail OOB mask is a known TC limitation (served by
     # GEMV in production). The fp8 mma halves the KV bytes this leg streams.
@@ -367,6 +395,41 @@ def main() -> int:
                   and lse_err <= LSE_TOL)
             results.append(ok)
             _report_row(f"dense fp8 L={L} B={batch}", ok, d_abs, rel, lse_err,
+                        FP8_MAX_ABS_TOL, FP8_MAX_REL_TOL)
+
+    # ---------------- dense fp8-Q (native fp8 Q; dtype parity) --------------
+    # Q natively fp8 (no pre-cast — the interface's q.to(fp8) is a no-op). O is
+    # bf16 (is_fp8 => out_torch_dtype=bf16). Same mma as the fp8-KV leg
+    # (MmaFP8Op); the only difference is the Q arrives already fp8. Small-L.
+    for L in (64, 256):
+        for batch in (1, 4):
+            torch.manual_seed(777 + L * 13 + batch + 1000)
+            L_pad = ((L + TILE_N - 1) // TILE_N) * TILE_N
+            q = _rand(FP8, batch, 1, NUM_Q_HEADS, D)  # native fp8-Q
+            k = _rand(FP8, batch, L_pad, NUM_KV_HEADS, D)
+            v = _rand(FP8, batch, L_pad, NUM_KV_HEADS, D)
+            if L_pad > L:
+                k[:, L:, :, :] = 0
+                v[:, L:, :, :] = 0
+            qd = torch.full((batch, NUM_KV_HEADS), 1.0, dtype=torch.float32, device=DEVICE)
+            kd = torch.full((batch, NUM_KV_HEADS), 1.0, dtype=torch.float32, device=DEVICE)
+            vd = torch.full((batch, NUM_KV_HEADS), 1.0, dtype=torch.float32, device=DEVICE)
+            out, lse = _run(
+                q, k, v, cu_q=None, cu_k=None,
+                max_seqlen_q=1, max_seqlen_k=L,
+                q_descale=qd, k_descale=kd, v_descale=vd,
+            )
+            out = out.squeeze(1)
+            lse = lse.squeeze(-1)
+            ref, ref_lse = _fp32_ref_fp8(q, k, v, qd, kd, vd, [L] * batch)
+            d_abs = float((out.float() - ref).abs().max())
+            ref_max = float(ref.abs().max())
+            rel = d_abs / ref_max
+            lse_err = float((lse - ref_lse).abs().max())
+            ok = (d_abs <= FP8_MAX_ABS_TOL and rel <= FP8_MAX_REL_TOL
+                  and lse_err <= LSE_TOL)
+            results.append(ok)
+            _report_row(f"dense fp8-Q L={L} B={batch}", ok, d_abs, rel, lse_err,
                         FP8_MAX_ABS_TOL, FP8_MAX_REL_TOL)
 
     # ---------------- varlen bf16 (incl. empty batch) -----------------------

@@ -526,7 +526,14 @@ class BlackwellHd256DecodeTC:
 
         # ---- Q load (PackGQA: the GQA group is the M-dimension) -------------
         if const_expr(is_varlen_q):
-            mQ_cur = cute.domain_offset((q_row_base, 0), mQ[None, None, kv_head])
+            # The GQA-packed M-mode is (qhead, seqlen): offset the seqlen sub-mode
+            # by q_row_base (the batch's global query row) via the NESTED coord
+            # ((0, q_row_base), 0) — a flat (q_row_base, 0) applies the offset to
+            # the qhead sub-mode (or drops it), so every batch read row 0's Q and
+            # the varlen QK scores (hence LSE) were wrong for batch>0 (the O was
+            # unaffected for L=1 because P=1 for a single kv row). Same idiom as
+            # the varlen O store below.
+            mQ_cur = cute.domain_offset(((0, q_row_base), 0), mQ[None, None, kv_head])
         else:
             mQ_cur = mQ[None, None, kv_head, batch_idx]
         pack_gqa = PackGQA(TILE_M, D, False, G)
@@ -671,14 +678,22 @@ class BlackwellHd256DecodeTC:
             if const_expr(is_varlen_q):
                 # Varlen LSE (H, total_q) is transposed to (total_q, H) above and
                 # packed to ((qhead, seqlen), nkv) — the nkv mode is flat, so
-                # mLSE[None, kv_head] selects the right kv_head. But the store must
-                # also offset the (qhead, seqlen) mode by the batch's q_row_base
-                # (the O store does this via domain_offset; the LSE store must too,
-                # else every batch writes to global query row 0).
-                mLSE_cur = cute.domain_offset(((0, q_row_base),), mLSE[None, kv_head])
+                # mLSE[None, kv_head] selects the right kv_head. The batch's LSE
+                # rows start at seqlen index q_row_base: carry that base in the
+                # store coordinate (row_base) rather than a domain_offset — a
+                # domain_offset adds the dynamic q_row_base on top of the (already
+                # dynamic) slice base and the DSL 16-B-aligns it in transit,
+                # dropping/corrupting the per-CTA base (every CTA wrote the same
+                # low cells -> cross-batch clobber). The O store is unaffected (it
+                # goes through TiledCopy, whose domain_offset path is correct).
+                mLSE_cur = mLSE[None, kv_head]
+                pack_gqa.store_LSE(
+                    mLSE_cur, softmax.row_sum, tiled_mma_pv, tidx, 0, seqlen_q,
+                    row_base=q_row_base,
+                )
             else:
                 mLSE_cur = mLSE[None, kv_head, batch_idx]
-            pack_gqa.store_LSE(mLSE_cur, softmax.row_sum, tiled_mma_pv, tidx, 0, seqlen_q)
+                pack_gqa.store_LSE(mLSE_cur, softmax.row_sum, tiled_mma_pv, tidx, 0, seqlen_q)
 
         # O: acc_O (rmem) -> sO (smem) -> rmem fragment -> gmem (the Sm80 store path).
         rO = cute.make_fragment_like(acc_O, DTYPE)
