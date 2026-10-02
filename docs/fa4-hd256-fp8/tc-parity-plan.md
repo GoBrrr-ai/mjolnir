@@ -1,14 +1,20 @@
 # TC (mma.sync) hd256 decode — GEMV feature-parity plan
 
-**Status: Phase 1 (correctness) — FULLY GREEN; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02).**
+**Status: Phase 1 (correctness) — FULLY GREEN; Phase 2 (paged KV, the production blocker) — DONE; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02).**
 Dense (bf16 + fp8) and varlen (O + LSE) all pass; the 4-combo dtype gate
 (`(bf16,bf16)`, `(fp16,fp16)`, `(bf16,fp8)`, `(fp8,fp8)`) is live — fp16 and
-native fp8-Q (no pre-cast) verified green. The varlen LSE bug (§1.3) is fixed by
+native fp8-Q (no pre-cast) verified green. **Paged KV (the production blocker) landed 2026-10-02**
+(§2.1): the per-n_block physical page is gathered in-kernel from the page table
+(page-indexed *tiled* cp.async, not a per-row gather — the fast tiled path is kept), the
+true per-batch length comes from `seqused_k` (required for paged, matching the
+`flash_attn_interface.py` invariant), and the dense-vs-paged cross-check is bit-exact.
+The varlen LSE bug (§1.3) is fixed by
 three changes: the head/seqlen transpose (bug A), the per-CTA base carried in the LSE
 store *coordinate* rather than a `domain_offset` (bug B), and a varlen Q-load
 `domain_offset` fix — the flat `(q_row_base, 0)` was offsetting the qhead sub-mode (or
 dropping it), so every batch read row 0's Q and the QK scores (hence LSE) were wrong
-for batch>0 (bug C). Phase 1 is done; Parts 2–4 are the remaining work. This is the workplan to bring the tensor-core
+for batch>0 (bug C). Phase 1 is done; paged (§2.1) and dtypes (§2.3/§2.4) are done;
+SplitKV (§2.2) + re-tile (§2.5) remain. This is the workplan to bring the tensor-core
 decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`) to full feature parity
 with the FMA GEMV decode kernel (`sm100_hd256_decode_gemv`), so the TC kernel can
 **serve production** (paged KV) and match GEMV's capability surface. Every item is
@@ -33,11 +39,13 @@ the exact TC change-points.
 ## The goal
 
 The TC kernel is the primary long-context fix (the GEMV kernel is compute/issue-bound;
-the TC streamer is memory-bound — see `gemv-long-context-diagnosis.md`). But as-is the
-TC kernel is **benchmark-only**: vLLM serving decode is *always* paged, and the TC
-dispatch gate requires `page_table is None` (`interface.py:977`). So it can never be
-selected in production until **paged KV** lands. This plan closes that gap and the
-rest of the capability surface.
+the TC streamer is memory-bound — see `gemv-long-context-diagnosis.md`). It used to be
+**benchmark-only**: vLLM serving decode is *always* paged, and the TC
+dispatch gate required `page_table is None` (`interface.py:977`). **Paged KV now lands
+(§2.1), so the TC kernel can serve production** — the gate is paged-aware (admits
+`page_table is not None` for `page_size in (64, 128)`, requires `seqused_k`). The
+remaining capability gap is SplitKV (§2.2) + re-tile (§2.5). This plan closed the paged
+gap and documents the rest of the capability surface.
 
 ## Capability baseline (as of the fp8-K-path fix, `ab900fe`)
 
@@ -49,7 +57,7 @@ rest of the capability surface.
 | KV dtype + descales | bf16 / fp16 / fp8 + descales | bf16 / fp16 / fp8 + descales |
 | Dense KV | ✅ | ✅ (L=1…65536, B=1/4, gated) |
 | Varlen (cu_seqlens) | ✅ | ✅ O + LSE (§1.3 fixed) |
-| Paged KV (16/128) | ✅ | ❌ |
+| Paged KV (64/128) | ✅ | ✅ (§2.1 — page-indexed tiled cp.async + seqused_k; dense-vs-paged bit-exact) |
 | SplitKV (ns>1 + combine) | ✅ | ❌ (ns=1) |
 | Partial-tail (L < tile) | ✅ (clamp + mask) | ✅ (mask, §1.1) |
 | Empty batch (kv_len=0) | ✅ (O=0, LSE=−inf) | ✅ O=0 (LSE via §1.3) |
@@ -152,28 +160,58 @@ legs confirm no regression.
 
 ## Part 2 — Feature additions (GEMV parity)
 
-### 2.1 Paged KV — the production blocker (highest effort)
+### 2.1 Paged KV — the production blocker — **DONE (2026-10-02, verified bit-exact)**
 
 - **Why essential:** vLLM serving decode is *always* paged (block tables); the TC gate
-  `interface.py:977` hard-requires `page_table is None`, so TC is benchmark-only today.
-- **GEMV reference:** the paged gather at `sm100_hd256_decode_gemv.py:405-416, 442-449,
-  532-539, 590-597`:
-  ```
-  grow = kv_start + crow
-  page = grow // PS
-  phys = mPageTable[batch, page]
-  base = (phys*PS + (grow − page·PS)) * num_head_kv + kv_head
-  ```
-  Reuse the in-tree `paged_kv.py` / `flash_fwd_sm100.py` paged-view pattern.
-- **TC change-points:** the TC KV cp.async is a **tiled** copy (`gmem_thr_copy_K/V`,
-  `tKgK/tVgV`), *not* GEMV's per-element copy — so the page-table indirection cannot be
-  inlined the same way. Two design options (needs a spike):
-  1. **Per-row cp.async** for the paged leg (drop the tiled atom, gather per row like
-     GEMV) — simplest, proven, slightly lower issue-rate;
-  2. **Gathered gmem view** (a paged iterator over `mK/mV` so the tiled atom reads
-     `phys` rows) — keeps the fast tiled path, more DSL work.
-- **Also:** `page_size` becomes a constructor constant (0/16/128) as in GEMV `:94`;
-  pass `mPageTable` through (already a param, currently an unused pass-through).
+  `interface.py:977` hard-required `page_table is None`, so TC was benchmark-only.
+- **Design (shipped): page-indexed *tiled* cp.async (option 2, the performance-focused
+  one — NOT a per-row gather).** The key realizations from the design spike:
+  - **No `tile_n=128` needed.** The FA4 TMA-box assert (one TMA copy = one page) does
+    *not* apply to cp.async: a `TILE_N=64` block reading half of a `PS=128` page is a
+    contiguous gmem range *within one pool page*, so the swizzled smem / ldmatrix / mma
+    machinery is untouched. Only the gmem *source base* becomes per-n_block.
+  - **`seqused_k` is required for paged.** `flash_attn_interface.py:276` asserts
+    `block_table is None or seqused_k is not None` — every paged call carries the
+    per-batch KV lengths. The kernel's `kv_len` is now `mSequsedK[batch_idx]` (paged),
+    not `seqlen_k` (which is pool capacity). The gate requires `seqused_k is not None`
+    when `page_table is not None`.
+  - **One uniform page-table read per n_block.** Per n_block:
+    `pidx = mPageTable[batch_idx, (nb*TILE_N)//PS]` (one plain 32-bit GMEM read), then a
+    gathered *static* pool tile coordinate
+    `ktile = (pidx*PS + (nb*TILE_N)%PS)//TILE_N` into `gK/gV =
+    local_tile(mK/mV_flat_pool, (TILE_N, D), (None, 0))`. The four cp.async sites keep
+    their exact shape — only the last coordinate changes `nb → ktile`. K and V each
+    gather their **own** page (`pidx` / `pidx_v`) — *not* the FA4 "V reuses K[i-1]'s
+    page" trick (V is a separate pool).
+  - **R1 de-risked first** (standalone probe, bit-exact): a *runtime* `ktile` (even via
+    the in-kernel page-table read) lowers to a correct runtime gmem address through the
+    partitioned cp.async view (`tKgK[..., ktile]`), so no `domain_offset` fallback was
+    needed.
+- **Interface (shipped):** paged-aware gate (admit `page_table is not None` for
+  `page_size in (64,128)`, require `seqused_k`); `tc_key` paged term (separate cache
+  entry); ctor `page_size`; compile/launch pass the flat-pool K/V view + `page_table`
+  + `seqused_k` (mirroring the GEMV paged tensor views). The flat-pool K/V is
+  `(NP*PS, D)` per kv_head — a pure additive `is_paged` branch; dense codegen is
+  byte-identical (the dense verify re-ran green).
+- **Two real bugs found + fixed during bring-up:**
+  1. **Multi-page gather column:** the steady-state page column was `nb // PS` — `nb`
+     is a *block* index (64 rows) and `PS` a *row* count (128), so it stayed `0` until
+     block 128 and every block ≥ 2 re-read **page 0's rows**. Single-page cells
+     (L≤128) masked it — which is why the single-page R1 probe passed. Fixed to the
+     page containing row `nb*TILE_N`: `mPageTable[batch_idx, (nb*TILE_N)//PS]`.
+  2. **Paged-variant register-allocation miscompile** (NaN O / −inf LSE; correct source
+     + MLIR, broken PTX binding — see the earlier root-cause in the GEMV workstream).
+     The pin (three `sK` smem reads + three gmem stores into a per-device scratch
+     buffer `mPin`, fp8-safe via a `Float32` cast) is now in the production kernel,
+     compiled **only** in the paged leg (`const_expr(is_paged and mPin is not None)`).
+- **Verify (`verify-tc-decode-paged.py`, 8 cells, PS=128 primary + a PS=64 spot):**
+  identity table, **shuffled** table (the real gather check), partial-page tail (L=97),
+  L=8192 / 64-pages, an fp8-Q leg (q bf16 / kv fp8 — the production config), B=2
+  multi-batch (distinct `kv_len` + distinct tables), and a **dense-vs-paged cross-check
+  → bit-exact (diff 0.0)**. All gated clean windows. PS=64 spot 3/3 bit-exact.
+- **Not shipped yet:** `page_size=16` (a 64-row tile spans 4 pages of 16 — a single
+  static tile can't express it; PS=16 stays with GEMV) and image wiring (the TC
+  dispatch is still vfa-tree-only — see the v14 note in Part 3).
 
 ### 2.2 SplitKV (`num_splits>1` + host combine)
 
@@ -232,12 +270,21 @@ legs confirm no regression.
 
 ## Part 3 — Interface wiring (per feature)
 
-- **Paged:** drop the `page_table is None` gate (`interface.py:977`); add `page_size`
-  to `tc_key` (`:1005`); pass `mPageTable` to the kernel call (`:177-178`).
+- **Paged — DONE (§2.1):** paged-aware gate (admit `page_table is not None` for
+  `page_size in (64,128)` + require `seqused_k`); `tc_key` paged term; ctor `page_size`;
+  flat-pool + `page_table` + `seqused_k` compile/launch args. **Image wiring still open
+  (v14):** the TC dispatch is vfa-tree-only today — `interface-tc-dispatch.diff` is a
+  reference-only patch (no `apply_patches.py` / `verify_patches.py` entry) and the TC
+  kernel is not `COPY`ed in the Dockerfile yet. To ship TC (paged) in
+  `mjolnir/vllm-thor:qwen38-sm110-v14`: add the `COPY fa4-gemv-kernel/sm100_hd256_decode_tc.py`
+  to the Dockerfile (next to the GEMV kernel COPY) + register
+  `interface-tc-dispatch.diff` in the patch stack (or fold it into the GEMV interface
+  patch) + a canary.
 - **SplitKV:** mirror the GEMV plan (`:1111-1139`) — reuse `_gemv_auto_num_splits` + the
   env/caller/cap precedence; allocate `out_partial`/`lse_partial`; add the `:1243`
   combine.
-- **Dtypes:** widen the `q.dtype`/`v.dtype` gates (`:975-976`) per §2.3 / §2.4.
+- **Dtypes:** widen the `q.dtype`/`v.dtype` gates (`:975-976`) per §2.3 / §2.4 — **DONE**
+  (the 4-combo gate landed with the dtype parity, §2.3/§2.4).
 
 ## Part 4 — Verification (extend `verify-tc-decode.py` + bench)
 
@@ -250,8 +297,9 @@ legs confirm no regression.
   --once` / the GEMV bench scripts share the same gate.
 - **New verify cells** (all through the real `_flash_attn_fwd` interface, so the
   dispatch is exercised, not just the kernel):
-  - **paged** (page_size 16/128) for dense + varlen;
-  - **partial-tail** (L=100, L=37);
+   - **paged** (page_size 64/128) ✅ (`verify-tc-decode-paged.py`, 8 cells, dense-vs-paged
+     bit-exact — §2.1);
+   - **partial-tail** (L=100, L=37);
   - **empty-batch** (kv_len=0);
    - **SplitKV** (ns>1, cross-checked against the ns=1 write-through);
    - **fp16** leg ✅ + **fp8-Q** leg ✅ (added 2026-10-02; small-L L=64/256 B=1/4,
@@ -266,7 +314,7 @@ legs confirm no regression.
 | Phase | Items | Effort | Unlocks |
 |---|---|---|---|
 | **1 — correctness** | 1.1 tail ✅, 1.2 empty-batch O ✅, 1.3 varlen LSE ✅ (A/B/C fixed), gate ✅ | S–M | dense green; varlen O + LSE green (27/27 gated) |
-| **2 — production** | 2.1 paged (reuse 1.1 tail-clamp) | **L** | TC can *serve* (paged) |
+| **2 — production** ✅ | 2.1 paged — **DONE** (page-indexed tiled cp.async + seqused_k; two bugs fixed) | **L** | TC can *serve* (paged) |
 | **3 — perf parity** | 2.2 SplitKV, 2.5 re-tile | M–L | fills SMs at low batch |
 | **4 — dtype parity** ✅ | 2.3 fp16 ✅, 2.4 fp8-Q ✅ | S | full dtype matrix (4-combo gate live, verified green) |
 
@@ -288,7 +336,12 @@ independent.
   - [ ] verify cells: L=100/L=37 partial-tail (untested path, §1.1) — empty-batch already
         covered by the varlen `lens=[5,1,0]` cell
 - [ ] **Phase 2**
-  - [ ] 2.1 paged KV (design spike: per-row vs gathered-view) + `page_size` ctor
+  - [x] 2.1 paged KV — **DONE (2026-10-02)**: page-indexed *tiled* cp.async (the fast
+        tiled path, not a per-row gather) + `seqused_k` (required for paged) + `page_size`
+        ctor + paged-aware gate + flat-pool `page_table`/`seqused_k` compile/launch args.
+        Two bugs fixed (multi-page gather column `nb//PS`→`(nb*TILE_N)//PS`; paged-variant
+        reg-alloc miscompile pin → `mPin`). `verify-tc-decode-paged.py` 8 cells green
+        (PS=128; dense-vs-paged bit-exact) + PS=64 spot 3/3. Image wiring (v14) still open.
 - [ ] **Phase 3**
   - [ ] 2.2 SplitKV (grid + chunk + partial + combine)
   - [ ] 2.5 re-tile knobs (TILE_N / ring depth)

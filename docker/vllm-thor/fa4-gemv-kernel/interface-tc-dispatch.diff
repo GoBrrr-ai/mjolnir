@@ -23,16 +23,18 @@
              and head_dim == 256
              and max_seqlen_q == 1
              and all(
-@@ -955,6 +958,136 @@
+@@ -955,6 +958,203 @@
      if cu_seqlens_k is None and seqused_k is None:
          min_seqlen_k = seqlen_k
  
 +    # Tensor-core (mma.sync) hd256 decode (env-gated, DEFAULT-OFF; enable with
 +    # VLLM_FA4_HD256_TC=1): the mma QK/PV streamer (sm100_hd256_decode_tc.py).
 +    # bf16 Q + bf16 or fp8-e4m3 KV (fp8 with the per-(batch, kv_head) descales;
-+    # the fp8 mma halves the KV DRAM bytes), dense+varlen, num_splits=1
-+    # (SplitKV/paged/ring are follow-up passes). Takes precedence over the GEMV
-+    # gate.
++    # the fp8 mma halves the KV DRAM bytes), dense+varlen+paged (paged: the
++    # per-n_block physical page is gathered in-kernel from the page table; the
++    # true per-batch length comes from seqused_k — required, matching
++    # flash_attn_interface.py's paged/seqused_k invariant), num_splits=1
++    # (SplitKV/ring are follow-up passes). Takes precedence over the GEMV gate.
 +    use_tc_hd256 = (
 +        os.environ.get("VLLM_FA4_HD256_TC", "0") == "1"
 +        and arch // 10 in [10, 11]
@@ -47,9 +49,16 @@
 +            or (v.dtype == torch.float8_e4m3fn
 +                and q.dtype in (torch.bfloat16, torch.float8_e4m3fn))
 +        )
-+        and page_table is None
++        # B1/B2: dense (page_table None) or paged with page_size 64/128 (a whole
++        # TILE_N=64 n_block fits one page; the kernel asserts the same). Paged
++        # REQUIRES seqused_k (the true per-batch KV length; the pool is padded
++        # to whole pages). The dense leg stays exactly the dense-only shape.
++        and (
++            (page_table is None and seqused_k is None)
++            or (page_table is not None and page_size in (64, 128)
++                and seqused_k is not None)
++        )
 +        and seqused_q is None
-+        and seqused_k is None
 +        and dynamic_causal is None
 +        and softcap is None
 +        and learnable_sink is None
@@ -73,7 +82,29 @@
 +        # has v.shape[-3] == kv_len == max_seqlen_k); passing max_seqlen_k keeps
 +        # the partial-tail mask correct on the padded pool layout. Varlen derives
 +        # kv_len from cu_seqlens_k in-kernel, so seqlen_k is a dummy there.
++        # Paged: kv_len comes from seqused_k in-kernel, so tc_seqlen_k is a
++        # dummy there (the dense comment above applies to the dense/varlen legs).
++        tc_paged = page_table is not None
 +        tc_seqlen_k = max_seqlen_k if cu_seqlens_k is None else seqlen_k
++        # Paged flat-pool views (B6): the paged pool is (NP, PS, H_kv, D); the
++        # kernel's paged mK/mV are the flat (NP*PS, H_kv, D) view (head axis at
++        # mode 1 — matches the kernel's mK[None, kv_head, None] paged indexing,
++        # A5). Merge the (NP, PS) modes ONLY (no permute — a permute first
++        # makes the reshape non-mergeable and silently COPYs in the wrong
++        # (ps, np) row order): row r = np*PS + ps, strides (H*D, D, 1) — exactly
++        # the row order the kernel's ktile = (pidx*PS + offset)//TILE_N assumes.
++        # A contiguous pool gives a zero-copy view; a non-contiguous pool
++        # gives the same (np, ps) logical order as a copy.
++        k_pool_flat = (
++            k.reshape(page_size * k.shape[0], k.shape[2], k.shape[3])
++            if tc_paged
++            else k
++        )
++        v_pool_flat = (
++            v.reshape(page_size * v.shape[0], v.shape[2], v.shape[3])
++            if tc_paged
++            else v
++        )
 +        # fp8 KV: the native fp8 mma.sync QK needs an fp8 A-operand (no
 +        # bf16xfp8 mixed mma exists), so Q is pre-cast to e4m3 here (the
 +        # kernel then streams Q fp8 and reads it once from smem). The
@@ -83,6 +114,9 @@
 +            if v.dtype in (torch.float8_e4m3fn,)
 +            else q
 +        )
++        # B4: the paged leg compiles to a different binary (is_paged=True +
++        # PS baked in; mPageTable/mSequsedK live), so it must not share a cache
++        # entry with dense. page_size (0 dense / 64 / 128) captures both.
 +        tc_key = (
 +            qhead_per_kvhead,
 +            q.dtype,
@@ -91,14 +125,27 @@
 +            cu_seqlens_k is not None,
 +            lse is not None,
 +            q_descale is not None,
++            page_size if tc_paged else 0,
 +        )
++        # B8: the paged codegen pin scratch (see the kernel's pin comment): a
++        # tiny per-device buffer the paged leg's three pin stores write into;
++        # the values are never read.
++        if getattr(_flash_attn_fwd, "tc_pin_scratch", None) is None:
++            _flash_attn_fwd.tc_pin_scratch = {}
++        tc_pin = _flash_attn_fwd.tc_pin_scratch.get(q.device)
++        if tc_pin is None:
++            tc_pin = torch.zeros(4, dtype=torch.float32, device=q.device)
++            _flash_attn_fwd.tc_pin_scratch[q.device] = tc_pin
 +        if tc_key not in tc_cache:
 +            current_stream = cute.runtime.make_fake_stream(use_tvm_ffi_env_stream=True)
 +            tc_cache[tc_key] = cute.compile(
-+                BlackwellHd256DecodeTC(qhead_per_kvhead),
++                BlackwellHd256DecodeTC(
++                    qhead_per_kvhead,
++                    page_size=page_size if tc_paged else 0,  # B5
++                ),
 +                to_cute_tensor(q_tc, assumed_align=128),
-+                to_cute_tensor(k, assumed_align=128),
-+                to_cute_tensor(v, assumed_align=128),
++                to_cute_tensor(k_pool_flat, assumed_align=128),
++                to_cute_tensor(v_pool_flat, assumed_align=128),
 +                to_cute_tensor(out, assumed_align=128),
 +                to_cute_tensor(lse, assumed_align=4) if lse is not None else None,
 +                to_cute_tensor(cu_seqlens_q, assumed_align=4, leading_dim=0)
@@ -116,17 +163,33 @@
 +                    if q_descale is not None
 +                    else None
 +                ),
-+                None,  # mPageTable (dense first pass)
++                # B6: paged page table (the (batch, max_pages) int32 table —
++                # the GEMV paged idiom) + the per-batch seqused_k (the true KV
++                # length; required by the gate for the paged leg). Dense/varlen
++                # pass None/None (the kernel derives kv_len from seqlen_k /
++                # cu_seqlens_k there).
++                to_cute_tensor(page_table, assumed_align=4, leading_dim=1)
++                if tc_paged
++                else None,
++                to_cute_tensor(seqused_k, assumed_align=4, leading_dim=0)
++                if tc_paged
++                else None,
 +                max_seqlen_q,  # per-batch q length bound for load_Q/store_LSE/O (M=1 => 1)
 +                tc_seqlen_k,
 +                sm_scale_log2,
 +                1,  # num_splits (1 = first correct pass; SplitKV later)
 +                current_stream,
++                # B8: the paged codegen pin scratch (the kernel's last param).
++                to_cute_tensor(tc_pin, assumed_align=4, leading_dim=0)
++                if tc_paged
++                else None,
 +                options="--enable-tvm-ffi",
 +            )
 +        if not fake_mode:
-+            k_call = k.detach()
-+            v_call = v.detach()
++            # Paged: launch the flat-pool views (B7); dense launches the
++            # original (B, S, H, D) k/v exactly as before.
++            k_call = k_pool_flat.detach()
++            v_call = v_pool_flat.detach()
 +            q_call = q_tc.detach()
 +            # FP8 FFI workaround (same as the GEMV/fp8 paths): pass as uint8.
 +            if v.dtype in (torch.float8_e4m3fn,):
@@ -149,11 +212,15 @@
 +                cu_seqlens_q,
 +                cu_seqlens_k,
 +                descale_tensors,
-+                None,
++                # B7: mirrors the compile args — positional order mPageTable,
++                # mSequsedK (matching the kernel __call__ signature).
++                page_table if tc_paged else None,
++                seqused_k if tc_paged else None,
 +                max_seqlen_q,  # per-batch q length bound for load_Q/store_LSE/O (M=1 => 1)
 +                tc_seqlen_k,
 +                sm_scale_log2,
 +                1,
++                tc_pin if tc_paged else None,  # B8 (mPin last; stream is excluded)
 +            )
 +        return out, lse, None, None
 +

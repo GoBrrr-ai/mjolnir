@@ -12,11 +12,12 @@ Shape: M=1, GQA 24:4 (group 6 q-heads per kv-head), head_dim=256. The GQA group 
 are the "n" dimension (tiled by ``TILE_N``). Each CTA owns one kv_head and streams its
 KV through the mma.
 
-Scope (correctness-first): dense + varlen (cu_seqlens_k), bf16 Q + bf16 or fp8-e4m3
-KV (fp8 with the per-(batch, kv_head) descales: qk_descale folds into the softmax
-scale, v_descale into the epilogue — the GEMV/FI descale scheme), num_splits=1,
-single-stage cp.async KV. SplitKV (long-L perf), paged KV, and the deep KV ring are
-the follow-up passes.
+Scope (correctness-first): dense + varlen (cu_seqlens_k) + paged (page table +
+seqused_k; the per-n_block physical page is gathered in-kernel — see the
+``is_paged`` branches below), bf16 Q + bf16 or fp8-e4m3 KV (fp8 with the
+per-(batch, kv_head) descales: qk_descale folds into the softmax scale, v_descale
+into the epilogue — the GEMV/FI descale scheme), num_splits=1, single-stage
+cp.async KV. SplitKV (long-L perf) and the deep KV ring are the follow-up passes.
 
 Correctness gate: ``verify-tc-decode.py`` vs the fp32 reference (``mjolnir verify``).
 """
@@ -135,6 +136,11 @@ class BlackwellHd256DecodeTC:
     def __init__(self, qhead_per_kvhead: int, page_size: int = 0):
         assert qhead_per_kvhead >= 1, "qhead_per_kvhead must be >= 1"
         assert self.HEAD_DIM % 16 == 0
+        # Paged pool page size (0 = dense; 64/128 = the flat-pool paged mode).
+        # The paged mode requires TILE_N (64) <= page_size so a whole n_block
+        # (TILE_N kv rows) fits inside ONE physical page — the per-tile page
+        # gather then needs a single page-table read per n_block.
+        assert page_size in (0, 64, 128), "page_size must be 0 (dense), 64, or 128"
         self.g = qhead_per_kvhead
         self.page_size = page_size
         self.num_threads = self.NUM_THREADS
@@ -151,11 +157,13 @@ class BlackwellHd256DecodeTC:
         mCuSeqlensK: Optional[cute.Tensor] = None,
         mDescale: Optional[DescaleTensors] = None,
         mPageTable: Optional[cute.Tensor] = None,
+        mSequsedK: Optional[cute.Tensor] = None,
         seqlen_q: Int32 = 1,
         seqlen_k: Int32 = 0,
         softmax_scale_log2: Float32 = 0.0,
         num_splits: Int32 = 1,
         stream: cuda.CUstream = None,
+        mPin: Optional[cute.Tensor] = None,
     ):
         is_varlen_q = const_expr(mCuSeqlensQ is not None)
         if const_expr(is_varlen_q):
@@ -179,14 +187,22 @@ class BlackwellHd256DecodeTC:
             KV_trans = [0, 2, 1]
         mQ = cute.make_tensor(mQ.iterator, cute.select(mQ.layout, mode=QO_trans))
         mO = cute.make_tensor(mO.iterator, cute.select(mO.layout, mode=QO_trans))
-        mK = cute.make_tensor(mK.iterator, cute.select(mK.layout, mode=KV_trans))
-        mV = cute.make_tensor(mV.iterator, cute.select(mV.layout, mode=KV_trans))
-        num_head_kv = mV.shape[2]
+        if const_expr(mPageTable is None):
+            # dense/varlen: permute the KV to (seqlen, d, heads, batch) /
+            # (total, d, heads) (the Sm80 pattern).
+            mK = cute.make_tensor(mK.iterator, cute.select(mK.layout, mode=KV_trans))
+            mV = cute.make_tensor(mV.iterator, cute.select(mV.layout, mode=KV_trans))
+        # paged: mK/mV stay the flat-pool (NP*PS, H_kv, D) views (A5) — the
+        # kernel gathers the per-n_block physical page (A8-A10), so the KV_trans
+        # select is skipped (it would be out-of-rank on the 3D pool view).
+        # The head axis sits at mode 1 (mode 2 is D) in the paged pool view.
+        num_head_kv = mV.shape[1] if const_expr(mPageTable is not None) else mV.shape[2]
         mQ = pack_gqa_layout(mQ, self.g, num_head_kv, head_idx=2)
         mO = pack_gqa_layout(mO, self.g, num_head_kv, head_idx=2)
         self.kernel(
             mQ, mK, mV, mO, mLSE, mCuSeqlensQ, mCuSeqlensK, mDescale,
-            seqlen_q, seqlen_k, softmax_scale_log2, num_splits, mPageTable,
+            seqlen_q, seqlen_k, softmax_scale_log2, num_splits,
+            mPageTable, mSequsedK, mPin,
         ).launch(
             grid=[num_kv_heads, 1, batch_size],
             block=[self.num_threads, 1, 1],
@@ -209,11 +225,20 @@ class BlackwellHd256DecodeTC:
         softmax_scale_log2: Float32,
         num_splits: Int32,
         mPageTable: Optional[cute.Tensor] = None,
+        mSequsedK: Optional[cute.Tensor] = None,
+        mPin: Optional[cute.Tensor] = None,
     ):
         D = self.HEAD_DIM
         G = self.g
         TILE_M = self.TILE_M
         TILE_N = self.TILE_N
+        # Paged pool mode (A6): K/V arrive as flat-pool (NP*PS, H_kv, D) views;
+        # the per-n_block physical page is gathered from mPageTable in-kernel and
+        # the flat-pool tile coordinate (ktile) replaces the logical n_block. The
+        # dense/varlen path below is byte-identical to the pre-paged kernel
+        # (is_paged is compile-time folded; PS is unused there).
+        is_paged = const_expr(mPageTable is not None)
+        PS = const_expr(self.page_size)
         # Q and O are bf16 (the I/O dtype); K/V stream as fp8 e4m3 (halving the
         # DRAM bytes) or stay bf16 (regression path). The fp8 QK/PV mmas are the
         # native mma.sync (MmaFP8Op), so Q and P are cast to fp8 in-regs and the
@@ -262,6 +287,11 @@ class BlackwellHd256DecodeTC:
         if const_expr(is_varlen_k):
             kv_row0 = Int32(mCuSeqlensK[batch_idx])
             kv_len = Int32(mCuSeqlensK[batch_idx + 1]) - kv_row0
+        elif const_expr(is_paged):
+            # A7: the per-batch ACTUAL KV length comes from seqused_k — the flat
+            # pool is (typically) padded to whole pages, so kv_len != pool rows.
+            # The tail mask below uses this kv_len exactly as in the dense path.
+            kv_len = Int32(mSequsedK[batch_idx])
         else:
             kv_row0 = batch_idx * seqlen_k
             kv_len = seqlen_k
@@ -514,8 +544,15 @@ class BlackwellHd256DecodeTC:
             scale_eff, num_rows, arch=110, softmax_scale=scale_eff)
         softmax.reset()
 
-        # ---- KV gmem source views (dense + varlen) -------------------------
-        if const_expr(is_varlen_k):
+        # ---- KV gmem source views (dense + varlen + paged) ------------------
+        if const_expr(is_paged):
+            # A5: flat pool (NP*PS, D) per kv_head — the head axis is mode 1 of
+            # the pool view. The row coordinate is the flat-pool tile index
+            # (ktile), computed per n_block from the page table (A8-A10);
+            # local_tile tiles (TILE_N, D) over it with a dynamic row coordinate.
+            mK_cur = mK[None, kv_head, None]
+            mV_cur = mV[None, kv_head, None]
+        elif const_expr(is_varlen_k):
             mK_cur = cute.domain_offset((kv_row0, 0), mK[None, None, kv_head])
             mV_cur = cute.domain_offset((kv_row0, 0), mV[None, None, kv_head])
         else:
@@ -586,19 +623,59 @@ class BlackwellHd256DecodeTC:
         if num_nblocks >= 1:
             nb = Int32(0)
             kv_limit = kv_len - nb * TILE_N
+            if const_expr(is_paged):
+                # A8: gather n_block 0's physical page + the flat-pool tile
+                # coordinate (ktile) that replaces the logical nb. nb == 0:
+                # page index 0, in-page row 0. (R1-PROVEN: a runtime ktile
+                # lowers to a runtime gmem address through the partitioned
+                # cp.async view — the same idiom as probe_tc_paged_ktile.py T2.)
+                pidx = mPageTable[batch_idx, Int32(0)]
+                ktile = (pidx * PS + (nb * TILE_N) % PS) // TILE_N
+                tile_coord = ktile
+            else:
+                tile_coord = nb
             for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
                 if t0KcK[0, n, 0][0] < kv_limit:
                     cute.copy(
-                        gmem_thr_copy_K, tKgK[None, n, None, nb],
+                        gmem_thr_copy_K, tKgK[None, n, None, tile_coord],
                         tKsK[None, n, None, 0], pred=tKpK[None, n, None])
             cute.arch.cp_async_commit_group()
+            if const_expr(is_paged):
+                # A10: V's OWN page-table read (its own pidx/ktile; identical
+                # value while K and V share one pool layout, but V is gathered
+                # independently so the pools can diverge later).
+                pidx_v = mPageTable[batch_idx, Int32(0)]
+                ktile_v = (pidx_v * PS + (nb * TILE_N) % PS) // TILE_N
+                tile_coord_v = ktile_v
+            else:
+                tile_coord_v = nb
             for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
                 cute.copy(
-                    gmem_thr_copy_V, tVgV[None, n, None, nb],
+                    gmem_thr_copy_V, tVgV[None, n, None, tile_coord_v],
                     tVsV[None, n, None, 0], pred=tVpV[None, n, None])
             cute.arch.cp_async_commit_group()
             cute.arch.cp_async_wait_group(0)
             cute.arch.sync_threads()
+            if const_expr(is_paged):
+                # ---- sm_110a paged codegen pin (compiled in the paged leg) --
+                # The paged variant of this kernel is miscompiled by the
+                # toolchain's register allocation: the un-pinned paged leg
+                # emits NaN O / -inf LSE while the dense leg is bit-correct,
+                # with correct kernel source and a correct MLIR trace (the
+                # only PTX difference is register binding). Three smem reads +
+                # three gmem stores in the first block deterministically avoid
+                # the miscompile (validated across dtype x L x batch x page-
+                # table shuffle); the smem->gmem store class is required —
+                # smem stores or gmem reads alone do not fix it. The values go
+                # into a per-device scratch buffer (mPin, interface-owned) that
+                # is never read back.
+                if const_expr(mPin is not None):
+                    if tidx == 0 and kv_head == 0 and batch_idx == 0:
+                        # fp8-safe: the cast goes through Float32 (an fp8/i32
+                        # direct cast does not lower in NVVM on sm_110a).
+                        mPin[0] = sK[0, 0, 0].to(Float32)
+                        mPin[1] = sK[63, 0, 0].to(Float32)
+                        mPin[2] = sK[1, 64, 0].to(Float32)
             if const_expr(FP8_KV):
                 _qk_mma_fp8(tiled_mma_qk, acc_S, tSrQ_mma, tSrK, sK_b)
             else:
@@ -624,15 +701,35 @@ class BlackwellHd256DecodeTC:
         # Steady-state n_blocks (is_first=False).
         for nb in cutlass.range(1, num_nblocks):
             kv_limit = kv_len - nb * TILE_N
+            if const_expr(is_paged):
+                # A9: per-n_block physical page gather (a RUNTIME page index —
+                # the R1-PROVEN idiom): which physical page holds this block's
+                # TILE_N kv rows, then the flat-pool tile coordinate within it.
+                # The table column is the page containing row nb*TILE_N, i.e.
+                # (nb*TILE_N)//PS — NOT nb//PS (nb is a block index, PS a row
+                # count; nb//PS stays 0 until block PS and re-reads page 0).
+                pidx = mPageTable[batch_idx, (nb * TILE_N) // PS]
+                ktile = (pidx * PS + (nb * TILE_N) % PS) // TILE_N
+                tile_coord = ktile
+            else:
+                tile_coord = nb
             for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
                 if t0KcK[0, n, 0][0] < kv_limit:
                     cute.copy(
-                        gmem_thr_copy_K, tKgK[None, n, None, nb],
+                        gmem_thr_copy_K, tKgK[None, n, None, tile_coord],
                         tKsK[None, n, None, 0], pred=tKpK[None, n, None])
             cute.arch.cp_async_commit_group()
+            if const_expr(is_paged):
+                # A10: V's own pidx/ktile (independent gather, see first block).
+                # Same column index as K's A9 read (see the comment there).
+                pidx_v = mPageTable[batch_idx, (nb * TILE_N) // PS]
+                ktile_v = (pidx_v * PS + (nb * TILE_N) % PS) // TILE_N
+                tile_coord_v = ktile_v
+            else:
+                tile_coord_v = nb
             for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
                 cute.copy(
-                    gmem_thr_copy_V, tVgV[None, n, None, nb],
+                    gmem_thr_copy_V, tVgV[None, n, None, tile_coord_v],
                     tVsV[None, n, None, 0], pred=tVpV[None, n, None])
             cute.arch.cp_async_commit_group()
             cute.arch.cp_async_wait_group(0)
