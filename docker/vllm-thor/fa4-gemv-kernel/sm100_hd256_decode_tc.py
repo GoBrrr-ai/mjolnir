@@ -16,8 +16,19 @@ Scope (correctness-first): dense + varlen (cu_seqlens_k) + paged (page table +
 seqused_k; the per-n_block physical page is gathered in-kernel — see the
 ``is_paged`` branches below), bf16 Q + bf16 or fp8-e4m3 KV (fp8 with the
 per-(batch, kv_head) descales: qk_descale folds into the softmax scale, v_descale
-into the epilogue — the GEMV/FI descale scheme), num_splits=1, single-stage
-cp.async KV. SplitKV (long-L perf) and the deep KV ring are the follow-up passes.
+into the epilogue — the GEMV/FI descale scheme), single-stage cp.async KV.
+
+SplitKV (FlashInfer Alg.1, the GEMV Phase-B1 reference): ``num_splits`` is a
+runtime grid y-dimension (one binary serves every ns), so with ``num_splits > 1``
+each CTA scans its **tile-aligned** KV chunk (chunk boundaries are TILE_N
+multiples — the TC's cp.async reads whole 64-row tiles, unlike the GEMV's
+row-aligned chunks) and emits the chunk-normalized fp32 partials
+``mO_partial[split]`` / ``mLSE_partial[split]`` (the host packs them like the
+final O/LSE with a leading split plane; the host combine re-merges). An empty
+chunk (ns over-split past the end) writes O=0 / LSE=-inf (``Softmax.finalize``'s
+zero row_sum path) — the combine discards it. ``num_splits = 1`` keeps the
+serial scan (``kv_start_tile = 0`` → ``gtile == nb``) and the bf16 final O store.
+The deep KV ring is the follow-up pass.
 
 Correctness gate: ``verify-tc-decode.py`` vs the fp32 reference (``mjolnir verify``).
 """
@@ -164,7 +175,12 @@ class BlackwellHd256DecodeTC:
         num_splits: Int32 = 1,
         stream: cuda.CUstream = None,
         mPin: Optional[cute.Tensor] = None,
+        mO_partial: Optional[cute.Tensor] = None,
+        mLSE_partial: Optional[cute.Tensor] = None,
     ):
+        # SplitKV: the partial pair is all-or-nothing (the presence of mO_partial
+        # is the compile-time split flag, the GEMV idiom).
+        assert const_expr((mO_partial is None) == (mLSE_partial is None))
         is_varlen_q = const_expr(mCuSeqlensQ is not None)
         if const_expr(is_varlen_q):
             batch_size = mCuSeqlensQ.shape[0] - 1
@@ -175,6 +191,10 @@ class BlackwellHd256DecodeTC:
         # pointer (base + dynamic row/head/batch offset) provably stays 128-bit
         # aligned for the cp.async gmem->smem loads (the Sm80 pattern, flash_fwd.py:716).
         mQ, mK, mV, mO = [assume_tensor_aligned(t) for t in (mQ, mK, mV, mO)]
+        # The split partials get the same alignment stamps (assume_tensor_aligned
+        # passes None through).
+        mO_partial = assume_tensor_aligned(mO_partial)
+        mLSE_partial = assume_tensor_aligned(mLSE_partial)
         # Host-side layout prep (the Sm80 pattern): permute to (seqlen, d, heads,
         # batch) and pack the GQA group into the M-dimension.
         if const_expr(mCuSeqlensQ is None):
@@ -202,9 +222,12 @@ class BlackwellHd256DecodeTC:
         self.kernel(
             mQ, mK, mV, mO, mLSE, mCuSeqlensQ, mCuSeqlensK, mDescale,
             seqlen_q, seqlen_k, softmax_scale_log2, num_splits,
-            mPageTable, mSequsedK, mPin,
+            mPageTable, mSequsedK, mPin, mO_partial, mLSE_partial,
         ).launch(
-            grid=[num_kv_heads, 1, batch_size],
+            # SplitKV: one CTA per (kv_head, kv-chunk, batch) — num_splits is a
+            # RUNTIME grid dim (the GEMV idiom: one split binary serves every ns;
+            # ns=1 is the serial grid [H_kv, 1, B]).
+            grid=[num_kv_heads, num_splits, batch_size],
             block=[self.num_threads, 1, 1],
             stream=stream,
         )
@@ -227,6 +250,8 @@ class BlackwellHd256DecodeTC:
         mPageTable: Optional[cute.Tensor] = None,
         mSequsedK: Optional[cute.Tensor] = None,
         mPin: Optional[cute.Tensor] = None,
+        mO_partial: Optional[cute.Tensor] = None,
+        mLSE_partial: Optional[cute.Tensor] = None,
     ):
         D = self.HEAD_DIM
         G = self.g
@@ -246,6 +271,14 @@ class BlackwellHd256DecodeTC:
         # the GEMV/FI descale scheme.
         DTYPE = mO.element_type         # bf16 (O)
         KVTYPE = mK.element_type         # fp8 e4m3 or bf16 (K, V streamed)
+        # SplitKV: the partials' presence is the compile-time split flag
+        # (the GEMV idiom). In split mode the chunk-normalized O partial is fp32
+        # (the combine re-merges the planes; the LSE partial is already fp32).
+        # ODTYPE types the O-store path ONLY (sO smem, the O copy atoms, the
+        # rmem fragments) — the mma/softmax stay fp32/bf16 as before. Non-split
+        # keeps bf16 everywhere (byte-identical footprint).
+        IS_SPLIT = const_expr(mO_partial is not None)
+        ODTYPE = Float32 if IS_SPLIT else DTYPE
         FP8T = Float8E4M3FN
         FP8_KV = const_expr(KVTYPE.width == 8)
         # Q smem dtype: fp8 e4m3 on the fp8 leg (the interface pre-casts Q —
@@ -258,6 +291,7 @@ class BlackwellHd256DecodeTC:
         PT = DTYPE
 
         kv_head = cute.arch.block_idx()[0]
+        split_idx = cute.arch.block_idx()[1]   # SplitKV chunk (0 at num_splits=1)
         batch_idx = cute.arch.block_idx()[2]
         tidx = cute.arch.thread_idx()[0]
 
@@ -265,7 +299,28 @@ class BlackwellHd256DecodeTC:
         is_varlen_k = const_expr(mCuSeqlensK is not None)
         # mQ/mO/mK/mV arrive already permuted + GQA-packed (host-side in __call__).
         # mLSE is packed here (element-wise store; no 128-bit gmem alignment needed).
-        if const_expr(mLSE is not None):
+        # In split mode the base is mLSE_partial[split_idx]: the host packs the
+        # partial like the final mLSE plus a leading (num_splits) plane, so the
+        # sliced plane has the IDENTICAL (B, L_q, H) / (H, total_q) shape and the
+        # packing below is unchanged — only the destination differs.
+        if const_expr(mLSE is not None or mLSE_partial is not None):
+            if const_expr(IS_SPLIT):
+                # A bare mLSE_partial[split_idx] is an ELEMENT access in this
+                # DSL (it returns a scalar, not a plane), so build the CTA's
+                # split plane by offsetting the base pointer by
+                # split_idx * (elems per split block) and taking the sub-layout
+                # with the leading (ns) mode dropped — the same trick the GEMV
+                # uses (split_idx*split_stride into a flat offset, see
+                # sm100_hd256_decode_gemv.py). The plane is IDENTICAL to the
+                # final mLSE, so the select/pack below are unchanged.
+                if const_expr(is_varlen_q):
+                    lse_stride = mLSE_partial.shape[1] * mLSE_partial.shape[2]
+                    lse_sub = cute.select(mLSE_partial.layout, mode=[1, 2])
+                else:
+                    lse_stride = (mLSE_partial.shape[1] * mLSE_partial.shape[2]
+                                  * mLSE_partial.shape[3])
+                    lse_sub = cute.select(mLSE_partial.layout, mode=[1, 2, 3])
+                mLSE = cute.make_tensor(mLSE_partial.iterator + split_idx * lse_stride, lse_sub)
             num_head_kv = mO.shape[2]
             if const_expr(not is_varlen_q):
                 # dense mLSE is (B, L_q, H); pack_gqa_layout(head_idx=1) wants the
@@ -295,7 +350,35 @@ class BlackwellHd256DecodeTC:
         else:
             kv_row0 = batch_idx * seqlen_k
             kv_len = seqlen_k
-        num_nblocks = (kv_len + TILE_N - 1) // TILE_N
+        # ---- SplitKV: this CTA's TILE-ALIGNED KV chunk (split mode only) ----
+        # The TC's tiled cp.async reads whole TILE_N-row tiles, so chunk
+        # boundaries are tile multiples (the GEMV's row-aligned chunks do not
+        # map onto the tiled loads). num_splits is a runtime value (the grid's
+        # y-dim), so one split binary serves every ns; num_nblocks below is
+        # this split's tile count (empty chunks past the end get 0 — the
+        # epilogue then writes O=0 / LSE=-inf via Softmax.finalize's zero
+        # row_sum, and the host combine discards the plane).
+        #
+        # CONST_EXPR-gated (the IS_SPLIT = mO_partial-is-not-None idiom): in
+        # non-split mode NO chunk ops enter the leg at all — kv_start_tile
+        # stays undefined and gtile below is a pure alias of nb. That matters:
+        # any extra tile-index arithmetic (even a folded `Int32(0) + nb`)
+        # shifts the paged leg's pipeline scheduling enough to break the
+        # bit-exact dense-vs-paged cross-check, and the dense large-L codegen
+        # moves off the canonical kernel's (a borderline rel cell tipped).
+        if const_expr(IS_SPLIT):
+            kv_total_tiles = (kv_len + TILE_N - 1) // TILE_N
+            kv_chunk_tiles = (kv_total_tiles + num_splits - 1) // num_splits
+            kv_start_tile = split_idx * kv_chunk_tiles
+            num_nblocks = cutlass.min(
+                kv_chunk_tiles,
+                cutlass.max(Int32(0), kv_total_tiles - kv_start_tile),
+            )
+        else:
+            # Non-split serial scan: no chunk ops in this leg (keeps the
+            # paged dense-vs-paged cross-check bit-exact and the dense
+            # large-L codegen identical to the canonical kernel).
+            num_nblocks = (kv_len + TILE_N - 1) // TILE_N
 
         # Per-(batch, kv_head) descales (identity when absent). The fp8 mma.sync
         # computes S_raw = Q_fp8 . K_fp8 and O_raw = P_fp8 . V_fp8, so the true
@@ -347,11 +430,16 @@ class BlackwellHd256DecodeTC:
         thr_mma_pv = tiled_mma_pv.get_slice(tidx)
 
         # Q smem: fp8 on the fp8 leg (pre-cast Q), bf16 otherwise; O smem stays
-        # bf16 (O is written once); K/V stream fp8.
+        # at the I/O dtype (bf16 non-split / fp32 split partial — O is written
+        # once); K/V stream fp8.
         sQ_atom = sm80_utils.get_smem_layout_atom(QDTYPE, D)
         sK_atom = sm80_utils.get_smem_layout_atom(KVTYPE, D)
         sV_atom = sm80_utils.get_smem_layout_atom(KVTYPE, D)
-        sO_atom = sm80_utils.get_smem_layout_atom(DTYPE, D)
+        # O smem at ODTYPE: the split fp32 partial doubles the O tile
+        # (64x256: 32 KiB bf16 -> 64 KiB fp32). Budget check (the K/V tiles
+        # dominate): bf16 leg 32+64+32+32 = 160 KiB, fp8 leg 16+32+64+16+16 =
+        # 144 KiB — both under the ~227 KiB sm_110a per-CTA limit.
+        sO_atom = sm80_utils.get_smem_layout_atom(ODTYPE, D)
         sQ_layout = cute.tile_to_shape(sQ_atom, (TILE_M, D), (0, 1))
         sK_layout = cute.tile_to_shape(sK_atom, (TILE_N, D, 1), (0, 1, 2))
         sV_layout = cute.tile_to_shape(sV_atom, (TILE_N, D, 1), (0, 1, 2))
@@ -370,7 +458,7 @@ class BlackwellHd256DecodeTC:
             class _SharedStorage:
                 sV: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sV_layout)], 1024]
                 sVb: cute.struct.Align[cute.struct.MemRange[DTYPE, cute.cosize(sVb_layout)], 1024]
-                sO: cute.struct.Align[cute.struct.MemRange[DTYPE, cute.cosize(sO_layout)], 1024]
+                sO: cute.struct.Align[cute.struct.MemRange[ODTYPE, cute.cosize(sO_layout)], 1024]
                 sQ: cute.struct.Align[cute.struct.MemRange[QDTYPE, cute.cosize(sQ_layout)], 1024]
                 sK: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sK_layout)], 1024]
             storage = smem.allocate(_SharedStorage)
@@ -379,7 +467,7 @@ class BlackwellHd256DecodeTC:
             @cute.struct
             class _SharedStorage:
                 sV: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sV_layout)], 1024]
-                sO: cute.struct.Align[cute.struct.MemRange[DTYPE, cute.cosize(sO_layout)], 1024]
+                sO: cute.struct.Align[cute.struct.MemRange[ODTYPE, cute.cosize(sO_layout)], 1024]
                 sQ: cute.struct.Align[cute.struct.MemRange[QDTYPE, cute.cosize(sQ_layout)], 1024]
                 sK: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sK_layout)], 1024]
             storage = smem.allocate(_SharedStorage)
@@ -402,9 +490,9 @@ class BlackwellHd256DecodeTC:
         # pads the KV to a whole tile for that reason.
 
         # gmem -> smem tiled copies (Q/K/V/O). Q cp.async as QDTYPE (fp8 on the
-        # fp8 leg); O as bf16; K/V as KVTYPE.
+        # fp8 leg); O as ODTYPE (bf16 / fp32 split partial); K/V as KVTYPE.
         q_async_copy_elems = 128 // QDTYPE.width         # Q: 16 (fp8) / 8 (bf16)
-        o_async_copy_elems = 128 // DTYPE.width          # O: bf16 -> 8 elems
+        o_async_copy_elems = 128 // ODTYPE.width         # O: bf16 -> 8 / fp32 -> 4
         kv_async_copy_elems = 128 // KVTYPE.width        # K/V: 16 (fp8) / 8 (bf16)
         atom_async_copy_q = cute.make_copy_atom(
             cpasync.CopyG2SOp(cache_mode=cpasync.LoadCacheMode.GLOBAL), QDTYPE,
@@ -413,7 +501,7 @@ class BlackwellHd256DecodeTC:
             cpasync.CopyG2SOp(cache_mode=cpasync.LoadCacheMode.GLOBAL), KVTYPE,
             num_bits_per_copy=128)
         atom_universal_copy = cute.make_copy_atom(
-            cute.nvgpu.CopyUniversalOp(), DTYPE, num_bits_per_copy=128)
+            cute.nvgpu.CopyUniversalOp(), ODTYPE, num_bits_per_copy=128)
         tQK_shape_dim_1 = sQ_atom.outer.shape[1] // q_async_copy_elems
         tK_shape_dim_1 = sK_atom.outer.shape[1] // kv_async_copy_elems
         tV_shape_dim_1 = sV_atom.outer.shape[1] // kv_async_copy_elems
@@ -622,18 +710,27 @@ class BlackwellHd256DecodeTC:
         # First n_block (is_first=True).
         if num_nblocks >= 1:
             nb = Int32(0)
-            kv_limit = kv_len - nb * TILE_N
+            # gtile: the GLOBAL tile. In non-split mode it is a pure alias of
+            # nb (no arithmetic) so the codegen stays bit-identical to the
+            # canonical kernel; in split mode it is the CTA's chunk offset + nb.
+            if const_expr(IS_SPLIT):
+                gtile = kv_start_tile + nb
+            else:
+                gtile = nb
+            kv_limit = kv_len - gtile * TILE_N
             if const_expr(is_paged):
-                # A8: gather n_block 0's physical page + the flat-pool tile
-                # coordinate (ktile) that replaces the logical nb. nb == 0:
-                # page index 0, in-page row 0. (R1-PROVEN: a runtime ktile
-                # lowers to a runtime gmem address through the partitioned
-                # cp.async view — the same idiom as probe_tc_paged_ktile.py T2.)
-                pidx = mPageTable[batch_idx, Int32(0)]
-                ktile = (pidx * PS + (nb * TILE_N) % PS) // TILE_N
+                # A8 (+SplitKV): gather this tile's physical page + the
+                # flat-pool tile coordinate (ktile) that replaces the logical
+                # tile. The table column is the page containing global row
+                # gtile*TILE_N (== column 0 at ns=1, nb=0). (R1-PROVEN: a
+                # runtime ktile lowers to a runtime gmem address through the
+                # partitioned cp.async view — the same idiom as
+                # probe_tc_paged_ktile.py T2.)
+                pidx = mPageTable[batch_idx, (gtile * TILE_N) // PS]
+                ktile = (pidx * PS + (gtile * TILE_N) % PS) // TILE_N
                 tile_coord = ktile
             else:
-                tile_coord = nb
+                tile_coord = gtile
             for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
                 if t0KcK[0, n, 0][0] < kv_limit:
                     cute.copy(
@@ -643,12 +740,12 @@ class BlackwellHd256DecodeTC:
             if const_expr(is_paged):
                 # A10: V's OWN page-table read (its own pidx/ktile; identical
                 # value while K and V share one pool layout, but V is gathered
-                # independently so the pools can diverge later).
-                pidx_v = mPageTable[batch_idx, Int32(0)]
-                ktile_v = (pidx_v * PS + (nb * TILE_N) % PS) // TILE_N
+                # independently so the pools can diverge later). Same gtile.
+                pidx_v = mPageTable[batch_idx, (gtile * TILE_N) // PS]
+                ktile_v = (pidx_v * PS + (gtile * TILE_N) % PS) // TILE_N
                 tile_coord_v = ktile_v
             else:
-                tile_coord_v = nb
+                tile_coord_v = gtile
             for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
                 cute.copy(
                     gmem_thr_copy_V, tVgV[None, n, None, tile_coord_v],
@@ -682,9 +779,24 @@ class BlackwellHd256DecodeTC:
                 sm80_utils.gemm(
                     thr_mma_qk, acc_S, tSrQ_mma, tSrK, tSsQ, tSsK[None, None, None, 0],
                     smem_thr_copy_Q, smem_thr_copy_K, A_in_regs=True)
-            # OOB mask (first block, see steady-state note).
-            if kv_len < TILE_N:
-                _mask_partial_kv(acc_S, thr_mma_qk, nb, kv_len, TILE_M, TILE_N)
+            # OOB mask (first block, see steady-state note). The mask checks the
+            # ABSOLUTE row (gtile*TILE_N + col >= kv_len) — the global tile. In
+            # non-split mode gtile is a pure alias of nb==0 here, so the guard is
+            # the canonical `kv_len < TILE_N` — keep it on its own branch so the
+            # non-split codegen stays bit-identical to the reference kernel (a
+            # folded gtile term here shifts the dense/paged codegen; see the
+            # steady-state note). In split mode the first block is at
+            # gtile==kv_start_tile, which IS the partial tail whenever this split
+            # owns the last tile — e.g. L=97, ns=2: split 1 has a single block at
+            # gtile=1 (rows 64..127, kv_len=97), `kv_len < TILE_N` is false, and
+            # the OOB rows 97..127 were never masked -> wrong LSE (3.2e-1). Guard
+            # the split path on the block's own remaining rows instead.
+            if const_expr(IS_SPLIT):
+                if kv_len - gtile * TILE_N < TILE_N:
+                    _mask_partial_kv(acc_S, thr_mma_qk, gtile, kv_len, TILE_M, TILE_N)
+            else:
+                if kv_len < TILE_N:
+                    _mask_partial_kv(acc_S, thr_mma_qk, gtile, kv_len, TILE_M, TILE_N)
             row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(True))
             softmax.rescale_O(acc_O, row_scale)
             rP = cute.make_fragment_like(acc_S, PT)
@@ -694,25 +806,36 @@ class BlackwellHd256DecodeTC:
                 # Stage V fp8 -> bf16, then the PV ldmatrix reads sVb exactly
                 # like the bf16 leg (proven; an fp8 B-operand faults on sm_110a).
                 _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
+                # Barrier: sVb is written by ALL threads above and read by ALL
+                # threads in the gemm_rs ldmatrix below. Without it a warp can
+                # ldmatrix-read sVb before another warp's convert retires —
+                # 1st block reads uninitialized smem (NaN), later blocks read
+                # the previous block's stale V (the large finite O error).
+                cute.arch.sync_threads()
             sm80_utils.gemm_rs(
                 thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
                 smem_thr_copy_V)
 
         # Steady-state n_blocks (is_first=False).
         for nb in cutlass.range(1, num_nblocks):
-            kv_limit = kv_len - nb * TILE_N
+            if const_expr(IS_SPLIT):
+                gtile = kv_start_tile + nb  # GLOBAL tile (chunk offset + nb)
+            else:
+                gtile = nb                 # pure alias: canonical codegen
+            kv_limit = kv_len - gtile * TILE_N
             if const_expr(is_paged):
-                # A9: per-n_block physical page gather (a RUNTIME page index —
-                # the R1-PROVEN idiom): which physical page holds this block's
-                # TILE_N kv rows, then the flat-pool tile coordinate within it.
-                # The table column is the page containing row nb*TILE_N, i.e.
-                # (nb*TILE_N)//PS — NOT nb//PS (nb is a block index, PS a row
-                # count; nb//PS stays 0 until block PS and re-reads page 0).
-                pidx = mPageTable[batch_idx, (nb * TILE_N) // PS]
-                ktile = (pidx * PS + (nb * TILE_N) % PS) // TILE_N
+                # A9 (+SplitKV): per-tile physical page gather (a RUNTIME page
+                # index — the R1-PROVEN idiom): which physical page holds this
+                # tile's TILE_N kv rows, then the flat-pool tile coordinate
+                # within it. The table column is the page containing GLOBAL row
+                # gtile*TILE_N, i.e. (gtile*TILE_N)//PS — NOT gtile//PS (the
+                # tile is a block index, PS a row count; gtile//PS stays 0
+                # until tile PS and would re-read page 0).
+                pidx = mPageTable[batch_idx, (gtile * TILE_N) // PS]
+                ktile = (pidx * PS + (gtile * TILE_N) % PS) // TILE_N
                 tile_coord = ktile
             else:
-                tile_coord = nb
+                tile_coord = gtile
             for n in cutlass.range_constexpr(cute.size(tKsK.shape[1])):
                 if t0KcK[0, n, 0][0] < kv_limit:
                     cute.copy(
@@ -721,12 +844,12 @@ class BlackwellHd256DecodeTC:
             cute.arch.cp_async_commit_group()
             if const_expr(is_paged):
                 # A10: V's own pidx/ktile (independent gather, see first block).
-                # Same column index as K's A9 read (see the comment there).
-                pidx_v = mPageTable[batch_idx, (nb * TILE_N) // PS]
-                ktile_v = (pidx_v * PS + (nb * TILE_N) % PS) // TILE_N
+                # Same gtile / column index as K's A9 read (comment there).
+                pidx_v = mPageTable[batch_idx, (gtile * TILE_N) // PS]
+                ktile_v = (pidx_v * PS + (gtile * TILE_N) % PS) // TILE_N
                 tile_coord_v = ktile_v
             else:
-                tile_coord_v = nb
+                tile_coord_v = gtile
             for n in cutlass.range_constexpr(cute.size(tVsV.shape[1])):
                 cute.copy(
                     gmem_thr_copy_V, tVgV[None, n, None, tile_coord_v],
@@ -747,7 +870,7 @@ class BlackwellHd256DecodeTC:
             # re-scheduled the hot loop and corrupted large-L single-batch
             # runs — keep the loop structure stable.)
             if kv_len % TILE_N != 0:
-                _mask_partial_kv(acc_S, thr_mma_qk, nb, kv_len, TILE_M, TILE_N)
+                _mask_partial_kv(acc_S, thr_mma_qk, gtile, kv_len, TILE_M, TILE_N)
             row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(False))
             softmax.rescale_O(acc_O, row_scale)
             rP = cute.make_fragment_like(acc_S, PT)
@@ -755,6 +878,9 @@ class BlackwellHd256DecodeTC:
             tOrP = layout_utils.reshape_acc_to_frgA(rP)
             if const_expr(FP8_KV):
                 _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
+                # sVb write (all threads) must complete before the gemm_rs
+                # ldmatrix read (all threads) — see the first-block barrier.
+                cute.arch.sync_threads()
             sm80_utils.gemm_rs(
                 thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
                 smem_thr_copy_V)
@@ -771,7 +897,11 @@ class BlackwellHd256DecodeTC:
         # (row_sum) is score-domain only and is not affected.
         acc_O.store(acc_O.load() * v_descale)
 
-        if const_expr(mLSE is not None):
+        # LSE: the VALUE is the same in split mode (row_sum = the chunk LSE,
+        # natural units; an empty chunk already holds -inf from finalize) — only
+        # the destination differs (mLSE was repointed to mLSE_partial[split_idx]
+        # in the packing block above).
+        if const_expr(mLSE is not None or mLSE_partial is not None):
             if const_expr(is_varlen_q):
                 # Varlen LSE (H, total_q) is transposed to (total_q, H) above and
                 # packed to ((qhead, seqlen), nkv) — the nkv mode is flat, so
@@ -792,24 +922,54 @@ class BlackwellHd256DecodeTC:
                 mLSE_cur = mLSE[None, kv_head, batch_idx]
                 pack_gqa.store_LSE(mLSE_cur, softmax.row_sum, tiled_mma_pv, tidx, 0, seqlen_q)
 
-        # O: acc_O (rmem) -> sO (smem) -> rmem fragment -> gmem (the Sm80 store path).
-        rO = cute.make_fragment_like(acc_O, DTYPE)
-        rO.store(acc_O.load().to(DTYPE))
-        smem_copy_atom_O = utils.get_smem_store_atom(110, DTYPE)
+        # O: acc_O (rmem) -> sO (smem) -> rmem fragment -> gmem (the Sm80 store
+        # path). ODTYPE-typed: bf16 non-split (byte-identical to before) /
+        # fp32 split partial. The VALUE is the same in split mode (acc_O after
+        # finalize() + rescale_O + v_descale = the chunk-normalized O) — only
+        # the destination (mO_partial[split_idx]) and dtype differ.
+        rO = cute.make_fragment_like(acc_O, ODTYPE)
+        rO.store(acc_O.load().to(ODTYPE))
+        smem_copy_atom_O = utils.get_smem_store_atom(110, ODTYPE)
         smem_thr_copy_O = cute.make_tiled_copy_C(smem_copy_atom_O, tiled_mma_pv).get_slice(tidx)
         taccOrO = smem_thr_copy_O.retile(rO)
         taccOsO = smem_thr_copy_O.partition_D(sO)
         cute.copy(smem_copy_atom_O, taccOrO, taccOsO)
         cute.arch.sync_threads()
         tOsO = gmem_thr_copy_O.partition_S(sO)
-        tOrO = cute.make_fragment_like(tOsO, DTYPE)
+        tOrO = cute.make_fragment_like(tOsO, ODTYPE)
         cute.autovec_copy(tOsO, tOrO)
+        if const_expr(IS_SPLIT):
+            # mO_partial is host-packed like mO plus a leading (num_splits)
+            # plane. A bare mO_partial[split_idx] is an ELEMENT access in this
+            # DSL, so build the CTA's plane by offsetting the base pointer by
+            # split_idx * (elems per split block) and dropping the (ns) mode —
+            # the GEMV idiom — then apply the SAME QO permute + GQA pack the
+            # final mO got in __call__ (the select mirrors QO_trans; the pack
+            # mirrors pack_gqa_layout(mO, ..., head_idx=2)), so the store path
+            # is identical — only the base + dtype differ.
+            if const_expr(is_varlen_q):
+                o_stride = mO_partial.shape[1] * mO_partial.shape[2] * mO_partial.shape[3]
+                o_sub = cute.select(mO_partial.layout, mode=[1, 2, 3])
+            else:
+                o_stride = (mO_partial.shape[1] * mO_partial.shape[2]
+                            * mO_partial.shape[3] * mO_partial.shape[4])
+                o_sub = cute.select(mO_partial.layout, mode=[1, 2, 3, 4])
+            mO_sp = cute.make_tensor(mO_partial.iterator + split_idx * o_stride, o_sub)
+            if const_expr(is_varlen_q):
+                mO_sp = cute.make_tensor(mO_sp.iterator, cute.select(mO_sp.layout, mode=[0, 2, 1]))
+            else:
+                mO_sp = cute.make_tensor(mO_sp.iterator, cute.select(mO_sp.layout, mode=[1, 3, 2, 0]))
+            # mO.shape[2] is the packed nheads_kv (the LSE block's num_head_kv
+            # idiom) — pack_gqa_layout's nheads_kv arg, NOT the pre-pack 24.
+            mO_sp = pack_gqa_layout(mO_sp, G, mO.shape[2], head_idx=2)
+        else:
+            mO_sp = mO
         if const_expr(is_varlen_q):
             # The GQA-packed M-mode is (qhead, total_q): offset only the
             # total_q sub-mode by q_row_base (the batch's global query row) —
             # a scalar would land on the fastest (total_q) sub-mode only when
             # the strides happen to agree, so be explicit.
-            mO_cur = cute.domain_offset(((0, q_row_base), 0), mO[None, None, kv_head])
+            mO_cur = cute.domain_offset(((0, q_row_base), 0), mO_sp[None, None, kv_head])
         else:
-            mO_cur = mO[None, None, kv_head, batch_idx]
+            mO_cur = mO_sp[None, None, kv_head, batch_idx]
         pack_gqa.store_O(mO_cur, tOrO, gmem_tiled_copy_O, tidx, 0, seqlen_q)

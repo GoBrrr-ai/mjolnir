@@ -1,6 +1,6 @@
 # TC (mma.sync) hd256 decode — GEMV feature-parity plan
 
-**Status: Phase 1 (correctness) — FULLY GREEN; Phase 2 (paged KV, the production blocker) — DONE; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02).**
+**Status: Phase 1 (correctness) — FULLY GREEN; Phase 2 (paged KV, the production blocker) — DONE; Phase 3 (SplitKV + the sVb race fix) — DONE; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02).**
 Dense (bf16 + fp8) and varlen (O + LSE) all pass; the 4-combo dtype gate
 (`(bf16,bf16)`, `(fp16,fp16)`, `(bf16,fp8)`, `(fp8,fp8)`) is live — fp16 and
 native fp8-Q (no pre-cast) verified green. **Paged KV (the production blocker) landed 2026-10-02**
@@ -8,13 +8,22 @@ native fp8-Q (no pre-cast) verified green. **Paged KV (the production blocker) l
 (page-indexed *tiled* cp.async, not a per-row gather — the fast tiled path is kept), the
 true per-batch length comes from `seqused_k` (required for paged, matching the
 `flash_attn_interface.py` invariant), and the dense-vs-paged cross-check is bit-exact.
+**SplitKV (the low-batch SM-filling lever) landed 2026-10-02** (§2.2): `num_splits` as a
+runtime grid y-dim, tile-aligned chunks, fp32 partial O/LSE + the reused GEMV host combine
+(`_flash_attn_fwd_combine`) and auto-ns plan (`_gemv_auto_num_splits`). The bring-up surfaced
+and fixed a **cross-warp smem data race** (§2.2): the fp8→bf16 V staging buffer `sVb` was
+written by all threads but not barriered before the all-threads `gemm_rs` ldmatrix read —
+1st block read uninitialized `sVb` (the rare NaN), later blocks read stale V (the ~2e-1 O
+error), run-to-run non-deterministic; fixed with a fp8-leg-only `sync_threads()` at both PV
+sites, after which the fp8 large-L SplitKV is deterministic at the expected fp8 floor.
 The varlen LSE bug (§1.3) is fixed by
 three changes: the head/seqlen transpose (bug A), the per-CTA base carried in the LSE
 store *coordinate* rather than a `domain_offset` (bug B), and a varlen Q-load
 `domain_offset` fix — the flat `(q_row_base, 0)` was offsetting the qhead sub-mode (or
 dropping it), so every batch read row 0's Q and the QK scores (hence LSE) were wrong
-for batch>0 (bug C). Phase 1 is done; paged (§2.1) and dtypes (§2.3/§2.4) are done;
-SplitKV (§2.2) + re-tile (§2.5) remain. This is the workplan to bring the tensor-core
+for batch>0 (bug C). Phase 1 is done; paged (§2.1), dtypes (§2.3/§2.4), and SplitKV (§2.2) are done;
+only the re-tile (§2.5) knobs + the tcgen05/fp8-PV spike (§2.2a) remain. This is the
+workplan to bring the tensor-core
 decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`) to full feature parity
 with the FMA GEMV decode kernel (`sm100_hd256_decode_gemv`), so the TC kernel can
 **serve production** (paged KV) and match GEMV's capability surface. Every item is
@@ -58,7 +67,7 @@ gap and documents the rest of the capability surface.
 | Dense KV | ✅ | ✅ (L=1…65536, B=1/4, gated) |
 | Varlen (cu_seqlens) | ✅ | ✅ O + LSE (§1.3 fixed) |
 | Paged KV (64/128) | ✅ | ✅ (§2.1 — page-indexed tiled cp.async + seqused_k; dense-vs-paged bit-exact) |
-| SplitKV (ns>1 + combine) | ✅ | ❌ (ns=1) |
+| SplitKV (ns>1 + combine) | ✅ | ✅ (§2.2 — tile-aligned chunks, fp32 partials + reused host combine; sVb race fixed) |
 | Partial-tail (L < tile) | ✅ (clamp + mask) | ✅ (mask, §1.1) |
 | Empty batch (kv_len=0) | ✅ (O=0, LSE=−inf) | ✅ O=0 (LSE via §1.3) |
 | Long-L perf | weaker | **stronger** |
@@ -213,25 +222,88 @@ legs confirm no regression.
   static tile can't express it; PS=16 stays with GEMV) and image wiring (the TC
   dispatch is still vfa-tree-only — see the v14 note in Part 3).
 
-### 2.2 SplitKV (`num_splits>1` + host combine)
+### 2.2 SplitKV (`num_splits>1` + host combine) — **DONE (2026-10-02, verified)**
 
 - **Why it matters for TC:** memory-bound → more CTAs = better BW at low batch
-  (batch=1, 4 kv-heads = 4 CTAs vs 20 SMs); SplitKV fills the GPU.
-- **GEMV reference:**
-  - chunk scan `:224-230` — `kv_chunk = ceil(kv_len/ns); kv_start = split*kv_chunk;
-    kv_len_c = min(chunk, max(0, kv_len − start))`;
-  - grid `y=num_splits` `:162`;
-  - split epilogue `:624-630` — chunk-normalized `O_partial = o·v_descale / l`,
-    `LSE_partial = (m + log2 l)·ln2`;
-  - host combine `interface.py:1243-1252` (`_flash_attn_fwd_combine`, the A1b ⊕-merge).
-- **TC change-points:**
-  - grid `sm100_hd256_decode_tc.py:209` `[num_kv_heads, 1, batch]` →
-    `[num_kv_heads, num_splits, batch]`;
-  - add the chunk (`kv_start`/`kv_len_c`) and drive the n-block loop `:572-649` over the
-    *chunk's* blocks;
-  - split the epilogue to `mO_partial`/`mLSE_partial` (fp32) when `mO_partial is not
-    None` (the `IS_SPLIT` compile flag, GEMV `:194`);
-  - **reuse** `_flash_attn_fwd_combine` unchanged.
+  (batch=1, 4 kv-heads = 4 CTAs vs 20 SMs); SplitKV fills the GPU (the GEMV's
+  `ns=1→20 → ×8.7 achieved BW` lever, `gemv-ring-fix-bench.md`).
+- **Design (shipped):** a port of the GEMV SplitKV, adapted to the TC's *tiled* cp.async:
+  - **`num_splits` as a runtime grid y-dim** (one split binary serves every ns): grid
+    `[num_kv_heads, num_splits, batch]` (`__call__` L207).
+  - **Tile-aligned chunks** (NOT row-aligned — the tiled cp.async needs tile boundaries):
+    `kv_chunk_tiles = ceil(ceil(kv_len/TILE_N)/ns)`, `kv_start_tile = split_idx*
+    kv_chunk_tiles`; the **global tile** `gtile = kv_start_tile + nb` replaces `nb` in the
+    dense tile coord, the paged gather, and the tail mask. ns=1 → `kv_start_tile=0`,
+    `gtile=nb` — byte-identical (the chunk scan is `IS_SPLIT`-gated so non-split codegen
+    is canonical-identical — the unconditional scan tipped the paged pipeline's
+    scheduling and broke the bit-exact xcheck, root-caused during bring-up).
+  - **fp32 partial O/LSE:** the epilogue stores `mO_partial[split]` (fp32) /
+    `mLSE_partial[split]` (fp32) — the O-store path is typed `ODTYPE=fp32` in split mode
+    (`sO` smem + the copy atom + the rmem fragment), bf16 otherwise. The partial VALUES
+    are the same as non-split (chunk-normalized O + chunk LSE); empty chunks → `O=0 /
+    LSE=−inf` via `Softmax.finalize` (the `row_sum==0 → scale=1.0` guard) for free.
+  - **Interface:** the `tc_split` gate (decode-shaped only), the **reused**
+    `_gemv_auto_num_splits` plan (FlashInfer Alg.1, env/caller/auto precedence, the
+    `VLLM_FA4_HD256_TC_NUM_SPLITS` knob), the `out_partial`/`lse_partial` fp32 allocation
+    (matching the kernel's packed view), and the **reused** `_flash_attn_fwd_combine`
+    host combine (unchanged). `tc_key` gets a `tc_split` term (separate cache entry).
+- **The sVb cross-warp race (found + fixed during bring-up):** the fp8 PV stages V
+  through a bf16 smem buffer `sVb` (`_convert_v_to_bf16`, all threads write) → `gemm_rs`
+  ldmatrix (all threads read), with **no barrier between** → 1st block read *uninitialized*
+  `sVb` (garbage bits → the rare NaN), later blocks read *stale* previous-block V (the
+  ~2.27e-1 O error), run-to-run non-deterministic. The bf16 leg (reads `sV` directly) is
+  clean; the latent race was un-dormanted by the SplitKV codegen (fp32 O + chunk math
+  reshuffled the warp schedule). **Fix:** a fp8-leg-only `cute.arch.sync_threads()` after
+  the `sVb` write + before `gemm_rs` at both PV sites (the GEMV idiom). Post-fix the fp8
+   large-L SplitKV is **deterministic** at the expected fp8 quantization floor (~1.2–1.5e-2),
+   no NaN in 18 runs. (Not the fp8 P-cast — see §2.2a: the PV is bf16 by design.)
+- **The auto-ns pool-size cap (fixed during bring-up):** the ns plan capped on the KV
+   *pool* size (`seqlen_k`), which for paged is larger than the true per-batch `kv_len` —
+   a partial-page tail batch could be planned more splits than it has tiles. **Fix:** cap
+   on `max_seqlen_k` (the true per-batch max KV length — the pool size for dense, the
+   actual length for paged) instead: `ns ≤ ceil(max_seqlen_k/128)` (`interface.py` M2 plan).
+- **Split-path first-block OOB mask guard (fixed during bring-up):** the partial-tail
+   first-block guard tested `kv_len < TILE_N` — correct only for the non-split `nb=0`
+   case. In split mode the first block is at `gtile = kv_start_tile`, so a split whose
+   *only* block is the partial tail (e.g. `L=97`, `ns=2`, split 1 covers rows 64-127 with
+   `kv_len=97`) never masked the OOB rows → read past the end of the KV. **Fix:** make the
+   guard split-aware — `if IS_SPLIT: mask if kv_len - gtile*TILE_N < TILE_N` `else: mask
+   if kv_len < TILE_N` (the non-split branch is byte-identical to the original).
+- **Verify:** the ns sweep ({1,2,4} + auto-ns) cross-checked against the ns=1 write-through —
+   the combine recovers the write-through within the fp32 accumulation floor (NOT bit-exact:
+   a real combine/sVb bug breaches ≥ ~0.1, the pre-fix sVb race), dense + paged, bf16 + fp8,
+   the **empty-split** (a paged `B=2 [256,64]` at ns=2 → the short batch's splits 1.. are EMPTY,
+   the `−inf` LSE contributes 0 and the combine still matches ns=1 for both batches), the
+   auto-ns plan (`L=8192` → ns=20), and a 3× bit-identical determinism repeat (the sVb fix).
+   The dedicated **`verify-tc-decode-splitkv.py`** (gated; 13 cases) exercises the dispatch
+   end-to-end through the real `_flash_attn_fwd` — the `tc_split` gate, the caller-
+   `num_splits` + the `VLLM_FA4_HD256_TC_NUM_SPLITS` env + the auto plan, the fp32
+   `out_partial`/`lse_partial` allocation, and the host combine — all green (13/13). The
+   full `verify-tc-decode.py` dense sweep (34/35; the one miss a pre-existing bf16
+   `L=32768 B=4` borderline flake) and `verify-tc-decode-paged.py` (8/8, dense-vs-paged
+   bit-exact) re-confirmed under the split-aware xcheck.
+
+### 2.2a Why the PV mma is bf16 (and when the fp8 PV / `tcgen05` would matter)
+
+The QK mma **is** fp8 (the Blackwell fp8 tensor core for the dominant Q·K, plus the fp8 KV
+in gmem that halves the DRAM bytes — the decode win). Only the **PV mma is bf16**, for two
+sm_110a `mma.sync` blockers (not a perf choice): (a) an e4m3 **P A-fragment** produced in
+registers doesn't pack via `reshape_acc_to_frgA` (undefined register bits → NaN); (b) the
+e4m3 **V B-operand ldmatrix faults on sm_110a** (the QK works around it by loading K
+*element-wise* — that workaround isn't in the PV path). Casting P→e4m3 is implementable
+(element-wise V B-operand like the QK's K + the e4m3 P packing + a `cvt.satfinite` clamp
+so P-overflow can't NaN), but **for M=1 decode the tensor core isn't the limiter** (the KV
+load is — see the memory-bound diagnosis), so it buys ~no speedup. It **would** matter for
+M≥8 (MTP verify) / prefill (a separate spike). The broader "not fully Blackwell" gap is
+`mma.sync` vs the `tcgen05` 5th-gen tensor core (TMEM/2CTA) — also moot for memory-bound
+M=1 decode, relevant for M≥8/prefill. **Investigation: COMPLETE** —
+`tc-fp8pv-tcgen05-investigation.md`: both blockers confirmed with exact line refs (a: the
+fp8 A-fragment thread mapping is incompatible with the C-fragment → P smem round-trip is
+mandatory; b: 8-bit ldmatrix fault + broken retile, the element-wise workaround is proven
+on the QK K leg), fp8-PV mma feasible (in-tree precedent for every piece) but ~0 gain at
+M=1, and tcgen05 rejected for the TC kernel (not 2CTA-locked — a 1CTA tcgen05 hd256 decode
+kernel already exists in-tree and is measured 2.25× slower than the production FI path at
+L=8192/M=1). Defer both to the M≥8 dispatch spike.
 
 ### 2.3 fp16 KV dtype + descales — **DONE (2026-10-02, verified green)**
 
@@ -280,9 +352,16 @@ legs confirm no regression.
   to the Dockerfile (next to the GEMV kernel COPY) + register
   `interface-tc-dispatch.diff` in the patch stack (or fold it into the GEMV interface
   patch) + a canary.
-- **SplitKV:** mirror the GEMV plan (`:1111-1139`) — reuse `_gemv_auto_num_splits` + the
-  env/caller/cap precedence; allocate `out_partial`/`lse_partial`; add the `:1243`
-  combine.
+- **SplitKV — DONE (§2.2):** the `tc_split` gate (decode-shaped only) + the reused
+  `_gemv_auto_num_splits` plan (env `VLLM_FA4_HD256_TC_NUM_SPLITS` / caller `num_splits` /
+  auto precedence, cap on `max_seqlen_k`) + the fp32 `out_partial`/`lse_partial`
+  allocation + the reused `_flash_attn_fwd_combine` host combine. **The
+  `interface-tc-dispatch.diff` was regenerated** (3 hunks: the `_flash_attn_fwd_combine`
+  import, the `_gemv_dtype_ok` widening, and the `use_tc_hd256` block carrying the paged +
+  SplitKV dispatch) and **round-trip verified** against the image base
+  (`docker run … cat …/interface.py` → `patch -p1` → byte-identical to the live vfa-tree
+  `interface.py`). Still reference-only (no `apply_patches.py`/`verify_patches.py` entry,
+  no Dockerfile `COPY`) — see the v14 note above for the ship path.
 - **Dtypes:** widen the `q.dtype`/`v.dtype` gates (`:975-976`) per §2.3 / §2.4 — **DONE**
   (the 4-combo gate landed with the dtype parity, §2.3/§2.4).
 
@@ -301,7 +380,9 @@ legs confirm no regression.
      bit-exact — §2.1);
    - **partial-tail** (L=100, L=37);
   - **empty-batch** (kv_len=0);
-   - **SplitKV** (ns>1, cross-checked against the ns=1 write-through);
+   - **SplitKV** ✅ (`verify-tc-decode-splitkv.py`, 13 cases: dense + paged, bf16 + fp8,
+     ns sweep {1,2,4} caller/env + auto-ns, empty-split paged [256,64], 3× determinism —
+     combined(ns>1) vs ns=1 write-through, gated; §2.2);
    - **fp16** leg ✅ + **fp8-Q** leg ✅ (added 2026-10-02; small-L L=64/256 B=1/4,
      pass at rel ≤ 1.8e-2 — the fp8 large-L legs are left to the gated run since they
      are co-tenancy-sensitive).
@@ -315,7 +396,7 @@ legs confirm no regression.
 |---|---|---|---|
 | **1 — correctness** | 1.1 tail ✅, 1.2 empty-batch O ✅, 1.3 varlen LSE ✅ (A/B/C fixed), gate ✅ | S–M | dense green; varlen O + LSE green (27/27 gated) |
 | **2 — production** ✅ | 2.1 paged — **DONE** (page-indexed tiled cp.async + seqused_k; two bugs fixed) | **L** | TC can *serve* (paged) |
-| **3 — perf parity** | 2.2 SplitKV, 2.5 re-tile | M–L | fills SMs at low batch |
+| **3 — perf parity** | 2.2 SplitKV ✅, 2.5 re-tile | M–L | SplitKV landed (fills SMs at low batch); re-tile + the tcgen05/fp8-PV spike open |
 | **4 — dtype parity** ✅ | 2.3 fp16 ✅, 2.4 fp8-Q ✅ | S | full dtype matrix (4-combo gate live, verified green) |
 
 Dependencies: 1.1 (tail) is needed *inside* 2.1 (paged's last block is partial); 2.2 is
@@ -343,8 +424,17 @@ independent.
         reg-alloc miscompile pin → `mPin`). `verify-tc-decode-paged.py` 8 cells green
         (PS=128; dense-vs-paged bit-exact) + PS=64 spot 3/3. Image wiring (v14) still open.
 - [ ] **Phase 3**
-  - [ ] 2.2 SplitKV (grid + chunk + partial + combine)
-  - [ ] 2.5 re-tile knobs (TILE_N / ring depth)
+   - [x] 2.2 SplitKV (grid + chunk + partial + combine) — **DONE (2026-10-02)**: runtime `ns`
+         grid y-dim + tile-aligned chunks + fp32 partials + the reused host combine (§2.2).
+         The bring-up found + fixed three bugs: the **sVb cross-warp race** (fp8-leg-only
+         `sync_threads()` at both PV sites → the fp8 large-L SplitKV is deterministic at the
+         fp8 floor), the **auto-ns pool-size cap** (cap on `max_seqlen_k`, not the paged pool
+         size, so a partial-page tail batch isn't over-split), and the **split-path
+         first-block OOB mask guard** (split-aware `kv_len - gtile*TILE_N < TILE_N`, so a
+         split whose only block is the partial tail still masks OOB). Verified by the
+         dedicated `verify-tc-decode-splitkv.py` (13/13, gated) + the dense (34/35) / paged
+         (8/8) sweeps under the split-aware xcheck.
+  - [ ] 2.5 re-tile knobs (TILE_N / ring depth) + the tcgen05 / fp8-PV spike (§2.2a, M≥8/prefill)
 - [x] **Phase 4** ✅ (2026-10-02)
   - [x] 2.3 all-fp16 path (gate widened; mma `MmaF16BF16Op(DTYPE=fp16)` — verify green)
   - [x] 2.4 fp8-Q gate (4-combo gate admits `(fp8,fp8)`; native fp8-Q no pre-cast — verify green)

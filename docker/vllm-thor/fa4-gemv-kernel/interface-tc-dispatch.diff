@@ -1,5 +1,5 @@
---- a/vllm/vllm_flash_attn/cute/interface.py	2026-10-02 09:55:57.789392727 +0200
-+++ b/vllm/vllm_flash_attn/cute/interface.py	2026-10-02 09:17:59.778761207 +0200
+--- a/vllm/vllm_flash_attn/cute/interface.py	2026-10-03 11:41:43.016 +0200
++++ b/vllm/vllm_flash_attn/cute/interface.py	2026-10-03 11:55:46.211 +0200
 @@ -62,6 +62,7 @@
  from vllm.vllm_flash_attn.cute.sm100_hd256_2cta_fmha_forward import BlackwellFusedMultiHeadAttentionForward
  from vllm.vllm_flash_attn.cute.sm100_hd256_2cta_fmha_backward import BlackwellFusedMultiHeadAttentionBackward
@@ -23,7 +23,7 @@
              and head_dim == 256
              and max_seqlen_q == 1
              and all(
-@@ -955,6 +958,203 @@
+@@ -955,6 +958,269 @@
      if cu_seqlens_k is None and seqused_k is None:
          min_seqlen_k = seqlen_k
  
@@ -33,8 +33,11 @@
 +    # the fp8 mma halves the KV DRAM bytes), dense+varlen+paged (paged: the
 +    # per-n_block physical page is gathered in-kernel from the page table; the
 +    # true per-batch length comes from seqused_k — required, matching
-+    # flash_attn_interface.py's paged/seqused_k invariant), num_splits=1
-+    # (SplitKV/ring are follow-up passes). Takes precedence over the GEMV gate.
++    # flash_attn_interface.py's paged/seqused_k invariant). SplitKV: num_splits > 1
++    # splits the KV into tile-aligned chunks (one binary serves every ns) and the
++    # host combine re-merges the fp32 partials, with an auto plan for decode-shaped
++    # calls — the deep KV ring is the remaining follow-up. Takes precedence over the
++    # GEMV gate.
 +    use_tc_hd256 = (
 +        os.environ.get("VLLM_FA4_HD256_TC", "0") == "1"
 +        and arch // 10 in [10, 11]
@@ -71,6 +74,47 @@
 +        and output_scale is None
 +    )
 +    if use_tc_hd256:
++        # ---- SplitKV plan (M2, FlashInfer Alg.1 — mirrors the GEMV) ------
++        # Precedence: VLLM_FA4_HD256_TC_NUM_SPLITS env knob (>0) > caller
++        # num_splits > auto plan (fill the SMs). The auto plan runs ONLY for
++        # decode-shaped calls (max_seqlen_q<=8, non-local); everything else
++        # falls back to ns=1 (write-through). Capped by the 128-row kv-chunk
++        # floor (FlashInfer's max(128/page_size, 1) page floor at page_size<=128)
++        # and the combine kernel's max splits (64) — same as the GEMV.
++        # The TC gate already admits only max_seqlen_q==1 hd256/M=1 decode
++        # here, so the default path always auto-splits.
++        tc_ns = num_splits
++        try:
++            tc_ns_env = int(os.environ.get("VLLM_FA4_HD256_TC_NUM_SPLITS", "0"))
++        except ValueError:
++            tc_ns_env = 0
++        if tc_ns_env > 0:
++            tc_ns = tc_ns_env
++        elif tc_ns <= 1 and max_seqlen_q <= 8 and not local:
++            tc_ns = _gemv_auto_num_splits(num_head_kv, batch_size, device, arch)
++        # Cap by the TRUE per-batch KV length, not the (paged) pool size:
++        # seqlen_k is num_pages*page_size for the paged leg (line ~718), which
++        # over-estimates the KV a split must tile — a 97-row partial page sits in
++        # a 2-page (256-row) pool and would split into 2 chunks it shouldn't
++        # need to. max_seqlen_k is the true max per-batch length for every leg
++        # (dense = the sequence length, varlen = max(cu_seqlens_k), paged =
++        # max(seqused_k)); each split owns one 128-row chunk, so don't ask for
++        # more splits than the real KV spans. (Empty splits are already safe —
++        # the kernel zeroes a zero-length chunk — this cap only avoids waste.)
++        tc_ns = max(1, min(tc_ns, 64, (max_seqlen_k + 127) // 128))
++        tc_split = tc_ns > 1
++        if tc_split:
++            out_partial = torch.empty(
++                tc_ns, *q_batch_seqlen_shape, num_head, head_dim_v,
++                dtype=torch.float32, device=device,
++            )
++            lse_partial = torch.empty(
++                tc_ns, *lse_shape, dtype=torch.float32, device=device,
++            )
++        else:
++            out_partial = None
++            lse_partial = None
++
 +        if getattr(_flash_attn_fwd, "tc_compile_cache", None) is None:
 +            _flash_attn_fwd.tc_compile_cache = {}
 +        tc_cache = _flash_attn_fwd.tc_compile_cache
@@ -125,6 +169,7 @@
 +            cu_seqlens_k is not None,
 +            lse is not None,
 +            q_descale is not None,
++            tc_split,
 +            page_size if tc_paged else 0,
 +        )
 +        # B8: the paged codegen pin scratch (see the kernel's pin comment): a
@@ -177,12 +222,16 @@
 +                max_seqlen_q,  # per-batch q length bound for load_Q/store_LSE/O (M=1 => 1)
 +                tc_seqlen_k,
 +                sm_scale_log2,
-+                1,  # num_splits (1 = first correct pass; SplitKV later)
++                tc_ns,  # M2: num_splits (runtime grid value; split binary serves every ns)
 +                current_stream,
-+                # B8: the paged codegen pin scratch (the kernel's last param).
++                # B8: the paged codegen pin scratch (the kernel's mPin param).
 +                to_cute_tensor(tc_pin, assumed_align=4, leading_dim=0)
 +                if tc_paged
 +                else None,
++                # M2: SplitKV partials (the kernel's last two params; the
++                # fp32 (ns, ...) planes the in-tree combine merges).
++                to_cute_tensor(out_partial, assumed_align=4) if tc_split else None,
++                to_cute_tensor(lse_partial, assumed_align=4) if tc_split else None,
 +                options="--enable-tvm-ffi",
 +            )
 +        if not fake_mode:
@@ -219,8 +268,25 @@
 +                max_seqlen_q,  # per-batch q length bound for load_Q/store_LSE/O (M=1 => 1)
 +                tc_seqlen_k,
 +                sm_scale_log2,
-+                1,
-+                tc_pin if tc_paged else None,  # B8 (mPin last; stream is excluded)
++                tc_ns,  # M2: num_splits (runtime grid value)
++                tc_pin if tc_paged else None,  # B8 (mPin; stream is excluded)
++                out_partial if tc_split else None,  # M2 (mO_partial)
++                lse_partial if tc_split else None,  # M2 (mLSE_partial)
++            )
++        # M2: LSE combine (REUSE of the A1b-verified ⊕-merge, same call the
++        # GEMV split path makes): the kernel wrote the fp32 per-split O/LSE
++        # planes; the fused single-kernel reduction (B2) will replace this
++        # separate launch. lse_partial (ns, B, H, Sq) is transposed to the
++        # combine kernel's (ns, B, Sq, H) contract (Sq=1 here — degenerate).
++        if tc_split and not fake_mode:
++            _flash_attn_fwd_combine(
++                out_partial,
++                lse_partial.transpose(-1, -2),
++                out,
++                lse.transpose(-1, -2) if lse is not None else None,
++                cu_seqlens_q,
++                seqused_q,
++                _arch=arch,
 +            )
 +        return out, lse, None, None
 +
