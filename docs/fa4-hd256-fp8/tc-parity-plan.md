@@ -1,6 +1,6 @@
 # TC (mma.sync) hd256 decode — GEMV feature-parity plan
 
-**Status: Phase 1 (correctness) — FULLY GREEN; Phase 2 (paged KV, the production blocker) — DONE; Phase 3 (SplitKV + the sVb race fix) — DONE; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02).**
+**Status: Phase 1 (correctness) — FULLY GREEN; Phase 2 (paged KV, the production blocker) — DONE; Phase 3 (SplitKV + the sVb race fix) — DONE; Phase 4 (dtype parity: fp16 + fp8-Q) — DONE (2026-10-02); varlen-M (M≤8, the MTP/DSpark/DFlash verify) — DONE (2026-10-03).**
 Dense (bf16 + fp8) and varlen (O + LSE) all pass; the 4-combo dtype gate
 (`(bf16,bf16)`, `(fp16,fp16)`, `(bf16,fp8)`, `(fp8,fp8)`) is live — fp16 and
 native fp8-Q (no pre-cast) verified green. **Paged KV (the production blocker) landed 2026-10-02**
@@ -22,7 +22,16 @@ store *coordinate* rather than a `domain_offset` (bug B), and a varlen Q-load
 `domain_offset` fix — the flat `(q_row_base, 0)` was offsetting the qhead sub-mode (or
 dropping it), so every batch read row 0's Q and the QK scores (hence LSE) were wrong
 for batch>0 (bug C). Phase 1 is done; paged (§2.1), dtypes (§2.3/§2.4), and SplitKV (§2.2) are done;
-only the re-tile (§2.5) knobs + the tcgen05/fp8-PV spike (§2.2a) remain. This is the
+only the re-tile (§2.5) knobs + the tcgen05/fp8-PV spike (§2.2a) remain.
+**varlen-M (M≤8) landed 2026-10-03** (§2.6): the MTP/DSpark/DFlash speculative-decode verify
+(M candidate tokens sharing the same KV, causal). The "m" mma dim is the packed GQA group
+**M×G** (M≤8 → ≤48, fits TILE_M=64), dense+paged+SplitKV+fp8/bf16. The kernel was already
+M-agnostic (seqlen_q is a runtime param driving the PackGQA load/store guards) — the only
+kernel change is the dense **LSE select**, which is a **compile-time branch on M** (`is_m1`):
+M=1 keeps the proven-safe `mode=[1,2,0]` decode codegen (bit-exact, the M=1 regression is
+unchanged), while M>1 uses `mode=[2,1,0]` (the (B,H,M) layout's correct (seqlen, head, batch)
+order). The tc gate admits M≤8 (dense-only), rejects M>8 (routes to FA4/FlashInfer).
+This is the
 workplan to bring the tensor-core
 decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`) to full feature parity
 with the FMA GEMV decode kernel (`sm100_hd256_decode_gemv`), so the TC kernel can
@@ -338,6 +347,56 @@ L=8192/M=1). Defer both to the M≥8 dispatch spike.
   depth, same env-knob pattern; extend `gemv-geom-sweep.py` to hit the TC `tc_decode`
   leg.
 
+### 2.6 varlen-M (M≤8) — the MTP / DSpark / DFlash speculative-decode verify — **DONE (2026-10-03, verified)**
+
+- **The task:** the TC kernel was M=1-only (the "m" mma dim is the GQA group **G=6** q-heads
+  for ONE token, padded to TILE_M=64). Extend it to **varlen-M (M≤8)**: the MTP/DSpark/DFlash
+  verify where **M candidate tokens all share the same L KV** (causal — each query token
+  attends to the full L context). The "m" mma dim becomes **M×G** (M=1→6, M=4→24, M=8→48,
+  all fit TILE_M=64; **M>8→>64 is REJECTED**). The GEMV kernel does NOT have varlen-M either
+  (it is a separate open item) — this is designed fresh from the TC M=1 structure + the
+  FA3/FA4 `PackGQA` varlen reference (`pack_gqa.py`, the `(qhead_per_kvhead, seqlen_q)` "m"
+  layout).
+- **The "m" dim = (G, M) packed.** `PackGQA` folds the G q-heads (inner) into M tokens
+  (outer) into the packed "m" = M×G rows (row r → token r//G, qhead r%G). Q loads all M×G
+  rows; O/LSE unpack the M×G rows back to (M, H) / (M, H). The KV is the "n" dim (unchanged —
+  shared across all M×G rows, tiled by TILE_N). paged + dense + SplitKV + fp8/bf16 are all
+  per-KV-row (orthogonal to the M dim), so they work for M≤8 unchanged.
+- **The kernel was already M-agnostic.** `seqlen_q` (M) is a **runtime** param driving the
+  `PackGQA.load_Q` / `store_LSE` / `store_O` guards (`row < seqlen * G`); the mma computes
+  TILE_M=64 rows regardless of M (the valid M×G rows, the rest never stored). So **no kernel
+  mma/paged/split changes were needed** — only the dense **LSE select** (below).
+- **The one kernel change — the dense LSE select is a compile-time branch on M (`is_m1`).**
+  The interface allocates the dense LSE as `(B, H, M)` (`lse_shape`, qv=None), but the original
+  dense select `mode=[1,2,0]` assumed the layout was `(B, M, H)`: it only stored the right
+  addresses for M=1 (where the (seqlen, head) modes alias). For M>1 the (seqlen, head) strides
+  swap → the LSE lands on the wrong rows (O is unaffected, only LSE). The fix: `mode=[2,1,0]`
+  gives the (B,H,M) layout's true (seqlen=M, nheads=H, batch) order. **But** `mode=[2,1,0]`
+  (seqlen sub-mode = M=1 for the M=1 binary) mis-generates the LSE-store TMA and **corrupts the
+  O** for the M=1 **split** cells (L=8192 B=4, L=65536 B=1) — the two selects give identical M=1
+  store *addresses* but different codegen, and the M=1 decode path is only safe on the
+  historical `mode=[1,2,0]`. So the select is a **compile-time branch** (`const_expr(is_m1)`):
+  M=1 → `mode=[1,2,0]` (the proven-safe decode codegen, **bit-exact** — the M=1 regression is
+  unchanged), M>1 → `mode=[2,1,0]`. `is_m1` is a `cutlass.Constexpr[bool]` threaded through
+  `__call__`/`kernel` and passed from the interface as `max_seqlen_q == 1` (M is in the `tc_key`
+  → a separate binary per M, so the branch folds at compile time).
+- **The interface:**
+  - **Gate M-range:** the `use_tc_hd256` M term is `max_seqlen_q == 1 or (cu_seqlens_q is None
+    and max_seqlen_q <= 8)` — M=1 (any q layout) or varlen-M (M≤8, **dense-only**: every batch
+    has exactly M tokens; a varlen-q call has a different per-batch M the single seqlen_q can't
+    express). **M>8 → REJECT** (falls through GEMV — also M=1-only — to the FA4/FlashInfer path).
+  - **`tc_key` M term:** `max_seqlen_q` added to the key so each M is a separate cache entry
+    (the M=1/M=4/M=8 binaries don't collide).
+  - **`_tc_dtype_ok`:** the mixed bf16-Q/fp8-KV dtype assert (previously M=1-only via
+    `_gemv_dtype_ok`) is widened to M≤8 for the TC path (Q is pre-cast to fp8 in-kernel).
+- **Verification — `verify-tc-decode-varlenM.py` (25 cells, gated, 25/25 GO):** M∈{1,2,4,8}
+  × dense+paged × bf16+fp8 (ns=1 write-through) vs the gold full-attention-over-L reference
+  (each of the M tokens attends to the shared L KV); M=8 split (ns=4); the **gate-reject** test
+  (M=9/M=16: no new `tc_compile_cache` entry → the TC gate rejects, output finite via the FA4
+  fallback); + an M=1 regression spot. The M=1 regression is **unchanged**: dense
+  `verify-tc-decode.py` 34/35 (only the pre-existing borderline L=32768 B=4 rel 5.9e-2 overshoot),
+  paged 8/8, SplitKV 13/13 (the `is_m1` branch keeps M=1 on the original codegen).
+
 ---
 
 ## Part 3 — Interface wiring (per feature)
@@ -364,6 +423,11 @@ L=8192/M=1). Defer both to the M≥8 dispatch spike.
   no Dockerfile `COPY`) — see the v14 note above for the ship path.
 - **Dtypes:** widen the `q.dtype`/`v.dtype` gates (`:975-976`) per §2.3 / §2.4 — **DONE**
   (the 4-combo gate landed with the dtype parity, §2.3/§2.4).
+- **varlen-M — DONE (§2.6, 2026-10-03):** the tc gate M-term (`max_seqlen_q <= 8`, dense-only)
+  + the `tc_key` M term (separate binary per M) + the `_tc_dtype_ok` M≤8 mixed-dtype widening +
+  the `is_m1` `Constexpr` threaded to the kernel's compile-time LSE-select branch. The
+  `interface-tc-dispatch.diff` was **regenerated** (round-trip verified against the GEMV base)
+  to carry all of it.
 
 ## Part 4 — Verification (extend `verify-tc-decode.py` + bench)
 
@@ -383,9 +447,14 @@ L=8192/M=1). Defer both to the M≥8 dispatch spike.
    - **SplitKV** ✅ (`verify-tc-decode-splitkv.py`, 13 cases: dense + paged, bf16 + fp8,
      ns sweep {1,2,4} caller/env + auto-ns, empty-split paged [256,64], 3× determinism —
      combined(ns>1) vs ns=1 write-through, gated; §2.2);
-   - **fp16** leg ✅ + **fp8-Q** leg ✅ (added 2026-10-02; small-L L=64/256 B=1/4,
-     pass at rel ≤ 1.8e-2 — the fp8 large-L legs are left to the gated run since they
-     are co-tenancy-sensitive).
+    - **fp16** leg ✅ + **fp8-Q** leg ✅ (added 2026-10-02; small-L L=64/256 B=1/4,
+      pass at rel ≤ 1.8e-2 — the fp8 large-L legs are left to the gated run since they
+      are co-tenancy-sensitive).
+    - **varlen-M** ✅ (`verify-tc-decode-varlenM.py`, 25 cells, added 2026-10-03; §2.6):
+      M∈{1,2,4,8} × dense+paged × bf16+fp8 vs the gold full-attention-over-L reference + M=8
+      split (ns=4) + the gate-reject test (M=9/16: no new `tc_compile_cache` entry) + an M=1
+      regression spot. 25/25 GO; the M=1 regression stays green (dense 34/35, paged 8/8,
+      SplitKV 13/13) because the `is_m1` compile-time branch keeps M=1 on the original codegen.
 - **Bench:** add the TC `tc_decode` leg to `gemv-geom-sweep.py` / `gemv-decode-bench.py`
   (the `tc_decode` leg already exists) so paged + SplitKV perf is measured in a gated
   window.
@@ -398,6 +467,7 @@ L=8192/M=1). Defer both to the M≥8 dispatch spike.
 | **2 — production** ✅ | 2.1 paged — **DONE** (page-indexed tiled cp.async + seqused_k; two bugs fixed) | **L** | TC can *serve* (paged) |
 | **3 — perf parity** | 2.2 SplitKV ✅, 2.5 re-tile | M–L | SplitKV landed (fills SMs at low batch); re-tile + the tcgen05/fp8-PV spike open |
 | **4 — dtype parity** ✅ | 2.3 fp16 ✅, 2.4 fp8-Q ✅ | S | full dtype matrix (4-combo gate live, verified green) |
+| **5 — varlen-M** ✅ | 2.6 M≤8 (MTP/DSpark/DFlash verify) — **DONE** (2026-10-03) | M | speculative-decode verify through the TC path (M×G "m" dim, ≤48) |
 
 Dependencies: 1.1 (tail) is needed *inside* 2.1 (paged's last block is partial); 2.2 is
 independent but pairs with 2.1 in the production long-context path; the dtype items are
@@ -438,4 +508,11 @@ independent.
 - [x] **Phase 4** ✅ (2026-10-02)
   - [x] 2.3 all-fp16 path (gate widened; mma `MmaF16BF16Op(DTYPE=fp16)` — verify green)
   - [x] 2.4 fp8-Q gate (4-combo gate admits `(fp8,fp8)`; native fp8-Q no pre-cast — verify green)
+- [x] **Phase 5 — varlen-M** ✅ (2026-10-03)
+  - [x] 2.6 M≤8 (MTP/DSpark/DFlash verify): the "m" mma dim = M×G (≤48); the dense LSE select is a
+        compile-time `is_m1` branch (M=1 → `mode=[1,2,0]` bit-exact, M>1 → `mode=[2,1,0]`); tc gate
+        admits M≤8 (dense-only) / rejects M>8; `tc_key` M term; `_tc_dtype_ok` M≤8. `is_m1`
+        `Constexpr` threaded through `__call__`/`kernel` + the interface `max_seqlen_q == 1` arg.
+        `verify-tc-decode-varlenM.py` 25/25 GO (M sweep + M=8 split + gate-reject + M=1 spot);
+        the M=1 regression stays green (dense 34/35, paged 8/8, SplitKV 13/13).
 - [ ] bench: TC `tc_decode` leg in the geometry sweep + `gemv-decode-bench`

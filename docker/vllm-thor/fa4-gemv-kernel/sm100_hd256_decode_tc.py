@@ -177,6 +177,7 @@ class BlackwellHd256DecodeTC:
         mPin: Optional[cute.Tensor] = None,
         mO_partial: Optional[cute.Tensor] = None,
         mLSE_partial: Optional[cute.Tensor] = None,
+        is_m1: cutlass.Constexpr[bool] = True,
     ):
         # SplitKV: the partial pair is all-or-nothing (the presence of mO_partial
         # is the compile-time split flag, the GEMV idiom).
@@ -223,6 +224,7 @@ class BlackwellHd256DecodeTC:
             mQ, mK, mV, mO, mLSE, mCuSeqlensQ, mCuSeqlensK, mDescale,
             seqlen_q, seqlen_k, softmax_scale_log2, num_splits,
             mPageTable, mSequsedK, mPin, mO_partial, mLSE_partial,
+            is_m1,
         ).launch(
             # SplitKV: one CTA per (kv_head, kv-chunk, batch) — num_splits is a
             # RUNTIME grid dim (the GEMV idiom: one split binary serves every ns;
@@ -252,6 +254,7 @@ class BlackwellHd256DecodeTC:
         mPin: Optional[cute.Tensor] = None,
         mO_partial: Optional[cute.Tensor] = None,
         mLSE_partial: Optional[cute.Tensor] = None,
+        is_m1: cutlass.Constexpr[bool] = True,
     ):
         D = self.HEAD_DIM
         G = self.g
@@ -323,9 +326,25 @@ class BlackwellHd256DecodeTC:
                 mLSE = cute.make_tensor(mLSE_partial.iterator + split_idx * lse_stride, lse_sub)
             num_head_kv = mO.shape[2]
             if const_expr(not is_varlen_q):
-                # dense mLSE is (B, L_q, H); pack_gqa_layout(head_idx=1) wants the
-                # head dim at mode 1, so permute to (L_q, H, B) first.
-                mLSE = cute.make_tensor(mLSE.iterator, cute.select(mLSE.layout, mode=[1, 2, 0]))
+                # dense mLSE is (B, H, L_q) (the interface's lse_shape is
+                # (batch_size, num_head, seqlen_q)); pack_gqa_layout(head_idx=1)
+                # wants (seqlen_q, nheads, batch) — head dim at mode 1 — so
+                # permute to (L_q, H, B) first.
+                #
+                # The select is a COMPILE-TIME branch on is_m1 (M is in the tc_key
+                # -> a separate binary per M): M=1 keeps the historical
+                # mode=[1,2,0] (seqlen sub-mode = H) — the proven-safe decode
+                # codegen — while M>1 needs the mode=[2,1,0] (seqlen sub-mode =
+                # L_q>1) that the (B,H,M) layout actually is. The two selects give
+                # IDENTICAL M=1 store addresses (the (seqlen, head) modes alias
+                # at L_q=1), so M=1 stays bit-exact; but the [2,1,0] codegen
+                # (seqlen sub-mode 1) is UNSAFE for the M=1 split cells (it
+                # mis-generates the LSE-store TMA and corrupts the O), so the M=1
+                # path must never use it.
+                if const_expr(is_m1):
+                    mLSE = cute.make_tensor(mLSE.iterator, cute.select(mLSE.layout, mode=[1, 2, 0]))
+                else:
+                    mLSE = cute.make_tensor(mLSE.iterator, cute.select(mLSE.layout, mode=[2, 1, 0]))
             else:
                 # varlen mLSE is (H, total_q) — the head dim is at mode 0.
                 # pack_gqa_layout(head_idx=1) wants it at mode 1, so permute to

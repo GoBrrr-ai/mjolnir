@@ -1,5 +1,5 @@
---- a/vllm/vllm_flash_attn/cute/interface.py	2026-10-03 11:41:43.016 +0200
-+++ b/vllm/vllm_flash_attn/cute/interface.py	2026-10-03 11:55:46.211 +0200
+--- a/vllm/vllm_flash_attn/cute/interface.py
++++ b/vllm/vllm_flash_attn/cute/interface.py
 @@ -62,6 +62,7 @@
  from vllm.vllm_flash_attn.cute.sm100_hd256_2cta_fmha_forward import BlackwellFusedMultiHeadAttentionForward
  from vllm.vllm_flash_attn.cute.sm100_hd256_2cta_fmha_backward import BlackwellFusedMultiHeadAttentionBackward
@@ -23,7 +23,32 @@
              and head_dim == 256
              and max_seqlen_q == 1
              and all(
-@@ -955,6 +958,269 @@
+@@ -774,10 +777,23 @@
+                 for t in present.values()
+             )
+         )
++        # The TC decode knob admits the same bf16-Q / fp8-KV mix for varlen-M
++        # (the MTP/DSpark/DFlash verify: M candidate tokens sharing the KV,
++        # M<=8 — the "m" mma dim is M*G<=48). Q is pre-cast to fp8 in-kernel
++        # (the tc path), so the mixed dtype is valid for every M<=8, not just M=1.
++        _tc_dtype_ok = (
++            os.environ.get("VLLM_FA4_HD256_TC", "0") == "1"
++            and head_dim == 256
++            and 1 <= max_seqlen_q <= 8
++            and all(
++                t.dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn)
++                for t in present.values()
++            )
++        )
+         for i in range(len(names)):
+             for j in range(i + 1, len(names)):
+                 a, b = names[i], names[j]
+-                assert present[a].dtype == present[b].dtype or _gemv_dtype_ok, f"{a}.dtype {present[a].dtype} != {b}.dtype {present[b].dtype}"
++                assert present[a].dtype == present[b].dtype or _gemv_dtype_ok or _tc_dtype_ok, f"{a}.dtype {present[a].dtype} != {b}.dtype {present[b].dtype}"
+ 
+     q_dtype = q.dtype if q is not None else qv.dtype
+     for t in [cu_seqlens_q, cu_seqlens_k, seqused_q, seqused_k]:
+@@ -955,6 +971,285 @@
      if cu_seqlens_k is None and seqused_k is None:
          min_seqlen_k = seqlen_k
  
@@ -43,7 +68,14 @@
 +        and arch // 10 in [10, 11]
 +        and head_dim == 256
 +        and head_dim_v == 256
-+        and max_seqlen_q == 1
++        # M=1 (any q layout) or varlen-M (M=2..8): the "m" mma dim is the packed
++        # GQA group = M*G q-heads (M<=8 -> 48, fits TILE_M=64; M>8 -> >64 REJECT,
++        # routes to the FA4/FlashInfer path). M>1 is dense-only (cu_seqlens_q is
++        # None — every batch has exactly M tokens; a varlen-q call has a different
++        # per-batch M the single seqlen_q can't express). The kernel is M-agnostic
++        # (seqlen_q is a runtime param driving the PackGQA load/store guards).
++        and (max_seqlen_q == 1
++             or (cu_seqlens_q is None and max_seqlen_q <= 8))
 +        and k is not None
 +        and k.dtype == v.dtype
 +        and (
@@ -171,6 +203,11 @@
 +            q_descale is not None,
 +            tc_split,
 +            page_size if tc_paged else 0,
++            # varlen-M: the "m" mma dim is the packed GQA group M*G; the kernel
++            # is M-agnostic (seqlen_q is a runtime param) but a distinct M is a
++            # distinct cache entry (the task spec — matches how page_size /
++            # tc_split separate entries).
++            max_seqlen_q,
 +        )
 +        # B8: the paged codegen pin scratch (see the kernel's pin comment): a
 +        # tiny per-device buffer the paged leg's three pin stores write into;
@@ -232,6 +269,10 @@
 +                # fp32 (ns, ...) planes the in-tree combine merges).
 +                to_cute_tensor(out_partial, assumed_align=4) if tc_split else None,
 +                to_cute_tensor(lse_partial, assumed_align=4) if tc_split else None,
++                # varlen-M: the LSE select is a compile-time branch on M (M is in
++                # the tc_key -> a separate binary per M); M=1 keeps the proven-safe
++                # mode=[1,2,0] decode codegen, M>1 uses mode=[2,1,0].
++                max_seqlen_q == 1,
 +                options="--enable-tvm-ffi",
 +            )
 +        if not fake_mode:

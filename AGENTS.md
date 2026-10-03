@@ -28,9 +28,22 @@ here.
   Dockerfile; opt out with `VLLM_FA4_HD256_GEMV=0`). Pure-FMA CuTe-DSL kernel
   for M=1 hd256 decode (GQA, dense/paged, fp8 + descales, SplitKV +
   LSE-merge combine). Gated clean window, L=8192 M=1 GQA 24/4: GEMV auto
-  (ns=20) = **222.8 µs** vs FlashInfer **202.05 µs** in the same window —
-  within ~10% of FI, vs ~2.9× slower before the kernel work. Depth:
-  `docker/vllm-thor/fa4-gemv-kernel/README.md`.
+   (ns=20) = **222.8 µs** vs FlashInfer **202.05 µs** in the same window —
+   within ~10% of FI, vs ~2.9× slower before the kernel work. Depth:
+   `docker/vllm-thor/fa4-gemv-kernel/README.md`.
+ - **TC decode kernel — varlen-M (M≤8) (2026-10-03).** The tensor-core
+   (mma.sync) hd256 decode kernel (`sm100_hd256_decode_tc`, the FA4/GEMV
+   alternative; reference-only, `VLLM_FA4_HD256_TC=1`) now handles **varlen-M** —
+   the MTP/DSpark/DFlash speculative-decode verify (M candidate tokens sharing
+   the KV, causal): the "m" mma dim is the packed GQA group **M×G** (M≤8 → ≤48,
+   fits TILE_M=64; M>8 rejected → FA4/FlashInfer). The kernel was already
+   M-agnostic (runtime `seqlen_q` drives the PackGQA guards); the only change is
+   the dense **LSE select as a compile-time branch on M** (`is_m1` `Constexpr`):
+   M=1 keeps the proven-safe `mode=[1,2,0]` decode codegen (bit-exact — the M=1
+   regression dense 34/35 + paged 8/8 + SplitKV 13/13 is unchanged), M>1 uses
+   `mode=[2,1,0]` (the (B,H,M) layout's correct order — the original `[1,2,0]`
+   mis-placed the M>1 LSE). Gated `verify-tc-decode-varlenM.py` 25/25 GO. Depth:
+   `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6.
 - **LiteLLM proxy stack (2026-09-27)**: `mjolnir litellm up|down|status|logs|config`
   drives the imported proxy stack (`docker/litellm/` — litellm + postgres +
   redis, `docker compose` under the hood) — **independent of the vLLM
@@ -239,6 +252,9 @@ default (`mjolnir serve up --image …` / `$MJOLNIR_IMAGE`); defaults live in
       A kernel redesign, not a tuning knob — pursue only if exact parity is
       required.
 - [ ] **varlen-M GEMV**: decode with MTP verify (M ≤ 8) through the GEMV path.
+      (The **TC** decode kernel already has varlen-M — M≤8, the "m" dim = M×G,
+      the `is_m1` compile-time LSE-select branch — see Current state +
+      `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6. The GEMV kernel does NOT yet.)
 - [ ] **Large-L validation**: the stages=16 ring depth is a wash at L=8192 but
       the right direction once KV stops fitting in the 32 MiB L2 — validate at
       L=32K/64K.
