@@ -174,11 +174,44 @@ def gemv_leg(cases: Cases, L: int, tile: int, stages: int, ns: int,
 
     def fn() -> None:
         os.environ["VLLM_FA4_HD256_GEMV"] = "1"
+        os.environ["VLLM_FA4_HD256_TC"] = "0"  # reset the TC leg's env (TC gate is checked first)
         os.environ["VLLM_FA4_HD256_GEMV_TILE"] = str(tile)
         os.environ["VLLM_FA4_HD256_GEMV_STAGES"] = str(stages)
         os.environ["VLLM_FA4_HD256_GEMV_NUM_SPLITS"] = str(ns)
         iface._flash_attn_fwd(
             q_in, k_in, v_in, page_table=pt,
+            max_seqlen_q=1, max_seqlen_k=L,
+            softmax_scale=SOFTMAX_SCALE, causal=True,
+            q_descale=cases.qd, k_descale=cases.kd, v_descale=cases.vd,
+        )
+
+    return fn
+
+
+def tc_leg(cases: Cases, L: int, ns: int, page_size: int):
+    """One TC (mma.sync, ``VLLM_FA4_HD256_TC=1``) callable at ns. The TC tile
+    geometry (TILE_N=64) is fixed (no GEMV tile/stages knobs), so only the
+    SplitKV ns axis is swept; GEMV is force-off so the TC path is taken."""
+    import vllm.vllm_flash_attn.cute.interface as iface
+    k = cases.k[:L]
+    v = cases.v[:L]
+    if page_size == 0:
+        k_in, v_in, pt, sk = (k.unsqueeze(0).contiguous(),
+                              v.unsqueeze(0).contiguous(), None, None)
+    else:
+        npg = L // page_size
+        k_in = k.view(npg, page_size, NUM_KV_HEADS, HEAD_DIM).contiguous()
+        v_in = v.view(npg, page_size, NUM_KV_HEADS, HEAD_DIM).contiguous()
+        pt = torch.arange(npg, dtype=torch.int32, device=DEVICE).unsqueeze(0)
+        sk = torch.tensor([L], dtype=torch.int32, device=DEVICE)
+    q_in = cases.q.unsqueeze(0).unsqueeze(0)  # (1, 1, H, D)
+
+    def fn() -> None:
+        os.environ["VLLM_FA4_HD256_TC"] = "1"
+        os.environ["VLLM_FA4_HD256_GEMV"] = "0"
+        os.environ["VLLM_FA4_HD256_TC_NUM_SPLITS"] = str(ns)
+        iface._flash_attn_fwd(
+            q_in, k_in, v_in, page_table=pt, seqused_k=sk,
             max_seqlen_q=1, max_seqlen_k=L,
             softmax_scale=SOFTMAX_SCALE, causal=True,
             q_descale=cases.qd, k_descale=cases.kd, v_descale=cases.vd,
@@ -289,6 +322,7 @@ class Fa4Leg:
 
     def __call__(self) -> None:
         os.environ.pop("VLLM_FA4_HD256_GEMV", None)  # force the FA4 path
+        os.environ["VLLM_FA4_HD256_TC"] = "0"        # (the TC gate is checked before FA4)
         self._call(**self.args)
 
 
@@ -403,6 +437,10 @@ def main() -> int:
                         prev_tile = tile
                     _time(f"L{L}|tile{tile}|ns{ns}",
                           gemv_leg(cases, L, tile, STAGES, ns, page_size))
+            # TC (mma.sync) SplitKV ns sweep (TILE_N fixed at 64) — the mma
+            # streamer is memory-bound, so more CTAs (ns) is its lever too.
+            for ns in NS_LIST:
+                _time(f"L{L}|tc|ns{ns}", tc_leg(cases, L, ns, page_size))
             _time(f"L{L}|flashinfer", fi)
             _time(f"L{L}|fa4_1cta", fa4)
             # Free this L's KV/leg tensors before the next (larger) L.
@@ -452,16 +490,21 @@ def main() -> int:
     for L in L_LIST:
         gemv = {k: v for k, v in results.items()
                 if k.startswith(f"L{L}|tile")}
+        tc = {k: v for k, v in results.items()
+              if k.startswith(f"L{L}|tc")}
         if not gemv:
             continue
-        best = min(gemv, key=lambda k: gemv[k]["median"])
+        best_g = min(gemv, key=lambda k: gemv[k]["median"])
+        best_g_med = gemv[best_g]["median"]
+        best_t = (min(tc, key=lambda k: tc[k]["median"]) if tc else None)
+        best_t_med = tc[best_t]["median"] if best_t else float("nan")
         fi_med = results.get(f"L{L}|flashinfer", {}).get("median",
-                                                         float("nan"))
+                                                          float("nan"))
         fa4_med = results.get(f"L{L}|fa4_1cta", {}).get("median",
-                                                        float("nan"))
-        best_med = gemv[best]["median"]
-        print(f"[sweep] L={L} BEST GEMV: {best.split('|', 1)[1]} = "
-              f"{best_med} us (flashinfer {fi_med} us, fa4_1cta {fa4_med} us)",
+                                                         float("nan"))
+        print(f"[sweep] L={L} BEST GEMV {best_g.split('|', 1)[1]}="
+              f"{best_g_med} us | BEST TC {best_t.split('|', 1)[1] if best_t else '-'}="
+              f"{best_t_med} us | flashinfer {fi_med} us | fa4_1cta {fa4_med} us",
               flush=True)
     verdict = "CLEAN" if clean else "DIRTY"
     if args.no_gate or offline:
