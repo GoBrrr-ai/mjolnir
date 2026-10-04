@@ -8,7 +8,9 @@ with a FlashInfer-style GEMV: one CTA per `(kv_head, kv_chunk, batch)`,
 `cp.async` KV ring — no tensor cores.
 
 **Supported scope** (gates live in the dispatch block, see `interface-gemv-dispatch.diff`):
-- M=1 (`max_seqlen_q == 1`), `head_dim == head_dim_v == 256`, non-local
+- M≤8 (`1 <= max_seqlen_q <= 8`; **M>1 is dense-Q only** — the MTP verify, where
+  each of the M tokens does full attention over the shared KV),
+  `head_dim == head_dim_v == 256`, non-local
 - GQA any `qhead_per_kvhead` (measured at 24/4 = g=6)
 - dense **or** paged KV (`page_size` 16/128), bf16/fp16/fp8-e4m3 Q and KV
   (mixed Q/KV dtypes allowed only under the GEMV knob — fp8 + descales supported)

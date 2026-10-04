@@ -52,10 +52,22 @@ here.
     `sP`, reload as the PV A-operand); **(b)** the fp8 V B-operand ldmatrix faults → an
     **element-wise V load** from the transposed `sVt` (the QK-K-leg idiom). The **bf16-KV
     leg stays byte-identical** (separate kernel instance — `sP`/`tCsP` are fp8-only).
-    All four verify suites green; **every fp8 cell passes** (incl. fp8 varlen-M M≤8 +
-    SplitKV, which run the fp8 PV mma with the M×G "m" dim). Depth:
-    `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.7.
- - **LiteLLM proxy stack (2026-09-27)**: `mjolnir litellm up|down|status|logs|config`
+     All four verify suites green; **every fp8 cell passes** (incl. fp8 varlen-M M≤8 +
+     SplitKV, which run the fp8 PV mma with the M×G "m" dim). Depth:
+     `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.7.
+  - **GEMV decode kernel — varlen-M (M≤8) (2026-10-04).** The pure-FMA GEMV decode
+     kernel (`sm100_hd256_decode_gemv`, default-on, the M=1 accelerator) now handles
+     **varlen-M** — the MTP-verify step (M query tokens, M≤8, each doing full attention
+     over the shared KV) through the GEMV path via an **in-thread M-loop** (per-M
+     register sizing; `seqlen_q` is a compile-time `Constexpr`, so M lands in
+     `gemv_key` = per-M recompile). M>1 is **dense-Q only** (`cu_seqlens_q is None`),
+     mirroring the TC gate; the KV stream is M-agnostic (loaded once per CTA — all M
+     tokens attend the same KV). **M=1 stays byte-identical** (`M*VEC == VEC`,
+     `range_constexpr(1)`), so the full M=1 regression (`verify-gemv-decode.py`)
+     15/15 GO is unchanged. Gated `verify-gemv-decode-varlenM.py` 25/25 GO (M=1/2/4/8
+     × {dense, varlen-k} × {bf16, fp8} + multi-batch + M=8 SplitKV ns=4 +
+     gate-reject M=9/16). Depth: `docs/fa4-hd256-fp8/gemv-decode-design.md` (varlen-M).
+  - **LiteLLM proxy stack (2026-09-27)**: `mjolnir litellm up|down|status|logs|config`
   drives the imported proxy stack (`docker/litellm/` — litellm + postgres +
   redis, `docker compose` under the hood) — **independent of the vLLM
   server** (reaches it via `host.docker.internal` + the host port; `litellm
@@ -277,10 +289,10 @@ default (`mjolnir serve up --image …` / `$MJOLNIR_IMAGE`); defaults live in
       shape (192 KB 384-row K+V tiles, 128-thread blocks, 40 CTAs at L=8192).
       A kernel redesign, not a tuning knob — pursue only if exact parity is
       required.
-- [ ] **varlen-M GEMV**: decode with MTP verify (M ≤ 8) through the GEMV path.
-      (The **TC** decode kernel already has varlen-M — M≤8, the "m" dim = M×G,
-      the `is_m1` compile-time LSE-select branch — see Current state +
-      `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6. The GEMV kernel does NOT yet.)
+ - [x] **varlen-M GEMV**: decode with MTP verify (M ≤ 8) through the GEMV path —
+       DONE (2026-10-04): in-thread M-loop, `seqlen_q` a compile-time `Constexpr`,
+       M>1 dense-Q only; M=1 byte-identical. See Current state +
+       `verify-gemv-decode-varlenM.py` (25/25 GO) + `gemv-decode-design.md` (varlen-M).
 - [ ] **Large-L validation**: the stages=16 ring depth is a wash at L=8192 but
       the right direction once KV stops fitting in the 32 MiB L2 — validate at
       L=32K/64K.

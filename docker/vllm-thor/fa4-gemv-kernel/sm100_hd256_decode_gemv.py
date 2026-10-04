@@ -127,7 +127,7 @@ class BlackwellHd256DecodeGEMV:
         mO_partial: Optional[cute.Tensor] = None,
         mLSE_partial: Optional[cute.Tensor] = None,
         mPageTable: Optional[cute.Tensor] = None,
-        seqlen_q: Int32 = 1,
+        seqlen_q: cutlass.Constexpr[int] = 1,
         seqlen_k: Int32 = 0,
         softmax_scale_log2: Float32 = 0.0,
         num_splits: Int32 = 1,
@@ -178,11 +178,17 @@ class BlackwellHd256DecodeGEMV:
         mO_partial: Optional[cute.Tensor],
         mLSE_partial: Optional[cute.Tensor],
         mPageTable: Optional[cute.Tensor],
-        seqlen_q: Int32,
+        seqlen_q: cutlass.Constexpr[int],
         seqlen_k: Int32,
         softmax_scale_log2: Float32,
         num_splits: Int32,
     ):
+        # M (seqlen_q) is a compile-time value: it sizes the per-thread register
+        # state (Q/O/M*VEC) and bounds the unrolled M-loops in the compute. One
+        # binary per M (the dispatch bakes M into the compile-cache key). M=1
+        # sizes the state exactly as before (M*VEC == VEC) — bit-identical to the
+        # Phase A/B1 M=1 decode; M>1 is the varlen-M (MTP verify) extension.
+        M = seqlen_q
         D = self.HEAD_DIM
         VEC = self.VEC
         BDX = self.bdx
@@ -248,10 +254,10 @@ class BlackwellHd256DecodeGEMV:
                 v_descale = Float32(mDescale.v_descale[batch_idx, kv_head])
         scale_eff = softmax_scale_log2 * qk_descale
 
-        # Q/O row offsets (shared by both branches below). In split mode the
-        # O/LSE epilogue targets mO_partial/mLSE_partial at the same flat
-        # row offset plus the split block (num_splits * rows * H * D elems).
-        q_off = q_row_base * num_head * D + qo_head * D + tx * VEC
+        # O row offset (the Q load computes its per-token offset inline). In
+        # split mode the O/LSE epilogue targets mO_partial/mLSE_partial at the
+        # same flat row offset plus the split block (num_splits * rows * H * D
+        # elems).
         o_off = q_row_base * num_head * D + qo_head * D + tx * VEC
         if const_expr(IS_SPLIT):
             # Stride of one split block = number of elements in mO_partial with
@@ -265,22 +271,9 @@ class BlackwellHd256DecodeGEMV:
                 split_stride = mO_partial.shape[1] * mO_partial.shape[2] * num_head * D
             o_off = o_off + split_idx * split_stride
         # LSE coord (NOT a flat scalar — the DSL's scalar coord into a
-        # multi-rank memref does not land where the flat offset says).
-        # Dense: mLSE is (B, H, S):(H*S, S, 1) -> (batch, head, seqlen=0).
-        # Varlen: mLSE is (H, total_q):(total_q, 1) -> (head, q_row_base).
-        # Partial dense: (S, B, H, Sq) -> (split, batch, head, 0);
-        # partial varlen: (S, H, total_q) -> (split, head, q_row_base).
-        if const_expr(mLSE is not None or mLSE_partial is not None):
-            if const_expr(IS_SPLIT):
-                if const_expr(is_varlen_q):
-                    lse_c = (split_idx, qo_head, q_row_base)
-                else:
-                    lse_c = (split_idx, batch_idx, qo_head, 0)
-            else:
-                if const_expr(is_varlen_q):
-                    lse_c = (qo_head, q_row_base)
-                else:
-                    lse_c = (batch_idx, qo_head, 0)
+        # multi-rank memref does not land where the flat offset says): it is
+        # computed per token (lse_c_m) in the empty-chunk and epilogue branches
+        # below, with the seqlen (token) sub-mode advancing by m.
 
         # ---- smem: 2-stage double buffer, K and V (flat, row-major) -------
         smem = cutlass.utils.SmemAllocator()
@@ -343,54 +336,75 @@ class BlackwellHd256DecodeGEMV:
         if kv_len_c == 0:
             o_frag = cute.make_rmem_tensor(VEC, o_elem)
             o_frag.fill(0.0)
-            for sub in cutlass.range_constexpr(N_SUB_O):
-                o_sub = cute.make_rmem_tensor(EPC_O, o_elem)
-                for i in cutlass.range_constexpr(EPC_O):
-                    o_sub[i] = o_frag[sub * EPC_O + i]
-                o_dst = cute.make_tensor(
-                    cute.make_ptr(
-                        o_elem,
-                        (
-                            (mO_partial.iterator if const_expr(IS_SPLIT) else mO.iterator)
-                            + o_off
-                            + sub * EPC_O
-                        ).toint(),
-                        cute.AddressSpace.gmem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(EPC_O),
-                )
-                cute.copy(o_atom, o_sub, o_dst)
-            if tx == 0:
-                if const_expr(mLSE is not None or mLSE_partial is not None):
-                    lse_tensor = (
-                        mLSE_partial if const_expr(IS_SPLIT) else mLSE
+            row_stride = num_head * D
+            for m in cutlass.range_constexpr(M):
+                o_off_m = o_off + m * row_stride
+                for sub in cutlass.range_constexpr(N_SUB_O):
+                    o_sub = cute.make_rmem_tensor(EPC_O, o_elem)
+                    for i in cutlass.range_constexpr(EPC_O):
+                        o_sub[i] = o_frag[sub * EPC_O + i]
+                    o_dst = cute.make_tensor(
+                        cute.make_ptr(
+                            o_elem,
+                            (
+                                (mO_partial.iterator if const_expr(IS_SPLIT) else mO.iterator)
+                                + o_off_m
+                                + sub * EPC_O
+                            ).toint(),
+                            cute.AddressSpace.gmem,
+                            assumed_align=16,
+                        ),
+                        cute.make_layout(EPC_O),
                     )
-                    lse_tensor[lse_c] = -Float32.inf
+                    cute.copy(o_atom, o_sub, o_dst)
+                if tx == 0:
+                    if const_expr(mLSE is not None or mLSE_partial is not None):
+                        lse_tensor = (
+                            mLSE_partial if const_expr(IS_SPLIT) else mLSE
+                        )
+                        if const_expr(IS_SPLIT and is_varlen_q):
+                            lse_c_m = (split_idx, qo_head, q_row_base + m)
+                        elif const_expr(IS_SPLIT):
+                            lse_c_m = (split_idx, batch_idx, qo_head, m)
+                        elif const_expr(is_varlen_q):
+                            lse_c_m = (qo_head, q_row_base + m)
+                        else:
+                            lse_c_m = (batch_idx, qo_head, m)
+                        lse_tensor[lse_c_m] = -Float32.inf
         else:
-            # ---- Q: load this thread's d-slice of its q-head ---------------
-            q_f32 = cute.make_rmem_tensor(VEC, Float32)
-            for sub in cutlass.range_constexpr(N_SUB_Q):
-                q_src = cute.make_tensor(
-                    cute.make_ptr(
-                        mQ.element_type,
-                        (mQ.iterator + q_off + sub * EPC_Q).toint(),
-                        cute.AddressSpace.gmem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(EPC_Q),
-                )
-                q_sub = cute.make_rmem_tensor(EPC_Q, mQ.element_type)
-                cute.copy(q_atom, q_src, q_sub)
-                for i in cutlass.range_constexpr(EPC_Q):
-                    q_f32[sub * EPC_Q + i] = q_sub[i].to(Float32)
+            # ---- Q: load this thread's d-slice of its q-head, for all M -----
+            # tokens (M=1 -> the single decode row; M>1 -> the MTP verify, where
+            # each of the M tokens does full attention over the shared KV). token
+            # m sits at global row (q_row_base + m): dense q_row_base =
+            # batch_idx*M, varlen = cu_seqlens_q[batch_idx] (M=1 there).
+            q_f32 = cute.make_rmem_tensor(M * VEC, Float32)
+            for m in cutlass.range_constexpr(M):
+                q_off_m = (q_row_base + m) * num_head * D + qo_head * D + tx * VEC
+                for sub in cutlass.range_constexpr(N_SUB_Q):
+                    q_src = cute.make_tensor(
+                        cute.make_ptr(
+                            mQ.element_type,
+                            (mQ.iterator + q_off_m + sub * EPC_Q).toint(),
+                            cute.AddressSpace.gmem,
+                            assumed_align=16,
+                        ),
+                        cute.make_layout(EPC_Q),
+                    )
+                    q_sub = cute.make_rmem_tensor(EPC_Q, mQ.element_type)
+                    cute.copy(q_atom, q_src, q_sub)
+                    for i in cutlass.range_constexpr(EPC_Q):
+                        q_f32[m * VEC + sub * EPC_Q + i] = q_sub[i].to(Float32)
 
-            # ---- register state ----------------------------------------------
-            o_f32 = cute.make_rmem_tensor(VEC, Float32)
+            # ---- register state (per token; M=1 == the Phase A/B1 M=1) -------
+            # o_f32/q_f32 are M*VEC (M=1 -> VEC, unchanged); m_run/l_run/s_vec
+            # carry the per-token online-softmax state (M=1 -> one element each).
+            o_f32 = cute.make_rmem_tensor(M * VEC, Float32)
             o_f32.fill(0.0)
-            s_vec = cute.make_rmem_tensor(R, Float32)
-            m = -Float32.inf
-            l = Float32(0.0)
+            s_vec = cute.make_rmem_tensor(M * R, Float32)
+            m_run = cute.make_rmem_tensor(M, Float32)
+            m_run.fill(-Float32.inf)
+            l_run = cute.make_rmem_tensor(M, Float32)
+            l_run.fill(0.0)
 
             # ---- prologue: preload the two stages ----------------------------
             # Row indices are clamped to kv_len_c-1 (in-bounds tail); the
@@ -475,13 +489,19 @@ class BlackwellHd256DecodeGEMV:
             for it in cutlass.range(num_chunks):
                 st = it % S
 
-                # K[st] ready -> QK for all R rows of the stage.
+                # K[st] ready -> QK for all R rows of the stage, all M tokens.
+                # Each token does full attention over the shared KV (the MTP
+                # verify; no cross-token causal mask). The K fragment is read
+                # from smem ONCE per row (shared by the M tokens) to avoid an
+                # Mx smem re-read; the M dots reuse it.
                 cute.arch.cp_async_wait_group(2 * S - 1)
                 cute.arch.sync_threads()
-                m_prev = m
+                m_prev = cute.make_rmem_tensor(M, Float32)
+                for m in cutlass.range_constexpr(M):
+                    m_prev[m] = m_run[m]
                 for j in cutlass.range_constexpr(R):
                     ks_off = (st * R + j) * D + tx * VEC
-                    s = Float32(0.0)
+                    k_frag = cute.make_rmem_tensor(VEC, mK.element_type)
                     for sub in cutlass.range_constexpr(N_SUB_K):
                         k_slice = cute.make_tensor(
                             cute.make_ptr(
@@ -492,31 +512,37 @@ class BlackwellHd256DecodeGEMV:
                             ),
                             cute.make_layout(EPC_K),
                         )
-                        k_frag = cute.make_rmem_tensor(EPC_K, mK.element_type)
-                        cute.copy(s2r_atom, k_slice, k_frag)
+                        k_sub = cute.make_rmem_tensor(EPC_K, mK.element_type)
+                        cute.copy(s2r_atom, k_slice, k_sub)
                         for i in cutlass.range_constexpr(EPC_K):
-                            s = s + q_f32[sub * EPC_K + i] * k_frag[i].to(Float32)
-                    # 16-lane butterfly reduce (offsets < 16 stay in ty group).
-                    s = s + cute.arch.shuffle_sync_bfly(s, offset=1)
-                    s = s + cute.arch.shuffle_sync_bfly(s, offset=2)
-                    s = s + cute.arch.shuffle_sync_bfly(s, offset=4)
-                    s = s + cute.arch.shuffle_sync_bfly(s, offset=8)
-                    s = s * scale_eff
-                    row = it * R + j
-                    s = s if row < kv_len_c else -Float32.inf
-                    s_vec[j] = s
-                    m = s if s > m else m
+                            k_frag[sub * EPC_K + i] = k_sub[i]
+                    for m in cutlass.range_constexpr(M):
+                        s = Float32(0.0)
+                        for sub in cutlass.range_constexpr(N_SUB_K):
+                            for i in cutlass.range_constexpr(EPC_K):
+                                s = s + q_f32[m * VEC + sub * EPC_K + i] * k_frag[sub * EPC_K + i].to(Float32)
+                        # 16-lane butterfly reduce (offsets < 16 stay in ty group).
+                        s = s + cute.arch.shuffle_sync_bfly(s, offset=1)
+                        s = s + cute.arch.shuffle_sync_bfly(s, offset=2)
+                        s = s + cute.arch.shuffle_sync_bfly(s, offset=4)
+                        s = s + cute.arch.shuffle_sync_bfly(s, offset=8)
+                        s = s * scale_eff
+                        row = it * R + j
+                        s = s if row < kv_len_c else -Float32.inf
+                        s_vec[m * R + j] = s
+                        m_run[m] = s if s > m_run[m] else m_run[m]
 
-                # Online rescale (log2 domain). m_prev - m is -inf only when
-                # m_prev == -inf (first chunk) -> exp2(-inf) = 0.
-                o_scale = cute.math.exp2(m_prev - m, fastmath=True)
-                l = l * o_scale
-                for i in cutlass.range_constexpr(VEC):
-                    o_f32[i] = o_f32[i] * o_scale
-                for j in cutlass.range_constexpr(R):
-                    p = cute.math.exp2(s_vec[j] - m, fastmath=True)
-                    s_vec[j] = p
-                    l = l + p
+                # Online rescale (log2 domain), per token. m_prev[m] - m_run[m]
+                # is -inf only when m_prev[m] == -inf (first chunk) -> exp2(-inf)=0.
+                for m in cutlass.range_constexpr(M):
+                    o_scale = cute.math.exp2(m_prev[m] - m_run[m], fastmath=True)
+                    l_run[m] = l_run[m] * o_scale
+                    for i in cutlass.range_constexpr(VEC):
+                        o_f32[m * VEC + i] = o_f32[m * VEC + i] * o_scale
+                    for j in cutlass.range_constexpr(R):
+                        p = cute.math.exp2(s_vec[m * R + j] - m_run[m], fastmath=True)
+                        s_vec[m * R + j] = p
+                        l_run[m] = l_run[m] + p
 
                 # Refill K for chunk it+S into the just-consumed stage.
                 cute.arch.sync_threads()
@@ -560,12 +586,14 @@ class BlackwellHd256DecodeGEMV:
                         cute.copy(k_g2s_atom, k_src, ks)
                 cute.arch.cp_async_commit_group()
 
-                # V[st] ready -> PV.
+                # V[st] ready -> PV, all M tokens. The V fragment is read from
+                # smem ONCE per row (shared by the M tokens); each token
+                # accumulates p_m * V into its own o_f32[m] row.
                 cute.arch.cp_async_wait_group(2 * S - 1)
                 cute.arch.sync_threads()
                 for j in cutlass.range_constexpr(R):
                     vs_off = (st * R + j) * D + tx * VEC
-                    p = s_vec[j]
+                    v_frag = cute.make_rmem_tensor(VEC, mV.element_type)
                     for sub in cutlass.range_constexpr(N_SUB_V):
                         v_slice = cute.make_tensor(
                             cute.make_ptr(
@@ -576,11 +604,16 @@ class BlackwellHd256DecodeGEMV:
                             ),
                             cute.make_layout(EPC_V),
                         )
-                        v_frag = cute.make_rmem_tensor(EPC_V, mV.element_type)
-                        cute.copy(v_s2r_atom, v_slice, v_frag)
+                        v_sub = cute.make_rmem_tensor(EPC_V, mV.element_type)
+                        cute.copy(v_s2r_atom, v_slice, v_sub)
                         for i in cutlass.range_constexpr(EPC_V):
-                            d = sub * EPC_V + i
-                            o_f32[d] = o_f32[d] + p * v_frag[i].to(Float32)
+                            v_frag[sub * EPC_V + i] = v_sub[i]
+                    for m in cutlass.range_constexpr(M):
+                        p = s_vec[m * R + j]
+                        for sub in cutlass.range_constexpr(N_SUB_V):
+                            for i in cutlass.range_constexpr(EPC_V):
+                                d = sub * EPC_V + i
+                                o_f32[m * VEC + d] = o_f32[m * VEC + d] + p * v_frag[sub * EPC_V + i].to(Float32)
 
                 # Refill V for chunk it+S into the just-consumed stage.
                 cute.arch.sync_threads()
@@ -629,27 +662,40 @@ class BlackwellHd256DecodeGEMV:
             # (flash_fwd_combine) applies the global rescale
             # O = Σ_s exp(lse_s − L)·O_s, L = max + ln Σ exp(lse_s − max).
             o_frag = cute.make_rmem_tensor(VEC, o_elem)
-            scale_out = v_descale / l
-            for i in cutlass.range_constexpr(VEC):
-                o_frag[i] = (o_f32[i] * scale_out).to(o_elem)
             o_base = mO_partial.iterator if const_expr(IS_SPLIT) else mO.iterator
-            for sub in cutlass.range_constexpr(N_SUB_O):
-                o_sub = cute.make_rmem_tensor(EPC_O, o_elem)
-                for i in cutlass.range_constexpr(EPC_O):
-                    o_sub[i] = o_frag[sub * EPC_O + i]
-                o_dst = cute.make_tensor(
-                    cute.make_ptr(
-                        o_elem,
-                        (o_base + o_off + sub * EPC_O).toint(),
-                        cute.AddressSpace.gmem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(EPC_O),
-                )
-                cute.copy(o_atom, o_sub, o_dst)
-            if tx == 0:
-                if const_expr(mLSE is not None or mLSE_partial is not None):
-                    lse_tensor = mLSE_partial if const_expr(IS_SPLIT) else mLSE
-                    lse_tensor[lse_c] = (
-                        m + cute.math.log2(l, fastmath=True)
-                    ) * Float32(math.log(2.0))
+            row_stride = num_head * D  # dense stride of one token row in O/LSE
+            for m in cutlass.range_constexpr(M):
+                scale_out = v_descale / l_run[m]
+                for i in cutlass.range_constexpr(VEC):
+                    o_frag[i] = (o_f32[m * VEC + i] * scale_out).to(o_elem)
+                o_off_m = o_off + m * row_stride
+                for sub in cutlass.range_constexpr(N_SUB_O):
+                    o_sub = cute.make_rmem_tensor(EPC_O, o_elem)
+                    for i in cutlass.range_constexpr(EPC_O):
+                        o_sub[i] = o_frag[sub * EPC_O + i]
+                    o_dst = cute.make_tensor(
+                        cute.make_ptr(
+                            o_elem,
+                            (o_base + o_off_m + sub * EPC_O).toint(),
+                            cute.AddressSpace.gmem,
+                            assumed_align=16,
+                        ),
+                        cute.make_layout(EPC_O),
+                    )
+                    cute.copy(o_atom, o_sub, o_dst)
+                if tx == 0:
+                    if const_expr(mLSE is not None or mLSE_partial is not None):
+                        lse_tensor = mLSE_partial if const_expr(IS_SPLIT) else mLSE
+                        # token m's LSE coordinate: the seqlen (token) sub-mode
+                        # advances by m (M=1 -> the existing 0 / q_row_base base).
+                        if const_expr(IS_SPLIT and is_varlen_q):
+                            lse_c_m = (split_idx, qo_head, q_row_base + m)
+                        elif const_expr(IS_SPLIT):
+                            lse_c_m = (split_idx, batch_idx, qo_head, m)
+                        elif const_expr(is_varlen_q):
+                            lse_c_m = (qo_head, q_row_base + m)
+                        else:
+                            lse_c_m = (batch_idx, qo_head, m)
+                        lse_tensor[lse_c_m] = (
+                            m_run[m] + cute.math.log2(l_run[m], fastmath=True)
+                        ) * Float32(math.log(2.0))

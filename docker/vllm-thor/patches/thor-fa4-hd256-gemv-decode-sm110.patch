@@ -30,7 +30,7 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
  
  def _get_fwd_config(
      *,
-@@ -749,10 +763,21 @@
+@@ -749,10 +763,22 @@
          input_tensors = {"q": q, "k": k, "v": v, "qv": qv}
          present = {name: t for name, t in input_tensors.items() if t is not None}
          names = list(present.keys())
@@ -39,7 +39,8 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
 +        _gemv_dtype_ok = (
 +            os.environ.get("VLLM_FA4_HD256_GEMV", "1") == "1"
 +            and head_dim == 256
-+            and max_seqlen_q == 1
++            and 1 <= max_seqlen_q <= 8
++            and (max_seqlen_q == 1 or cu_seqlens_q is None)
 +            and all(
 +                t.dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn)
 +                for t in present.values()
@@ -53,7 +54,7 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
  
      q_dtype = q.dtype if q is not None else qv.dtype
      for t in [cu_seqlens_q, cu_seqlens_k, seqused_q, seqused_k]:
-@@ -930,6 +955,182 @@
+@@ -930,6 +955,185 @@
      if cu_seqlens_k is None and seqused_k is None:
          min_seqlen_k = seqlen_k
  
@@ -66,7 +67,8 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
 +        and arch // 10 in [10, 11]
 +        and head_dim == 256
 +        and head_dim_v == 256
-+        and max_seqlen_q == 1
++        and 1 <= max_seqlen_q <= 8
++        and (max_seqlen_q == 1 or cu_seqlens_q is None)
 +        and k is not None
 +        and k.dtype == v.dtype
 +        and q.dtype in (torch.bfloat16, torch.float16, torch.float8_e4m3fn)
@@ -127,6 +129,7 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
 +        # every ns); the key captures only the compile-time shape.
 +        gemv_key = (
 +            qhead_per_kvhead,
++            max_seqlen_q,
 +            q.dtype,
 +            v.dtype,
 +            cu_seqlens_q is not None,
@@ -168,7 +171,8 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
 +                to_cute_tensor(page_table, assumed_align=4, leading_dim=1)
 +                if gemv_paged
 +                else None,
-+                seqlen_q if cu_seqlens_q is None else 0,
++                # seqlen_q (the M) is a compile-time Constexpr — baked at compile.
++                max_seqlen_q,
 +                seqlen_k,
 +                sm_scale_log2,
 +                gemv_ns,
@@ -214,7 +218,7 @@ index 38191889ad43449de88e9e71949c8ac5b2a66086..07384386c5791347fe7e09b5c55463c0
 +                out_partial if gemv_split else None,
 +                lse_partial if gemv_split else None,
 +                page_table if gemv_paged else None,
-+                seqlen_q if cu_seqlens_q is None else 0,
++                # seqlen_q (the M) is a compile-time Constexpr — not re-passed here.
 +                seqlen_k,
 +                sm_scale_log2,
 +                gemv_ns,

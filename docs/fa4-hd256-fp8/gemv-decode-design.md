@@ -182,3 +182,43 @@ the vfa tree mounted, per `run-real-splitkv-bench.sh` pattern):
   `flash_bwd_preprocess.py:390`) — first compile will confirm for scalars.
 - Mixed-dtype FFI: Q=bf16 passed natively, K/V as uint8 views declared
   e4m3 — same mechanism as the existing fp8 paths, low risk.
+
+## 7. Varlen-M (M≤8) — MTP verify (2026-10-04)
+
+The GEMV kernel (the M=1 accelerator) now handles **varlen-M**: the MTP-verify
+step (M query tokens, M≤8) runs through the GEMV path. This is the same shape the
+**TC** decode kernel handles (see `tc-parity-plan.md` §2.6) — each of the M
+tokens does **full attention over the shared KV** (the causal verify where the M
+tokens are appended to the L context), with **no cross-token causal mask**.
+
+**Design — in-thread M-loop (vs grid-expansion).** The M tokens are handled by an
+in-thread M-loop inside the `(kv_head, kv_chunk, batch)` CTA, not by expanding the
+grid. The KV stream is M-agnostic (each CTA loads its KV rows once and all M
+tokens attend the same KV), so the M-loop re-does the per-token QK dot,
+online-softmax state, and PV accumulation over the already-staged K/V — it re-reads
+nothing from gmem (grid-expansion would load the KV M×). Register tensors scale by
+M (`o_f32`/`s_vec` are `M*VEC` / `M*R`, `m_run`/`l_run` are `M`); the K/V/Q
+fragments are loaded once per row and shared across the M dots.
+
+**M as a compile-time `Constexpr`.** `seqlen_q` (the M) is a
+`cutlass.Constexpr[int]` on the kernel `__call__` (the same pattern as the TC's
+`is_m1`), so `M` drives the register sizing + `range_constexpr(M)` unrolling. It
+lands in `gemv_key` (a distinct M is a distinct cache entry — per-M recompile).
+**M=1 stays byte-identical**: `M*VEC == VEC`, `range_constexpr(1)` is one
+iteration, so the M=1 codegen is unchanged (the full M=1 regression
+`verify-gemv-decode.py` 15/15 GO is unchanged).
+
+**Gate.** M≤8, dense-Q only for M>1 (`1 <= max_seqlen_q <= 8 and (max_seqlen_q == 1
+or cu_seqlens_q is None)`), mirroring the TC varlen-M gate; M>8 is rejected →
+FA4/FlashInfer. Register pressure: M≤4 fits (~164 fp32); M=8 spills
+(~330 fp32 > 255 regs) — correct but slower; the MTP=3 case (M=3/4) is the
+real target.
+
+**SplitKV.** M is orthogonal to the split chunk (the `m` write-through row is
+independent of the `kv_chunk` the CTA owns), so M>1 + `num_splits>1` reuses the
+existing in-tree LSE-merge combine.
+
+**Verify.** `verify-gemv-decode-varlenM.py` (gated, `mjolnir bench kernel
+gemv-varlenM`): M=1/2/4/8 × {dense, varlen-k} × {bf16, fp8-KV} + multi-batch
+varlen-k (M=4) + M=8 SplitKV (ns=4) + gate-reject M=9/16 + M=1 regression spot.
+**25/25 GO** on the live Thor.

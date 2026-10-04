@@ -99,6 +99,13 @@ TASKS: list[Task] = [
         tmpdir="/tmp/kt-gemv-verify-b1",
     ),
     Task(
+        "gemv-varlenM",
+        "bench",
+        "docker/vllm-thor/fa4-gemv-kernel/verify-gemv-decode-varlenM.py",
+        "GEMV varlen-M (M<=8): M sweep x {dense, varlen-k} x {bf16, fp8} + M=8 split + gate-reject M>8 + M=1 spot",
+        tmpdir="/tmp/kt-gemv-varlenM",
+    ),
+    Task(
         "gemv-stages",
         "bench",
         "docker/vllm-thor/fa4-gemv-kernel/verify-gemv-stages.py",
