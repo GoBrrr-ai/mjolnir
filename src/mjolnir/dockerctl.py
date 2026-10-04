@@ -125,6 +125,11 @@ def build_run_args(s: Settings, workdir: Path, image: str | None = None) -> list
         "nofile=65536:65536",
         "--restart",
         "no",
+        # base image ENTRYPOINT is ["vllm","serve"] — pin ours, so the command
+        # below is the full argv (unpinned, docker would compose
+        # "vllm serve bash -lc ..." and argparse would reject it at startup)
+        "--entrypoint",
+        "bash",
     ]
 
     for k in _CONTAINER_ENV:
@@ -172,7 +177,7 @@ def build_run_args(s: Settings, workdir: Path, image: str | None = None) -> list
         "--enable-prompt-tokens-details "
         "--download-dir /data/models/huggingface"
     )
-    cmd += [image, "bash", "-lc", serve]
+    cmd += [image, "-lc", serve]
     return cmd
 
 

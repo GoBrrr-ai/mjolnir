@@ -48,7 +48,13 @@ services:
       LITELLM_LOG: INFO
     volumes:
       - ${LITELLM_DATA_DIR}/litellm_config.yaml:/app/config.yaml
-    command: ["--config", "/app/config.yaml"]
+    # --keepalive_timeout: uvicorn's default is 5 s, and the close is a
+    # silent FIN — any client whose pool holds sockets longer than that
+    # surfaces it as "all connections dropped, no server-side error"
+    # (120 s was still below opencode's pool lifetime; clients here hold
+    # pooled sockets unbounded and this is a LAN-only proxy, so effectively
+    # disable the idle close — dead peers are reaped on the client side).
+    command: ["--config", "/app/config.yaml", "--keepalive_timeout", "86400"]
     depends_on:
       litellm_db:
         condition: service_healthy
