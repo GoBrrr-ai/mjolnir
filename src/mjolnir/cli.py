@@ -46,7 +46,7 @@ from mjolnir.config import (
     scan_all_configs,
     user_configs_dir,
 )
-from mjolnir import benchy, dockerctl, litellm, perses, plots, picker, readme, tasks, thor, vfa
+from mjolnir import benchy, cachectl, dockerctl, litellm, perses, plots, picker, readme, tasks, thor, vfa
 
 _console = Console()
 
@@ -512,6 +512,7 @@ def vfa_prepare(
 ):
     """Prepare the GEMV'd vllm_flash_attn tree (image tree + kernel + diff)."""
     s = _settings(None, None, image, None)
+    cachectl.prepare_bench()  # always-before: clean page cache for the build
     try:
         vfa.prepare_vfa_tree(s, out)
     except RuntimeError as e:
@@ -736,6 +737,42 @@ def gate(
 
     args = ["--once"] if once else ["--confirm", str(confirm), "--timeout", str(timeout)]
     raise typer.Exit(_run_gate(s, args, False))
+
+
+# ── permissions / cache ─────────────────────────────────────────────────────
+
+
+@app.command("grant-permissions")
+def grant_permissions(
+    yes: bool = typer.Option(False, "--yes", "-y", help="don't prompt to confirm the install"),
+):
+    """Check for — and, if missing, install — the NOPASSWD sudo grant the
+    kernel benches use to clear the page cache.
+
+    Idempotent: a present grant is left untouched. The install adds only the
+    cache-clear command (``sysctl -w vm.drop_caches=3``) — never full sudo —
+    and asks for the sudo password exactly once."""
+    raise typer.Exit(cachectl.grant_drop_caches(assume_yes=yes))
+
+
+@app.command("drop-caches")
+def drop_caches():
+    """Clear the host page cache (``sysctl -w vm.drop_caches=3``) for a clean
+    kernel-bench baseline. Uses the NOPASSWD grant (run
+    ``mjolnir grant-permissions`` if it's missing); never prompts."""
+    if not cachectl.drop_caches_granted():
+        typer.secho(
+            "drop-caches grant missing — run: mjolnir grant-permissions",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        raise typer.Exit(4)
+    rc = cachectl.drop_caches()
+    if rc == 0:
+        typer.secho("page cache cleared (vm.drop_caches=3)", fg=typer.colors.GREEN)
+    else:
+        typer.secho(f"drop_caches failed (exit {rc})", fg=typer.colors.RED, err=True)
+    raise typer.Exit(rc)
 
 
 # ── bench ───────────────────────────────────────────────────────────────────

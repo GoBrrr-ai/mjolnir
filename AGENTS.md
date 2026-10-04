@@ -109,9 +109,12 @@ here.
   - **The `mjolnir` CLI is shippable**: `serve`,
     `bench perf|ab|kernel`, `hw` (Thor host pre-config — see below),
      `model` / `image` (bare = arrow-key picker over `configs/` / local docker
-     images), `vfa prepare`, `verify`, `plot`, `history`, `litellm`, `perses`
-     — defaults
-   bake in FA4 + GEMV-on for `Qwen/Qwen3.8-27B` / `NVFP4_FA4hd256`, port 6001.
+      images), `vfa prepare`, `verify`, `plot`, `history`, `litellm`, `perses`,
+      `grant-permissions` (one-time NOPASSWD grant for the page-cache clear —
+      the cache-drop command only, never full sudo), `drop-caches` (clear the
+      host page cache)
+      — defaults
+    bake in FA4 + GEMV-on for `Qwen/Qwen3.8-27B` / `NVFP4_FA4hd256`, port 6001.
   Selections persist to `$MJOLNIR_STATE` (default `~/.mjolnir-state.json`:
   model + quant + image); precedence: CLI flag > state > `$MJOLNIR_*` >
   baked-in default.
@@ -137,6 +140,18 @@ subagents run on**. When benchmarking anything on the GPU:
 `vllm:num_requests_running` / `vllm:num_requests_waiting` at
 `http://127.0.0.1:6001/metrics` (the co-located server's own port). Import it
 or run it as a CLI; do not copy its logic into a new bench.
+
+### The page-cache clear
+`src/mjolnir/cachectl.py` clears the host page cache (`sysctl -w
+vm.drop_caches=3`) so a warm file cache can't skew a number. It runs
+**always-before** a kernel compile/test/bench (`vfa prepare`, `run_task`) and
+around the server: **before `serve up`** (a clean, reproducible model-load) and
+**after `serve down`** (release the serving file activity). The clear is gated
+on a *targeted* NOPASSWD sudo grant — `mjolnir grant-permissions` checks for
+it and, if missing, installs **only** the cache-clear rule (never full sudo)
+in one password prompt; `mjolnir drop-caches` clears on demand. Without the
+grant the clear is skipped with a hint — a bench or serve never blocks on a
+password.
 
 ## Repo layout
 - `src/mjolnir/` — **the CLI + package** (typer). `cli.py` (commands),

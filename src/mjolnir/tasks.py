@@ -214,6 +214,13 @@ def run_task(
     if task.kind == "host":
         return _run_gate(s, script_args, dry_run)
 
+    # Always-before: clear the page cache for a clean kernel compile/test/bench
+    # (no-op + hint when the grant is missing; never prompts, never blocks).
+    if not dry_run:
+        from mjolnir import cachectl
+
+        cachectl.prepare_bench()
+
     # ---- container tasks ---------------------------------------------------
     script = task_script(task, s)
     if not script.exists():

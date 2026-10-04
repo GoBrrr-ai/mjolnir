@@ -114,6 +114,8 @@ mjolnir bench ab                      # Headline A/B benchmark (restarts server 
 mjolnir bench kernel <task>           # Gated kernel benches (--help-list, --dry-run, --all)
 mjolnir verify                        # GEMV correctness suites vs FP32 reference
 mjolnir gate                          # Clean-window gate (--once to check now)
+mjolnir grant-permissions             # One-time NOPASSWD sudo grant for the page-cache clear
+mjolnir drop-caches                   # Clear the host page cache (clean bench/serve baseline)
 mjolnir vfa prepare                   # Build GEMV-patched vllm_flash_attn tree
 mjolnir plot                          # Render charts and README.md (--readme)
 mjolnir history                       # Browse benchmark history

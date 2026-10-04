@@ -16,6 +16,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+from mjolnir import cachectl
 from mjolnir.config import CONTAINER_NAME, Settings
 
 # Container-side env (the Thor-specific knobs from the old vllm.yaml service).
@@ -182,6 +183,10 @@ def serve_up(
     if dry_run:
         print(" ".join(cmd))
         return
+    # Always-before: clear the host page cache before starting vLLM (a clean,
+    # reproducible model-load). No-op + hint if the grant is missing; never
+    # prompts, never blocks.
+    cachectl.prepare_bench()
     for sub in [
         s.data_dir / p for p in ("models", "cache", "kernels-cache", "flashinfer-cache", "triton-cache", "tiktoken")
     ]:
@@ -203,6 +208,9 @@ def serve_down(s: Settings, workdir: Path, dry_run: bool = False) -> None:
         return
     _run_quiet([_docker(), "rm", "-f", CONTAINER_NAME])
     print("stopped")
+    # After stopping: clear the page cache (release the serving file activity
+    # that populated it). No-op + hint if the grant is missing.
+    cachectl.prepare_bench()
 
 
 def wait_healthy(s: Settings, timeout_s: float = 1800.0) -> None:
