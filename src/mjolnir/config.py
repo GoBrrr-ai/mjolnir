@@ -22,7 +22,7 @@ BASELINE_QUANT = "NVFP4"  # FlashInfer baseline config
 SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
 
 # ── Image / serving ──────────────────────────────────────────────────────────
-DEFAULT_IMAGE = "mjolnir/vllm-thor:qwen38-sm110-v13"
+DEFAULT_IMAGE = "narandill/mjolnir-thor:v15"
 DEFAULT_PORT = 6001  # host port; vLLM metrics live on the same port
 CONTAINER_NAME = "mjolnir-vllm"
 VFA_DIST_PATH = "/usr/local/lib/python3.12/dist-packages/vllm/vllm_flash_attn"
