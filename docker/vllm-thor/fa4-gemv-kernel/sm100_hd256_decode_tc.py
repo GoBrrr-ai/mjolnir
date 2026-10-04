@@ -117,23 +117,33 @@ def _qk_mma_fp8(
 
 
 @cute.jit
-def _convert_v_to_bf16(sV: cute.Tensor, sVb: cute.Tensor, tidx,
-                       TILE_N: cutlass.Constexpr, D: cutlass.Constexpr,
-                       num_threads: cutlass.Constexpr):
-    # fp8 leg only: stage the fp8 V (just cp.async'd into sV) into the bf16 V
-    # buffer sVb so the PV mma can ldmatrix it like the bf16 leg (an fp8
-    # B-operand faults on sm_110a). Element-wise over the shared (n_kv, d)
-    # logical grid: sV and sVb have different swizzles but the same (n, d, 1)
-    # logical shape, so an identical (n, d) index reads/writes the same logical
-    # element in each (CuTe applies each tensor's own swizzle). Thread-strided;
-    # per is a compile-time Python int (TILE_N*D//num_threads), not cute.size
-    # (which is symbolic and defeats range_constexpr).
-    per = int(TILE_N) * int(D) // int(num_threads)
-    for _i in cutlass.range_constexpr(per):
-        _f = tidx * per + _i
-        _n = _f // D
-        _d = _f - _n * D
-        sVb[_n, _d, 0] = sV[_n, _d, 0].to(sVb.element_type)
+def _pv_mma_fp8(
+    tiled_mma_pv: cute.TiledMma,
+    acc_O: cute.Tensor,
+    tOrP: cute.Tensor,
+    tOrV: cute.Tensor,
+    sP_a: cute.Tensor,
+    sV_b: cute.Tensor,
+):
+    """fp8 PV mma (O += P @ V): the native fp8 m16n8k32 mma (e4m3 P x e4m3 V,
+    fp32 acc). Both operands are loaded ELEMENT-WISE from smem:
+    - P (A-operand) from the sP round-trip buffer — the fp8 A-fragment cannot be
+      produced in-regs (the QK C-fragment's thread->element mapping disagrees with
+      the fp8 A-fragment's; blocker (a)), so P is stored to sP via the QK mma's
+      C-partition (the proven store) then reloaded via the PV mma's A-partition
+      (blocker (a) resolved by the smem round-trip).
+    - V (B-operand) from the fp8 sV — the fp8 B-operand ldmatrix faults on sm_110a
+      (blocker (b)), so V is loaded element-wise exactly like the QK leg loads K
+      (tOrV[_e] = sV_b[_e]; no ldmatrix).
+    The k-loop runs over the KV-row k-tiles (TILE_N / 32); each mma covers the full
+    (M, D) O-tile for one k-tile."""
+    for _e in cutlass.range_constexpr(cute.size(tOrP)):
+        tOrP[_e] = sP_a[_e]
+    for _e in cutlass.range_constexpr(cute.size(tOrV)):
+        tOrV[_e] = sV_b[_e]
+    num_k = cute.size(sP_a.shape[2])
+    for k in cutlass.range_constexpr(num_k):
+        cute.gemm(tiled_mma_pv, acc_O, tOrP[None, None, k], tOrV[None, None, k], acc_O)
 
 
 class BlackwellHd256DecodeTC:
@@ -290,7 +300,8 @@ class BlackwellHd256DecodeTC:
         # load; Q is read once from smem as a plain (autovec) copy). bf16
         # elsewhere (the ldmatrix regression path).
         QDTYPE = FP8T if const_expr(FP8_KV) else DTYPE
-        # P-operand dtype: always bf16 (the PV mma is always bf16, see above).
+        # P-operand dtype for the bf16 PV mma (the bf16 leg). The fp8 leg's P is
+        # e4m3 (the sP round-trip buffer / the _pv_mma_fp8 A-fragment), not PT.
         PT = DTYPE
 
         kv_head = cute.arch.block_idx()[0]
@@ -428,23 +439,28 @@ class BlackwellHd256DecodeTC:
             (self.num_threads // 32, 1, 1),
             permutation_mnk=(self.num_threads // 32 * 16, 16, mma_k),
         )
-        # PV mma: ALWAYS bf16 m16n8k16, even on the fp8 leg. The back-to-back
-        # C->A reshape (quack convert_layout_acc_frgA) is k=16-geometry only
-        # ("TODO: Sm90 FP8" upstream): it yields 8-element A-blocks per
-        # 16-col k-window, but a fp8 k=32 A-fragment needs 16 elements per
-        # k-block -> the k-loop over-ranges and reads undefined e4m3 register
-        # bits (NaN). A fp8 PV mma would need a P smem round-trip (FA2
-        # pattern); instead P is cast to bf16 in-regs (8-bit mantissa >=
-        # e4m3's 3) and V is cast per-element from fp8 smem.
+        # PV mma: the native fp8 m16n8k32 on the fp8 leg (e4m3 P x e4m3 V, fp32
+        # acc), the bf16 m16n8k16 on the bf16 leg. The fp8 leg resolves the two
+        # sm_110a mma.sync blockers — (a) the fp8 P A-fragment can't be built
+        # in-regs (the QK C-fragment thread mapping disagrees) -> a P smem
+        # round-trip (_pv_mma_fp8's sP_a element-wise A load); (b) the fp8 V
+        # B-operand ldmatrix faults -> an element-wise V load from the fp8 sV
+        # (no sVb staging). The bf16 leg is byte-identical to before (the
+        # mma_op / permutation below are unchanged for it).
         if const_expr(FP8_KV):
-            mma_pv_op = warp.MmaF16BF16Op(DTYPE, Float32, (16, 8, 16))
+            mma_pv_op = warp.MmaFP8Op(FP8T, Float32, (16, 8, 32))
+            tiled_mma_pv = cute.make_tiled_mma(
+                mma_pv_op,
+                (self.num_threads // 32, 1, 1),
+                permutation_mnk=(self.num_threads // 32 * 16, 16, 32),
+            )
         else:
             mma_pv_op = mma_op
-        tiled_mma_pv = cute.make_tiled_mma(
-            mma_pv_op,
-            (self.num_threads // 32, 1, 1),
-            permutation_mnk=(self.num_threads // 32 * 16, 16, 16),
-        )
+            tiled_mma_pv = cute.make_tiled_mma(
+                mma_pv_op,
+                (self.num_threads // 32, 1, 1),
+                permutation_mnk=(self.num_threads // 32 * 16, 16, 16),
+            )
         thr_mma_qk = tiled_mma_qk.get_slice(tidx)
         thr_mma_pv = tiled_mma_pv.get_slice(tidx)
 
@@ -463,25 +479,33 @@ class BlackwellHd256DecodeTC:
         sK_layout = cute.tile_to_shape(sK_atom, (TILE_N, D, 1), (0, 1, 2))
         sV_layout = cute.tile_to_shape(sV_atom, (TILE_N, D, 1), (0, 1, 2))
         sO_layout = cute.tile_to_shape(sO_atom, (TILE_M, D), (0, 1))
-        # fp8 leg: the PV mma is bf16 (an fp8 B-operand faults on sm_110a), so V
-        # is staged in a bf16 smem buffer (sVb) and ldmatrix'd like the bf16 leg.
-        # V is loaded fp8 (the DRAM win) into sV, then converted sV->sVb per block
-        # so the proven bf16 ldmatrix reads it. sVb is allocated only here (the
-        # bf16 leg stays at its 128 KiB footprint, so the struct is conditional).
-        sVb_atom = sm80_utils.get_smem_layout_atom(DTYPE, D)
-        sVb_layout = cute.tile_to_shape(sVb_atom, (TILE_N, D, 1), (0, 1, 2))
+        # fp8 leg: the PV mma is fp8 (e4m3 P x e4m3 V). P is the fp8 A-operand and
+        # CANNOT be produced in-regs (the QK C-fragment thread mapping disagrees with
+        # the fp8 A-fragment's — blocker (a)), so P is written to a small sP smem
+        # round-trip buffer (TILE_M x TILE_N e4m3 = 4 KiB, vs the 32 KiB sVb it
+        # replaces) via the QK mma's C-partition and read back by the PV mma's
+        # A-partition. The V is loaded element-wise from the fp8 sV (no sVb, no
+        # convert, no barrier — blocker (b) resolved by the element-wise idiom).
+        # sP is allocated only on the fp8 leg (the struct is conditional; the bf16
+        # leg keeps its 128 KiB footprint). PLAIN layout (no swizzle): the P
+        # round-trip only needs element-wise addressing — the P A-operand is
+        # loaded element-wise (no ldmatrix, blocker (b)) and the store uses the
+        # plain 16-bit universal copy atom (get_smem_store_atom(fp8, width 8)).
+        # A swizzled sP_layout here would make the retiled (plain) src and the
+        # swizzled dst disagree in the cute.copy (the source of the IR error).
+        sP_layout = cute.make_layout((TILE_M, TILE_N), stride=(1, TILE_M))
 
         smem = cutlass.utils.SmemAllocator()
         if const_expr(FP8_KV):
             @cute.struct
             class _SharedStorage:
                 sV: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sV_layout)], 1024]
-                sVb: cute.struct.Align[cute.struct.MemRange[DTYPE, cute.cosize(sVb_layout)], 1024]
+                sP: cute.struct.Align[cute.struct.MemRange[FP8T, cute.cosize(sP_layout)], 1024]
                 sO: cute.struct.Align[cute.struct.MemRange[ODTYPE, cute.cosize(sO_layout)], 1024]
                 sQ: cute.struct.Align[cute.struct.MemRange[QDTYPE, cute.cosize(sQ_layout)], 1024]
                 sK: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sK_layout)], 1024]
             storage = smem.allocate(_SharedStorage)
-            sVb = storage.sVb.get_tensor(sVb_layout)
+            sP = storage.sP.get_tensor(sP_layout)
         else:
             @cute.struct
             class _SharedStorage:
@@ -490,17 +514,27 @@ class BlackwellHd256DecodeTC:
                 sQ: cute.struct.Align[cute.struct.MemRange[QDTYPE, cute.cosize(sQ_layout)], 1024]
                 sK: cute.struct.Align[cute.struct.MemRange[KVTYPE, cute.cosize(sK_layout)], 1024]
             storage = smem.allocate(_SharedStorage)
-            sVb = None
         sQ = storage.sQ.get_tensor(sQ_layout)
         sK = storage.sK.get_tensor(sK_layout)
         sV = storage.sV.get_tensor(sV_layout)
         sO = storage.sO.get_tensor(sO_layout)
-        # The PV mma reads V in bf16: sV directly (bf16 leg) or the fp8->bf16
-        # staged copy sVb (fp8 leg).
+        # The PV mma's V B-operand: the bf16 leg ldmatrix's sVt (the transposed
+        # sV, proven); the fp8 leg loads the fp8 sV element-wise (no sVt/sVb).
+        # The PV mma's V B-operand is (N, K) = (D, kv) — the TRANSPOSED V (sVt),
+        # exactly like the bf16 leg (the mma B-operand convention is (N, K); the
+        # natural V smem is (kv, D) = (K, N), so it is transposed). The bf16 leg
+        # ldmatrix's sVt; the fp8 leg loads it element-wise (no ldmatrix — the
+        # fp8 B-operand faults, blocker (b)).
+        sVt = layout_utils.transpose_view(sV)
         if const_expr(FP8_KV):
-            sVt = layout_utils.transpose_view(sVb)
+            # Element-wise V B-load (blocker (b)) + the P A-partition sP_a
+            # (blocker (a) -> the sP round-trip; tOrP is created per n-block in
+            # the mainloop from sP_a). tOrV/sV_b/sP_a are fp8-leg-only.
+            sV_b = thr_mma_pv.partition_B(sVt[None, None, 0])
+            tOrV = thr_mma_pv.make_fragment_B(sV_b)
+            sP_a = thr_mma_pv.partition_A(sP)
         else:
-            sVt = layout_utils.transpose_view(sV)
+            tOrVt = thr_mma_pv.make_fragment_B(thr_mma_pv.partition_B(sVt[None, None, 0]))
         # NOTE: the KV smem OOB rows (beyond the per-batch seqlen) are only read
         # by the mma when a block is partial. In production the KV is a pool
         # (always larger than any single sequence), so those rows hold finite
@@ -567,7 +601,9 @@ class BlackwellHd256DecodeTC:
         # the smem d-stride. (The N-major/transpose=True V path is fine.)
         sK_b = thr_mma_qk.partition_B(sK[None, None, 0])
         tSrK = thr_mma_qk.make_fragment_B(sK_b)
-        tOrVt = thr_mma_pv.make_fragment_B(thr_mma_pv.partition_B(sVt[None, None, 0]))
+        # tOrVt (the bf16 PV mma's V ldmatrix B-fragment) is defined in the
+        # sVt-selection block above (bf16 leg only); the fp8 PV mma uses the
+        # element-wise tOrV (also defined there, via the sV_b / sP_a partitions).
         acc_shape_O = thr_mma_pv.partition_shape_C((TILE_M, D))
         acc_O = cute.make_rmem_tensor(acc_shape_O, Float32)
         acc_O.fill(0.0)
@@ -599,25 +635,16 @@ class BlackwellHd256DecodeTC:
                 smem_copy_atom_Q, tiled_mma_qk).get_slice(tidx)
             tSsQ = smem_thr_copy_Q.partition_S(sQ)
         smem_thr_copy_K = utils.make_tiled_copy_B(smem_copy_atom_K, tiled_mma_qk).get_slice(tidx)
-        if const_expr(FP8_KV):
-            # The PV mma is bf16 (see above) but the V smem is fp8. tOsVt is the
-            # V ldmatrix source for the bf16 PV mma (gemm_rs), so it must carry
-            # the PV mma's B-fragment per-thread
-            # geometry (the make_tiled_copy_B invariant: retiled smem view
-            # element order == mma fragment order) — pair a bf16-typed atom
-            # with tiled_mma_pv, NOT the fp8 QK mma (whose k=32 geometry has
-            # half the k-blocks of the bf16 PV mma's k=16 -> wrong V mapping).
-            # partition_S keeps the fp8 sVt addressing; the atom only
-            # contributes the ldmatrix TV structure.
-            smem_copy_atom_V_pv = cute.make_copy_atom(
-                warp.LdMatrix8x8x16bOp(transpose=True, num_matrices=4), DTYPE)
-            smem_thr_copy_V = utils.make_tiled_copy_B(
-                smem_copy_atom_V_pv, tiled_mma_pv).get_slice(tidx)
-        else:
+        tSsK = smem_thr_copy_K.partition_S(sK)
+        if const_expr(not FP8_KV):
+            # The bf16 PV mma ldmatrix's sVt (the V B-operand, the proven bf16
+            # path). The fp8 PV mma loads V element-wise from the fp8 sV
+            # (_pv_mma_fp8's sV_b) — no ldmatrix atom, no tOsVt (the fp8 V
+            # ldmatrix was dead code, now removed: an fp8 B-operand faults on
+            # sm_110a).
             smem_thr_copy_V = utils.make_tiled_copy_B(
                 smem_copy_atom_V, tiled_mma_pv).get_slice(tidx)
-        tSsK = smem_thr_copy_K.partition_S(sK)
-        tOsVt = smem_thr_copy_V.partition_S(sVt)
+            tOsVt = smem_thr_copy_V.partition_S(sVt)
         if const_expr(FP8_KV):
             # The ldmatrix copy view for K (the fp8 leg prefetches K in-regs
             # per k-block; the bf16 leg's sm80_utils.gemm does its own retile).
@@ -634,9 +661,17 @@ class BlackwellHd256DecodeTC:
                 cute.make_ptr(KVTYPE, tSsK.iterator.toint(), cute.AddressSpace.smem,
                               assumed_align=16),
                 tSsK.layout)
-            # tOsVt needs no re-stamp here: the fp8 leg's V is the bf16 staged
-            # copy sVb (transposed), so partition_S keeps the bf16 16-bit
-            # default the b16 ldmatrix wants — identical to the bf16 leg.
+        if const_expr(FP8_KV):
+            # P smem round-trip (blocker (a)): store P (e4m3) to sP element-wise
+            # via the QK mma's C-partition (the proven C->smem mapping, each
+            # thread stores its own acc_S elements), then reload the A-fragment
+            # element-wise (sP_a, in _pv_mma_fp8). Element-wise (no copy atom):
+            # the universal 16-bit fp8 store atom can't vectorize against the
+            # plain sP layout, and the A-load is already element-wise, so this
+            # is exact. tCsP = the QK mma's per-thread smem C-view of sP (the
+            # (m, n) query-row x kv-row position each thread owns); acc_S (the
+            # C-fragment) maps 1:1 onto it.
+            tCsP = thr_mma_qk.partition_C(sP)
 
         acc_S_shape = thr_mma_qk.partition_shape_C((TILE_M, TILE_N))
         acc_S = cute.make_rmem_tensor(acc_S_shape, Float32)
@@ -818,22 +853,31 @@ class BlackwellHd256DecodeTC:
                     _mask_partial_kv(acc_S, thr_mma_qk, gtile, kv_len, TILE_M, TILE_N)
             row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(True))
             softmax.rescale_O(acc_O, row_scale)
-            rP = cute.make_fragment_like(acc_S, PT)
-            rP.store(acc_S.load().to(PT))
-            tOrP = layout_utils.reshape_acc_to_frgA(rP)
             if const_expr(FP8_KV):
-                # Stage V fp8 -> bf16, then the PV ldmatrix reads sVb exactly
-                # like the bf16 leg (proven; an fp8 B-operand faults on sm_110a).
-                _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
-                # Barrier: sVb is written by ALL threads above and read by ALL
-                # threads in the gemm_rs ldmatrix below. Without it a warp can
-                # ldmatrix-read sVb before another warp's convert retires —
-                # 1st block reads uninitialized smem (NaN), later blocks read
-                # the previous block's stale V (the large finite O error).
+                # P smem round-trip (blocker (a)): acc_S (the fp32 QK C-fragment)
+                # -> e4m3 P -> sP element-wise via the QK mma's C-partition
+                # (tCsP). The e4m3 cast is satfinite-inherent (P in [0,1] under
+                # the running-max softmax, so saturation never fires — safety net
+                # so a P-overflow can't NaN). A barrier: sP is written by ALL
+                # threads and read by ALL threads in the _pv_mma_fp8 element-wise
+                # A load below. tOrP (the A-fragment) is created here per n-block
+                # (both legs define tOrP in the mainloop, so no type-join).
+                tOrP = thr_mma_pv.make_fragment_A(sP_a)
+                tOrP_cur = cute.make_rmem_tensor_like(acc_S, FP8T)
+                tOrP_cur.store(acc_S.load().to(FP8T))
+                for _e in cutlass.range_constexpr(cute.size(tOrP_cur)):
+                    tCsP[_e] = tOrP_cur[_e]
+                cute.arch.fence_view_async_shared()
                 cute.arch.sync_threads()
-            sm80_utils.gemm_rs(
-                thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
-                smem_thr_copy_V)
+                # fp8 PV mma: P (A) + V (B) loaded element-wise, e4m3 m16n8k32.
+                _pv_mma_fp8(tiled_mma_pv, acc_O, tOrP, tOrV, sP_a, sV_b)
+            else:
+                rP = cute.make_fragment_like(acc_S, PT)
+                rP.store(acc_S.load().to(PT))
+                tOrP = layout_utils.reshape_acc_to_frgA(rP)
+                sm80_utils.gemm_rs(
+                    thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
+                    smem_thr_copy_V)
 
         # Steady-state n_blocks (is_first=False).
         for nb in cutlass.range(1, num_nblocks):
@@ -892,17 +936,26 @@ class BlackwellHd256DecodeTC:
                 _mask_partial_kv(acc_S, thr_mma_qk, gtile, kv_len, TILE_M, TILE_N)
             row_scale = softmax.online_softmax(acc_S, is_first=cutlass.const_expr(False))
             softmax.rescale_O(acc_O, row_scale)
-            rP = cute.make_fragment_like(acc_S, PT)
-            rP.store(acc_S.load().to(PT))
-            tOrP = layout_utils.reshape_acc_to_frgA(rP)
             if const_expr(FP8_KV):
-                _convert_v_to_bf16(sV, sVb, tidx, TILE_N, D, self.num_threads)
-                # sVb write (all threads) must complete before the gemm_rs
-                # ldmatrix read (all threads) — see the first-block barrier.
+                # P smem round-trip + fp8 PV mma (see the first-block note):
+                # acc_S -> e4m3 P -> sP (QK C-partition store, element-wise),
+                # barrier, then the element-wise e4m3 mma (P A-operand from sP,
+                # V B-operand from sV).
+                tOrP = thr_mma_pv.make_fragment_A(sP_a)
+                tOrP_cur = cute.make_rmem_tensor_like(acc_S, FP8T)
+                tOrP_cur.store(acc_S.load().to(FP8T))
+                for _e in cutlass.range_constexpr(cute.size(tOrP_cur)):
+                    tCsP[_e] = tOrP_cur[_e]
+                cute.arch.fence_view_async_shared()
                 cute.arch.sync_threads()
-            sm80_utils.gemm_rs(
-                thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
-                smem_thr_copy_V)
+                _pv_mma_fp8(tiled_mma_pv, acc_O, tOrP, tOrV, sP_a, sV_b)
+            else:
+                rP = cute.make_fragment_like(acc_S, PT)
+                rP.store(acc_S.load().to(PT))
+                tOrP = layout_utils.reshape_acc_to_frgA(rP)
+                sm80_utils.gemm_rs(
+                    thr_mma_pv, acc_O, tOrP, tOrVt, tOsVt[None, None, None, 0],
+                    smem_thr_copy_V)
 
         cute.arch.cp_async_wait_group(0)
         cute.arch.sync_threads()

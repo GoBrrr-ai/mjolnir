@@ -1,9 +1,13 @@
 # TC decode — the "not fully Blackwell" question: fp8-PV `mma.sync` blockers + tcgen05
 
-**Status: INVESTIGATION COMPLETE (read-only — no code changes, no GPU runs).**
-Closes the open item in `tc-parity-plan.md` §2.2a ("Investigation: delegated (see the
-follow-up research task), not yet decided"). Companion to `tc-parity-plan.md`,
-`decode-1cta-clean.md`, `decode-kernel-feasibility.md`, `gemv-fi-gap-final.md`.
+**Status: INVESTIGATION COMPLETE → fp8-PV mma IMPLEMENTED (2026-10-04, `tc-parity-plan.md`
+§2.7).** Both blockers below were resolved on the `mma.sync` TC kernel: the **P smem
+round-trip** (blocker (a)) + the **element-wise V B-load** (blocker (b)) → the PV mma is now
+native fp8 (e4m3 P × e4m3 V, fp32 acc) on the fp8-KV leg. Verified: all four suites green,
+every fp8 cell passes (incl. fp8 varlen-M M≤8 + SplitKV); the bf16-KV leg is byte-identical.
+The tcgen05 spike remains deferred (§3, M≥8/prefill only). Closes the open item in
+`tc-parity-plan.md` §2.2a. Companion to `tc-parity-plan.md`, `decode-1cta-clean.md`,
+`decode-kernel-feasibility.md`, `gemv-fi-gap-final.md`.
 
 Primary object of study:
 `vllm_flash_attn/cute/sm100_hd256_decode_tc.py` (the TC kernel; the shipped copy at

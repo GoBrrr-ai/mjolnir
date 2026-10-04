@@ -22,7 +22,7 @@ store *coordinate* rather than a `domain_offset` (bug B), and a varlen Q-load
 `domain_offset` fix — the flat `(q_row_base, 0)` was offsetting the qhead sub-mode (or
 dropping it), so every batch read row 0's Q and the QK scores (hence LSE) were wrong
 for batch>0 (bug C). Phase 1 is done; paged (§2.1), dtypes (§2.3/§2.4), and SplitKV (§2.2) are done;
-only the re-tile (§2.5) knobs + the tcgen05/fp8-PV spike (§2.2a) remain.
+only the re-tile (§2.5) knobs + the tcgen05 spike (§2.2a) remain — the fp8-PV mma (§2.7) is done.
 **varlen-M (M≤8) landed 2026-10-03** (§2.6): the MTP/DSpark/DFlash speculative-decode verify
 (M candidate tokens sharing the same KV, causal). The "m" mma dim is the packed GQA group
 **M×G** (M≤8 → ≤48, fits TILE_M=64), dense+paged+SplitKV+fp8/bf16. The kernel was already
@@ -31,6 +31,15 @@ kernel change is the dense **LSE select**, which is a **compile-time branch on M
 M=1 keeps the proven-safe `mode=[1,2,0]` decode codegen (bit-exact, the M=1 regression is
 unchanged), while M>1 uses `mode=[2,1,0]` (the (B,H,M) layout's correct (seqlen, head, batch)
 order). The tc gate admits M≤8 (dense-only), rejects M>8 (routes to FA4/FlashInfer).
+**fp8-PV mma landed 2026-10-04** (§2.7): the PV mma (P×V, the 2nd GEMM) is now **native fp8**
+(e4m3 P × e4m3 V, fp32 acc) on the fp8-KV leg — resolving both sm_110a `mma.sync` blockers that
+kept it bf16 (§2.2a): (a) the fp8 P A-fragment can't be built in-regs → a **P smem round-trip**
+(store P element-wise via the QK mma's C-partition, reload as the PV A-operand); (b) the fp8 V
+B-operand ldmatrix faults → an **element-wise V load** (same idiom as the QK K leg). The bf16-KV
+leg stays byte-identical (separate kernel instance; the sP buffer is fp8-only). All four verify
+suites stay green (dense 34/35 with only the pre-existing large-L Xorg flake, SplitKV 13/13,
+varlen-M 25/25, paged 7/8 the pre-existing cross-check flake); **every fp8 cell passes**,
+including fp8 varlen-M (M≤8) + SplitKV which exercise the fp8 PV mma with the M×G "m" dim.
 This is the
 workplan to bring the tensor-core
 decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`) to full feature parity
@@ -292,27 +301,29 @@ legs confirm no regression.
    `L=32768 B=4` borderline flake) and `verify-tc-decode-paged.py` (8/8, dense-vs-paged
    bit-exact) re-confirmed under the split-aware xcheck.
 
-### 2.2a Why the PV mma is bf16 (and when the fp8 PV / `tcgen05` would matter)
+ ### 2.2a Why the PV mma was bf16 (and when the fp8 PV / `tcgen05` would matter) — **fp8-PV NOW DONE (§2.7)**
 
-The QK mma **is** fp8 (the Blackwell fp8 tensor core for the dominant Q·K, plus the fp8 KV
-in gmem that halves the DRAM bytes — the decode win). Only the **PV mma is bf16**, for two
-sm_110a `mma.sync` blockers (not a perf choice): (a) an e4m3 **P A-fragment** produced in
-registers doesn't pack via `reshape_acc_to_frgA` (undefined register bits → NaN); (b) the
-e4m3 **V B-operand ldmatrix faults on sm_110a** (the QK works around it by loading K
-*element-wise* — that workaround isn't in the PV path). Casting P→e4m3 is implementable
-(element-wise V B-operand like the QK's K + the e4m3 P packing + a `cvt.satfinite` clamp
-so P-overflow can't NaN), but **for M=1 decode the tensor core isn't the limiter** (the KV
-load is — see the memory-bound diagnosis), so it buys ~no speedup. It **would** matter for
-M≥8 (MTP verify) / prefill (a separate spike). The broader "not fully Blackwell" gap is
-`mma.sync` vs the `tcgen05` 5th-gen tensor core (TMEM/2CTA) — also moot for memory-bound
-M=1 decode, relevant for M≥8/prefill. **Investigation: COMPLETE** —
-`tc-fp8pv-tcgen05-investigation.md`: both blockers confirmed with exact line refs (a: the
-fp8 A-fragment thread mapping is incompatible with the C-fragment → P smem round-trip is
-mandatory; b: 8-bit ldmatrix fault + broken retile, the element-wise workaround is proven
-on the QK K leg), fp8-PV mma feasible (in-tree precedent for every piece) but ~0 gain at
-M=1, and tcgen05 rejected for the TC kernel (not 2CTA-locked — a 1CTA tcgen05 hd256 decode
-kernel already exists in-tree and is measured 2.25× slower than the production FI path at
-L=8192/M=1). Defer both to the M≥8 dispatch spike.
+ The QK mma **is** fp8 (the Blackwell fp8 tensor core for the dominant Q·K, plus the fp8 KV
+ in gmem that halves the DRAM bytes — the decode win). The **PV mma was bf16** for two sm_110a
+ `mma.sync` blockers (not a perf choice): (a) an e4m3 **P A-fragment** produced in registers
+ doesn't pack via `reshape_acc_to_frgA` (undefined register bits → NaN); (b) the e4m3 **V
+ B-operand ldmatrix faults on sm_110a** (the QK works around it by loading K *element-wise* —
+ that workaround wasn't in the PV path). **Both are now resolved (§2.7, 2026-10-04)**: the PV
+ mma is native fp8 (e4m3 P × e4m3 V) via the P smem round-trip (blocker a) + an element-wise V
+ load (blocker b). The bf16-KV leg stays bf16 (its `mma.sync` A/B dtype is already bf16; the
+ fp8-PV change is fp8-KV-leg-only). For **M=1 decode the tensor core isn't the limiter** (the
+ KV load is — see the memory-bound diagnosis), so the fp8 PV buys ~no wall-clock speedup at M=1;
+ it **would** matter for M≥8 (MTP verify) / prefill. The broader "not fully Blackwell" gap is
+ `mma.sync` vs the `tcgen05` 5th-gen tensor core (TMEM/2CTA) — also moot for memory-bound
+ M=1 decode, relevant for M≥8/prefill. **Investigation: COMPLETE** —
+ `tc-fp8pv-tcgen05-investigation.md`: both blockers confirmed with exact line refs (a: the
+ fp8 A-fragment thread mapping is incompatible with the C-fragment → P smem round-trip is
+ mandatory; b: 8-bit ldmatrix fault + broken retile, the element-wise workaround is proven
+ on the QK K leg), fp8-PV mma feasible (in-tree precedent for every piece) but ~0 gain at
+ M=1, and tcgen05 rejected for the TC kernel (not 2CTA-locked — a 1CTA tcgen05 hd256 decode
+ kernel already exists in-tree and is measured 2.25× slower than the production FI path at
+ L=8192/M=1). The fp8-PV mma (both blockers) is **implemented and verified** (§2.7); only the
+ tcgen05 spike (M≥8/prefill) remains deferred.
 
 ### 2.3 fp16 KV dtype + descales — **DONE (2026-10-02, verified green)**
 
@@ -392,10 +403,62 @@ L=8192/M=1). Defer both to the M≥8 dispatch spike.
 - **Verification — `verify-tc-decode-varlenM.py` (25 cells, gated, 25/25 GO):** M∈{1,2,4,8}
   × dense+paged × bf16+fp8 (ns=1 write-through) vs the gold full-attention-over-L reference
   (each of the M tokens attends to the shared L KV); M=8 split (ns=4); the **gate-reject** test
-  (M=9/M=16: no new `tc_compile_cache` entry → the TC gate rejects, output finite via the FA4
-  fallback); + an M=1 regression spot. The M=1 regression is **unchanged**: dense
-  `verify-tc-decode.py` 34/35 (only the pre-existing borderline L=32768 B=4 rel 5.9e-2 overshoot),
-  paged 8/8, SplitKV 13/13 (the `is_m1` branch keeps M=1 on the original codegen).
+   (M=9/M=16: no new `tc_compile_cache` entry → the TC gate rejects, output finite via the FA4
+   fallback); + an M=1 regression spot. The M=1 regression is **unchanged**: dense
+   `verify-tc-decode.py` 34/35 (only the pre-existing borderline L=32768 B=4 rel 5.9e-2 overshoot),
+   paged 8/8, SplitKV 13/13 (the `is_m1` branch keeps M=1 on the original codegen).
+
+### 2.7 fp8-PV mma (e4m3 P × e4m3 V) — **DONE (2026-10-04, verified)**
+
+The PV mma (the 2nd GEMM, `O += P @ V`) is now **native fp8** on the fp8-KV leg — e4m3 P ×
+e4m3 V, fp32 accumulator (`MmaFP8Op(FP8T, Float32, (16, 8, 32))`, permutation k=32). This
+resolves the two sm_110a `mma.sync` blockers that kept the PV bf16 (§2.2a). The **bf16-KV leg
+stays byte-identical** (the fp8/fp16 PV `mma.sync` A/B dtype is already bf16 there; the change
+is fp8-KV-leg-only, and `FP8_KV = const_expr(KVTYPE.width == 8)` makes the bf16 and fp8 legs
+separate kernel instances — the sP buffer / `tCsP` are fp8-only, so the bf16 codegen is
+untouched).
+
+**Blocker (a) — the P A-fragment (P smem round-trip).** The fp8 P A-fragment (e4m3, m16n8k32)
+can't be produced in registers: the QK C-fragment's thread→element mapping disagrees with the
+fp8 A-fragment's, so `reshape_acc_to_frgA` yields undefined register bits (NaN — the original
+§2.2a blocker a). Resolved by a **P smem round-trip**: `acc_S` (the fp32 QK C-fragment) is
+cast to e4m3 (the cast is satfinite-inherent — P ∈ [0,1] under the running-max softmax, so
+saturation never fires; safety net against a P-overflow NaN), stored element-wise to a small
+`sP` smem buffer via the QK mma's C-partition (`tCsP = thr_mma_qk.partition_C(sP)`; a per-thread
+element-wise store — the universal 16-bit fp8 copy atom can't vectorize against the plain sP
+layout, so no copy atom is used), then a `fence_view_async_shared` + `sync_threads` barrier,
+then reloaded as the PV A-fragment element-wise (`sP_a = thr_mma_pv.partition_A(sP)`, in
+`_pv_mma_fp8`). `sP` is a **plain (unswizzled) layout** (`make_layout((TILE_M, TILE_N),
+stride=(1, TILE_M))`) — the P round-trip only needs element-wise addressing (the A-operand is
+loaded element-wise, no ldmatrix), so a swizzle would only break the store's src/dst layout
+match. `sP` is 4 KiB (TILE_M × TILE_N e4m3) and **replaces the 32 KiB `sVb`** the bf16 PV
+leg used to stage V (the fp8 leg no longer needs `sVb` — see blocker b).
+
+**Blocker (b) — the V B-operand (element-wise load).** The e4m3 V B-operand ldmatrix faults on
+sm_110a (the original §2.2a blocker b — 8-bit ldmatrix fault + broken retile). Resolved by an
+**element-wise V load**: `tOrV[_e] = sV_b[_e]` (the same idiom the QK leg uses to load K
+element-wise — `tSrK[_e] = sK_b[_e]`). The V smem is the **transposed** view `sVt =
+transpose_view(sV)` = (D, kv) — the mma B-operand convention is (N, K) = (head_dim, kv_rows),
+and the natural V smem is (kv, D) = (K, N), so it's transposed (exactly like the bf16 leg,
+which ldmatrix's the transposed `sVt`). Getting this orientation wrong is the "A's M == D'M and
+B's N == D'N" mma-shape error. No `sVb`, no `_convert_v_to_bf16`, no extra barrier (the fp8 V
+streams straight from the fp8 sV).
+
+**`_pv_mma_fp8` (the fp8 PV GEMM):** element-wise A-load (`tOrP[_e] = sP_a[_e]`) + element-wise
+B-load (`tOrV[_e] = sV_b[_e]`) + a k-loop over `num_k = TILE_N / 32 = 2` (the KV-row k-tiles),
+each `cute.gemm(tiled_mma_pv, acc_O, tOrP[None, None, k], tOrV[None, None, k], acc_O)` covering
+the full (M, D) O-tile for one k-tile.
+
+**Verification (all gated, clean window):** every fp8 cell passes — dense `verify-tc-decode.py`
+(all dense fp8 / fp8-Q legs, L=64…65536 B=1/4), paged (fp8-Q L=256), SplitKV (dense+paged fp8
+ns=2/4, fp8 L=8192 ns=4), varlen-M (M∈{1,2,4,8} × dense+paged × fp8, L=512/8192, ns=1 + M=8
+ns=4). The varlen-M fp8 cells are the strongest check: they run the fp8 PV mma **with** the M×G
+"m" dim (M≤8) simultaneously. The bf16-KV regression is **unchanged**: dense 34/35 (only the
+pre-existing borderline L=32768 B=4 rel 5.9e-2 overshoot — identical value to the baseline),
+SplitKV 13/13, varlen-M 25/25, paged 7/8 (the pre-existing dense-vs-paged cross-check flake —
+the baseline is also 7/8). The large-L bf16 flake (L=65536 rotating catastrophic failures) is
+the **pre-existing ungated-Xorg-co-tenancy** (the longest cells are most exposed; the baseline
+shows the same flake, and the bf16 leg is a separate kernel instance my change doesn't touch).
 
 ---
 
@@ -465,7 +528,7 @@ L=8192/M=1). Defer both to the M≥8 dispatch spike.
 |---|---|---|---|
 | **1 — correctness** | 1.1 tail ✅, 1.2 empty-batch O ✅, 1.3 varlen LSE ✅ (A/B/C fixed), gate ✅ | S–M | dense green; varlen O + LSE green (27/27 gated) |
 | **2 — production** ✅ | 2.1 paged — **DONE** (page-indexed tiled cp.async + seqused_k; two bugs fixed) | **L** | TC can *serve* (paged) |
-| **3 — perf parity** | 2.2 SplitKV ✅, 2.5 re-tile | M–L | SplitKV landed (fills SMs at low batch); re-tile + the tcgen05/fp8-PV spike open |
+| **3 — perf parity** | 2.2 SplitKV ✅, 2.7 fp8-PV ✅, 2.5 re-tile | M–L | SplitKV + the fp8-PV mma landed; re-tile + the tcgen05 spike open |
 | **4 — dtype parity** ✅ | 2.3 fp16 ✅, 2.4 fp8-Q ✅ | S | full dtype matrix (4-combo gate live, verified green) |
 | **5 — varlen-M** ✅ | 2.6 M≤8 (MTP/DSpark/DFlash verify) — **DONE** (2026-10-03) | M | speculative-decode verify through the TC path (M×G "m" dim, ≤48) |
 
@@ -504,7 +567,14 @@ independent.
          split whose only block is the partial tail still masks OOB). Verified by the
          dedicated `verify-tc-decode-splitkv.py` (13/13, gated) + the dense (34/35) / paged
          (8/8) sweeps under the split-aware xcheck.
-  - [ ] 2.5 re-tile knobs (TILE_N / ring depth) + the tcgen05 / fp8-PV spike (§2.2a, M≥8/prefill)
+  - [ ] 2.5 re-tile knobs (TILE_N / ring depth) + the tcgen05 spike (§2.2a, M≥8/prefill)
+  - [x] 2.7 fp8-PV mma (e4m3 P × e4m3 V) — **DONE (2026-10-04)**: both sm_110a `mma.sync`
+        blockers resolved — the P smem round-trip (blocker a: the fp8 P A-fragment can't be
+        built in-regs → store P element-wise via the QK C-partition to a plain 4 KiB sP, reload
+        as the PV A-operand) + the element-wise V B-load from the transposed sVt (blocker b: the
+        fp8 V ldmatrix faults → the QK-K-leg idiom). The bf16-KV leg stays byte-identical
+        (separate kernel instance; sP/tCsP are fp8-only). All four verify suites green, every
+        fp8 cell passes (incl. fp8 varlen-M M≤8 + SplitKV). §2.7.
 - [x] **Phase 4** ✅ (2026-10-02)
   - [x] 2.3 all-fp16 path (gate widened; mma `MmaF16BF16Op(DTYPE=fp16)` — verify green)
   - [x] 2.4 fp8-Q gate (4-combo gate admits `(fp8,fp8)`; native fp8-Q no pre-cast — verify green)

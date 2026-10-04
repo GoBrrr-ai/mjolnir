@@ -42,9 +42,20 @@ here.
    M=1 keeps the proven-safe `mode=[1,2,0]` decode codegen (bit-exact — the M=1
    regression dense 34/35 + paged 8/8 + SplitKV 13/13 is unchanged), M>1 uses
    `mode=[2,1,0]` (the (B,H,M) layout's correct order — the original `[1,2,0]`
-   mis-placed the M>1 LSE). Gated `verify-tc-decode-varlenM.py` 25/25 GO. Depth:
-   `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6.
-- **LiteLLM proxy stack (2026-09-27)**: `mjolnir litellm up|down|status|logs|config`
+    mis-placed the M>1 LSE). Gated `verify-tc-decode-varlenM.py` 25/25 GO. Depth:
+    `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6.
+ - **TC decode kernel — fp8-PV mma (2026-10-04).** The tensor-core
+    (`sm100_hd256_decode_tc`) **PV mma is now native fp8** (e4m3 P × e4m3 V, fp32
+    acc) on the fp8-KV leg — resolving the two sm_110a `mma.sync` blockers that kept
+    it bf16: **(a)** the fp8 P A-fragment can't be built in-regs → a **P smem
+    round-trip** (store P element-wise via the QK mma's C-partition to a plain 4 KiB
+    `sP`, reload as the PV A-operand); **(b)** the fp8 V B-operand ldmatrix faults → an
+    **element-wise V load** from the transposed `sVt` (the QK-K-leg idiom). The **bf16-KV
+    leg stays byte-identical** (separate kernel instance — `sP`/`tCsP` are fp8-only).
+    All four verify suites green; **every fp8 cell passes** (incl. fp8 varlen-M M≤8 +
+    SplitKV, which run the fp8 PV mma with the M×G "m" dim). Depth:
+    `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.7.
+ - **LiteLLM proxy stack (2026-09-27)**: `mjolnir litellm up|down|status|logs|config`
   drives the imported proxy stack (`docker/litellm/` — litellm + postgres +
   redis, `docker compose` under the hood) — **independent of the vLLM
   server** (reaches it via `host.docker.internal` + the host port; `litellm
