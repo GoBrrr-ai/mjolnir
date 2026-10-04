@@ -174,7 +174,7 @@ def gemv_leg(cases: Cases, L: int, tile: int, stages: int, ns: int,
 
     def fn() -> None:
         os.environ["VLLM_FA4_HD256_GEMV"] = "1"
-        os.environ["VLLM_FA4_HD256_TC"] = "0"  # reset the TC leg's env (TC gate is checked first)
+        os.environ["VLLM_FA4_HD256_TC_SPARK"] = "0"  # reset the TC leg's env (TC gate is checked first)
         os.environ["VLLM_FA4_HD256_GEMV_TILE"] = str(tile)
         os.environ["VLLM_FA4_HD256_GEMV_STAGES"] = str(stages)
         os.environ["VLLM_FA4_HD256_GEMV_NUM_SPLITS"] = str(ns)
@@ -189,7 +189,7 @@ def gemv_leg(cases: Cases, L: int, tile: int, stages: int, ns: int,
 
 
 def tc_leg(cases: Cases, L: int, ns: int, page_size: int):
-    """One TC (mma.sync, ``VLLM_FA4_HD256_TC=1``) callable at ns. The TC tile
+    """One TC (mma.sync, ``VLLM_FA4_HD256_TC_SPARK=1``) callable at ns. The TC tile
     geometry (TILE_N=64) is fixed (no GEMV tile/stages knobs), so only the
     SplitKV ns axis is swept; GEMV is force-off so the TC path is taken."""
     import vllm.vllm_flash_attn.cute.interface as iface
@@ -207,9 +207,9 @@ def tc_leg(cases: Cases, L: int, ns: int, page_size: int):
     q_in = cases.q.unsqueeze(0).unsqueeze(0)  # (1, 1, H, D)
 
     def fn() -> None:
-        os.environ["VLLM_FA4_HD256_TC"] = "1"
+        os.environ["VLLM_FA4_HD256_TC_SPARK"] = "1"
         os.environ["VLLM_FA4_HD256_GEMV"] = "0"
-        os.environ["VLLM_FA4_HD256_TC_NUM_SPLITS"] = str(ns)
+        os.environ["VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS"] = str(ns)
         iface._flash_attn_fwd(
             q_in, k_in, v_in, page_table=pt, seqused_k=sk,
             max_seqlen_q=1, max_seqlen_k=L,
@@ -322,7 +322,7 @@ class Fa4Leg:
 
     def __call__(self) -> None:
         os.environ.pop("VLLM_FA4_HD256_GEMV", None)  # force the FA4 path
-        os.environ["VLLM_FA4_HD256_TC"] = "0"        # (the TC gate is checked before FA4)
+        os.environ["VLLM_FA4_HD256_TC_SPARK"] = "0"        # (the TC gate is checked before FA4)
         self._call(**self.args)
 
 

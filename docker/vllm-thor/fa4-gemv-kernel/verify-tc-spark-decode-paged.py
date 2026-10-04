@@ -2,7 +2,7 @@
 """TC (mma.sync) hd256 DECODE — PAGED-KV verify on Jetson Thor (sm_110).
 
 Verifies the paged leg of the tensor-core decode kernel
-(``vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`` + the interface paged
+(``vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc_spark`` + the interface paged
 dispatch): the kernel gathers each n_block's physical page from the page
 table in-kernel (pidx/ktile, the R1-PROVEN runtime-gather idiom) and takes
 the per-batch true KV length from ``seqused_k``.
@@ -44,7 +44,7 @@ NUM_Q_HEADS = 24
 NUM_KV_HEADS = 4
 G = NUM_Q_HEADS // NUM_KV_HEADS  # 6
 D = 256
-TILE_N = 64  # matches BlackwellHd256DecodeTC.TILE_N (kv-rows per mma n_block)
+TILE_N = 64  # matches BlackwellHd256DecodeTCSpark.TILE_N (kv-rows per mma n_block)
 PS = 128     # page size (primary; the kernel requires PS % TILE_N == 0)
 DEVICE = "cuda"
 SOFTMAX_SCALE = D ** -0.5
@@ -245,7 +245,7 @@ def _run(
     k_descale: torch.Tensor | None = None,
     v_descale: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    os.environ["VLLM_FA4_HD256_TC"] = "1"
+    os.environ["VLLM_FA4_HD256_TC_SPARK"] = "1"
     os.environ["VLLM_FA4_HD256_GEMV"] = "0"
     from vllm.vllm_flash_attn.cute.interface import _flash_attn_fwd
 

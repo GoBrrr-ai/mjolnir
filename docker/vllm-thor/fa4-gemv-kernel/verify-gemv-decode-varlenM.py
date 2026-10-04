@@ -196,7 +196,7 @@ def _run(
     (ns=1 = write-through); None = the interface's auto plan. Returns
     (out (B,M,H,D), lse (B,H,M))."""
     os.environ["VLLM_FA4_HD256_GEMV"] = "1"
-    os.environ["VLLM_FA4_HD256_TC"] = "0"
+    os.environ["VLLM_FA4_HD256_TC_SPARK"] = "0"
     if ns_env is not None:
         os.environ["VLLM_FA4_HD256_GEMV_NUM_SPLITS"] = str(ns_env)
     else:

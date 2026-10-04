@@ -42,14 +42,14 @@ varlen-M 25/25, paged 7/8 the pre-existing cross-check flake); **every fp8 cell 
 including fp8 varlen-M (M≤8) + SplitKV which exercise the fp8 PV mma with the M×G "m" dim.
 This is the
 workplan to bring the tensor-core
-decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc`) to full feature parity
+decode kernel (`vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc_spark`) to full feature parity
 with the FMA GEMV decode kernel (`sm100_hd256_decode_gemv`), so the TC kernel can
 **serve production** (paged KV) and match GEMV's capability surface. Every item is
 mapped to the proven GEMV implementation (most are **ports, not greenfield**) and to
 the exact TC change-points.
 
 > **Phase 1 results (gated, clean window — `mjolnir gate` / the inline gate in
-> `verify-tc-decode.py`):** the dense legs (bf16 + fp8 KV, L=1…65536, B=1/4) pass at
+> `verify-tc-spark-decode.py`):** the dense legs (bf16 + fp8 KV, L=1…65536, B=1/4) pass at
 > rel 0.003–0.007. Two findings from the gated runs:
 > 1. **The fp8 large-L "flakiness" was co-tenancy, not a kernel bug.** Ungated the
 >    fp8 L=8192/32768/65536 legs drifted to rel 0.058–0.128 (over the 0.05 tol); in a
@@ -101,7 +101,7 @@ invariant at `interface.py:712`.)
 
 ### 1.1 Partial-tail: `L < TILE_N` fails verify — **DONE (gated)**
 
-- **Symptom (was):** `verify-tc-decode.py` L=1/3/5 rows reported `lse_err≈4–6` — real
+- **Symptom (was):** `verify-tc-spark-decode.py` L=1/3/5 rows reported `lse_err≈4–6` — real
   corruption, not a tail-epsilon.
 - **Two independent root causes, both fixed:**
   1. **Interface (the real one):** the dense dispatch passed `seqlen_k = v.shape[-3]`
@@ -115,7 +115,7 @@ invariant at `interface.py:712`.)
      value); the `−inf` select goes through an mn-view row round-trip (the access
      path `online_softmax` consumes). The committed alternate (a direct
      `tScS[(_r%2, _r//2), 0, _c][1]` read) is preserved in
-     `sm100_hd256_decode_tc_mask_alt.py`.
+     `sm100_hd256_decode_tc_spark_mask_alt.py`.
 - **Verify:** dense bf16 + fp8 L=1/3/5 pass at rel ≤ 3e-3, gated clean window.
 - **Still to add:** an `L=100` / `L=37` cell (last-partial-block, `kv_len ≥ TILE_N`,
   `kv_len % TILE_N != 0`) — the verify only tests `L` that are multiples of 64 or `< 64`,
@@ -231,7 +231,7 @@ legs confirm no regression.
      The pin (three `sK` smem reads + three gmem stores into a per-device scratch
      buffer `mPin`, fp8-safe via a `Float32` cast) is now in the production kernel,
      compiled **only** in the paged leg (`const_expr(is_paged and mPin is not None)`).
-- **Verify (`verify-tc-decode-paged.py`, 8 cells, PS=128 primary + a PS=64 spot):**
+- **Verify (`verify-tc-spark-decode-paged.py`, 8 cells, PS=128 primary + a PS=64 spot):**
   identity table, **shuffled** table (the real gather check), partial-page tail (L=97),
   L=8192 / 64-pages, an fp8-Q leg (q bf16 / kv fp8 — the production config), B=2
   multi-batch (distinct `kv_len` + distinct tables), and a **dense-vs-paged cross-check
@@ -262,7 +262,7 @@ legs confirm no regression.
     LSE=−inf` via `Softmax.finalize` (the `row_sum==0 → scale=1.0` guard) for free.
   - **Interface:** the `tc_split` gate (decode-shaped only), the **reused**
     `_gemv_auto_num_splits` plan (FlashInfer Alg.1, env/caller/auto precedence, the
-    `VLLM_FA4_HD256_TC_NUM_SPLITS` knob), the `out_partial`/`lse_partial` fp32 allocation
+    `VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS` knob), the `out_partial`/`lse_partial` fp32 allocation
     (matching the kernel's packed view), and the **reused** `_flash_attn_fwd_combine`
     host combine (unchanged). `tc_key` gets a `tc_split` term (separate cache entry).
 - **The sVb cross-warp race (found + fixed during bring-up):** the fp8 PV stages V
@@ -293,12 +293,12 @@ legs confirm no regression.
    the **empty-split** (a paged `B=2 [256,64]` at ns=2 → the short batch's splits 1.. are EMPTY,
    the `−inf` LSE contributes 0 and the combine still matches ns=1 for both batches), the
    auto-ns plan (`L=8192` → ns=20), and a 3× bit-identical determinism repeat (the sVb fix).
-   The dedicated **`verify-tc-decode-splitkv.py`** (gated; 13 cases) exercises the dispatch
+   The dedicated **`verify-tc-spark-decode-splitkv.py`** (gated; 13 cases) exercises the dispatch
    end-to-end through the real `_flash_attn_fwd` — the `tc_split` gate, the caller-
-   `num_splits` + the `VLLM_FA4_HD256_TC_NUM_SPLITS` env + the auto plan, the fp32
+   `num_splits` + the `VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS` env + the auto plan, the fp32
    `out_partial`/`lse_partial` allocation, and the host combine — all green (13/13). The
-   full `verify-tc-decode.py` dense sweep (34/35; the one miss a pre-existing bf16
-   `L=32768 B=4` borderline flake) and `verify-tc-decode-paged.py` (8/8, dense-vs-paged
+   full `verify-tc-spark-decode.py` dense sweep (34/35; the one miss a pre-existing bf16
+   `L=32768 B=4` borderline flake) and `verify-tc-spark-decode-paged.py` (8/8, dense-vs-paged
    bit-exact) re-confirmed under the split-aware xcheck.
 
  ### 2.2a Why the PV mma was bf16 (and when the fp8 PV / `tcgen05` would matter) — **fp8-PV NOW DONE (§2.7)**
@@ -400,12 +400,12 @@ legs confirm no regression.
     (the M=1/M=4/M=8 binaries don't collide).
   - **`_tc_dtype_ok`:** the mixed bf16-Q/fp8-KV dtype assert (previously M=1-only via
     `_gemv_dtype_ok`) is widened to M≤8 for the TC path (Q is pre-cast to fp8 in-kernel).
-- **Verification — `verify-tc-decode-varlenM.py` (25 cells, gated, 25/25 GO):** M∈{1,2,4,8}
+- **Verification — `verify-tc-spark-decode-varlenM.py` (25 cells, gated, 25/25 GO):** M∈{1,2,4,8}
   × dense+paged × bf16+fp8 (ns=1 write-through) vs the gold full-attention-over-L reference
   (each of the M tokens attends to the shared L KV); M=8 split (ns=4); the **gate-reject** test
    (M=9/M=16: no new `tc_compile_cache` entry → the TC gate rejects, output finite via the FA4
    fallback); + an M=1 regression spot. The M=1 regression is **unchanged**: dense
-   `verify-tc-decode.py` 34/35 (only the pre-existing borderline L=32768 B=4 rel 5.9e-2 overshoot),
+   `verify-tc-spark-decode.py` 34/35 (only the pre-existing borderline L=32768 B=4 rel 5.9e-2 overshoot),
    paged 8/8, SplitKV 13/13 (the `is_m1` branch keeps M=1 on the original codegen).
 
 ### 2.7 fp8-PV mma (e4m3 P × e4m3 V) — **DONE (2026-10-04, verified)**
@@ -449,7 +449,7 @@ B-load (`tOrV[_e] = sV_b[_e]`) + a k-loop over `num_k = TILE_N / 32 = 2` (the KV
 each `cute.gemm(tiled_mma_pv, acc_O, tOrP[None, None, k], tOrV[None, None, k], acc_O)` covering
 the full (M, D) O-tile for one k-tile.
 
-**Verification (all gated, clean window):** every fp8 cell passes — dense `verify-tc-decode.py`
+**Verification (all gated, clean window):** every fp8 cell passes — dense `verify-tc-spark-decode.py`
 (all dense fp8 / fp8-Q legs, L=64…65536 B=1/4), paged (fp8-Q L=256), SplitKV (dense+paged fp8
 ns=2/4, fp8 L=8192 ns=4), varlen-M (M∈{1,2,4,8} × dense+paged × fp8, L=512/8192, ns=1 + M=8
 ns=4). The varlen-M fp8 cells are the strongest check: they run the fp8 PV mma **with** the M×G
@@ -467,18 +467,18 @@ shows the same flake, and the bf16 leg is a separate kernel instance my change d
 - **Paged — DONE (§2.1):** paged-aware gate (admit `page_table is not None` for
   `page_size in (64,128)` + require `seqused_k`); `tc_key` paged term; ctor `page_size`;
   flat-pool + `page_table` + `seqused_k` compile/launch args. **Image wiring still open
-  (v14):** the TC dispatch is vfa-tree-only today — `interface-tc-dispatch.diff` is a
+  (v14):** the TC dispatch is vfa-tree-only today — `interface-tc-spark-dispatch.diff` is a
   reference-only patch (no `apply_patches.py` / `verify_patches.py` entry) and the TC
   kernel is not `COPY`ed in the Dockerfile yet. To ship TC (paged) in
-  `mjolnir/vllm-thor:qwen38-sm110-v14`: add the `COPY fa4-gemv-kernel/sm100_hd256_decode_tc.py`
+  `mjolnir/vllm-thor:qwen38-sm110-v14`: add the `COPY fa4-gemv-kernel/sm100_hd256_decode_tc_spark.py`
   to the Dockerfile (next to the GEMV kernel COPY) + register
-  `interface-tc-dispatch.diff` in the patch stack (or fold it into the GEMV interface
+  `interface-tc-spark-dispatch.diff` in the patch stack (or fold it into the GEMV interface
   patch) + a canary.
 - **SplitKV — DONE (§2.2):** the `tc_split` gate (decode-shaped only) + the reused
-  `_gemv_auto_num_splits` plan (env `VLLM_FA4_HD256_TC_NUM_SPLITS` / caller `num_splits` /
+  `_gemv_auto_num_splits` plan (env `VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS` / caller `num_splits` /
   auto precedence, cap on `max_seqlen_k`) + the fp32 `out_partial`/`lse_partial`
   allocation + the reused `_flash_attn_fwd_combine` host combine. **The
-  `interface-tc-dispatch.diff` was regenerated** (3 hunks: the `_flash_attn_fwd_combine`
+  `interface-tc-spark-dispatch.diff` was regenerated** (3 hunks: the `_flash_attn_fwd_combine`
   import, the `_gemv_dtype_ok` widening, and the `use_tc_hd256` block carrying the paged +
   SplitKV dispatch) and **round-trip verified** against the image base
   (`docker run … cat …/interface.py` → `patch -p1` → byte-identical to the live vfa-tree
@@ -489,12 +489,12 @@ shows the same flake, and the bf16 leg is a separate kernel instance my change d
 - **varlen-M — DONE (§2.6, 2026-10-03):** the tc gate M-term (`max_seqlen_q <= 8`, dense-only)
   + the `tc_key` M term (separate binary per M) + the `_tc_dtype_ok` M≤8 mixed-dtype widening +
   the `is_m1` `Constexpr` threaded to the kernel's compile-time LSE-select branch. The
-  `interface-tc-dispatch.diff` was **regenerated** (round-trip verified against the GEMV base)
+  `interface-tc-spark-dispatch.diff` was **regenerated** (round-trip verified against the GEMV base)
   to carry all of it.
 
-## Part 4 — Verification (extend `verify-tc-decode.py` + bench)
+## Part 4 — Verification (extend `verify-tc-spark-decode.py` + bench)
 
-- **Clean-window gate (now in the verify):** `verify-tc-decode.py` carries the inline
+- **Clean-window gate (now in the verify):** `verify-tc-spark-decode.py` carries the inline
   gate (`server_load` / `Monitor` / `wait_for_idle` / dirty-window audit, `--no-gate`,
   exit codes 0=clean-pass / 1=clean-fail / 2=dirty-window / 3=timeout) — the same logic
   as `src/mjolnir/gate.py`, copied in because the in-container run can't import the
@@ -503,17 +503,17 @@ shows the same flake, and the bf16 leg is a separate kernel instance my change d
   --once` / the GEMV bench scripts share the same gate.
 - **New verify cells** (all through the real `_flash_attn_fwd` interface, so the
   dispatch is exercised, not just the kernel):
-   - **paged** (page_size 64/128) ✅ (`verify-tc-decode-paged.py`, 8 cells, dense-vs-paged
+   - **paged** (page_size 64/128) ✅ (`verify-tc-spark-decode-paged.py`, 8 cells, dense-vs-paged
      bit-exact — §2.1);
    - **partial-tail** (L=100, L=37);
   - **empty-batch** (kv_len=0);
-   - **SplitKV** ✅ (`verify-tc-decode-splitkv.py`, 13 cases: dense + paged, bf16 + fp8,
+   - **SplitKV** ✅ (`verify-tc-spark-decode-splitkv.py`, 13 cases: dense + paged, bf16 + fp8,
      ns sweep {1,2,4} caller/env + auto-ns, empty-split paged [256,64], 3× determinism —
      combined(ns>1) vs ns=1 write-through, gated; §2.2);
     - **fp16** leg ✅ + **fp8-Q** leg ✅ (added 2026-10-02; small-L L=64/256 B=1/4,
       pass at rel ≤ 1.8e-2 — the fp8 large-L legs are left to the gated run since they
       are co-tenancy-sensitive).
-    - **varlen-M** ✅ (`verify-tc-decode-varlenM.py`, 25 cells, added 2026-10-03; §2.6):
+    - **varlen-M** ✅ (`verify-tc-spark-decode-varlenM.py`, 25 cells, added 2026-10-03; §2.6):
       M∈{1,2,4,8} × dense+paged × bf16+fp8 vs the gold full-attention-over-L reference + M=8
       split (ns=4) + the gate-reject test (M=9/16: no new `tc_compile_cache` entry) + an M=1
       regression spot. 25/25 GO; the M=1 regression stays green (dense 34/35, paged 8/8,
@@ -546,7 +546,7 @@ independent.
         carried in the `compute_ptr`/`store_LSE` coordinate, not a `domain_offset`; C: varlen
         Q-load nested `domain_offset(((0, q_row_base), 0), …)`). `lse_err≈7e-7` gated.
         Detail: `task/debug/tc-varlen-lse-store.md`.
-  - [x] clean-window gate in `verify-tc-decode.py` (+ co-tenancy finding)
+  - [x] clean-window gate in `verify-tc-spark-decode.py` (+ co-tenancy finding)
   - [ ] verify cells: L=100/L=37 partial-tail (untested path, §1.1) — empty-batch already
         covered by the varlen `lens=[5,1,0]` cell
 - [ ] **Phase 2**
@@ -554,7 +554,7 @@ independent.
         tiled path, not a per-row gather) + `seqused_k` (required for paged) + `page_size`
         ctor + paged-aware gate + flat-pool `page_table`/`seqused_k` compile/launch args.
         Two bugs fixed (multi-page gather column `nb//PS`→`(nb*TILE_N)//PS`; paged-variant
-        reg-alloc miscompile pin → `mPin`). `verify-tc-decode-paged.py` 8 cells green
+        reg-alloc miscompile pin → `mPin`). `verify-tc-spark-decode-paged.py` 8 cells green
         (PS=128; dense-vs-paged bit-exact) + PS=64 spot 3/3. Image wiring (v14) still open.
 - [ ] **Phase 3**
    - [x] 2.2 SplitKV (grid + chunk + partial + combine) — **DONE (2026-10-02)**: runtime `ns`
@@ -565,7 +565,7 @@ independent.
          size, so a partial-page tail batch isn't over-split), and the **split-path
          first-block OOB mask guard** (split-aware `kv_len - gtile*TILE_N < TILE_N`, so a
          split whose only block is the partial tail still masks OOB). Verified by the
-         dedicated `verify-tc-decode-splitkv.py` (13/13, gated) + the dense (34/35) / paged
+         dedicated `verify-tc-spark-decode-splitkv.py` (13/13, gated) + the dense (34/35) / paged
          (8/8) sweeps under the split-aware xcheck.
   - [ ] 2.5 re-tile knobs (TILE_N / ring depth) + the tcgen05 spike (§2.2a, M≥8/prefill)
   - [x] 2.7 fp8-PV mma (e4m3 P × e4m3 V) — **DONE (2026-10-04)**: both sm_110a `mma.sync`
@@ -583,6 +583,6 @@ independent.
         compile-time `is_m1` branch (M=1 → `mode=[1,2,0]` bit-exact, M>1 → `mode=[2,1,0]`); tc gate
         admits M≤8 (dense-only) / rejects M>8; `tc_key` M term; `_tc_dtype_ok` M≤8. `is_m1`
         `Constexpr` threaded through `__call__`/`kernel` + the interface `max_seqlen_q == 1` arg.
-        `verify-tc-decode-varlenM.py` 25/25 GO (M sweep + M=8 split + gate-reject + M=1 spot);
+        `verify-tc-spark-decode-varlenM.py` 25/25 GO (M sweep + M=8 split + gate-reject + M=1 spot);
         the M=1 regression stays green (dense 34/35, paged 8/8, SplitKV 13/13).
 - [ ] bench: TC `tc_decode` leg in the geometry sweep + `gemv-decode-bench`

@@ -210,7 +210,7 @@ def tc_leg(cases: Cases, L: int):
     import os as _os
     from vllm.vllm_flash_attn.cute.interface import _flash_attn_fwd
 
-    _os.environ["VLLM_FA4_HD256_TC"] = "1"
+    _os.environ["VLLM_FA4_HD256_TC_SPARK"] = "1"
     _os.environ["VLLM_FA4_HD256_GEMV"] = "0"
     k_in = cases.k[:L].unsqueeze(0).contiguous()
     v_in = cases.v[:L].unsqueeze(0).contiguous()

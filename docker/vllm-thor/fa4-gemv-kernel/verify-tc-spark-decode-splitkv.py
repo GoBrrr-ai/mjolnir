@@ -3,7 +3,7 @@
 
 Validates the SplitKV pass (M1 kernel + M2 interface) end-to-end through the
 REAL ``_flash_attn_fwd`` interface — so the SplitKV dispatch (the ``tc_split``
-gate, the ``VLLM_FA4_HD256_TC_NUM_SPLITS`` env + caller ``num_splits`` paths,
+gate, the ``VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS`` env + caller ``num_splits`` paths,
 the ``_gemv_auto_num_splits`` auto plan, the ``out_partial``/``lse_partial``
 fp32 allocation) AND the host ``_flash_attn_fwd_combine`` re-merge are
 exercised. The correctness invariant: the COMBINED (ns>1) output must recover
@@ -15,7 +15,7 @@ pass), but well inside the tolerance that a combine/sVb bug would breach
 Cells (compact — the essential SplitKV surface, not a full sweep):
   * dense + paged (PS=128), bf16 + fp8-Q (the production config),
     ns in {1,2,4}: ns=1 is the write-through baseline; ns=2 is driven by the
-    CALLER ``num_splits`` arg, ns=4 by the ``VLLM_FA4_HD256_TC_NUM_SPLITS``
+    CALLER ``num_splits`` arg, ns=4 by the ``VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS``
     env (both dispatch paths). Each ns>1 combined output vs the ns=1 output.
   * empty-split: a paged B=2 call (kv_len 256/64) at ns=2 — the short batch
     (64 rows = 1 tile) has ns>its tile count, so splits 1.. are EMPTY
@@ -193,14 +193,14 @@ def _run(q, k, v, *, max_seqlen_k, page_table=None, seqused_k=None,
          ns_caller=1, ns_env=None, q_descale=None, k_descale=None,
          v_descale=None):
     """One real _flash_attn_fwd call. ns_caller drives the caller num_splits
-    arg; ns_env (str) drives the VLLM_FA4_HD256_TC_NUM_SPLITS env knob. For the
+    arg; ns_env (str) drives the VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS env knob. For the
     env path pass ns_caller=1 (the env wins in the plan). Returns (out, lse)."""
-    os.environ["VLLM_FA4_HD256_TC"] = "1"
+    os.environ["VLLM_FA4_HD256_TC_SPARK"] = "1"
     os.environ["VLLM_FA4_HD256_GEMV"] = "0"
     if ns_env is not None:
-        os.environ["VLLM_FA4_HD256_TC_NUM_SPLITS"] = str(ns_env)
+        os.environ["VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS"] = str(ns_env)
     else:
-        os.environ.pop("VLLM_FA4_HD256_TC_NUM_SPLITS", None)
+        os.environ.pop("VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS", None)
     from vllm.vllm_flash_attn.cute.interface import _flash_attn_fwd
     out, lse, _, _ = _flash_attn_fwd(
         q, k, v,
@@ -211,7 +211,7 @@ def _run(q, k, v, *, max_seqlen_k, page_table=None, seqused_k=None,
         softmax_scale=SOFTMAX_SCALE, causal=True, return_lse=True,
         num_splits=ns_caller,
         q_descale=q_descale, k_descale=k_descale, v_descale=v_descale)
-    os.environ.pop("VLLM_FA4_HD256_TC_NUM_SPLITS", None)
+    os.environ.pop("VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS", None)
     return out, lse
 
 

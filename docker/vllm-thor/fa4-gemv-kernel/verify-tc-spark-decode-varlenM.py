@@ -19,7 +19,7 @@ Cells:
     isolates the M correctness from the SplitKV combine) vs the gold reference.
   * M=8 split: dense {bf16, fp8} at ns=4 (the SplitKV combine over the M*G
     "m" dim — the M dim is orthogonal to the split chunk).
-  * gate reject: M=9 and M=16 with ``VLLM_FA4_HD256_TC=1`` — the TC gate must
+  * gate reject: M=9 and M=16 with ``VLLM_FA4_HD256_TC_SPARK=1`` — the TC gate must
     REJECT (no new ``tc_compile_cache`` entry => the TC binary is not invoked;
     the call falls through to the FA4/FlashInfer path, whose output is finite).
   * M=1 regression spot: a few M=1 cells (dense + paged, bf16 + fp8) — the full
@@ -217,14 +217,14 @@ def _run(q, k, v, *, max_seqlen_k, max_seqlen_q, page_table=None,
          seqused_k=None, q_descale=None, k_descale=None, v_descale=None,
          ns_env=None):
     """One real _flash_attn_fwd call. ns_env (str) forces the split count via
-    VLLM_FA4_HD256_TC_NUM_SPLITS (ns=1 = write-through); None = the interface's
+    VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS (ns=1 = write-through); None = the interface's
     auto plan. Returns (out (B,M,H,D), lse (B,H,M))."""
-    os.environ["VLLM_FA4_HD256_TC"] = "1"
+    os.environ["VLLM_FA4_HD256_TC_SPARK"] = "1"
     os.environ["VLLM_FA4_HD256_GEMV"] = "0"
     if ns_env is not None:
-        os.environ["VLLM_FA4_HD256_TC_NUM_SPLITS"] = str(ns_env)
+        os.environ["VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS"] = str(ns_env)
     else:
-        os.environ.pop("VLLM_FA4_HD256_TC_NUM_SPLITS", None)
+        os.environ.pop("VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS", None)
     from vllm.vllm_flash_attn.cute.interface import _flash_attn_fwd
     out, lse, _, _ = _flash_attn_fwd(
         q, k, v,
@@ -239,7 +239,7 @@ def _run(q, k, v, *, max_seqlen_k, max_seqlen_q, page_table=None,
         k_descale=k_descale,
         v_descale=v_descale,
     )
-    os.environ.pop("VLLM_FA4_HD256_TC_NUM_SPLITS", None)
+    os.environ.pop("VLLM_FA4_HD256_TC_SPARK_NUM_SPLITS", None)
     return out, lse
 
 

@@ -10,8 +10,8 @@ The tcgen05 spike remains deferred (§3, M≥8/prefill only). Closes the open it
 `decode-kernel-feasibility.md`, `gemv-fi-gap-final.md`.
 
 Primary object of study:
-`vllm_flash_attn/cute/sm100_hd256_decode_tc.py` (the TC kernel; the shipped copy at
-`docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc.py` is **byte-identical** —
+`vllm_flash_attn/cute/sm100_hd256_decode_tc_spark.py` (the TC kernel; the shipped copy at
+`docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc_spark.py` is **byte-identical** —
 same md5, so every line ref below applies to both).
 
 ---
@@ -137,7 +137,7 @@ row bases); the element mapping it does deliver is wrong for our B-operand orien
 on sm_110a (probe `kdump`; kernel comment `:108-111`).
 
 **How the QK leg sidesteps both (proven, green in the 4-combo gate).** K is loaded
-**element-wise** from the mma's own B-partition — `sm100_hd256_decode_tc.py`:
+**element-wise** from the mma's own B-partition — `sm100_hd256_decode_tc_spark.py`:
 
 ```
 :549  sK_b = thr_mma_qk.partition_B(sK[None, None, 0])   # fragment-slot → (n_kv, d) map
@@ -337,7 +337,7 @@ TC-kernel matter.
 
 | Artifact | Location | Establishes |
 |---|---|---|
-| TC kernel (object of study) | `vfa-tree/vllm_flash_attn/cute/sm100_hd256_decode_tc.py` (= `docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc.py`, byte-identical, 975 lines) | all TC line refs above |
+| TC kernel (object of study) | `vfa-tree/vllm_flash_attn/cute/sm100_hd256_decode_tc_spark.py` (= `docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc_spark.py`, byte-identical, 975 lines) | all TC line refs above |
 | fp8 QK mma + element-wise K/Q | TC kernel `:402-403` (op), `:549`/`:115-116` (K), `:538-539`/`:676` (Q), `:108-111` (broken-retile comment) | blocker (b) workaround, proven |
 | PV always bf16 + blocker comment | TC kernel `:291` (PT), `:412-428` (op + comment), `:802-817`/`:876-886` (sites) | blocker (a) state |
 | `sVb` staging | TC kernel `:120-136` (convert), `:447-465` (buffer), `:479-484` (selection), `:809-814`/`:880-883` (barrier) | blocker (b) PV workaround |

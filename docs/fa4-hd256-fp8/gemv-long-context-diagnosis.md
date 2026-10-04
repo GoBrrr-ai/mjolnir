@@ -215,7 +215,7 @@ curve (why it looks *flat*, not just shallow). Same corrected-geometry table (§
 
 ### 7.1 Primary — the `mma.sync` TC decode kernel (in progress)
 
-New kernel `docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc.py` (scaffold written
+New kernel `docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc_spark.py` (scaffold written
 this session), following `flash_fwd.py`'s `FlashAttentionForwardSm80` mma structure
 (`MmaF16BF16Op(16,8,16)`, `LdMatrix8x8x16bOp`, `ampere_helpers.gemm`/`gemm_rs`) adapted
 to the decode tile shapes (GQA group of 6 → padded M=16; N = KV rows / hdim; the FMA
@@ -264,5 +264,5 @@ kernel and with each other — "measure, don't assume." Plan:
   inst/SM-cycle; SOL Compute 68% / Memory 26%, eligible 2.22/6.66 (§2.2).
 - `task/research/arxiv-gemv-decode-long-kv-bw.md` (arXiv, 4 papers + leads, negative
   results). `task/research/flashinfer-decode-sublinear-scaling/summary.md` (FI source,
-  corrected geometry, sweep reads). `docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc.py`
+  corrected geometry, sweep reads). `docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_tc_spark.py`
   (TC kernel scaffold).

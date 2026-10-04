@@ -3,7 +3,7 @@ as a reference alongside the live mn-reshape variant that is primary in the kern
 
 Two masks exist for the TC hd256 decode kernel's n-OOB (partial-kv) -inf write:
 
-1. **mn-reshape (primary, in `sm100_hd256_decode_tc.py` `_mask_partial_kv`):**
+1. **mn-reshape (primary, in `sm100_hd256_decode_tc_spark.py` `_mask_partial_kv`):**
    reads the absolute kv column through
    `layout_utils.reshape_acc_to_mn(thr_mma.partition_C(cS))` (the identity tensor
    `cS` partitioned by the mma), then materializes it to rmem before the -inf

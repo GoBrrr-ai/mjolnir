@@ -2,7 +2,7 @@
 """TC (mma.sync) hd256 decode — verify on Jetson Thor (sm_110).
 
 Verifies the tensor-core decode kernel
-(``vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc``) against an fp32 reference:
+(``vllm.vllm_flash_attn.cute.sm100_hd256_decode_tc_spark``) against an fp32 reference:
 - the bf16 Q/KV leg (no descales) — the regression guard (dense + varlen);
 - the fp8 Q-bf16/KV-e4m3 leg: the kernel's fp8 mma (MmaFP8Op) streams fp8 KV
   and descales fold in exactly as in the GEMV sibling (qk_descale into the
@@ -32,7 +32,7 @@ NUM_Q_HEADS = 24
 NUM_KV_HEADS = 4
 G = NUM_Q_HEADS // NUM_KV_HEADS  # 6
 D = 256
-TILE_N = 64  # matches BlackwellHd256DecodeTC.TILE_N (kv-rows per mma n_block)
+TILE_N = 64  # matches BlackwellHd256DecodeTCSpark.TILE_N (kv-rows per mma n_block)
 DEVICE = "cuda"
 SOFTMAX_SCALE = D ** -0.5
 
@@ -233,7 +233,7 @@ def _run(
     k_descale: torch.Tensor | None = None,
     v_descale: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
-    os.environ["VLLM_FA4_HD256_TC"] = "1"
+    os.environ["VLLM_FA4_HD256_TC_SPARK"] = "1"
     os.environ["VLLM_FA4_HD256_GEMV"] = "0"
     from vllm.vllm_flash_attn.cute.interface import _flash_attn_fwd
 

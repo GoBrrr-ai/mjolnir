@@ -146,7 +146,7 @@ def _pv_mma_fp8(
         cute.gemm(tiled_mma_pv, acc_O, tOrP[None, None, k], tOrV[None, None, k], acc_O)
 
 
-class BlackwellHd256DecodeTC:
+class BlackwellHd256DecodeTCSpark:
     """Tensor-core (mma.sync) M=1 hd256 decode kernel on SM100/SM110."""
 
     HEAD_DIM = 256

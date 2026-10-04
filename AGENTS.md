@@ -32,8 +32,8 @@ here.
    within ~10% of FI, vs ~2.9× slower before the kernel work. Depth:
    `docker/vllm-thor/fa4-gemv-kernel/README.md`.
  - **TC decode kernel — varlen-M (M≤8) (2026-10-03).** The tensor-core
-   (mma.sync) hd256 decode kernel (`sm100_hd256_decode_tc`, the FA4/GEMV
-   alternative; reference-only, `VLLM_FA4_HD256_TC=1`) now handles **varlen-M** —
+   (mma.sync) hd256 decode kernel (`sm100_hd256_decode_tc_spark`, the FA4/GEMV
+   alternative; reference-only, `VLLM_FA4_HD256_TC_SPARK=1`) now handles **varlen-M** —
    the MTP/DSpark/DFlash speculative-decode verify (M candidate tokens sharing
    the KV, causal): the "m" mma dim is the packed GQA group **M×G** (M≤8 → ≤48,
    fits TILE_M=64; M>8 rejected → FA4/FlashInfer). The kernel was already
@@ -42,10 +42,10 @@ here.
    M=1 keeps the proven-safe `mode=[1,2,0]` decode codegen (bit-exact — the M=1
    regression dense 34/35 + paged 8/8 + SplitKV 13/13 is unchanged), M>1 uses
    `mode=[2,1,0]` (the (B,H,M) layout's correct order — the original `[1,2,0]`
-    mis-placed the M>1 LSE). Gated `verify-tc-decode-varlenM.py` 25/25 GO. Depth:
+    mis-placed the M>1 LSE). Gated `verify-tc-spark-decode-varlenM.py` 25/25 GO. Depth:
     `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6.
  - **TC decode kernel — fp8-PV mma (2026-10-04).** The tensor-core
-    (`sm100_hd256_decode_tc`) **PV mma is now native fp8** (e4m3 P × e4m3 V, fp32
+    (`sm100_hd256_decode_tc_spark`) **PV mma is now native fp8** (e4m3 P × e4m3 V, fp32
     acc) on the fp8-KV leg — resolving the two sm_110a `mma.sync` blockers that kept
     it bf16: **(a)** the fp8 P A-fragment can't be built in-regs → a **P smem
     round-trip** (store P element-wise via the QK mma's C-partition to a plain 4 KiB
