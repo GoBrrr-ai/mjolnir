@@ -1,0 +1,127 @@
+==WARNING== Note: Running with uncontrolled GPU caches. Profiling results may be inconsistent.
+==PROF== Connected to process 45 (/usr/bin/python3.12)
+==PROF== Profiling "vectorized_elementwise_kernel" - 0: 0%....50%....100% - 1 pass
+==PROF== Profiling "distribution_elementwise_grid..." - 1: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 2: 0%....50%....100% - 1 pass
+==PROF== Profiling "distribution_elementwise_grid..." - 3: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 4: 0%....50%....100% - 1 pass
+==PROF== Profiling "distribution_elementwise_grid..." - 5: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 6: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 7: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 8: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 9: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 10: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 11: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 12: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 13: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 14: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 15: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 16: 0%....50%....100% - 1 pass
+[ncu-driver] _spark TC L=32768 ns=20 ready; profiling 4 launches
+==PROF== Profiling "vectorized_elementwise_kernel" - 17: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 18: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 19: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 20: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 21: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 22: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 23: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 24: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 25: 0%....50%....100% - 1 pass
+==PROF== Profiling "vectorized_elementwise_kernel" - 26: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 27: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_kernel_vllmvll..." - 28: 0%....50%....100% - 1 pass
+[ncu-driver] done
+==PROF== Disconnected from process 45
+[45] python3.12@127.0.0.1
+  kernel_cutlass_kernel_vllmvllm_flash_attncuteflash_fwd_combineFlashAttentionForwardCombine_object_at__tensorptrf32gmemalign16o256i64div41i64div4i64div4i64div4_tensorptrf32gmemo1i64i64i64__0 (3, 2, 1)x(256, 1, 1), Device 0, CC 11.0, Invocations 6
+    Section: Command line profiler metrics
+    ---------------------- ----------- -------- -------- --------
+    Metric Name            Metric Unit  Minimum  Maximum  Average
+    ---------------------- ----------- -------- -------- --------
+    gpu__time_duration.sum          us     6.21     8.96     7.64
+    lts__t_sectors.sum          sector 17266.00 17309.00 17277.67
+    sm__ctas_launched.sum        block     6.00     6.00     6.00
+    sm__cycles_active.sum        cycle 36857.00 54431.00 41121.17
+    ---------------------- ----------- -------- -------- --------
+
+  kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_decode_tc_sparkBlackwellHd256DecodeTCSpark_object_at__tensorptrf8E4M3FNgmemalign128o6i64div16i64div161i64div96i64div16_tensorptrf8_0 (4, 20, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 6
+    Section: Command line profiler metrics
+    ---------------------- ----------- ----------- ----------- -----------
+    Metric Name            Metric Unit     Minimum     Maximum     Average
+    ---------------------- ----------- ----------- ----------- -----------
+    gpu__time_duration.sum          ms        2.13        2.26        2.17
+    lts__t_sectors.sum          sector 43042178.00 43053330.00 43049183.17
+    sm__ctas_launched.sum        block       80.00       80.00       80.00
+    sm__cycles_active.sum        cycle 65936647.00 69860376.00 67230585.50
+    ---------------------- ----------- ----------- ----------- -----------
+
+  void at::<unnamed>::distribution_elementwise_grid_stride_kernel<float, 4, void templates::normal_and_transform<float, float, at::CUDAGeneratorImpl *, void templates::normal_kernel<at::CUDAGeneratorImpl *>(const at::TensorBase &, double, double, T1)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 2)]::operator ()() const::[lambda(float) (instance 1)]>(at::TensorIteratorBase &, T3, T4)::[lambda(curandStatePhilox4_32_10 *) (instance 2)], void at::<unnamed>::distribution_nullary_kernel<float, float, float4, at::CUDAGeneratorImpl *, void templates::normal_and_transform<float, float, at::CUDAGeneratorImpl *, void templates::normal_kernel<at::CUDAGeneratorImpl *>(const at::TensorBase &, double, double, T1)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 2)]::operator ()() const::[lambda(float) (instance 1)]>(at::TensorIteratorBase &, T3, T4)::[lambda(curandStatePhilox4_32_10 *) (instance 2)], void templates::normal_kernel<at::CUDAGeneratorImpl *>(const at::TensorBase &, double, double, T1)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 2)]::operator ()() const::[lambda(float) (instance 1)]>(at::TensorIteratorBase &, T4, const T5 &, T6)::[lambda(int, float) (instance 1)]>(long, at::PhiloxCudaState, T3, T4) (24, 1, 1)x(256, 1, 1), Device 0, CC 11.0, Invocations 1
+    Section: Command line profiler metrics
+    ---------------------- ----------- -------- -------- --------
+    Metric Name            Metric Unit  Minimum  Maximum  Average
+    ---------------------- ----------- -------- -------- --------
+    gpu__time_duration.sum          us     3.84     3.84     3.84
+    lts__t_sectors.sum          sector  1916.00  1916.00  1916.00
+    sm__ctas_launched.sum        block    24.00    24.00    24.00
+    sm__cycles_active.sum        cycle 49303.00 49303.00 49303.00
+    ---------------------- ----------- -------- -------- --------
+
+  void at::<unnamed>::distribution_elementwise_grid_stride_kernel<float, 4, void templates::normal_and_transform<float, float, at::CUDAGeneratorImpl *, void templates::normal_kernel<at::CUDAGeneratorImpl *>(const at::TensorBase &, double, double, T1)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 2)]::operator ()() const::[lambda(float) (instance 1)]>(at::TensorIteratorBase &, T3, T4)::[lambda(curandStatePhilox4_32_10 *) (instance 2)], void at::<unnamed>::distribution_nullary_kernel<float, float, float4, at::CUDAGeneratorImpl *, void templates::normal_and_transform<float, float, at::CUDAGeneratorImpl *, void templates::normal_kernel<at::CUDAGeneratorImpl *>(const at::TensorBase &, double, double, T1)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 2)]::operator ()() const::[lambda(float) (instance 1)]>(at::TensorIteratorBase &, T3, T4)::[lambda(curandStatePhilox4_32_10 *) (instance 2)], void templates::normal_kernel<at::CUDAGeneratorImpl *>(const at::TensorBase &, double, double, T1)::[lambda() (instance 1)]::operator ()() const::[lambda() (instance 2)]::operator ()() const::[lambda(float) (instance 1)]>(at::TensorIteratorBase &, T4, const T5 &, T6)::[lambda(int, float) (instance 1)]>(long, at::PhiloxCudaState, T3, T4) (120, 1, 1)x(256, 1, 1), Device 0, CC 11.0, Invocations 2
+    Section: Command line profiler metrics
+    ---------------------- ----------- ----------- ----------- -----------
+    Metric Name            Metric Unit     Minimum     Maximum     Average
+    ---------------------- ----------- ----------- ----------- -----------
+    gpu__time_duration.sum          us      774.94      809.47      792.21
+    lts__t_sectors.sum          sector  4199560.00  4204626.00  4202093.00
+    sm__ctas_launched.sum        block      120.00      120.00      120.00
+    sm__cycles_active.sum        cycle 22743769.00 23115976.00 22929872.50
+    ---------------------- ----------- ----------- ----------- -----------
+
+  void at::vectorized_elementwise_kernel<4, at::ConvertToFloat8E4M3fnOp<c10::BFloat16>, std::array<char *, 2>>(int, T2, T3) (6, 1, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 6
+    Section: Command line profiler metrics
+    ---------------------- ----------- -------- -------- --------
+    Metric Name            Metric Unit  Minimum  Maximum  Average
+    ---------------------- ----------- -------- -------- --------
+    gpu__time_duration.sum          us     4.13     7.74     5.50
+    lts__t_sectors.sum          sector  1360.00  1455.00  1406.67
+    sm__ctas_launched.sum        block     6.00     6.00     6.00
+    sm__cycles_active.sum        cycle 11020.00 15582.00 13250.50
+    ---------------------- ----------- -------- -------- --------
+
+  void at::vectorized_elementwise_kernel<4, at::ConvertToFloat8E4M3fnOp<float>, std::array<char *, 2>>(int, T2, T3) (32768, 1, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 2
+    Section: Command line profiler metrics
+    ---------------------- ----------- ----------- ----------- -----------
+    Metric Name            Metric Unit     Minimum     Maximum     Average
+    ---------------------- ----------- ----------- ----------- -----------
+    gpu__time_duration.sum          us      751.55      812.26      781.90
+    lts__t_sectors.sum          sector  5249159.00  5251362.00  5250260.50
+    sm__ctas_launched.sum        block    32768.00    32768.00    32768.00
+    sm__cycles_active.sum        cycle 23587790.00 25508663.00 24548226.50
+    ---------------------- ----------- ----------- ----------- -----------
+
+  void at::vectorized_elementwise_kernel<4, at::FillFunctor<float>, std::array<char *, 1>>(int, T2, T3) (1, 1, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 5
+    Section: Command line profiler metrics
+    ---------------------- ----------- ------- ------- -------
+    Metric Name            Metric Unit Minimum Maximum Average
+    ---------------------- ----------- ------- ------- -------
+    gpu__time_duration.sum          us    2.72    7.30    4.64
+    lts__t_sectors.sum          sector  171.00  784.00  468.20
+    sm__ctas_launched.sum        block    1.00    1.00    1.00
+    sm__cycles_active.sum        cycle  898.00 1364.00 1116.40
+    ---------------------- ----------- ------- ------- -------
+
+  void at::vectorized_elementwise_kernel<4, at::bfloat16_copy_kernel_cuda(at::TensorIteratorBase &)::[lambda(float) (instance 1)], std::array<char *, 2>>(int, T2, T3) (6, 1, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 1
+    Section: Command line profiler metrics
+    ---------------------- ----------- -------- -------- --------
+    Metric Name            Metric Unit  Minimum  Maximum  Average
+    ---------------------- ----------- -------- -------- --------
+    gpu__time_duration.sum          us     4.00     4.00     4.00
+    lts__t_sectors.sum          sector  1846.00  1846.00  1846.00
+    sm__ctas_launched.sum        block     6.00     6.00     6.00
+    sm__cycles_active.sum        cycle 15949.00 15949.00 15949.00
+    ---------------------- ----------- -------- -------- --------
+
+  Note: The shown averages are calculated as the arithmetic mean of the metric values after the evaluation of the
+  metrics for each individual kernel launch.
+  If aggregating across varying launch configurations (like shared memory, cache config settings), the arithmetic
+  mean can be misleading and looking at the individual results is recommended instead.

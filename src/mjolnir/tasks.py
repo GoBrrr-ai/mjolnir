@@ -74,6 +74,12 @@ TASKS: list[Task] = [
         "55390/55519 draft-group annotation + warning check (no GPU)",
         gpu=False,
     ),
+    Task(
+        "t5-smoke",
+        "test",
+        "docker/vllm-thor/fa4-gemv-kernel/sm100_hd256_decode_t5.py",
+        "T5 tcgen05+TMEM+CVT dense smoke test (hd256/GQA24:4/fp8-KV, torch refcheck)",
+    ),
     # ---- HOST: the clean-window gate itself ---------------------------------
     Task(
         "gate",

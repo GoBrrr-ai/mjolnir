@@ -1,0 +1,119 @@
+==WARNING== Note: Running with uncontrolled GPU caches. Profiling results may be inconsistent.
+==PROF== Connected to process 45 (/usr/bin/python3.12)
+==PROF== Profiling "kernel_cutlass__convert_kerne..." - 0: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass__convert_kerne..." - 1: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass__convert_kerne..." - 2: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass__convert_kerne..." - 3: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 4: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 5: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 6: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 7: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 8: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 9: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 10: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 11: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 12: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 13: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 14: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 15: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 16: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 17: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 18: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 19: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 20: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 21: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 22: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 23: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 24: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 25: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 26: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 27: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 28: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 29: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 30: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 31: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 32: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 33: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 34: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 35: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 36: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 37: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 38: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 39: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 40: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 41: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 42: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 43: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 44: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 45: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 46: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 47: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 48: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 49: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 50: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 51: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_decode___main_..." - 52: 0%....50%....100% - 1 pass
+==PROF== Profiling "kernel_cutlass_reduction_tens..." - 53: 0%....50%....100% - 1 pass
+Running Blackwell SM100 Mixed Input FMHA Decode test with:
+	batches: 1, seqlen: 65536
+	heads_q: 24, heads_k: 4
+	headdim: 256, block_scaledim: 256
+	kv_splits: 0
+	q_dtype: BFloat16
+	kv_dtype: Float8E4M3FN
+	o_dtype: BFloat16
+	acc_dtype: Float32
+	tolerance: 0.1
+	scale_q: 1.0
+	scale_o: 1.0
+	scale_s: 0.0
+	warmup_iterations: 5
+	iterations: 20
+	skip_ref_check: True
+	use_cold_l2: False
+	auto kv_splits: 5
+	cvt stages: 7
+	kv stages: 8
+	480 tmem cols used, 512 tmem cols allocated
+Finished Compiling
+26188.821411132812
+PASS
+==PROF== Disconnected from process 45
+[45] python3.12@127.0.0.1
+  kernel_cutlass__convert_kernel_tensorptrf32gmemo1115120001i64i64i64512_tensorptrf8E4M3FNgmemalign16o1115120001i64i64i64512_tensor0000o111512000131011125123_____Float32_Float8E4M3FN_0 (262144, 1, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 4
+    Section: Command line profiler metrics
+    ---------------------- ----------- ----------- ----------- -----------
+    Metric Name            Metric Unit     Minimum     Maximum     Average
+    ---------------------- ----------- ----------- ----------- -----------
+    gpu__time_duration.sum          ms        3.14        3.15        3.15
+    lts__t_sectors.sum          sector 12721683.00 12735645.00 12729576.25
+    sm__ctas_launched.sum        block   262144.00   262144.00   262144.00
+    sm__cycles_active.sum        cycle 98933541.00 99196166.00 99019002.25
+    ---------------------- ----------- ----------- ----------- -----------
+
+  kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_8_256_128_8_128_TiledMMA_ThrLayoutVMNK11110000_PermutationMNK____MMAAtom_ThrID10_ShapeMNK128816_TVLayo_0 (5, 1, 4)x(512, 1, 1), Device 0, CC 11.0, Invocations 25
+    Section: Command line profiler metrics
+    ---------------------- ----------- ----------- ----------- -----------
+    Metric Name            Metric Unit     Minimum     Maximum     Average
+    ---------------------- ----------- ----------- ----------- -----------
+    gpu__time_duration.sum          us      759.36      844.35      806.59
+    lts__t_sectors.sum          sector  4237372.00  4243367.00  4238905.96
+    sm__ctas_launched.sum        block       20.00       20.00       20.00
+    sm__cycles_active.sum        cycle 22562844.00 25598603.00 24412700.12
+    ---------------------- ----------- ----------- ----------- -----------
+
+  kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o1__1 (2, 24, 1)x(128, 1, 1), Device 0, CC 11.0, Invocations 25
+    Section: Command line profiler metrics
+    ---------------------- ----------- -------- -------- --------
+    Metric Name            Metric Unit  Minimum  Maximum  Average
+    ---------------------- ----------- -------- -------- --------
+    gpu__time_duration.sum          us     4.45     7.49     5.72
+    lts__t_sectors.sum          sector  5342.00  6303.00  5422.04
+    sm__ctas_launched.sum        block    48.00    48.00    48.00
+    sm__cycles_active.sum        cycle 42236.00 73236.00 44673.64
+    ---------------------- ----------- -------- -------- --------
+
+  Note: The shown averages are calculated as the arithmetic mean of the metric values after the evaluation of the
+  metrics for each individual kernel launch.
+  If aggregating across varying launch configurations (like shared memory, cache config settings), the arithmetic
+  mean can be misleading and looking at the individual results is recommended instead.

@@ -88,7 +88,7 @@ class BlackwellHd256DecodeGEMV:
     HEAD_DIM = 256
     VEC = 16  # elements per thread (128-bit for fp8 KV; 2x128-bit for 16-bit KV)
 
-    def __init__(self, qhead_per_kvhead: int, tile_size_per_bdx: int = 1, page_size: int = 0):
+    def __init__(self, qhead_per_kvhead: int, tile_size_per_bdx: int = 4, page_size: int = 0):
         assert qhead_per_kvhead >= 1, "qhead_per_kvhead must be >= 1"
         assert self.HEAD_DIM % (16 * self.VEC) == 0
         assert page_size in (0, 16, 128), "page_size must be 0 (dense), 16, or 128"
@@ -97,19 +97,20 @@ class BlackwellHd256DecodeGEMV:
         self.bdx = self.HEAD_DIM // self.VEC  # 16 threads per KV row
         self.bdy = qhead_per_kvhead  # one q-head per (ty) thread
         # rows per (ty) thread. B3 re-tile iteration knob:
-        # VLLM_FA4_HD256_GEMV_TILE (default: the constructor value, 1).
-        # In-flight KV/CTA = stages * bdy * tile * D * 2 bytes (K+V), so with
-        # g=6, D=256, fp8: tile=1 -> 48 KiB (shipped), tile=2 -> 96 KiB,
-        # tile=4 -> 192 KiB (FlashInfer FA2-tc footprint).
+        # VLLM_FA4_HD256_GEMV_TILE (default: the constructor value, 4 — the
+        # s4t4 commit-coarsening; in-flight = 4 stages * 6 * 4 * 256 * 2 =
+        # 48 KiB, same as the shipped t1ns20 but with 4x coarser commits).
         _tile_env = int(os.environ.get("VLLM_FA4_HD256_GEMV_TILE", "0") or 0)
         self.tile = _tile_env if _tile_env > 0 else tile_size_per_bdx
         # KV ring depth (in-flight stages). B3 re-tile iteration knob:
-        # VLLM_FA4_HD256_GEMV_STAGES (default 16, the shipped ring depth).
+        # VLLM_FA4_HD256_GEMV_STAGES (default 4, the s4t4 commit-coarsening —
+        # 4.4% faster at 32K/64K, 0.5% faster at 8K; the L2 sectors are
+        # identical, the gain is purely from fewer commit points: 8 vs 32).
         # The rolling cp_async_wait_group(2*S-1) loop and the S-stage prologue
         # preload are S-agnostic (verified: only this value + smem shapes
         # change); S*bdy*tile = resident rows, S*R*D*2 = in-flight KV/CTA.
         _stages_env = int(os.environ.get("VLLM_FA4_HD256_GEMV_STAGES", "0") or 0)
-        self.stages = _stages_env if _stages_env > 0 else 16
+        self.stages = _stages_env if _stages_env > 0 else 4
         self.rows_per_stage = self.bdy * self.tile  # R
         self.num_threads = self.bdx * self.bdy
 

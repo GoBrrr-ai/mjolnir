@@ -284,18 +284,76 @@ default (`mjolnir serve up --image …` / `$MJOLNIR_IMAGE`); defaults live in
       re-baseline the charts.
 
 ### GEMV kernel
-- [ ] **B3 — mma.sync tile-shape GEMV for exact FI parity**: close the
-      remaining ~10% (222.8 → ~202 µs in-window) by matching FI FA2-tc's tile
-      shape (192 KB 384-row K+V tiles, 128-thread blocks, 40 CTAs at L=8192).
-      A kernel redesign, not a tuning knob — pursue only if exact parity is
-      required.
- - [x] **varlen-M GEMV**: decode with MTP verify (M ≤ 8) through the GEMV path —
-       DONE (2026-10-04): in-thread M-loop, `seqlen_q` a compile-time `Constexpr`,
-       M>1 dense-Q only; M=1 byte-identical. See Current state +
-       `verify-gemv-decode-varlenM.py` (25/25 GO) + `gemv-decode-design.md` (varlen-M).
-- [ ] **Large-L validation**: the stages=16 ring depth is a wash at L=8192 but
-      the right direction once KV stops fitting in the 32 MiB L2 — validate at
-      L=32K/64K.
+- [x] **Large-L validation (32K/64K ncu A/B)** — DONE (2026-10-04): the
+      32K/64K ncu A/B (`ncu-gemv-fi-ab.sh`) profiled FI-tc + GEMV-t1ns20 +
+      GEMV-t2ns10 (kernel-only, `--print-summary per-kernel`, clean window,
+      page-cache cleared, `--clock-control base`). Findings: (1) FI-tc is
+      ~1.8× faster than GEMV-t1ns20 at both lengths (382.6 vs 688.2 µs at 32K,
+      809.8 vs 1350 µs at 64K); (2) the FI-parity shape (GEMV-t2ns10: 40 CTA,
+      96 KiB, one wave) is *slower* than the shipped best (GEMV-t1ns20: 80 CTA,
+      48 KiB) — the single-wave occupancy coupling (the FI plan trick) is a
+      **NO-WIN** on the FMA GEMV; (3) the differentiator is the
+      **compute/commit structure** (the FI-tc's `mma.sync` QK/PV in a 128-thread
+      1×4-warp layout with a coarse 48 KiB `commit_group` vs the GEMV's
+      96-thread pure-FMA loop with fine 3 KiB per-stage commits), NOT the
+      in-flight bytes or the grid/occupancy coupling. `dram__bytes.sum` is
+      `n/a` on the Thor (LPDDR5X doesn't expose the DRAM-bytes counter). Depth:
+      `task/fa4-hd256-fp8/ncu-gemv-fi-ab-report.md` + `gemv-speedup-plan.md` §5.
+- [x] **Bench the `_spark` TC at 32K/64K** — DONE (2026-10-04): added the
+      `_spark` TC as a 4th leg to the ncu A/B. **Key finding: the `_spark` TC is
+      3.1× SLOWER than the GEMV-t1ns20 at 32K (2130 vs 687 µs) and 3.3× SLOWER
+      at 64K (4440 vs 1350 µs)** due to a **20× L2-sector memory-access bug**
+      (43 M vs 2.2 M sectors at 32K, 85.8 M vs 4.3 M at 64K — the SplitKV
+      re-reads the KV 20×). The TC-vs-CC hypothesis is **WRONG** for our
+      `_spark` TC — the FI-tc's speed is its specific implementation (the coarse
+      48 KiB commit + the 128-thread 1×4-warp layout), not the generic compute-ISA
+      difference. The GEMV's per-CTA compute is comparable to the FI-tc (268 K vs
+      242 K cycles/CTA) — the gap is the **memory-pipeline efficiency**. Depth:
+      `ncu-gemv-fi-ab-report.md` + `gemv-speedup-plan.md` §4.
+- [ ] **Fix the `_spark` TC's 20× L2-sector bug — single-stage pipeline** — the
+      `_spark` TC's `cp_async_wait_group(0)` on every 64-row tile exposes the
+      DRAM latency (no ring — the GEMV's 16-stage ring pipelines the cp.async,
+      hiding the latency). The single-stage pipeline causes the 32 MiB L2 to
+      thrash across the 80 CTAs' 67 MB working set, producing 20× the L2
+      sectors of the GEMV/FI-tc. Fix: add a GEMV-style S-stage ring to the
+      `_spark` TC (pipeline the cp.async: load tile i+1 while computing tile i).
+      After the fix, re-bench at 32K/64K. Depth: `ncu-gemv-fi-ab-report.md`.
+- [x] **Coarsen the GEMV commit granularity** — DONE (2026-10-04): tested
+      s4t4 (S=4, tile=4, R=24, 8 commits) + s2t8 (S=2, tile=8, R=48, 4 commits)
+      at 32K/64K + 8K. **s4t4 is ~4.4% faster at 32K/64K** (657.6 vs 687.5 µs
+      at 32K, 1290 vs 1350 µs at 64K) and **~0.5% faster at 8K** (189.96 vs
+      191.00 µs). The L2 sectors are identical — the gain is purely from fewer
+      commit points (8 vs 32). s2t8 is worse (S=2 = the original pre-fix
+      double buffer, too shallow). **s4t4 is now the GEMV default** (the
+      constructor `tile_size_per_bdx=4` + `stages=4`). Next: investigate the
+      128-thread 1×4-warp layout (the FI-tc's structure) for a bigger gain.
+      Depth: `gemv-speedup-plan.md` §4 (Lever 1 + s4t4 data).
+  - [x] **varlen-M GEMV**: decode with MTP verify (M ≤ 8) through the GEMV path —
+        DONE (2026-10-04): in-thread M-loop, `seqlen_q` a compile-time `Constexpr`,
+        M>1 dense-Q only; M=1 byte-identical. See Current state +
+        `verify-gemv-decode-varlenM.py` (25/25 GO) + `gemv-decode-design.md` (varlen-M).
+ - [x] **T5 (tcgen05+TMEM+CVT) kernel — ncu A/B vs the GEMV at 32K/64K** — DONE
+       (2026-10-08): the NVIDIA-reference path-(c) kernel, named **T5**
+       (`sm100_hd256_decode_t5` — tcgen05 mma + TMEM + one-time
+       fp8→bf16 in-tensor-core cvt, cp.async page-table ring, one-wave 1/SM)
+       profiled vs the shipped GEMV-t1ns20 (`ncu-cvt-gemv-ab.sh`, base clock).
+       **T5 is ~1.9× faster than the GEMV at both DRAM-bound lengths**
+       (349 vs 688 µs at 32K, 717 vs 1350 µs at 64K) *despite reading 2× the KV
+       bytes* (bf16 from the cvt vs fp8) — i.e. ~2× more DRAM-efficient per
+       byte (192 GB/s vs the GEMV's 49 GB/s ≈ 62% vs 18% of the 273 GB/s peak;
+       the GEMV is latency-bound, T5 is ~DRAM-bound). No L2 thrashing (2.12 M
+       vs 2.24 M sectors at 32K — T5 reads the KV exactly once; the `_spark`
+       TC's 20× bug is NOT replicated). Also ~1.1× faster than the FI-tc
+       baseline (382 µs at 32K). Paged verify passes bit-exact; dense+paged
+       functional GO. The full 4-way L-sweep (FI-tc/GEMV/`_spark`/T5, 8K–128K)
+       is in `docker/vllm-thor/fa4-gemv-kernel/t5-ncu-lsweep.md`. Depth:
+       `task/fa4-hd256-fp8/ncu-cvt-gemv-ab-report.md`.
+ - [ ] **Wire T5 into `interface.py` dispatch + a gated bench task** — T5 wins
+       the DRAM-bound A/B; expose it behind a flag (e.g. `VLLM_FA4_HD256_T5=1`),
+       register a `t5-bench` kernel task (the `t5-smoke` functional task is
+       already registered), and re-profile paged (page-table gather overhead).
+       Remaining functional gap: varlen-M (MTP-verify). Depth:
+       `task/fa4-hd256-fp8/ncu-cvt-gemv-ab-report.md`.
 
 ### FA4 + hd256 + FP8 KV (prefill) — blocked upstream, plan to port later
 FA4's dedicated hd256 kernel is bf16-only upstream (asserts
