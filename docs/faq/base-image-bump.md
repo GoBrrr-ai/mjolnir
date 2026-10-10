@@ -27,7 +27,7 @@ docker image inspect vllm/vllm-openai:v0.31.0-ubuntu2404 \
 #    src/mjolnir-cli/mjolnir_cli/config.py — CI checks the two agree
 
 # 3. Build the candidate tag — the build is the gate
-mjolnir image build --tag narandill/mjolnir-thor:v0.31.0
+mjolnir image build --tag narandill/mjolnir-vllm:v0.31.0
 ```
 
 Outcomes of step 3:
@@ -36,7 +36,7 @@ Outcomes of step 3:
   `--forward` skips hunks the base already merged upstream): run the canary,
   tag it canonical, keep the old tag for A/B.
   ```bash
-  mjolnir image gates --image narandill/mjolnir-thor:v0.31.0
+  mjolnir image gates --image narandill/mjolnir-vllm:v0.31.0
   mjolnir verify correctness && mjolnir verify vllm   # the kernel + the MJOLNIR backend
   ```
 - **Red** (a patch rejects / a fix is missing): don't force it. Re-adapt the
@@ -89,7 +89,7 @@ reference is in the Dockerfile's "BUMPING TO A NEWER vLLM" block.
 ## The image tag follows vLLM
 
 Images are tagged with the upstream vLLM version they are built on
-(`narandill/mjolnir-thor:v0.31.0`), independent of the `mjolnir-kernel` /
+(`narandill/mjolnir-vllm:v0.31.0`), independent of the `mjolnir-kernel` /
 `mjolnir-cli` PyPI versions. Merging the bump to `main` makes
 `.github/workflows/docker-image.yml` publish `v<vllm>`, `v<vllm>-<sha>` and
 `latest`. The `MJOLNIR` backend patch

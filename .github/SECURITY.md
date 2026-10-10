@@ -9,7 +9,7 @@ private vulnerability disclosure form:
 ## Scope
 
 Mjolnir is a thin overlay on upstream vLLM / FlashInfer: a patched image
-(`narandill/mjolnir-thor`), the Mjolnir decode-attention kernel
+(`narandill/mjolnir-vllm`), the Mjolnir decode-attention kernel
 (`mjolnir-kernel`), and the `mjolnir` CLI (`mjolnir-cli`). Most serving code is upstream
 — report vulnerabilities in vLLM or FlashInfer to their respective projects.
 

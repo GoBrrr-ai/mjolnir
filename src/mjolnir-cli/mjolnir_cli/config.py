@@ -29,8 +29,8 @@ SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
 
 # ── Image / serving ──────────────────────────────────────────────────────────
 # The image tag follows the upstream vLLM version it overlays (see
-# .github/workflows/docker-image.yml): narandill/mjolnir-thor:v<vllm>.
-IMAGE_REPO = "narandill/mjolnir-thor"
+# .github/workflows/docker-image.yml): narandill/mjolnir-vllm:v<vllm>.
+IMAGE_REPO = "narandill/mjolnir-vllm"
 VLLM_VERSION = "0.30.0"
 DEFAULT_IMAGE = f"{IMAGE_REPO}:v{VLLM_VERSION}"
 STOCK_IMAGE = f"vllm/vllm-openai:v{VLLM_VERSION}-ubuntu2404"

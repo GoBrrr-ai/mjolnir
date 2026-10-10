@@ -2,7 +2,7 @@
 
 This repo is **the Mjolnir decode-attention kernel for the NVIDIA Jetson AGX
 Thor** (`sm_110`, 20 SMs) and everything around it: the vLLM image it ships in
-(`narandill/mjolnir-thor`), the `MJOLNIR` vLLM attention backend, and the
+(`narandill/mjolnir-vllm`), the `MJOLNIR` vLLM attention backend, and the
 `mjolnir` CLI that serves, verifies and benchmarks it. Every result in the
 README and `docs/kernel/` is rendered from committed raw data. This file is the
 operational doc: critical rules, layout, how to work. Read it before doing any
@@ -58,7 +58,7 @@ skipped with a hint — nothing blocks on a password.
   `mjolnir = "mjolnir:register"` fills both slots). Prefill / mixed steps run on
   the fallback (`MJOLNIR_ATTN_FALLBACK`, FlashInfer). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
-- **The image**: `narandill/mjolnir-thor:v0.30.0` on
+- **The image**: `narandill/mjolnir-vllm:v0.30.0` on
   `vllm/vllm-openai:v0.30.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**

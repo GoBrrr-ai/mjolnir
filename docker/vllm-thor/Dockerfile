@@ -3,11 +3,11 @@
 # vLLM overlay for Jetson AGX Thor (aarch64, SM 11.0a) + the Mjolnir kernel.
 #
 # BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-thor:v0.30.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.30.0 .
 #   (or: mjolnir image build)
 #
 # Image tags follow the upstream vLLM version this overlays (BASE_IMAGE below):
-# vllm/vllm-openai:v0.30.0 -> narandill/mjolnir-thor:v0.30.0 (+ :v0.30.0-<sha>).
+# vllm/vllm-openai:v0.30.0 -> narandill/mjolnir-vllm:v0.30.0 (+ :v0.30.0-<sha>).
 # .github/workflows/docker-image.yml derives the tag from BASE_IMAGE.
 #
 # This is a SMALL OVERLAY, not a from-source build. It takes the official
@@ -48,7 +48,7 @@
 #   torch 2.13.0+cu130
 #
 # Build (on Thor or any arm64 builder; repo-root context):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-thor:v0.30.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.30.0 .
 #
 # Base image lineage: vllm/vllm-openai (aarch64, CUDA 13.0, Ubuntu 24.04,
 # Python 3.12). JetPack 7.x on Thor ships CUDA 13.0, so the runtime driver
@@ -188,7 +188,7 @@ RUN python3 /opt/vllm-patches/kernel_test_dspark_draft_nonncausal.py
 RUN rm -rf /opt/vllm-patches && true
 
 # ── Build ──────────────────────────────────────────────────────────────────
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-thor:v0.30.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.30.0 .
 #
 # This is a thin overlay: the heavy lifting (CUDA kernels for SM 11.0a) comes
 # from the prebuilt wheel in the base image. The first server launch pays a

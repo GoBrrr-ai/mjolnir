@@ -4,7 +4,7 @@
 against FlashInfer and FlashAttention 2, and have the README charts update from
 my numbers."
 
-Everything runs in the image (`narandill/mjolnir-thor:v<vllm>`), one container
+Everything runs in the image (`narandill/mjolnir-vllm:v<vllm>`), one container
 per leg, against the kernel source in your checkout (`src/mjolnir/` is mounted
 over the installed package). Every stage waits for a
 [clean window](clean-window-gate.md) when the live server is busy — and never

@@ -36,7 +36,7 @@ Run inside the image with the vfa tree mounted:
   docker run --rm --gpus all --network host --entrypoint python3 \
     -v $VFA_TREE:/usr/local/lib/python3.12/dist-packages/vllm/vllm_flash_attn \
     -v "$PWD":/p \
-    narandill/mjolnir-thor:v14 /p/verify-gemv-decode-varlenM.py [--no-gate]
+    narandill/mjolnir-vllm:v14 /p/verify-gemv-decode-varlenM.py [--no-gate]
 """
 
 from __future__ import annotations

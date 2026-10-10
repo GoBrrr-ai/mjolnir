@@ -9,7 +9,7 @@ locally."
 ```bash
 mjolnir image             # arrow-key picker over every local docker image
 mjolnir image list        # list with ● on the active one
-mjolnir image use narandill/mjolnir-thor:v0.30.0   # non-interactive
+mjolnir image use narandill/mjolnir-vllm:v0.30.0   # non-interactive
 ```
 
 The choice is written to the state file (`~/.mjolnir-state.json` by default;
@@ -21,11 +21,11 @@ no flags needed.
 
 ```bash
 mjolnir serve up --image my/mjolnir-thor:dev
-MJOLNIR_IMAGE=narandill/mjolnir-thor:v0.30.0-<sha> mjolnir verify sweep
+MJOLNIR_IMAGE=narandill/mjolnir-vllm:v0.30.0-<sha> mjolnir verify sweep
 ```
 
 Precedence is always: **CLI flag > state file > `$MJOLNIR_IMAGE` > baked-in
-default** (`DEFAULT_IMAGE` in `src/mjolnir-cli/mjolnir_cli/config.py`): `narandill/mjolnir-thor:v<vLLM version>`.
+default** (`DEFAULT_IMAGE` in `src/mjolnir-cli/mjolnir_cli/config.py`): `narandill/mjolnir-vllm:v<vLLM version>`.
 
 ## Build a new one
 
@@ -47,7 +47,7 @@ mjolnir image gates                    # sm_110 gate-probe canaries, fresh conta
 
 ## Published images
 
-[`narandill/mjolnir-thor`](https://hub.docker.com/r/narandill/mjolnir-thor) is
+[`narandill/mjolnir-vllm`](https://hub.docker.com/r/narandill/mjolnir-vllm) is
 built by `.github/workflows/docker-image.yml`. Tags follow **the upstream vLLM
 version** the image is built on — not the PyPI package versions:
 

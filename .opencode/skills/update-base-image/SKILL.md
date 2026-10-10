@@ -1,10 +1,10 @@
 ---
 name: update-base-image
-description: Bumps the pinned vllm/vllm-openai base of the docker/vllm-thor image (narandill/mjolnir-thor) — new version + digest, patch-stack re-verification (including the MJOLNIR backend patch), canaries, kernel verification, image tag and default switch. Use when a new vLLM release is out, or when the patch stack must be re-validated against a newer base.
+description: Bumps the pinned vllm/vllm-openai base of the docker/vllm-thor image (narandill/mjolnir-vllm) — new version + digest, patch-stack re-verification (including the MJOLNIR backend patch), canaries, kernel verification, image tag and default switch. Use when a new vLLM release is out, or when the patch stack must be re-validated against a newer base.
 compatibility: opencode
 ---
 
-# Update the base image (narandill/mjolnir-thor)
+# Update the base image (narandill/mjolnir-vllm)
 
 The image in `docker/vllm-thor/` is a thin layer on
 `vllm/vllm-openai:v<version>-ubuntu2404` plus the Mjolnir kernel package
@@ -35,12 +35,12 @@ docker image inspect vllm/vllm-openai:v<X.Y.Z>-ubuntu2404 --format '{{index .Rep
   `ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:<digest>`, and the "Verified
   against base" header (vLLM, flashinfer, torch versions).
 - `src/mjolnir-cli/mjolnir_cli/config.py`: `VLLM_VERSION = "<X.Y.Z>"` — this
-  moves `DEFAULT_IMAGE` to `narandill/mjolnir-thor:v<X.Y.Z>`. CI (`docker-image.yml`)
+  moves `DEFAULT_IMAGE` to `narandill/mjolnir-vllm:v<X.Y.Z>`. CI (`docker-image.yml`)
   refuses to publish if the two disagree.
 
 ### 3. Build — the patch gate
 ```bash
-mjolnir image build --tag narandill/mjolnir-thor:v<X.Y.Z>
+mjolnir image build --tag narandill/mjolnir-vllm:v<X.Y.Z>
 # = docker build -f docker/vllm-thor/Dockerfile -t … .   (repo root is the context)
 ```
 - Exit 0 → every patch applied + verified, `AttentionBackendEnum["MJOLNIR"]`
@@ -54,9 +54,9 @@ mjolnir image build --tag narandill/mjolnir-thor:v<X.Y.Z>
 
 ### 4. Canaries + the kernel (fresh containers — no server needed)
 ```bash
-mjolnir image gates --image narandill/mjolnir-thor:v<X.Y.Z>   # sm_110 gate probes
-mjolnir verify correctness --image narandill/mjolnir-thor:v<X.Y.Z>
-mjolnir verify vllm --image narandill/mjolnir-thor:v<X.Y.Z>   # MJOLNIR backend inside vLLM
+mjolnir image gates --image narandill/mjolnir-vllm:v<X.Y.Z>   # sm_110 gate probes
+mjolnir verify correctness --image narandill/mjolnir-vllm:v<X.Y.Z>
+mjolnir verify vllm --image narandill/mjolnir-vllm:v<X.Y.Z>   # MJOLNIR backend inside vLLM
 ```
 Everything must PASS before the tag is considered real.
 
@@ -65,10 +65,10 @@ Everything must PASS before the tag is considered real.
   `AGENTS.md`, critical rules). Schedule in a clean window via `mjolnir gate`,
   or inspect with `--dry-run` first:
 ```bash
-mjolnir serve up --image narandill/mjolnir-thor:v<X.Y.Z> --dry-run
+mjolnir serve up --image narandill/mjolnir-vllm:v<X.Y.Z> --dry-run
 mjolnir gate --once
-mjolnir verify bench --image narandill/mjolnir-thor:v<X.Y.Z>     # kernel headline data
-mjolnir bench ab --image narandill/mjolnir-thor:v<X.Y.Z>         # Mjolnir vs FI vs FA2, end to end
+mjolnir verify bench --image narandill/mjolnir-vllm:v<X.Y.Z>     # kernel headline data
+mjolnir bench ab --image narandill/mjolnir-vllm:v<X.Y.Z>         # Mjolnir vs FI vs FA2, end to end
 ```
 - A bump that shifts numbers starts a **new comparison epoch**: rows keep their
   image tag; the README picks the latest headline runs.
@@ -76,7 +76,7 @@ mjolnir bench ab --image narandill/mjolnir-thor:v<X.Y.Z>         # Mjolnir vs FI
 ### 6. Switch the default
 - Check the state file: a remembered image (`~/.mjolnir-state.json`, or
   `mjolnir image list` → the ● row) beats `DEFAULT_IMAGE` — `mjolnir image use
-  narandill/mjolnir-thor:v<X.Y.Z>` (or drop the `"image"` key).
+  narandill/mjolnir-vllm:v<X.Y.Z>` (or drop the `"image"` key).
 - `uv run mjolnir plot --readme` so the README badges and tables follow.
 
 ### 7. Record + commit

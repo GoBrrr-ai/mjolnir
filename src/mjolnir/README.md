@@ -48,7 +48,7 @@ fused QKV buffer.
 
 ## Install
 
-**On the image** (`narandill/mjolnir-thor:v0.30.0`) it is pre-installed and the
+**On the image** (`narandill/mjolnir-vllm:v0.30.0`) it is pre-installed and the
 `MJOLNIR` backend name is patched into vLLM — nothing to do.
 
 **On a stock vLLM 0.30.0** (inside a container that has CUDA 13 and `sm_110`):

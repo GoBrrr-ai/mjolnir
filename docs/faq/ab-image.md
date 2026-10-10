@@ -17,7 +17,7 @@ parameters. Compare two images on the *same* config:
 
 ```bash
 mjolnir bench ab --backends \
-  'narandill/mjolnir-thor:v0.30.0:NVFP4_MJOLNIR,my/mjolnir-thor:dev:NVFP4_MJOLNIR'
+  'narandill/mjolnir-vllm:v0.30.0:NVFP4_MJOLNIR,my/mjolnir-thor:dev:NVFP4_MJOLNIR'
 ```
 
 Compare backends on one image (the default invocation — Mjolnir vs

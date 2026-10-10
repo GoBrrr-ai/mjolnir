@@ -3,7 +3,7 @@
 #
 # Versioning follows UPSTREAM vLLM, not the Python packages: the tag is the
 # vLLM version of the Dockerfile's BASE_IMAGE (vllm/vllm-openai:v0.30.0-… ->
-# narandill/mjolnir-thor:v0.30.0). Every push also gets an immutable
+# narandill/mjolnir-vllm:v0.30.0). Every push also gets an immutable
 # :v0.30.0-<short-sha>, and main gets :latest. Bumping vLLM = bumping
 # BASE_IMAGE (+ VLLM_VERSION in mjolnir_cli/config.py — checked below).
 #
@@ -11,7 +11,7 @@
 #   1. Docker Hub: create an access token with write access to the repo.
 #   2. GitHub: Settings -> Secrets and variables -> Actions:
 #        secrets   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
-#        variables (optional) IMAGE_REPO   (default narandill/mjolnir-thor)
+#        variables (optional) IMAGE_REPO   (default narandill/mjolnir-vllm)
 #                             IMAGE_RUNNER (default ubuntu-24.04-arm; set to a
 #                             self-hosted Thor runner label to build on Thor)
 #
@@ -49,7 +49,7 @@ jobs:
     runs-on: ${{ vars.IMAGE_RUNNER || 'ubuntu-24.04-arm' }}
     timeout-minutes: 180
     env:
-      IMAGE_REPO: ${{ vars.IMAGE_REPO || 'narandill/mjolnir-thor' }}
+      IMAGE_REPO: ${{ vars.IMAGE_REPO || 'narandill/mjolnir-vllm' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,7 +109,7 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "### narandill/mjolnir-thor"
+            echo "### narandill/mjolnir-vllm"
             echo "- vLLM base: \`${{ steps.v.outputs.vllm }}\`"
             echo "- mjolnir-kernel: \`${{ steps.v.outputs.kernel }}\`"
             echo "- tags: \`${{ steps.v.outputs.tags }}\`"

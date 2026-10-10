@@ -23,7 +23,7 @@ server's state — see the
 
 ```bash
 mjolnir serve up --model Qwen/Qwen3.8-27B --config NVFP4 \
-                 --image narandill/mjolnir-thor:v0.30.0 \
+                 --image narandill/mjolnir-vllm:v0.30.0 \
                  --port 6001
 mjolnir serve up --dry-run     # print the exact docker run, do nothing
 ```
@@ -66,7 +66,7 @@ Without the CLI, on the image:
 
 ```bash
 docker run --gpus all --ipc host -e VLLM_KV_CACHE_LAYOUT=HND -p 8000:8000 \
-  narandill/mjolnir-thor:v0.30.0 \
+  narandill/mjolnir-vllm:v0.30.0 \
   vllm serve Qwen/Qwen3.8-27B --attention-backend MJOLNIR
 ```
 

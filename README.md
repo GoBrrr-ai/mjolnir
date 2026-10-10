@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://pypi.org/project/mjolnir-kernel/"><img src="https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834" alt="mjolnir-kernel on PyPI"></a>
   <a href="https://pypi.org/project/mjolnir-cli/"><img src="https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6" alt="mjolnir-cli on PyPI"></a>
-  <a href="https://hub.docker.com/r/narandill/mjolnir-thor"><img src="https://img.shields.io/docker/v/narandill/mjolnir-thor?label=docker&sort=semver&color=1baf7a" alt="narandill/mjolnir-thor on Docker Hub"></a>
+  <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
   <img src="https://img.shields.io/badge/vLLM-0.30.0-black" alt="vLLM 0.30.0">
   <img src="https://img.shields.io/badge/Jetson-AGX%20Thor%20sm__110-76b900" alt="NVIDIA Jetson AGX Thor">
   <a href="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -67,7 +67,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 
 ```bash
 docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
-  narandill/mjolnir-thor:v0.30.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+  narandill/mjolnir-vllm:v0.30.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
 **Or bring your own vLLM 0.30.0**: `pip install mjolnir-kernel` registers the backend as `CUSTOM` through vLLM's plugin system (`--attention-backend CUSTOM`); [`thor-mjolnir-attention-backend.patch`](docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch) adds the `MJOLNIR` name.
@@ -141,7 +141,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 ## What's in the image
 
-[`narandill/mjolnir-thor:v0.30.0`](https://hub.docker.com/r/narandill/mjolnir-thor) = the official `vllm/vllm-openai:v0.30.0` image + the `mjolnir-kernel` package + a hand-adapted patch stack for Thor. Tags follow the upstream vLLM version.
+[`narandill/mjolnir-vllm:v0.30.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.30.0` image + the `mjolnir-kernel` package + a hand-adapted patch stack for Thor. Tags follow the upstream vLLM version.
 
 | patch | what it does |
 |---|---|
