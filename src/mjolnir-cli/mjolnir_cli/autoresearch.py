@@ -167,7 +167,7 @@ def _evaluate(
     gate: bool = True,
     skip_correctness: bool = False,
 ) -> int:
-    from mjolnir_cli.verify.cli import execute
+    from mjolnir_cli.verify.cli import PREFLIGHT_RC, execute
     from mjolnir_cli.verify.stages import ALL_LS
 
     rows = load_ledger(root)
@@ -195,6 +195,8 @@ def _evaluate(
             save=True,
             plot=False,
         )
+        if rc == PREFLIGHT_RC:
+            return rc  # no docker / no image: an environment problem, not an experiment — no ledger row
         correct = rc == 0
         corr_run = doc["run_id"] if doc else None
     score, per_L, sweep_run = None, {}, None

@@ -25,7 +25,7 @@ import typer
 
 from mjolnir_cli.config import load_layout, resolve
 from mjolnir_cli.verify import results, stages
-from mjolnir_cli.verify.docker import Runner
+from mjolnir_cli.verify.docker import Runner, ensure_image
 from mjolnir_cli.verify.report import console, show
 
 app = typer.Typer(
@@ -63,6 +63,10 @@ def _kernel_info(layout) -> dict:
     return info
 
 
+# docker missing / image unavailable: nothing can run, stop the whole sequence
+PREFLIGHT_RC = 2
+
+
 def execute(
     stage: str,
     params: dict,
@@ -77,12 +81,17 @@ def execute(
     save: bool,
     plot: bool,
     page: int = 128,
-) -> int:
+) -> tuple[int, dict | None]:
     layout = load_layout()
     s = resolve(None, None, image, None)
     if shutil.which("docker") is None and not dry_run:
         console.print("[red]docker not found on PATH[/red]")
-        return 2, None
+        return PREFLIGHT_RC, None
+    if not dry_run:
+        err = ensure_image(s.image)
+        if err:
+            console.print(f"[red]✗ {err}[/red]")
+            return PREFLIGHT_RC, None
     run_id = results.new_run_id()
     logdir = layout.benchmarks_dir / "logs" / f"verify-{run_id}"
     kernel_src = None
@@ -549,6 +558,8 @@ def _sequence(names: list[str], image, gate, dry_run, plot) -> int:
             save=True,
             plot=False,
         )
+        if r == PREFLIGHT_RC:
+            return r  # no image / no docker: every later stage would fail the same way
         if r != 0:
             console.print(f"[red]   verify {name} exit {r} — continuing[/red]")
             rc = r

@@ -23,6 +23,25 @@ from mjolnir_cli.verify.legs import FILTERS, Leg
 DRIVERS_DIR = Path(__file__).resolve().parent.parent / "drivers"
 NCU_HOME_DEFAULT = "/opt/nvidia/nsight-compute/2025.3.0"
 _IN_SRC = "/opt/mjolnir-src"
+
+
+def ensure_image(image: str) -> str | None:
+    """Make sure ``image`` is available locally (pull it if not) BEFORE any
+    stage starts, so a missing image is one clear error instead of one
+    failed container per case. Returns None if ready, else a message."""
+    if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
+        return None
+    p = subprocess.run(["docker", "pull", image], capture_output=True, text=True)
+    if p.returncode == 0:
+        return None
+    why = (p.stderr or p.stdout).strip().splitlines()[-1:] or ["pull failed"]
+    return (
+        f"image {image} is not available locally and could not be pulled ({why[0]}).\n"
+        f"   build it from this checkout:  mjolnir image build --tag {image}\n"
+        f"   or use another image:         --image <tag>   (or: mjolnir image use <tag>)"
+    )
+
+
 _IN_DRIVERS = "/opt/mjolnir-drivers"
 _IN_NCU = "/ncu"
 
