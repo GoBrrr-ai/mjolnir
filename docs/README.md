@@ -19,8 +19,8 @@ or upstream PR/issue anchors cited inline.
 | [`research/`](research/) | Research notes — upstream status, prior-art surveys, field notes. |
 | [`../research/`](../research/) | The **autoresearch** loop: program, agents, ledgers of every experiment. |
 
-The retired GEMV decode kernel and its reports live under
-[`deprecated/gemv/`](../deprecated/gemv/).
+The retired GEMV decode kernel and its reports are in git history:
+[`06a9ff4:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/06a9ff4/deprecated/gemv).
 
 ## Suggested reading order
 

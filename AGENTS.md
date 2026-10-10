@@ -71,8 +71,9 @@ skipped with a hint — nothing blocks on a password.
   + OpenCode agents in `.opencode/agent/` (orchestrator `autoresearch`;
   `arxiv-researcher`, `web-researcher`, `python-engineer`, `debugger`). The loop
   is `research/program.md`; every experiment is a ledger row.
-- **Retired**: the FA4 GEMV decode kernel and its tooling are archived in
-  `deprecated/gemv/` (not built, not linted, not in the image).
+- **Retired**: the FA4 GEMV decode kernel and its tooling were removed; the
+  last snapshot is in git history at
+  [`06a9ff4:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/06a9ff4/deprecated/gemv).
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
   `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
   independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
@@ -122,7 +123,6 @@ skipped with a hint — nothing blocks on a password.
 - `research/` — autoresearch program, ledger (untracked while live), exported runs.
 - `.opencode/` — agents (`agent/`), the `/autoresearch` command, skills
   (`kernel-iteration`, `update-base-image`).
-- `deprecated/gemv/` — the archived GEMV kernel, its docs, data and tooling.
 - `.github/workflows/` — `ci.yml`, `docker-image.yml`, `release-kernel.yml`,
   `release-cli.yml`, `pages.yml`.
 
@@ -291,4 +291,4 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - Patch inventory: `docker/vllm-thor/PATCHES.md`.
 - Measurement discipline: `docs/methodology/benchmarking.md`.
 - Docs index: `docs/README.md`; FAQ: `docs/faq/index.md`.
-- The archived GEMV kernel: `deprecated/gemv/`.
+- The retired GEMV kernel (git history): [`06a9ff4:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/06a9ff4/deprecated/gemv).

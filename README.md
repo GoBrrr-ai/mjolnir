@@ -195,8 +195,7 @@ Mjolnir is meant to be a **community case study**: every claim is reproducible w
 ├── assets/benchmarks/          generated charts (light + dark)
 ├── docs/kernel/                the kernel case study (rendered from *.md.j2 + raw data)
 ├── research/                   the autoresearch program + ledger
-├── .opencode/                  OpenCode agents (autoresearch, researchers, engineer, debugger)
-└── deprecated/gemv/            the retired GEMV decode kernel (archived)
+└── .opencode/                  OpenCode agents (autoresearch, researchers, engineer, debugger)
 ```
 
 ## Security

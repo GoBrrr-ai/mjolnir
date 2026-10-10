@@ -16,8 +16,8 @@ onto the installed vllm package **and** the installed flashinfer package;
 verified by `verify_patches.py`.
 
 The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
-and its kernel are archived under [`deprecated/gemv/`](../../deprecated/gemv/);
-the Mjolnir kernel replaced it.
+and its kernel were removed when the Mjolnir kernel replaced them; the last
+snapshot is in git history at [`06a9ff4:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/06a9ff4/deprecated/gemv).
 
 Base this was verified against: **vllm 0.30.0**
 (`vllm/vllm-openai:v0.30.0-ubuntu2404`, 2026-09-26), FlashInfer 0.6.18.post1.
