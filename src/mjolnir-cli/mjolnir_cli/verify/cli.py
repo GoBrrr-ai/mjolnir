@@ -108,7 +108,7 @@ def execute(
         gate=gate,
         ls=_parse_ls(ls),
         iters=iters,
-        out=lambda m: console.print(m, highlight=False),
+        out=lambda m: console.print(m, highlight=False, soft_wrap=True),  # rows never hard-wrap
     )
     st = stages.STAGES[stage]
     console.print(f"\n[bold cyan]━━ verify {stage}[/bold cyan] — {st.summary}")

@@ -461,6 +461,23 @@ def case_args(args: str) -> str:
     return f"{_PIN} {args}"
 
 
+LABEL_W = max(len(label) for label, _, _ in CASES)
+
+
+def _short_check(check: str | None) -> str:
+    """'|kern-emu| max=0.03051 mean=0.0007534' -> 'max 3.05e-02  mean 7.53e-04'
+    (fixed width, so the live correctness table never wraps)."""
+    if not check:
+        return ""
+    m = re.search(r"max=([0-9.eE+-]+)\s+mean=([0-9.eE+-]+)", check)
+    if not m:
+        return check[:26]
+    try:
+        return f"max {float(m.group(1)):.2e}  mean {float(m.group(2)):.2e}"
+    except ValueError:
+        return check[:26]
+
+
 def stage_correctness(
     ctx: Ctx,
     dtypes: str = "fp8 bf16",
@@ -500,7 +517,7 @@ def stage_correctness(
             }
             cases.append(c)
             mark = "✅" if c["passed"] else "❌"
-            ctx.out(f" {mark} {dt:<5} {label:<44} {c['check'] or ''}  {c['seconds']:.0f}s")
+            ctx.out(f" {mark} {dt:<5} {label:<{LABEL_W}} {_short_check(c['check']):<26} {c['seconds']:>4.0f}s")
             if not c["passed"]:
                 for line in [
                     ln for ln in text.splitlines() if re.search(r"Error|Traceback|Assertion|NaN|Mismatch", ln)
