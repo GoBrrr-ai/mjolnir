@@ -1,0 +1,12 @@
+{
+ "e2e-decode": {
+  "dark": "assets/benchmarks/e2e-decode-dark.png",
+  "light": "assets/benchmarks/e2e-decode.png",
+  "stage": "e2e"
+ },
+ "e2e-prefill": {
+  "dark": "assets/benchmarks/e2e-prefill-dark.png",
+  "light": "assets/benchmarks/e2e-prefill.png",
+  "stage": "e2e"
+ }
+}

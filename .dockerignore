@@ -1,0 +1,6 @@
+# The image build context is the repo root (docker/vllm-thor/Dockerfile
+# installs src/mjolnir); send only what the build reads.
+*
+!docker/vllm-thor/
+!src/mjolnir/
+src/mjolnir/**/__pycache__

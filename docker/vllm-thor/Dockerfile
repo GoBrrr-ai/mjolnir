@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1.7
 #
-# vLLM overlay for Jetson AGX Thor (aarch64, SM 11.0a).
+# vLLM overlay for Jetson AGX Thor (aarch64, SM 11.0a) + the Mjolnir kernel.
+#
+# BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-thor:v0.30.0 .
+#   (or: mjolnir image build)
+#
+# Image tags follow the upstream vLLM version this overlays (BASE_IMAGE below):
+# vllm/vllm-openai:v0.30.0 -> narandill/mjolnir-thor:v0.30.0 (+ :v0.30.0-<sha>).
+# .github/workflows/docker-image.yml derives the tag from BASE_IMAGE.
 #
 # This is a SMALL OVERLAY, not a from-source build. It takes the official
 # vLLM docker image (release tag or nightly; the image ships a prebuilt
@@ -39,8 +47,8 @@
 #   flashinfer-python / flashinfer-cubin 0.6.18.post1
 #   torch 2.13.0+cu130
 #
-# Build (on Thor, aarch64):
-#   docker build -t mjolnir/vllm-thor:qwen38-sm110 docker/vllm-thor/
+# Build (on Thor or any arm64 builder; repo-root context):
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-thor:v0.30.0 .
 #
 # Base image lineage: vllm/vllm-openai (aarch64, CUDA 13.0, Ubuntu 24.04,
 # Python 3.12). JetPack 7.x on Thor ships CUDA 13.0, so the runtime driver
@@ -54,8 +62,12 @@ ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:439c19d48db36401abc914b9842d060fe6
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
-LABEL org.opencontainers.image.title="vLLM Thor SM110a + Qwen3.8-27B spec-decode fixes" \
-        org.opencontainers.image.description="vllm-openai v0.30.0 aarch64 overlay: hand-adapted vLLM PR fixes + Thor sm_110 patches for Qwen3.8-27B hybrid GDN/Mamba spec decode (full patch list in docker/vllm-thor/PATCHES.md)"
+ARG MJOLNIR_REVISION=unknown
+LABEL org.opencontainers.image.title="Mjolnir — vLLM for Jetson AGX Thor (sm_110)" \
+        org.opencontainers.image.description="vllm-openai v0.30.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
+        org.opencontainers.image.source="https://github.com/thor-arena/mjolnir" \
+        org.opencontainers.image.revision="${MJOLNIR_REVISION}" \
+        org.opencontainers.image.licenses="MIT"
 
 # patch(1) for applying the hand-adapted patches.
 RUN apt-get update && \
@@ -82,21 +94,36 @@ ENV TORCH_CUDA_ARCH_LIST=11.0a \
 # idempotent across nightly bumps; verify_patches.verify is the authoritative
 # gate and fails the build if any fix is missing.
 WORKDIR /opt/vllm-patches
-COPY patches/ patches/
-COPY apply_patches.py verify_patches.py functional_check_55390_55519.py \
-     kernel_test_fi_update.py kernel_test_dspark_draft_nonncausal.py ./
+COPY docker/vllm-thor/patches/ patches/
+COPY docker/vllm-thor/apply_patches.py docker/vllm-thor/verify_patches.py \
+     docker/vllm-thor/functional_check_55390_55519.py \
+     docker/vllm-thor/kernel_test_fi_update.py \
+     docker/vllm-thor/kernel_test_dspark_draft_nonncausal.py ./
 
-# ── Install the Thor FA4 hd256 GEMV decode kernel (a NEW file, not a patch) ──
-# Upstream has no vllm/vllm_flash_attn/cute/sm100_hd256_decode_gemv.py, so the
-# kernel .py source (kept at fa4-gemv-kernel/) is installed by a direct COPY,
-# NOT embedded as a /dev/null->file new-file diff in a patch. The interface.py
-# dispatch that imports it lands via thor-fa4-hd256-gemv-decode-sm110.patch
-# (an edit of an existing file). verify_patches.py confirms the file is in place.
-COPY fa4-gemv-kernel/sm100_hd256_decode_gemv.py \
-     /usr/local/lib/python3.12/dist-packages/vllm/vllm_flash_attn/cute/sm100_hd256_decode_gemv.py
-
+# The patch stack includes thor-mjolnir-attention-backend.patch: it adds the
+# MJOLNIR member to vLLM's AttentionBackendEnum, so
+# `vllm serve <model> --attention-backend MJOLNIR` parses and resolves.
 RUN python3 apply_patches.py \
     && python3 verify_patches.py
+
+# ── Install the Mjolnir kernel (mjolnir-kernel, from this checkout) ─────────
+# A pure-Python package (CuTe DSL kernel + vLLM backend + runner). --no-deps:
+# torch / vllm / nvidia-cutlass-dsl / flashinfer are the base image's own.
+# Its vllm.general_plugins entry point registers the backend in every vLLM
+# process (MJOLNIR, and CUSTOM for stock-vLLM compatibility).
+COPY src/mjolnir /opt/mjolnir-kernel
+RUN python3 -m pip install --no-cache-dir --no-deps --break-system-packages /opt/mjolnir-kernel \
+    && rm -rf /opt/mjolnir-kernel \
+    && python3 - <<'PY'
+import importlib.metadata as md
+import mjolnir
+from vllm.v1.attention.backends.registry import AttentionBackendEnum
+
+assert AttentionBackendEnum["MJOLNIR"].get_path() == mjolnir.BACKEND_PATH, "MJOLNIR enum member missing"
+eps = [e for e in md.entry_points(group="vllm.general_plugins") if e.name == "mjolnir"]
+assert eps and eps[0].value == "mjolnir:register", "mjolnir vllm.general_plugins entry point missing"
+print("mjolnir-kernel", mjolnir.__version__, "->", mjolnir.BACKEND_PATH)
+PY
 
 # ── Build-time smoke test (no GPU/driver required) ──────────────────────────
 # Byte-compile every patched file and import the pure-python modules that
@@ -161,7 +188,7 @@ RUN python3 /opt/vllm-patches/kernel_test_dspark_draft_nonncausal.py
 RUN rm -rf /opt/vllm-patches && true
 
 # ── Build ──────────────────────────────────────────────────────────────────
-#   docker build -t mjolnir/vllm-thor:qwen38-sm110 docker/vllm-thor/
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-thor:v0.30.0 .
 #
 # This is a thin overlay: the heavy lifting (CUDA kernels for SM 11.0a) comes
 # from the prebuilt wheel in the base image. The first server launch pays a

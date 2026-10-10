@@ -1,21 +1,23 @@
 # vLLM Thor PR Patches
 
-Five vLLM PR fixes, **hand-adapted** onto the vLLM nightly (not a raw
-`git apply` of the upstream PR diffs, because the nightly code has diverged
-from each PR's base), plus nine **Thor-authored** patches: two for a
-capability the upstream backends don't yet have, two `sm_110`
-gate probes (see "Thor sm_110 gate probes" below), one dispatch-side
-`sm_110` draft-CG shape gate (see "Thor sm_110 draft-CG shape gate" below),
-one **flashinfer-side** sm_110 enablement hunk (see "Thor sm_110 GDN
-prefill enablement (flashinfer side)" below), one hd256 FP8-KV kernel +
-policy patch (the "N-1" workstream — probe-gated, T11 canary in
-`kernel_test_sm110_gates.py`), one hd256 1CTA decode carve-out (the
-"N-2 decode" workstream — see "Thor hd256 1CTA decode carve-out (v11,
-2026-09-24)" below), and one hd256 GEMV decode kernel (the "N-2 decode"
-completion — a **default-on** build patch; see "Thor hd256 GEMV decode
-kernel" below). Fourteen patches in total, applied by
-`apply_patches.py` onto the installed vllm package **and** the installed
-flashinfer package; verified by `verify_patches.py`.
+Five vLLM PR fixes, **hand-adapted** onto the vLLM base (not a raw
+`git apply` of the upstream PR diffs, because the base code has diverged
+from each PR's base), plus nine **Thor-authored** patches: the **Mjolnir
+attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see "The Mjolnir
+attention backend" below), two for a capability the upstream backends don't
+yet have, two `sm_110` gate probes (see "Thor sm_110 gate probes" below), one
+dispatch-side `sm_110` draft-CG shape gate (see "Thor sm_110 draft-CG shape
+gate" below), one **flashinfer-side** sm_110 enablement hunk (see "Thor sm_110
+GDN prefill enablement (flashinfer side)" below), one hd256 FP8-KV kernel +
+policy patch (probe-gated, T11 canary in `kernel_test_sm110_gates.py`) and one
+hd256 1CTA decode carve-out (see "Thor hd256 1CTA decode carve-out (v11,
+2026-09-24)" below). Fourteen patches in total, applied by `apply_patches.py`
+onto the installed vllm package **and** the installed flashinfer package;
+verified by `verify_patches.py`.
+
+The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
+and its kernel are archived under [`deprecated/gemv/`](../../deprecated/gemv/);
+the Mjolnir kernel replaced it.
 
 Base this was verified against: **vllm 0.30.0**
 (`vllm/vllm-openai:v0.30.0-ubuntu2404`, 2026-09-26), FlashInfer 0.6.18.post1.
@@ -31,10 +33,10 @@ Base this was verified against: **vllm 0.30.0**
 | `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly (removes the `speculator.py:124` "does not support full CUDA graphs; running the draft eagerly" warning). A non-causal drafter (DSpark/DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **last** in `PATCH_ORDER` (its `flashinfer.py` hunks sit on top of the fused-draft-decode patch's changes). Most bump-fragile patch — see below. |
 | `thor-draft-cg-gate-sm110.patch` | — (Thor-authored) | **Shape-gate the DSpark draft's FULL cudagraph replay on sm_110 (the c1 fix).** The forensics showed the graphed draft is 7–16% *slower* than the eager draft at N=1 (replay overhead eats the launch savings on a tiny 5-layer draft). The gate routes per-step draft batches below `VLLM_THOR_DRAFT_CG_MIN_BATCH` requests (default **2**; min 1, where 1 = today's behavior) through the **existing eager fallback** via the dispatch's `need_eager` channel — no new eager path, no capture-logic changes. sm_110 only: off sm_110 the decision helper is a structural no-op (always CG). One-shot `THOR draft-CG gate: …` log lines; any gate evaluation error degrades to the CG behavior (logged once). Probe-gated, inert on non-sm_110, default N=1→eager. |
 | `thor-fa4-hd256-1cta-decode-sm110.patch` | — (Thor-authored) | **The 1CTA decode carve-out for the FA4 hd256 kernel (the v11 "N-2 decode" workstream).** Decode-shaped hd256 calls — `max_seqlen_q <= 8` (decode M 1..8, incl. MTP verify; prefill is 1024+), non-local, dense or paged-128 TMA (the kernel's only legal paged mode) — now OR into the `hd256_use_2cta` carve-out in `vllm_flash_attn/cute/interface.py` (one hunk), so the kernel drops its 2CTA cluster to a single CTA (`cluster (1,1)`, `CtaGroup.ONE`): a **1.56× decode win** at L=8192 M=1 (clean micro-bench 2CTA 323 µs → 1CTA 207 µs), with 1CTA == 2CTA == fp32-ref within fp8 tolerance; the kernel file is untouched and the 2CTA prefill path is unchanged (separate compile keys coexist in one process). The in-tree hd256 SplitKV machinery was investigated and is a no-win on **both** the 2CTA and 1CTA paths — kept inert (see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below). |
-| `thor-fa4-hd256-gemv-decode-sm110.patch` | — (Thor-authored) | **The M=1 hd256 GEMV decode kernel (the "N-2 decode" completion).** Four `vllm_flash_attn/cute/interface.py` hunks: the `BlackwellHd256DecodeGEMV` import, the `_gemv_auto_num_splits` helper (FlashInfer Alg.1 split plan — fill `4 × #SM` CTAs), a relaxed mixed Q/KV dtype check (`_gemv_dtype_ok`, M=1 hd256 only), and the `use_gemv_hd256` dispatch gate that returns `out, lse, None, None` **before** the tcgen05/1CTA forward. The kernel itself (`vllm_flash_attn/cute/sm100_hd256_decode_gemv.py`, a CuTe-DSL pure-FMA GEMV) is a NEW file upstream has none of, so it is installed by a **separate `COPY`** in the `Dockerfile` (from `fa4-gemv-kernel/`) rather than embedded as a `/dev/null`→file new-file diff in this patch — this patch edits only the existing `interface.py`. **DEFAULT-ON** (opt out with `VLLM_FA4_HD256_GEMV=0`) — unlike the rest of the fa4 group (passive-by-default), this changes in-scope M=1 hd256 decode behavior the moment FA4 hd256 is selected; scope gates confine it to M=1, `head_dim==256`, arch 10/11, dense or paged-16/128, `seqused_q` None, no softcap/block-sparse/learnable-sink. Within ~10% of FlashInfer at L=8192 (222.8 µs vs 202.05 µs, same gated window); see "Thor hd256 GEMV decode kernel" below. |
+| `thor-mjolnir-attention-backend.patch` | — (Thor-authored) | **The `MJOLNIR` attention-backend name.** Adds `MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"` to `AttentionBackendEnum` (`v1/attention/backends/registry.py`), so `vllm serve <model> --attention-backend MJOLNIR` parses (the CLI resolves the name through the enum *before* plugins could add one — an `Enum` cannot grow at runtime) and `Attention.__init__`'s `AttentionBackendEnum[backend.get_name()]` round-trip works. The class itself comes from the `mjolnir-kernel` package, installed by the `Dockerfile`; its `vllm.general_plugins` entry point also maps `CUSTOM` to the same class, so a stock vLLM can use `--attention-backend CUSTOM`. One 6-line hunk in a file no other patch touches. |
 | `thor-gdn-prefill-sm110.patch` | — (Thor-authored) | GDN **prefill** grant in `_resolve_gdn_prefill_backend()` (the fast FlashInfer kernel for the model's GDN layers) — probe-gated at import; see "Thor sm_110 gate probes". |
 | `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
-| `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above + the GEMV decode below. |
+| `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
 | `thor-gdn-prefill-fi-sm110.patch` | — (FlashInfer) | **FlashInfer-side** GDN prefill non-CP dispatch allowlist widened major 10 → (10, 11) so the SM100 CuTe-DSL kernel is reachable on sm_110 (behavior unchanged on other devices); see "Thor sm_110 GDN prefill enablement (flashinfer side)". |
 
 ## Why "hand-adapted" and not the raw diff
@@ -575,64 +577,30 @@ correctness-verified harness for future kernel work):
   carve-out (this section); the real long-context SplitKV win is the
   FlashInfer path (1.78–2.8× faster than FA4 1CTA serial at L=8192),
   which is also the reference architecture for the next GEMV-style kernel.
-  — *superseded as the decode answer by the GEMV kernel packaged below.*
+  — *superseded as the decode answer first by the (now archived) GEMV kernel,
+  then by the Mjolnir kernel (`--attention-backend MJOLNIR`).*
 
-## Thor hd256 GEMV decode kernel (2026-09-25) — `patches/thor-fa4-hd256-gemv-decode-sm110.patch`, default-on
+## The Mjolnir attention backend — `patches/thor-mjolnir-attention-backend.patch`
 
-The "N-2 decode" completion: a **build patch**
-(`patches/thor-fa4-hd256-gemv-decode-sm110.patch`) applied by
-`apply_patches.py` (lands after the 1CTA-decode patch; both touch
-`interface.py` in disjoint regions). The `fa4-gemv-kernel/` package remains
-the shippable source of truth for the kernel + bench docs. The **patch edits
-only the existing `interface.py`** (the 4 dispatch hunks, rebased onto the
-current interface); the **kernel `.py` is installed by a separate `COPY`** in
-the `Dockerfile` (from `fa4-gemv-kernel/sm100_hd256_decode_gemv.py`) — a NEW
-file upstream has none of, so it is not a patch hunk.
-The working copies in `docs/fa4-hd256-fp8/` remain the measurement record.
+**What:** one enum member. `vllm serve` parses `--attention-backend` with
+`AttentionBackendEnum[value.upper()]` in the API-server process, before any
+plugin code runs, and `Attention.__init__` maps the selected class back with
+`AttentionBackendEnum[attn_backend.get_name()]` — so a third-party backend can
+only use the reserved `CUSTOM` name unless the enum has a member for it. The
+patch adds `MJOLNIR`, whose value is the class path in the `mjolnir-kernel`
+package; `MjolnirAttentionBackend.get_name()` returns `"MJOLNIR"` when the
+member exists and `"CUSTOM"` otherwise.
 
-- **`sm100_hd256_decode_gemv.py`** (separate `COPY` in the `Dockerfile`, from
-  `fa4-gemv-kernel/`) → installs at
-  `vllm/vllm_flash_attn/cute/sm100_hd256_decode_gemv.py`
-  (`from vllm.vllm_flash_attn.cute.sm100_hd256_decode_gemv import
-  BlackwellHd256DecodeGEMV`). CuTe-DSL pure-FMA GEMV decode: M=1, hd=256,
-  GQA, dense **or** paged (16/128), bf16/fp16/fp8-e4m3 Q/KV + per-(batch,
-  kv_head) descales, SplitKV via the in-tree `_flash_attn_fwd_combine`
-  (chunk-normalized partials + LSE ⊕-merge; write-through at ns=1),
-  cp.async KV ring (S=16 stages — the ring-depth fix is correctness-neutral,
-  see `fa4-gemv-kernel/docs/gemv-ring-fix-bench.md`).
-- **The 4 `interface.py` hunks** — (1) the `BlackwellHd256DecodeGEMV` import,
-  (2) `_gemv_auto_num_splits` (FlashInfer Alg.1 split plan: fill `4 × #SM`
-  CTAs), (3) the `_gemv_dtype_ok` mixed-Q/KV-dtype allowance (GEMV on, M=1
-  hd256 only) + the relaxed dtype assert, (4) the `use_gemv_hd256` dispatch
-  block (scope gates, `gemv_ns` precedence env-knob > caller > auto, 128-row
-  floor + 64 cap, compile cache, write-through vs in-tree combine) inserted
-  before the `tcgen05`/1CTA forward so in-scope M=1 hd256 calls short-circuit
-   to the GEMV kernel and return before it. Round-trip verified: applying the
-   patch to the current interface reproduces the measured interface
-   byte-exactly (the kernel file is installed by the separate `COPY`, not the
-   patch); the patched interface `py_compile`s.
-- **Knobs:** **DEFAULT-ON** — the dispatch is active unless
-  `VLLM_FA4_HD256_GEMV=0` (opt out); `VLLM_FA4_HD256_GEMV_NUM_SPLITS=N`
-  overrides the split plan; auto at L=8192 GQA-4 → ns=20 → 80 CTAs.
-  Because it is default-on, this is the one fa4 patch that changes in-scope
-  M=1 hd256 decode behavior out of the box (it still only runs when FA4 hd256
-  is actually selected, which on sm_110 stays passive-by-default, so no
-  existing FA2 config is affected).
-- **Results** (gated clean window, L=8192 M=1 GQA 24/4, bf16 Q + fp8 KV):
-  GEMV auto/ns=20 **222.8 µs** vs FlashInfer FA2-tc **202.05 µs** in the same
-  window → within ~10% of FI, vs FA4-1CTA's 207 µs clean reference; both
-  window numbers depressed by ungatable desktop Xorg co-tenancy (same FI
-  kernel: 73 µs fully-clean Sept 22). Kernel achieved BW (ncu, L2-fabric):
-  ns 1→20 = ×8.7 (13.5→118.3 GB/s; roofline 273 GB/s) — the SplitKV/CTA-count
-  lever; stages 2→16 = +12.9% at ns=20 only, wall wash at L=8192.
-- **Methodology** (reproducible, in `fa4-gemv-kernel/README.md` §Methodology):
-  clean-window gate on the live vLLM server's `num_requests_running/waiting`
-  (consecutive 0/0 samples before timing; never stop/restart the server),
-  ncu achieved-BW preferred over wall-clock under desktop co-tenancy,
-  same-window relative ratios (ns-vs-ns, st16-vs-st2 via compile-cache swap),
-  two-lever decomposition (CTA-count × in-flight depth), null results
-  documented (not LDGSTS-vs-LDG — both lower to plain LDG on sm_110a; not
-  occupancy).
+**Apply to a vLLM 0.30.0 checkout:** `git apply docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch`
+(paths are `vllm/...`; `apply_patches.py` applies it to the installed package
+with `patch -p1 --forward`). **Sentinel:** `verify_patches.py` checks the
+member line. **Build smoke:** the `Dockerfile` asserts
+`AttentionBackendEnum["MJOLNIR"].get_path() == mjolnir.BACKEND_PATH` and that
+the `mjolnir` `vllm.general_plugins` entry point is installed.
+
+**Bump fragility:** minimal — the hunk's context is the last three members
+before `CUSTOM`; a new upstream member there shifts the context and the patch
+is re-generated with one line moved.
 
 ## Bump to vLLM 0.30.0 (2026-09-26) — two docstring-style hunks re-adapted
 
@@ -665,7 +633,7 @@ reformat (no semantic drift in the touched regions):
 Everything else applied verbatim: 54165/55519-scheduler at line offsets only;
 50885 hunk #11 with fuzz 2 (as on the previous bump); all three
 `flashinfer.py`-touching patches, the two fa_utils patches, the hd256 forward
-kernel patch, the `interface.py` 1CTA + GEMV hunks, the dflash speculator
+kernel patch, the `interface.py` 1CTA (+ the since-archived GEMV) hunks, the dflash speculator
 gate, and the flashinfer GDN hunk clean.
 
 **FA4 side note:** the 0.30.0 vendored `vllm_flash_attn/cute/` tree is
@@ -684,7 +652,3 @@ compileall 7 OK, import smoke `vllm 0.30.0`, functional check 55390/55519
 (`sha256:ce760f9ad00e87c6fa67b6fbe85273c5ba03a1cec460eb29977b7fd3ed488cc6`).
 GPU canaries (T6 GDN prefill / T9 FA4 FP8-KV / kernel tests) still need a
 `--gpus all` re-run on a clean window before the new image is served.
-- Docs: `fa4-gemv-kernel/README.md` (install/knobs/results/how-to-run),
-  `fa4-gemv-kernel/docs/gemv-decode-design.md` (kernel design),
-  `docs/gemv-fi-gap-final.md` (ncu gap analysis vs FI),
-  `docs/gemv-ring-fix-bench.md` + `.json` (final gated numbers).

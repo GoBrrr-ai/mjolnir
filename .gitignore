@@ -9,9 +9,10 @@ build/
 .mjolnir-state.json
 data/
 runs/
+# benchmark data: the structured verify results are committed (charts,
+# README and docs are rendered from them); logs and e2e raw dirs are not
 benchmarks/raw/*
-!benchmarks/raw/gemv-ring-fix-bench.json
-!benchmarks/raw/decode-microbench-results.json
-!benchmarks/raw/gemv-decode-bench-*.json
+!benchmarks/raw/verify/
+benchmarks/logs/
 vfa-tree/
 task/

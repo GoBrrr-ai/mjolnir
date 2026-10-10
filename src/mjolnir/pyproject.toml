@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mjolnir-kernel"
+dynamic = ["version"]
+description = "Mjolnir: a tcgen05/TMEM/TMA fp8 paged decode-attention kernel (CuTe DSL) for Jetson AGX Thor (sm_110), packaged as the vLLM `MJOLNIR` attention backend."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Mieszko Syty", email = "mieszko@ms1design.pl" }]
+keywords = ["vllm", "attention", "decode", "jetson", "thor", "sm110", "blackwell", "cute-dsl", "tcgen05", "fp8"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Runtime deps (torch, vllm, nvidia-cutlass-dsl, flashinfer) come from the
+# vLLM image the kernel runs in — they are deliberately NOT declared here, so
+# installing the plugin never pulls (or replaces) a multi-GB CUDA stack.
+dependencies = []
+
+[project.optional-dependencies]
+dsl = ["nvidia-cutlass-dsl>=4.2"]
+
+[project.urls]
+Homepage = "https://github.com/thor-arena/mjolnir"
+Documentation = "https://github.com/thor-arena/mjolnir/tree/main/docs/kernel"
+Repository = "https://github.com/thor-arena/mjolnir.git"
+Issues = "https://github.com/thor-arena/mjolnir/issues"
+
+# vLLM loads general plugins in every process; register() maps the MJOLNIR
+# (patched vLLM) and CUSTOM (stock vLLM) backend enum members to the class.
+[project.entry-points."vllm.general_plugins"]
+mjolnir = "mjolnir:register"
+
+[tool.hatch.version]
+path = "mjolnir/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mjolnir"]
+
+[tool.hatch.build.targets.sdist]
+include = ["mjolnir", "README.md"]

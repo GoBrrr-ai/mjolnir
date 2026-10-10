@@ -187,42 +187,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "_thor_fa4_hd256_fp8kv_probe()\n            if uses_fa4_hd256_kernel",
         ),
     ],
-    "thor sm110 FA4 hd256 GEMV decode: default-on M=1 hd256 GEMV kernel dispatch": [
-        # New kernel file (N-1): the GEMV kernel class is absent from the
-        # pristine tree and present only post-patch. A partial apply that
-        # lands the interface.py dispatch hunks but misses the kernel file
-        # must fail the build (the interface sentinels alone cannot catch a
-        # missing kernel). Path is relative to the vllm package root.
+    "thor Mjolnir attention backend: AttentionBackendEnum.MJOLNIR": [
+        # The enum member that makes `--attention-backend MJOLNIR` parse; its
+        # value is the mjolnir-kernel backend class (installed by the
+        # Dockerfile right after the patch stack).
         (
-            "vllm_flash_attn/cute/sm100_hd256_decode_gemv.py",
-            "class BlackwellHd256DecodeGEMV",
-        ),
-        # The import — present only after the patch's import hunk.
-        (
-            "vllm_flash_attn/cute/interface.py",
-            "from vllm.vllm_flash_attn.cute.sm100_hd256_decode_gemv import "
-            "BlackwellHd256DecodeGEMV",
-        ),
-        # The FlashInfer Alg.1 split-KV heuristic — defined only post-patch.
-        (
-            "vllm_flash_attn/cute/interface.py",
-            "def _gemv_auto_num_splits(",
-        ),
-        # The dispatch gate — the "used, not just defined" sentinel: the
-        # GEMV bypass must actually be wired into the forward dispatch (a
-        # partial apply that defines the kernel + helper but never routes
-        # M=1 hd256 calls to it would be behaviorally inert, so it must fail
-        # the build).
-        (
-            "vllm_flash_attn/cute/interface.py",
-            "use_gemv_hd256 = (",
-        ),
-        # The DEFAULT-ON gate: the knob defaults to "1" (opt out with
-        # VLLM_FA4_HD256_GEMV=0). If a regression flips it back to "0" the
-        # kernel would be inert-by-default, so the default is pinned here.
-        (
-            "vllm_flash_attn/cute/interface.py",
-            'os.environ.get("VLLM_FA4_HD256_GEMV", "1")',
+            "v1/attention/backends/registry.py",
+            'MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"',
         ),
     ],
     "thor sm110 draft-CG gate: shape-gated draft cudagraph replay (c1 fix)": [

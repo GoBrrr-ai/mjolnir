@@ -62,21 +62,17 @@ PATCH_ORDER = [
     # from every other patch's files/regions; placed here to keep the fa4
     # group together (order-independent, lands after hd256).
     "thor-fa4-hd256-1cta-decode-sm110.patch",
-    # M=1 hd256 GEMV decode kernel: DEFAULT-ON (opt out with
-    # VLLM_FA4_HD256_GEMV=0). Adds a new kernel file
-    # (vllm_flash_attn/cute/sm100_hd256_decode_gemv.py) plus 4 interface.py
-    # hunks (the import, the _gemv_auto_num_splits FlashInfer-Alg.1 helper, a
-    # relaxed Q/KV dtype check, and the use_gemv_hd256 dispatch gate that
-    # returns before the tcgen05/1CTA forward). Both interface.py hunks are
-    # disjoint from the 1cta patch's region, so order vs it is immaterial;
-    # placed after it to keep the fa4-hd256 group together.
-    "thor-fa4-hd256-gemv-decode-sm110.patch",
     # 11th (c1 fix): dispatch-side shape gate for the DSpark draft's FULL
     # cudagraph replay on sm_110. It edits v1/worker/gpu/spec_decode/
     # dflash/speculator.py, which no other patch touches, but its context
     # is the code the dspark patch's ecosystem introduced (the FULL CG
     # dispatch), so it lands after thor-dspark.
     "thor-draft-cg-gate-sm110.patch",
+    # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
+    # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
+    # package) to v1/attention/backends/registry.py, which no other patch
+    # touches — order-independent. Makes `--attention-backend MJOLNIR` parse.
+    "thor-mjolnir-attention-backend.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

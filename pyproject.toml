@@ -1,47 +1,43 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+# Workspace root (not published). The repo ships two independently
+# versioned PyPI distributions:
+#
+#   src/mjolnir/      -> mjolnir-kernel   (import `mjolnir`: the decode kernel
+#                                          + the vLLM `MJOLNIR` attention backend)
+#   src/mjolnir-cli/  -> mjolnir-cli      (import `mjolnir_cli`: the `mjolnir`
+#                                          command — serve / verify / bench / plot)
+#
+# `uv sync` installs both (editable) plus the dev tools; `uv run mjolnir ...`
+# then runs the CLI from the checkout.
 
 [project]
-name = "mjolnir"
-version = "0.1.0"
-description = "Mjolnir — vLLM on Jetson Thor (sm_110): a patched vLLM image, T5 fp8 paged decode attention (CuTe DSL, tcgen05), and a one-command serve / bench / verify CLI."
-readme = "README.md"
+name = "mjolnir-workspace"
+version = "0"
+description = "Mjolnir monorepo root — not published (see src/mjolnir and src/mjolnir-cli)."
 requires-python = ">=3.10"
-license = "MIT"
-license-files = ["LICEN[CS]E.*"]
-authors = [{ name = "Mieszko Syty", email = "mieszko@ms1design.pl" }]
-keywords = ["vllm", "jetson", "thor", "fa4", "flash-attention", "gemv", "cuda", "sm110"]
 dependencies = [
-    "typer>=0.12",
-    "rich>=15.0.0",
-    "pyyaml>=6.0.3",
-    "jinja2>=3.1.6",
+    "mjolnir-cli[plot]",
+    "mjolnir-kernel",
 ]
 
-[project.urls]
-Homepage = "https://github.com/thor-arena/mjolnir"
-Documentation = "https://github.com/thor-arena/mjolnir/tree/main/docs"
-Repository = "https://github.com/thor-arena/mjolnir.git"
-Issues = "https://github.com/thor-arena/mjolnir/issues"
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
 
-[project.optional-dependencies]
-plot = ["matplotlib>=3.10.9"]
-dev = ["pytest>=9.1.1"]
+[tool.uv]
+package = false
 
-[project.scripts]
-mjolnir = "mjolnir.cli:app"
+[tool.uv.workspace]
+members = ["src/mjolnir", "src/mjolnir-cli"]
 
-[project.entry-points."vllm.general_plugins"]
-thor_t5 = "vllm_thor_t5:register"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/mjolnir"]
+[tool.uv.sources]
+mjolnir-cli = { workspace = true }
+mjolnir-kernel = { workspace = true }
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["vfa-tree"]
+extend-exclude = ["vfa-tree", "deprecated"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
