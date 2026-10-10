@@ -40,6 +40,7 @@ from mjolnir_cli import __version__
 from mjolnir_cli.config import (
     BACKEND_LABELS,
     BASELINE_QUANT,
+    DEFAULT_IMAGE,
     DEFAULT_QUANT,
     FA2_QUANT,
     Settings,
@@ -474,26 +475,41 @@ def image_list():
 
 @image_app.command("build")
 def image_build(
-    tag: Optional[str] = typer.Option(None, "--tag"),
-    image: Optional[str] = typer.Option(None, "--image"),
+    tag: Optional[str] = typer.Option(
+        None,
+        "--tag",
+        help=f"image tag (default: {DEFAULT_IMAGE} — the repo + the vLLM version the Dockerfile builds on)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Build the Mjolnir vLLM image: the patch stack + the mjolnir-kernel
-    package from this checkout (repo-root build context)."""
-    s = _settings(None, None, image, None)
-    tag = tag or s.image
+    package from this checkout (repo-root build context).
+
+    The default tag is always the canonical one (IMAGE_REPO:v<vLLM version>),
+    never the remembered active image — that may be an older build."""
+    tag = tag or DEFAULT_IMAGE
     try:
         root = load_layout().require_repo("image build")
     except FileNotFoundError as e:
-        typer.secho(f"{e} — or pull the published image: docker pull {s.image}", fg=typer.colors.RED, err=True)
+        typer.secho(f"{e} — or pull the published image: docker pull {DEFAULT_IMAGE}", fg=typer.colors.RED, err=True)
         raise typer.Exit(4)
-    cmd = ["docker", "build", "-f", str(root / "docker" / "vllm-thor" / "Dockerfile"), "-t", tag, str(root)]
+    rev = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+    cmd = ["docker", "build", "-f", str(root / "docker" / "vllm-thor" / "Dockerfile"), "-t", tag]
+    if rev.returncode == 0 and rev.stdout.strip():
+        cmd += ["--build-arg", f"MJOLNIR_REVISION={rev.stdout.strip()}"]
+    cmd.append(str(root))
     if dry_run:
         print(" ".join(cmd))
         return
     rc = subprocess.call(cmd)
     if rc == 0:
-        typer.secho(f"built {tag} — canary:  mjolnir image gates", fg=typer.colors.GREEN)
+        typer.secho(f"built {tag} — canary:  mjolnir image gates --image {tag}", fg=typer.colors.GREEN)
+        active = _settings(None, None, None, None).image
+        if active != tag:
+            typer.secho(
+                f"note: the active image is {active} — make the new build active:  mjolnir image use {tag}",
+                fg=typer.colors.YELLOW,
+            )
     raise typer.Exit(rc)
 
 

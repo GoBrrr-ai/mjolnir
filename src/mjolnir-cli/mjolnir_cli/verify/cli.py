@@ -23,7 +23,7 @@ from typing import Optional
 
 import typer
 
-from mjolnir_cli.config import load_layout, resolve
+from mjolnir_cli.config import DEFAULT_IMAGE, load_layout, resolve
 from mjolnir_cli.verify import results, stages
 from mjolnir_cli.verify.docker import Runner, ensure_image
 from mjolnir_cli.verify.report import console, show
@@ -113,7 +113,7 @@ def execute(
     st = stages.STAGES[stage]
     console.print(f"\n[bold cyan]━━ verify {stage}[/bold cyan] — {st.summary}")
     console.print(
-        f"[dim]   image {s.image} · kernel {'checkout ' + str(kernel_src) if kernel_src else 'baked into the image'}"
+        f"[dim]   image {s.image}{'' if s.image == DEFAULT_IMAGE else f' (not the default {DEFAULT_IMAGE})'} · kernel {'checkout ' + str(kernel_src) if kernel_src else 'baked into the image'}"
         f" · L {' '.join(str(x) for x in ctx.ls)} · logs {logdir}[/dim]"
     )
     if not dry_run:

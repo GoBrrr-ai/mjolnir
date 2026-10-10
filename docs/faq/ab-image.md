@@ -1,6 +1,6 @@
 # A/B: custom image vs the default image
 
-**Story:** "I built `my/mjolnir-thor:dev` and want to know whether it's
+**Story:** "I built `my/mjolnir-vllm:dev` and want to know whether it's
 faster than the current default image — a fair, gated, end-to-end number,
 not a vibes estimate."
 
@@ -17,7 +17,7 @@ parameters. Compare two images on the *same* config:
 
 ```bash
 mjolnir bench ab --backends \
-  'narandill/mjolnir-vllm:v0.30.0:NVFP4_MJOLNIR,my/mjolnir-thor:dev:NVFP4_MJOLNIR'
+  'narandill/mjolnir-vllm:v0.30.0:NVFP4_MJOLNIR,my/mjolnir-vllm:dev:NVFP4_MJOLNIR'
 ```
 
 Compare backends on one image (the default invocation — Mjolnir vs
@@ -28,7 +28,7 @@ mjolnir bench ab                     # default legs: NVFP4_MJOLNIR,NVFP4,NVFP4_F
 ```
 
 Pin a bare config leg to an image without writing it in every leg:
-`mjolnir bench ab --image my/mjolnir-thor:dev --backends
+`mjolnir bench ab --image my/mjolnir-vllm:dev --backends
 NVFP4_MJOLNIR,NVFP4`.
 
 Protocol per leg (defaults): one gated sweep (6 measured runs per cell +

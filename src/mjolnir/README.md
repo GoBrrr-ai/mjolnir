@@ -5,7 +5,7 @@
 packaged as a vLLM attention backend.
 
 ```bash
-vllm serve <model> --attention-backend MJOLNIR      # the mjolnir-thor image
+vllm serve <model> --attention-backend MJOLNIR      # the mjolnir-vllm image
 vllm serve <model> --attention-backend CUSTOM       # stock vLLM 0.30.0 + this package
 ```
 
