@@ -22,7 +22,14 @@ from mjolnir_cli.config import (
 
 @pytest.fixture(autouse=True)
 def _clean_mjolnir_env(monkeypatch):
-    for var in ("MJOLNIR_MODEL", "MJOLNIR_QUANT", "MJOLNIR_IMAGE", "MJOLNIR_PORT", "MJOLNIR_REPO", "MJOLNIR_CONFIGS_DIR"):
+    for var in (
+        "MJOLNIR_MODEL",
+        "MJOLNIR_QUANT",
+        "MJOLNIR_IMAGE",
+        "MJOLNIR_PORT",
+        "MJOLNIR_REPO",
+        "MJOLNIR_CONFIGS_DIR",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 

@@ -42,8 +42,18 @@ def test_full_render_from_fixture_data(repo):
     layout = load_layout()
     write_all(layout.verify_dir)
     manifest = charts.render_all(layout)
-    for name in ("kernel-speedup", "kernel-latency", "hnd-layout", "kvfmt-heatmap", "ring-heatmap",
-                 "prefetch-heatmap", "ab-heatmap", "pdl-delta", "quant-accuracy", "fp6prof-bytes-vs-time"):
+    for name in (
+        "kernel-speedup",
+        "kernel-latency",
+        "hnd-layout",
+        "kvfmt-heatmap",
+        "ring-heatmap",
+        "prefetch-heatmap",
+        "ab-heatmap",
+        "pdl-delta",
+        "quant-accuracy",
+        "fp6prof-bytes-vs-time",
+    ):
         assert name in manifest, name
         assert (repo / manifest[name]["light"]).exists() and (repo / manifest[name]["dark"]).exists()
     readme.render_readme(layout)

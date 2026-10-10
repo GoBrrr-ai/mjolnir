@@ -21,9 +21,9 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # config in pyproject.toml; version pinned to .pre-commit-config.yaml
       - name: ruff check
-        run: uvx ruff@0.14.14 check src/
+        run: uvx ruff@0.14.14 check src/ tests/
       - name: ruff format --check
-        run: uvx ruff@0.14.14 format --check src/
+        run: uvx ruff@0.14.14 format --check src/ tests/
 
   test:
     runs-on: ubuntu-latest
@@ -32,24 +32,26 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - run: uv sync --extra dev
-      - run: uv run pytest
+      - run: uv sync
+      # the kernel tests need CUDA + the CUTLASS DSL: they run on a Thor via
+      # `mjolnir verify vllm`; tests/kernel/conftest.py skips them here
+      - run: uv run pytest -q
 
   readme:
-    # README.md is rendered from README.md.j2 + the committed bench data —
-    # hand edits to it are a drift the render undoes. (Charts themselves can
-    # drift on runner fonts, so the gate is on README.md text only.)
+    # README.md + docs/kernel/*.md are rendered from their .md.j2 templates
+    # and the committed raw data (benchmarks/raw/verify, history.jsonl) —
+    # a hand edit, or raw data committed without re-rendering, fails here.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - run: uv sync --extra plot
-      - name: README is reproducible from the raw data
+      - run: uv sync
+      - name: README + docs are reproducible from the raw data
         run: |
           uv run mjolnir plot --readme
-          git diff --exit-code -- README.md
+          git diff --exit-code -- README.md docs/ assets/benchmarks/manifest.json
 
   build:
     runs-on: ubuntu-latest
@@ -58,13 +60,35 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - name: Byte-compile
-        run: uv run python -m compileall -q src/mjolnir
-      - name: Build sdist + wheel (validates hatchling metadata)
-        run: uv build --out-dir dist
-      - name: Smoke-test the wheel (install + CLI entrypoint)
-        run: uv run --isolated --no-project --with dist/*.whl mjolnir --help
-      - name: Smoke-test the sdist
-        run: uv run --isolated --no-project --with dist/*.tar.gz mjolnir --help
-      - name: Twine check (metadata sanity)
+      - name: Build both packages (sdist + wheel)
+        run: |
+          uv build --package mjolnir-kernel --out-dir dist
+          uv build --package mjolnir-cli --out-dir dist
+      - name: Smoke-test the CLI wheel outside the checkout
+        run: |
+          cd "$RUNNER_TEMP"
+          uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/mjolnir_cli-*.whl mjolnir --help
+          uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/mjolnir_cli-*.whl mjolnir model list
+      - name: Smoke-test the kernel wheel (import + plugin entry point)
+        run: |
+          uv run --isolated --no-project --with dist/mjolnir_kernel-*.whl python -c \
+            "import importlib.metadata as m, mjolnir; assert [e for e in m.entry_points(group='vllm.general_plugins') if e.name == 'mjolnir']; print(mjolnir.__version__)"
+      - name: Twine check
         run: uvx twine check dist/*
+
+  vllm-patch:
+    # The MJOLNIR enum patch must still apply to the vLLM the image is built
+    # on (the full patch stack is gated by the image build itself).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: thor-mjolnir-attention-backend.patch applies to the base vLLM
+        run: |
+          set -euo pipefail
+          v=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' docker/vllm-thor/Dockerfile)
+          git clone -q --depth 1 --branch "v${v}" --filter=blob:none --sparse https://github.com/vllm-project/vllm.git "$RUNNER_TEMP/vllm"
+          git -C "$RUNNER_TEMP/vllm" sparse-checkout set vllm/v1/attention/backends
+          git -C "$RUNNER_TEMP/vllm" apply --check "$GITHUB_WORKSPACE/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch"
+          echo "applies to vLLM v${v}"

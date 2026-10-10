@@ -19,8 +19,7 @@ from __future__ import annotations
 
 import shutil
 import sys
-from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import typer
 
@@ -64,7 +63,7 @@ def _kernel_info(layout) -> dict:
     return info
 
 
-def _execute(
+def execute(
     stage: str,
     params: dict,
     defaults: dict,
@@ -83,7 +82,7 @@ def _execute(
     s = resolve(None, None, image, None)
     if shutil.which("docker") is None and not dry_run:
         console.print("[red]docker not found on PATH[/red]")
-        return 2
+        return 2, None
     run_id = results.new_run_id()
     logdir = layout.benchmarks_dir / "logs" / f"verify-{run_id}"
     kernel_src = None
@@ -92,8 +91,16 @@ def _execute(
         if (cand / "mjolnir" / "t5_decode.py").exists():
             kernel_src = cand
     runner = Runner(image=s.image, logdir=logdir, kernel_src=kernel_src, timeout=timeout, dry_run=dry_run, page=page)
-    ctx = stages.Ctx(runner=runner, run_id=run_id, logdir=logdir, metrics_url=s.metrics_url, gate=gate,
-                     ls=_parse_ls(ls), iters=iters, out=lambda m: console.print(m, highlight=False))
+    ctx = stages.Ctx(
+        runner=runner,
+        run_id=run_id,
+        logdir=logdir,
+        metrics_url=s.metrics_url,
+        gate=gate,
+        ls=_parse_ls(ls),
+        iters=iters,
+        out=lambda m: console.print(m, highlight=False),
+    )
     st = stages.STAGES[stage]
     console.print(f"\n[bold cyan]━━ verify {stage}[/bold cyan] — {st.summary}")
     console.print(
@@ -108,16 +115,21 @@ def _execute(
     if stage == "vllm":
         kwargs["repo"] = layout.require_repo("verify vllm")
     body = st.fn(ctx, **kwargs)
-    is_default = (
-        params == defaults and ctx.ls == stages.ALL_LS and iters == stages.DEFAULT_ITERS and page == 128
-    )
+    is_default = params == defaults and ctx.ls == stages.ALL_LS and iters == stages.DEFAULT_ITERS and page == 128
     doc = results.header(
         stage,
         run_id,
         image=s.image,
         default=is_default,
-        params={**body.pop("params", {}), "ls": list(ctx.ls), "iters": iters, "page": page,
-                "hq": runner.hq, "hk": runner.hk, "d": runner.d},
+        params={
+            **body.pop("params", {}),
+            "ls": list(ctx.ls),
+            "iters": iters,
+            "page": page,
+            "hq": runner.hq,
+            "hk": runner.hk,
+            "d": runner.d,
+        },
         kernel=_kernel_info(layout),
         gate=ctx.gate_log,
     )
@@ -125,7 +137,7 @@ def _execute(
     doc["summary"] = stages.summarize(stage, doc)
     if dry_run:
         console.print("[dim]   (dry run — nothing saved)[/dim]")
-        return 0
+        return 0, None
     show(doc)
     if save:
         p = results.save(layout.verify_dir, doc)
@@ -134,7 +146,11 @@ def _execute(
             _replot(layout)
     failed = [c for c in doc.get("cases", []) if not c.get("passed")]
     empty = st.kind in ("ncu",) and not any(s_.get("points") for s_ in doc.get("series", []))
-    return 1 if failed or empty else 0
+    return (1 if failed or empty else 0), doc
+
+
+def _execute(*a, **kw) -> int:
+    return execute(*a, **kw)[0]
 
 
 def _replot(layout) -> None:
@@ -147,13 +163,7 @@ def _replot(layout) -> None:
         console.print(f"[yellow]   (charts/README not re-rendered: {e})[/yellow]")
 
 
-# ── shared options ──────────────────────────────────────────────────────────
-def _common(fn: Callable) -> Callable:
-    """Not a decorator (typer needs explicit params); documents the shared set:
-    --image --ls --iters --gate/--no-gate --dry-run --timeout --save/--no-save --plot/--no-plot."""
-    return fn
-
-
+# ── shared options (each command declares them; typer needs explicit params) ──
 IMAGE = typer.Option(None, "--image", help="vLLM image (default: the active one, see `mjolnir image`)")
 LS = typer.Option(None, "--ls", help=_LS_HELP)
 ITERS = typer.Option(stages.DEFAULT_ITERS, "--iters", help="profiled iterations per point (ncu stages)")
@@ -167,8 +177,20 @@ PAGE = typer.Option(128, "--page-size", help="KV page size for every leg")
 
 def _run(stage: str, params: dict, defaults: dict, image, ls, iters, gate, dry_run, timeout, save, plot, page=128):
     raise typer.Exit(
-        _execute(stage, params, defaults, image=image, ls=ls, iters=iters, gate=gate, dry_run=dry_run,
-                 timeout=timeout, save=save, plot=plot, page=page)
+        _execute(
+            stage,
+            params,
+            defaults,
+            image=image,
+            ls=ls,
+            iters=iters,
+            gate=gate,
+            dry_run=dry_run,
+            timeout=timeout,
+            save=save,
+            plot=plot,
+            page=page,
+        )
     )
 
 
@@ -176,36 +198,79 @@ def _run(stage: str, params: dict, defaults: dict, image, ls, iters, gate, dry_r
 def correctness(
     dtypes: str = typer.Option("fp8 bf16", "--dtypes", help="Q dtypes to test"),
     match: str = typer.Option("", "--match", help="only cases whose label contains this"),
+    quick: bool = typer.Option(False, "--quick", help="the quick subset (one case per group; what autoresearch runs)"),
     fail_fast: bool = typer.Option(False, "--fail-fast"),
-    image: Optional[str] = IMAGE, dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE,
+    image: Optional[str] = IMAGE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
 ):
     """Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len and Q dtype."""
-    p = {"dtypes": dtypes, "match": match, "fail_fast": fail_fast, "timeout": timeout}
-    d = {"dtypes": "fp8 bf16", "match": "", "fail_fast": False, "timeout": 180.0}
+    p = {"dtypes": dtypes, "match": match, "fail_fast": fail_fast, "timeout": timeout, "quick": quick}
+    d = {"dtypes": "fp8 bf16", "match": "", "fail_fast": False, "timeout": 180.0, "quick": False}
     _run("correctness", p, d, image, None, stages.DEFAULT_ITERS, False, dry_run, timeout, save, False)
 
 
 @app.command()
 def sweep(
-    legs: str = typer.Option("fi,fa2,mjolnir-fp8,mjolnir", "--legs",
-                             help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, iters: int = ITERS, gate: bool = GATE,
-    dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT, page: int = PAGE,
+    legs: str = typer.Option(
+        "fi,fa2,mjolnir-fp8,mjolnir", "--legs", help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"
+    ),
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
+    page: int = PAGE,
 ):
     """The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks)."""
-    _run("sweep", {"legs": legs}, {"legs": "fi,fa2,mjolnir-fp8,mjolnir"}, image, ls, iters, gate, dry_run,
-         timeout, save, plot, page)
+    _run(
+        "sweep",
+        {"legs": legs},
+        {"legs": "fi,fa2,mjolnir-fp8,mjolnir"},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+        page,
+    )
 
 
 @app.command()
 def hndsweep(
     legs: str = typer.Option("fi,fi-hnd,mjolnir-fp8", "--legs"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, iters: int = ITERS, gate: bool = GATE,
-    dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT, page: int = PAGE,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
+    page: int = PAGE,
 ):
     """FlashInfer on NHD and HND pages vs Mjolnir (fp8 KV) on HND: the fair layout comparison."""
-    _run("hndsweep", {"legs": legs}, {"legs": "fi,fi-hnd,mjolnir-fp8"}, image, ls, iters, gate, dry_run,
-         timeout, save, plot, page)
+    _run(
+        "hndsweep",
+        {"legs": legs},
+        {"legs": "fi,fi-hnd,mjolnir-fp8"},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+        page,
+    )
 
 
 @app.command()
@@ -213,25 +278,56 @@ def kvfmt(
     variants: str = typer.Option(stages.KVFMT_DEFAULT, "--variants", help="name:flags|name:flags"),
     refs: str = typer.Option("fi,fi-hnd", "--refs", help="baseline legs"),
     wall_iters: int = typer.Option(200, "--wall-iters", help="harness wall-clock iterations (0 = skip)"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, iters: int = ITERS, gate: bool = GATE,
-    dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """KV layouts x formats: fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD / interleaved / HND."""
-    _run("kvfmt", {"variants": variants, "refs": refs, "wall_iters": wall_iters},
-         {"variants": stages.KVFMT_DEFAULT, "refs": "fi,fi-hnd", "wall_iters": 200},
-         image, ls, iters, gate, dry_run, timeout, save, plot)
+    _run(
+        "kvfmt",
+        {"variants": variants, "refs": refs, "wall_iters": wall_iters},
+        {"variants": stages.KVFMT_DEFAULT, "refs": "fi,fi-hnd", "wall_iters": 200},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
 def quant(
     formats: str = typer.Option(stages.QUANT_FORMATS, "--formats"),
     batches: int = typer.Option(2, "--batches"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, dry_run: bool = DRY, timeout: float = TIMEOUT,
-    save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """Accuracy per KV format: relative L2 error vs attention over unquantized KV."""
-    _run("quant", {"formats": formats, "batches": batches}, {"formats": stages.QUANT_FORMATS, "batches": 2},
-         image, ls, stages.DEFAULT_ITERS, False, dry_run, timeout, save, plot)
+    _run(
+        "quant",
+        {"formats": formats, "batches": batches},
+        {"formats": stages.QUANT_FORMATS, "batches": 2},
+        image,
+        ls,
+        stages.DEFAULT_ITERS,
+        False,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
@@ -239,12 +335,29 @@ def ring(
     depths: str = typer.Option(stages.RING_DEFAULT, "--stages", help="--kv_stages values"),
     base: str = typer.Option("", "--base", help="harness flags every variant gets"),
     refs: str = typer.Option("fi", "--refs"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, iters: int = ITERS, gate: bool = GATE,
-    dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """KV ring depth (TMA → MMA stages) at every L."""
-    _run("ring", {"stages": depths, "base": base, "refs": refs}, {"stages": stages.RING_DEFAULT, "base": "", "refs": "fi"},
-         image, ls, iters, gate, dry_run, timeout, save, plot)
+    _run(
+        "ring",
+        {"stages": depths, "base": base, "refs": refs},
+        {"stages": stages.RING_DEFAULT, "base": "", "refs": "fi"},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
@@ -252,13 +365,29 @@ def prefetch(
     distances: str = typer.Option("0 1 2 4", "--distances", help="--l2_prefetch tiles ahead"),
     base: str = typer.Option("--kv_format fp8", "--base"),
     refs: str = typer.Option("fi", "--refs"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, iters: int = ITERS, gate: bool = GATE,
-    dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """TMA L2-prefetch distance sweep."""
-    _run("prefetch", {"distances": distances, "base": base, "refs": refs},
-         {"distances": "0 1 2 4", "base": "--kv_format fp8", "refs": "fi"},
-         image, ls, iters, gate, dry_run, timeout, save, plot)
+    _run(
+        "prefetch",
+        {"distances": distances, "base": base, "refs": refs},
+        {"distances": "0 1 2 4", "base": "--kv_format fp8", "refs": "fi"},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
@@ -266,13 +395,28 @@ def pdl(
     batches: str = typer.Option("1 8", "--batches"),
     dtypes: str = typer.Option("fp8", "--dtypes"),
     wall_iters: int = typer.Option(200, "--wall-iters"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, gate: bool = GATE, dry_run: bool = DRY,
-    timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """Programmatic dependent launch on/off (wall clock)."""
-    _run("pdl", {"batches": batches, "dtypes": dtypes, "iters": wall_iters},
-         {"batches": "1 8", "dtypes": "fp8", "iters": 200}, image, ls, stages.DEFAULT_ITERS, gate, dry_run,
-         timeout, save, plot)
+    _run(
+        "pdl",
+        {"batches": batches, "dtypes": dtypes, "iters": wall_iters},
+        {"batches": "1 8", "dtypes": "fp8", "iters": 200},
+        image,
+        ls,
+        stages.DEFAULT_ITERS,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
@@ -280,13 +424,29 @@ def ab(
     variants: str = typer.Option(stages.AB_DEFAULT, "--variants", help="name:flags|name:flags"),
     refs: str = typer.Option("fi", "--refs"),
     wall_iters: int = typer.Option(200, "--wall-iters"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, iters: int = ITERS, gate: bool = GATE,
-    dry_run: bool = DRY, timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """A/B any harness flag sets (ncu + wall clock). Default: evict-first x PDL."""
-    _run("ab", {"variants": variants, "refs": refs, "wall_iters": wall_iters},
-         {"variants": stages.AB_DEFAULT, "refs": "fi", "wall_iters": 200}, image, ls, iters, gate, dry_run,
-         timeout, save, plot)
+    _run(
+        "ab",
+        {"variants": variants, "refs": refs, "wall_iters": wall_iters},
+        {"variants": stages.AB_DEFAULT, "refs": "fi", "wall_iters": 200},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
@@ -294,13 +454,28 @@ def fp6prof(
     variants: str = typer.Option(stages.PROF_DEFAULT, "--variants"),
     count: int = typer.Option(3, "--count", help="profiled launches per point"),
     section_set: str = typer.Option("full", "--set"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, gate: bool = GATE, dry_run: bool = DRY,
-    timeout: float = TIMEOUT, save: bool = SAVE, plot: bool = PLOT,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
 ):
     """Full ncu profiles per KV format (bytes vs requests vs time, warp stalls)."""
-    _run("fp6prof", {"variants": variants, "count": count, "section_set": section_set},
-         {"variants": stages.PROF_DEFAULT, "count": 3, "section_set": "full"}, image, ls, stages.DEFAULT_ITERS,
-         gate, dry_run, timeout, save, plot)
+    _run(
+        "fp6prof",
+        {"variants": variants, "count": count, "section_set": section_set},
+        {"variants": stages.PROF_DEFAULT, "count": 3, "section_set": "full"},
+        image,
+        ls,
+        stages.DEFAULT_ITERS,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
 
 
 @app.command()
@@ -308,13 +483,27 @@ def timing(
     dtypes: str = typer.Option("fp8 bf16", "--dtypes"),
     ctas: str = typer.Option("1 2", "--ctas"),
     wall_iters: int = typer.Option(50, "--wall-iters"),
-    image: Optional[str] = IMAGE, ls: Optional[str] = LS, gate: bool = GATE, dry_run: bool = DRY,
-    timeout: float = TIMEOUT, save: bool = SAVE,
+    image: Optional[str] = IMAGE,
+    ls: Optional[str] = LS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
 ):
     """Harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q (no ncu)."""
-    _run("timing", {"dtypes": dtypes, "ctas": ctas, "iters": wall_iters},
-         {"dtypes": "fp8 bf16", "ctas": "1 2", "iters": 50}, image, ls, stages.DEFAULT_ITERS, gate, dry_run,
-         timeout, save, False)
+    _run(
+        "timing",
+        {"dtypes": dtypes, "ctas": ctas, "iters": wall_iters},
+        {"dtypes": "fp8 bf16", "ctas": "1 2", "iters": 50},
+        image,
+        ls,
+        stages.DEFAULT_ITERS,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        False,
+    )
 
 
 @app.command()
@@ -322,21 +511,44 @@ def vllm(
     smoke_modes: str = typer.Option("graph eager", "--smoke-modes", help="graph | eager | spec<N>; '' = none"),
     model: str = typer.Option("Qwen/Qwen3-0.6B", "--model"),
     tokens: int = typer.Option(128, "--tokens"),
-    image: Optional[str] = IMAGE, dry_run: bool = DRY,
-    timeout: float = typer.Option(1800.0, "--timeout"), save: bool = SAVE,
+    image: Optional[str] = IMAGE,
+    dry_run: bool = DRY,
+    timeout: float = typer.Option(1800.0, "--timeout"),
+    save: bool = SAVE,
 ):
     """The vLLM plugin: runner tests + greedy MJOLNIR-vs-FLASHINFER smoke runs (checkout only)."""
-    _run("vllm", {"smoke_modes": smoke_modes, "model": model, "tokens": tokens, "timeout": timeout},
-         {"smoke_modes": "graph eager", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
-         image, None, stages.DEFAULT_ITERS, False, dry_run, timeout, save, False)
+    _run(
+        "vllm",
+        {"smoke_modes": smoke_modes, "model": model, "tokens": tokens, "timeout": timeout},
+        {"smoke_modes": "graph eager", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
+        image,
+        None,
+        stages.DEFAULT_ITERS,
+        False,
+        dry_run,
+        timeout,
+        save,
+        False,
+    )
 
 
 def _sequence(names: list[str], image, gate, dry_run, plot) -> int:
     rc = 0
     for name in names:
         defaults = _DEFAULTS[name]
-        r = _execute(name, dict(defaults), dict(defaults), image=image, ls=None, iters=stages.DEFAULT_ITERS,
-                     gate=gate, dry_run=dry_run, timeout=180.0, save=True, plot=False)
+        r = _execute(
+            name,
+            dict(defaults),
+            dict(defaults),
+            image=image,
+            ls=None,
+            iters=stages.DEFAULT_ITERS,
+            gate=gate,
+            dry_run=dry_run,
+            timeout=180.0,
+            save=True,
+            plot=False,
+        )
         if r != 0:
             console.print(f"[red]   verify {name} exit {r} — continuing[/red]")
             rc = r
@@ -346,7 +558,7 @@ def _sequence(names: list[str], image, gate, dry_run, plot) -> int:
 
 
 _DEFAULTS: dict[str, dict] = {
-    "correctness": {"dtypes": "fp8 bf16", "match": "", "fail_fast": False, "timeout": 180.0},
+    "correctness": {"dtypes": "fp8 bf16", "match": "", "fail_fast": False, "timeout": 180.0, "quick": False},
     "sweep": {"legs": "fi,fa2,mjolnir-fp8,mjolnir"},
     "hndsweep": {"legs": "fi,fi-hnd,mjolnir-fp8"},
     "kvfmt": {"variants": stages.KVFMT_DEFAULT, "refs": "fi,fi-hnd", "wall_iters": 200},
@@ -361,7 +573,9 @@ _DEFAULTS: dict[str, dict] = {
 
 @app.command()
 def bench(
-    image: Optional[str] = IMAGE, gate: bool = GATE, dry_run: bool = DRY,
+    image: Optional[str] = IMAGE,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
     plot: bool = typer.Option(True, "--plot/--no-plot"),
 ):
     """Every benchmark stage with default parameters (one headline run each), then re-render the charts."""
@@ -370,7 +584,9 @@ def bench(
 
 @app.command("all")
 def all_(
-    image: Optional[str] = IMAGE, gate: bool = GATE, dry_run: bool = DRY,
+    image: Optional[str] = IMAGE,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
     plot: bool = typer.Option(True, "--plot/--no-plot"),
 ):
     """Correctness + every benchmark stage, then re-render the charts."""
@@ -403,8 +619,10 @@ def list_cmd():
         rs = results.runs(layout.verify_dir, name)
         last = rs[-1]["run_id"] if rs else "—"
         n_def = sum(1 for r in rs if r.get("default"))
-        console.print(f"  [bold]{name:<12}[/bold] [dim]{st.kind:<11}[/dim] runs {len(rs):>3} (default {n_def:>2}) "
-                      f"last {last:<16} {st.summary}")
+        console.print(
+            f"  [bold]{name:<12}[/bold] [dim]{st.kind:<11}[/dim] runs {len(rs):>3} (default {n_def:>2}) "
+            f"last {last:<16} {st.summary}"
+        )
     console.print(f"[dim]  raw results: {layout.verify_dir}[/dim]")
 
 

@@ -463,7 +463,7 @@ def env_flag(name: str, default: str = "") -> str:
     if name in os.environ:
         return os.environ[name].strip()
     if name.startswith(ENV_PREFIX):
-        legacy = LEGACY_ENV_PREFIX + name[len(ENV_PREFIX):]
+        legacy = LEGACY_ENV_PREFIX + name[len(ENV_PREFIX) :]
         if legacy in os.environ:
             return os.environ[legacy].strip()
     return default.strip()

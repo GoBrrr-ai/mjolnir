@@ -238,7 +238,9 @@ def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 
                     _, text = ctx.runner.harness(log, dt, base + extra)
                     out[mode] = _median(text)[0]
                 d = (out["on"] - out["off"]) / out["off"] * 100 if out["on"] and out["off"] else None
-                rows.append({"q": dt, "batches": int(b), "L": L, "off_us": out["off"], "on_us": out["on"], "delta_pct": d})
+                rows.append(
+                    {"q": dt, "batches": int(b), "L": L, "off_us": out["off"], "on_us": out["on"], "delta_pct": d}
+                )
                 if d is not None:
                     ctx.out(f"   {dt} b={b} L={L:>7,}  off {out['off']:.1f} µs  on {out['on']:.1f} µs  ({d:+.1f}%)")
     return {"rows": rows, "params": {"batches": batches, "dtypes": dtypes, "iters": iters}}
@@ -408,11 +410,19 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
     ("default: e2m3 HND L=8192", "@default --seqlen 8192", BOTH),
     ("default: L=65536 (ring wraps)", "@default --seqlen 65536", BOTH),
     ("default: varlen 6x<=20000", "@default --batches 6 --seqlen 20000 --varlen", BOTH),
-    ("default: q_len=3 p16 pad", "@default --batches 4 --seqlen 2000 --varlen --q_len 3 --page_size 16 --pad_work_to 40", BOTH),
+    (
+        "default: q_len=3 p16 pad",
+        "@default --batches 4 --seqlen 2000 --varlen --q_len 3 --page_size 16 --pad_work_to 40",
+        BOTH,
+    ),
     ("default: headdim 128 + PDL", "@default --batches 2 --seqlen 9000 --varlen --headdim 128 --pdl", BOTH),
     ("kv evict_first", "--batches 4 --seqlen 20000 --varlen --kv_evict_first", BOTH),
     ("evict + PDL L=8192", "--seqlen 8192 --kv_evict_first --pdl", BOTH),
-    ("evict + PDL q_len=3 + pad", "--batches 4 --seqlen 2000 --varlen --q_len 3 --kv_evict_first --pdl --pad_work_to 40", BOTH),
+    (
+        "evict + PDL q_len=3 + pad",
+        "--batches 4 --seqlen 2000 --varlen --q_len 3 --kv_evict_first --pdl --pad_work_to 40",
+        BOTH,
+    ),
     (
         "evict + PDL, interl p16",
         "--batches 4 --seqlen 9000 --varlen --page_size 16 --kv_layout interleaved --kv_evict_first --pdl",
@@ -427,6 +437,24 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
 ]
 
 
+# One representative case per group: the fast pre-check autoresearch runs on
+# every experiment (~10 containers) before the full matrix is worth paying for.
+QUICK_CASES = (
+    "L=8192",
+    "L=1000 (partial tile mask)",
+    "L=65536 (ring wraps)",
+    "varlen 6x<=20000",
+    "spec q_len=2 varlen 4x<=3000",
+    "page 16 varlen",
+    "KV interleaved (B,H,N,2D)",
+    "HND layout p16 varlen",
+    "e2m3 KV p16 varlen",
+    "default: e2m3 HND L=8192",
+    "default: varlen 6x<=20000",
+    "evict + PDL q_len=3 + pad",
+)
+
+
 def case_args(args: str) -> str:
     if args.startswith("@default"):
         return args[len("@default") :].strip()
@@ -434,7 +462,12 @@ def case_args(args: str) -> str:
 
 
 def stage_correctness(
-    ctx: Ctx, dtypes: str = "fp8 bf16", match: str = "", fail_fast: bool = False, timeout: float = 180.0
+    ctx: Ctx,
+    dtypes: str = "fp8 bf16",
+    match: str = "",
+    fail_fast: bool = False,
+    timeout: float = 180.0,
+    quick: bool = False,
 ) -> dict:
     """Kernel vs the bit-faithful emulator: output + LSE + poisoned-page NaN
     check, for every case x Q dtype."""
@@ -442,6 +475,8 @@ def stage_correctness(
     cases = []
     for label, args, dts in CASES:
         if match and match.lower() not in label.lower():
+            continue
+        if quick and label not in QUICK_CASES:
             continue
         for dt in dts:
             if dt not in want:
@@ -467,11 +502,13 @@ def stage_correctness(
             mark = "✅" if c["passed"] else "❌"
             ctx.out(f" {mark} {dt:<5} {label:<44} {c['check'] or ''}  {c['seconds']:.0f}s")
             if not c["passed"]:
-                for line in [ln for ln in text.splitlines() if re.search(r"Error|Traceback|Assertion|NaN|Mismatch", ln)][:3]:
+                for line in [
+                    ln for ln in text.splitlines() if re.search(r"Error|Traceback|Assertion|NaN|Mismatch", ln)
+                ][:3]:
                     ctx.out(f"      │ {line}")
                 if fail_fast:
-                    return {"cases": cases, "params": {"dtypes": dtypes, "match": match}}
-    return {"cases": cases, "params": {"dtypes": dtypes, "match": match}}
+                    return {"cases": cases, "params": {"dtypes": dtypes, "match": match, "quick": quick}}
+    return {"cases": cases, "params": {"dtypes": dtypes, "match": match, "quick": quick}}
 
 
 # ── vllm (runner tests + end-to-end smoke) ──────────────────────────────────
@@ -532,26 +569,70 @@ def stage_vllm(
 STAGES: dict[str, Stage] = {
     s.name: s
     for s in [
-        Stage("correctness", "Correctness matrix", "correctness",
-              "kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype", stage_correctness),
-        Stage("sweep", "Headline L-sweep", "ncu",
-              "Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L", stage_sweep),
-        Stage("hndsweep", "Head-major pages", "ncu",
-              "FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win?", stage_hndsweep),
-        Stage("kvfmt", "KV layouts and formats", "ncu",
-              "fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock)", stage_kvfmt),
-        Stage("quant", "KV format accuracy", "harness",
-              "relative L2 error of each KV format vs unquantized KV, at every L", stage_quant),
+        Stage(
+            "correctness",
+            "Correctness matrix",
+            "correctness",
+            "kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype",
+            stage_correctness,
+        ),
+        Stage(
+            "sweep",
+            "Headline L-sweep",
+            "ncu",
+            "Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L",
+            stage_sweep,
+        ),
+        Stage(
+            "hndsweep",
+            "Head-major pages",
+            "ncu",
+            "FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win?",
+            stage_hndsweep,
+        ),
+        Stage(
+            "kvfmt",
+            "KV layouts and formats",
+            "ncu",
+            "fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock)",
+            stage_kvfmt,
+        ),
+        Stage(
+            "quant",
+            "KV format accuracy",
+            "harness",
+            "relative L2 error of each KV format vs unquantized KV, at every L",
+            stage_quant,
+        ),
         Stage("ring", "KV ring depth", "ncu", "TMA→MMA ring depth (--kv_stages) sweep at every L", stage_ring),
         Stage("prefetch", "L2 prefetch", "ncu", "TMA L2 prefetch distance (--l2_prefetch) sweep", stage_prefetch),
-        Stage("pdl", "Programmatic dependent launch", "harness",
-              "PDL on/off wall clock (decode overlaps the previous kernel; merge launches early)", stage_pdl),
-        Stage("ab", "Flag A/B", "ncu", "any harness flag sets, ncu + wall clock (default: evict-first x PDL)", stage_ab),
-        Stage("fp6prof", "Full profiles per KV format", "profile",
-              "full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format", stage_fp6prof),
-        Stage("timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing),
-        Stage("vllm", "vLLM integration", "tests",
-              "runner-vs-emulator tests + greedy MJOLNIR vs FLASHINFER smoke runs", stage_vllm),
+        Stage(
+            "pdl",
+            "Programmatic dependent launch",
+            "harness",
+            "PDL on/off wall clock (decode overlaps the previous kernel; merge launches early)",
+            stage_pdl,
+        ),
+        Stage(
+            "ab", "Flag A/B", "ncu", "any harness flag sets, ncu + wall clock (default: evict-first x PDL)", stage_ab
+        ),
+        Stage(
+            "fp6prof",
+            "Full profiles per KV format",
+            "profile",
+            "full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format",
+            stage_fp6prof,
+        ),
+        Stage(
+            "timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing
+        ),
+        Stage(
+            "vllm",
+            "vLLM integration",
+            "tests",
+            "runner-vs-emulator tests + greedy MJOLNIR vs FLASHINFER smoke runs",
+            stage_vllm,
+        ),
     ]
 }
 

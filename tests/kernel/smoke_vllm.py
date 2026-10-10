@@ -62,7 +62,6 @@ def _add_pkg_path():
     raise SystemExit("the mjolnir kernel package was not found: set MJOLNIR_SRC to src/mjolnir")
 
 
-
 def child(args) -> None:
     os.environ.setdefault("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
     _add_pkg_path()
@@ -86,8 +85,10 @@ def child(args) -> None:
     )
     if args.spec:
         kw["speculative_config"] = {
-            "method": "ngram", "num_speculative_tokens": args.spec,
-            "prompt_lookup_max": 4, "prompt_lookup_min": 2,
+            "method": "ngram",
+            "num_speculative_tokens": args.spec,
+            "prompt_lookup_max": 4,
+            "prompt_lookup_min": 2,
         }
     try:
         llm = LLM(attention_config={"backend": args.backend}, **kw)
@@ -118,10 +119,25 @@ def child(args) -> None:
 
 
 def run_child(args, backend, out):
-    cmd = [sys.executable, os.path.abspath(__file__), "--child", "--backend", backend,
-           "--out", out, "--model", args.model, "--max_tokens", str(args.max_tokens),
-           "--max_model_len", str(args.max_model_len), "--gpu_mem", str(args.gpu_mem),
-           "--spec", str(args.spec)] + (["--eager"] if args.eager else [])
+    cmd = [
+        sys.executable,
+        os.path.abspath(__file__),
+        "--child",
+        "--backend",
+        backend,
+        "--out",
+        out,
+        "--model",
+        args.model,
+        "--max_tokens",
+        str(args.max_tokens),
+        "--max_model_len",
+        str(args.max_model_len),
+        "--gpu_mem",
+        str(args.gpu_mem),
+        "--spec",
+        str(args.spec),
+    ] + (["--eager"] if args.eager else [])
     print(f"\n=== {backend} ===", flush=True)
     r = subprocess.run(cmd)
     if r.returncode != 0:
@@ -139,10 +155,10 @@ def main():
     ap.add_argument("--gpu_mem", type=float, default=0.15)  # Thor: 0.15 x 122 GiB ~ 18 GiB
     ap.add_argument("--eager", action="store_true")
     ap.add_argument("--spec", type=int, default=0, help="ngram speculative tokens (0 = off)")
-    ap.add_argument("--min_prefix", type=int, default=8,
-                    help="every prompt must match the reference for this many tokens")
-    ap.add_argument("--min_match", type=float, default=0.6,
-                    help="mean fraction of identical leading tokens required")
+    ap.add_argument(
+        "--min_prefix", type=int, default=8, help="every prompt must match the reference for this many tokens"
+    )
+    ap.add_argument("--min_match", type=float, default=0.6, help="mean fraction of identical leading tokens required")
     ap.add_argument("--child", action="store_true")
     ap.add_argument("--backend", default="MJOLNIR")
     ap.add_argument("--out", default="")
@@ -166,8 +182,10 @@ def main():
             print(f"       ref: {ref['text'][i][:90]!r}\n       t5 : {t5['text'][i][:90]!r}")
     mean = sum(fracs) / len(fracs)
     stats = t5.get("stats", {})
-    print(f"\n  mean match {mean:.2f}, worst prefix {worst}, "
-          f"time ref {ref['seconds']:.2f}s / T5 {t5['seconds']:.2f}s, T5 stats {stats}")
+    print(
+        f"\n  mean match {mean:.2f}, worst prefix {worst}, "
+        f"time ref {ref['seconds']:.2f}s / T5 {t5['seconds']:.2f}s, T5 stats {stats}"
+    )
     ok = worst >= args.min_prefix and mean >= args.min_match
     if stats.get("t5_steps", 1) == 0:
         print("  ❌ T5 never ran a decode step (check the 'Mjolnir' log lines)")

@@ -39,5 +39,10 @@ line-length = 120
 target-version = "py310"
 extend-exclude = ["vfa-tree", "deprecated"]
 
+[tool.ruff.lint.per-file-ignores]
+# The CuTe-DSL kernel follows CUTLASS/FlashAttention conventions: the DSL's
+# typing star-import and the running log-sum-exp accumulator named `l`.
+"src/mjolnir/mjolnir/t5_decode.py" = ["F403", "F405", "E741"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

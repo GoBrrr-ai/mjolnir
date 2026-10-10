@@ -1,0 +1,89 @@
+# Release mjolnir-kernel (src/mjolnir, import `mjolnir`) to PyPI.
+#
+# Tag-gated: push a tag `mjolnir-kernel-vX.Y.Z` whose version equals
+# `__version__` in src/mjolnir/mjolnir/__init__.py. The CLI has its own tag
+# prefix and workflow (release-cli.yml) — the two packages version
+# independently. Docker images follow upstream vLLM (docker-image.yml).
+#
+# One-time human setup (before the first tag):
+#   1. pypi.org: add a *pending* trusted publisher for project `mjolnir-kernel`:
+#        owner=thor-arena  repo=mjolnir  workflow=release-kernel.yml  environment=pypi-kernel
+#   2. GitHub: Settings -> Environments -> create `pypi-kernel`
+#      (optional protection rule: required reviewer).
+#   3. GitHub: a tag ruleset for `mjolnir-kernel-v*` (block force-push + delete).
+#
+# Publish = trusted publishing (OIDC): `environment` + `id-token: write` and
+# no user/password inputs on the pypa action.
+
+name: Release mjolnir-kernel
+
+on:
+  push:
+    tags:
+      - "mjolnir-kernel-v[0-9]+.[0-9]+.[0-9]+"
+      - "mjolnir-kernel-v[0-9]+.[0-9]+.[0-9]+rc[0-9]+"
+      - "mjolnir-kernel-v[0-9]+.[0-9]+.[0-9]+[ab][0-9]+"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # checkout v7 verifies the tag still points at the triggering commit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false  # never cache on a release (cache-poisoning vector)
+      - name: Tag is at HEAD and matches the package version
+        run: |
+          set -euo pipefail
+          [ "${GITHUB_REF_NAME}" = "$(git describe --tags --exact-match HEAD)" ] \
+            || { echo "::error::tag ${GITHUB_REF_NAME} is not at HEAD"; exit 1; }
+          want="${GITHUB_REF_NAME#mjolnir-kernel-v}"
+          have=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' src/mjolnir/mjolnir/__init__.py)
+          [ "$want" = "$have" ] || { echo "::error::tag $want != src/mjolnir/mjolnir/__init__.py $have"; exit 1; }
+      - name: Lint
+        run: uvx ruff@0.14.14 check src/mjolnir
+      - name: Build sdist + wheel
+        run: uv build --package mjolnir-kernel --out-dir dist
+      - name: Smoke-test the wheel (import + vLLM plugin entry point, no torch needed)
+        run: |
+          uv run --isolated --no-project --with dist/*.whl python - <<'EOF'
+          import importlib.metadata as md
+          import mjolnir
+          assert mjolnir.BACKEND_PATH == "mjolnir.backend.MjolnirAttentionBackend"
+          eps = [e for e in md.entry_points(group="vllm.general_plugins") if e.name == "mjolnir"]
+          assert eps and eps[0].value == "mjolnir:register", eps
+          print("mjolnir-kernel", mjolnir.__version__, "OK")
+          EOF
+      - name: Twine check
+        run: uvx twine check dist/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-kernel
+          path: dist/
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-kernel
+      url: https://pypi.org/project/mjolnir-kernel/
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist-kernel
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

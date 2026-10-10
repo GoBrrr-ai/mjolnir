@@ -119,9 +119,7 @@ def diverging_cmap(mode: Mode):
     """blue (FlashInfer faster) -> gray (parity) -> orange (Mjolnir faster)."""
     from matplotlib.colors import LinearSegmentedColormap
 
-    return LinearSegmentedColormap.from_list(
-        f"mjolnir-div-{mode.name}", [mode.flashinfer, mode.neutral, mode.mjolnir]
-    )
+    return LinearSegmentedColormap.from_list(f"mjolnir-div-{mode.name}", [mode.flashinfer, mode.neutral, mode.mjolnir])
 
 
 def apply(fig, axes, mode: Mode) -> None:

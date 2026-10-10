@@ -138,8 +138,9 @@ def run_case(
         assert query.stride(0) == (h_q + 2 * h_k) * d
     else:
         query = (torch.randn(tokens, h_q, d, generator=gen) * 0.5).to(torch.bfloat16).to(DEV)
-    out = torch.full((tokens + 2, h_q * d) if out_2d else (tokens + 2, h_q, d),
-                     float("nan"), dtype=torch.bfloat16, device=DEV)
+    out = torch.full(
+        (tokens + 2, h_q * d) if out_2d else (tokens + 2, h_q, d), float("nan"), dtype=torch.bfloat16, device=DEV
+    )
 
     if scales == "per_tensor":
         k_scale = torch.tensor([0.75], device=DEV)
@@ -150,9 +151,16 @@ def run_case(
     softmax_scale = 1.0 / math.sqrt(d)
 
     runner = T5DecodeRunner(
-        num_heads=h_q, num_kv_heads=h_k, head_size=d, page_size=page_size,
-        out_dtype=torch.bfloat16, max_num_seqs=max_num_seqs, max_q_len=max(2, q_len),
-        q_mode=q_mode, pdl=pdl, l2_prefetch=l2_prefetch,
+        num_heads=h_q,
+        num_kv_heads=h_k,
+        head_size=d,
+        page_size=page_size,
+        out_dtype=torch.bfloat16,
+        max_num_seqs=max_num_seqs,
+        max_q_len=max(2, q_len),
+        q_mode=q_mode,
+        pdl=pdl,
+        l2_prefetch=l2_prefetch,
         kv_evict_first=kv_evict_first,
     )
     plan = runner.plan(seq_lens_t.tolist(), b, q_len, block_table, seq_lens_d)
@@ -162,8 +170,9 @@ def run_case(
 
     o = out[:tokens].view(tokens, h_q, d).float().cpu()
     assert torch.isnan(out[tokens:]).all(), "wrote past the batch"
-    ref = emulate(runner, plan, query[:tokens], k_cache, v_cache, block_table, seq_lens_d,
-                  k_scale, v_scale, softmax_scale)
+    ref = emulate(
+        runner, plan, query[:tokens], k_cache, v_cache, block_table, seq_lens_d, k_scale, v_scale, softmax_scale
+    )
     for s in check_zero_rows:
         rows = o[s * q_len : (s + 1) * q_len]
         assert torch.isfinite(rows).all() and rows.abs().max() == 0, f"padding seq {s} not zero"
@@ -173,7 +182,8 @@ def run_case(
     tol = 2e-2 * max(1.0, ref[sel].abs().max().item())
     assert math.isfinite(err) and err <= tol, (
         f"{layout} q_len={q_len} {q_mode}: max|err| {err:.4g} > {tol:.4g} "
-        f"(splits {plan.n_splits.tolist()}, chunk {plan.chunk_tiles})")
+        f"(splits {plan.n_splits.tolist()}, chunk {plan.chunk_tiles})"
+    )
     return err, plan
 
 
@@ -184,8 +194,7 @@ def emulate(runner, plan, query, k_cache, v_cache, block_table, seq_lens, k_scal
         q_packed = runner.q_pack[: b * h_k * n_q * d].view(b, h_k, n_q, d).float().cpu()
         qd = runner.q_descale[:b].float().cpu()
     else:
-        q_packed = (query.reshape(b, ql, h_k, h_r, d).permute(0, 2, 1, 3, 4)
-                    .reshape(b, h_k, n_q, d).float().cpu())
+        q_packed = query.reshape(b, ql, h_k, h_r, d).permute(0, 2, 1, 3, 4).reshape(b, h_k, n_q, d).float().cpu()
         qd = torch.ones(b, h_k)
 
     def expand(t):
@@ -198,13 +207,22 @@ def emulate(runner, plan, query, k_cache, v_cache, block_table, seq_lens, k_scal
     # q_len and never compare them (run_case checks they are exactly 0)
     lens = seq_lens[:b].cpu().clamp_min(ql)
     o_emu, _, _ = t5.emulate_decode(
-        q_packed, kf, vf, block_table[:b].cpu(), lens,
-        qd, expand(k_scale), expand(v_scale), scale, 1.0, ql, plan.chunk_tiles,
+        q_packed,
+        kf,
+        vf,
+        block_table[:b].cpu(),
+        lens,
+        qd,
+        expand(k_scale),
+        expand(v_scale),
+        scale,
+        1.0,
+        ql,
+        plan.chunk_tiles,
         runner.fp8_q,
     )
     # (b, h_k, ql*h_r, d) -> (b*ql, h_q, d)
-    return (o_emu.view(b, h_k, ql, h_r, d).permute(0, 2, 1, 3, 4)
-            .reshape(b * ql, h_k * h_r, d))
+    return o_emu.view(b, h_k, ql, h_r, d).permute(0, 2, 1, 3, 4).reshape(b * ql, h_k * h_r, d)
 
 
 # ----------------------------------------------------------------------------
@@ -244,8 +262,7 @@ def test_head_dim_128():
 
 def test_full_wave_no_split():
     # batch >= slots -> one work item per sequence, no reduction launch
-    run_case(layout="BHN2D", seq_lens=tuple(range(100, 100 + 40 * 37, 37)),
-             max_num_seqs=48, q_mode="fp8")
+    run_case(layout="BHN2D", seq_lens=tuple(range(100, 100 + 40 * 37, 37)), max_num_seqs=48, q_mode="fp8")
 
 
 def test_padding_rows_are_zero():
@@ -275,9 +292,17 @@ def _graph_replay(pdl, kv_evict_first):
     query = (torch.randn(b, h_q, d, generator=gen) * 0.5).to(torch.bfloat16).to(DEV)
     out = torch.empty(b, h_q * d, dtype=torch.bfloat16, device=DEV)
     ks = torch.tensor([1.0], device=DEV)
-    runner = T5DecodeRunner(num_heads=h_q, num_kv_heads=h_k, head_size=d, page_size=PS,
-                            out_dtype=torch.bfloat16, max_num_seqs=b, q_mode="fp8",
-                            pdl=pdl, kv_evict_first=kv_evict_first)
+    runner = T5DecodeRunner(
+        num_heads=h_q,
+        num_kv_heads=h_k,
+        head_size=d,
+        page_size=PS,
+        out_dtype=torch.bfloat16,
+        max_num_seqs=b,
+        q_mode="fp8",
+        pdl=pdl,
+        kv_evict_first=kv_evict_first,
+    )
     plan = runner.plan(seq_lens.tolist(), b, 1, block_table, seq_lens)
     runner.ensure_compiled(1, plan.with_reduction)
     runner.run(plan, query, out, k_cache, v_cache, ks, ks, 0.0625)  # warm-up (eager)
@@ -305,13 +330,11 @@ def test_pdl():
 
 
 def test_l2_prefetch_page16():
-    run_case(layout="BHN2D", page_size=16, q_mode="fp8", l2_prefetch=2,
-             seq_lens=(9000, 1, 2049, 300))
+    run_case(layout="BHN2D", page_size=16, q_mode="fp8", l2_prefetch=2, seq_lens=(9000, 1, 2049, 300))
 
 
 def test_l2_prefetch_page128_bf16_pdl():
-    run_case(layout="B2HND", page_size=128, q_mode="bf16", l2_prefetch=3, pdl=True,
-             seq_lens=(20000, 70))
+    run_case(layout="B2HND", page_size=128, q_mode="bf16", l2_prefetch=3, pdl=True, seq_lens=(20000, 70))
 
 
 def test_kv_evict_first():

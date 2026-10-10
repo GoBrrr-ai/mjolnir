@@ -201,9 +201,7 @@ def build_run_args(s: Settings, image: str | None = None) -> list[str]:
     return cmd
 
 
-def serve_up(
-    s: Settings, wait: bool = True, wait_timeout_s: float = 1800.0, dry_run: bool = False
-) -> None:
+def serve_up(s: Settings, wait: bool = True, wait_timeout_s: float = 1800.0, dry_run: bool = False) -> None:
     cmd = build_run_args(s)
     if dry_run:
         print(" ".join(cmd))

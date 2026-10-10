@@ -55,7 +55,9 @@ def _plt():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as e:  # pragma: no cover
-        raise RuntimeError("matplotlib missing — install the plot extra: uv sync (or pip install 'mjolnir-cli[plot]')") from e
+        raise RuntimeError(
+            "matplotlib missing — install the plot extra: uv sync (or pip install 'mjolnir-cli[plot]')"
+        ) from e
     plt.rcParams.update({"font.size": 11, "font.family": "DejaVu Sans", "savefig.dpi": DPI})
     return plt
 
@@ -86,8 +88,17 @@ def _place_labels(ax, mode: Mode, items: list[tuple[float, float, str]], min_gap
     shift = (sum(d[0] for d in disp) - sum(placed)) / len(placed)
     placed = [p + shift for p in placed]
     for (yp, x, y, t), py in zip(disp, placed):
-        ax.annotate(t, (x, y), xytext=(10, py - yp), textcoords="offset points", color=mode.text, fontsize=10,
-                    va="center", ha="left", fontweight="bold")
+        ax.annotate(
+            t,
+            (x, y),
+            xytext=(10, py - yp),
+            textcoords="offset points",
+            color=mode.text,
+            fontsize=10,
+            va="center",
+            ha="left",
+            fontweight="bold",
+        )
 
 
 def _noise_band(ax, mode: Mode, center: float = 1.0) -> None:
@@ -96,8 +107,16 @@ def _noise_band(ax, mode: Mode, center: float = 1.0) -> None:
 
 def _parity_line(ax, mode: Mode, label: str) -> None:
     ax.axhline(1.0, color=mode.flashinfer, lw=1.6, zorder=3)
-    ax.text(0.006, 1.0, f"{label} ", transform=ax.get_yaxis_transform(), color=mode.text_dim, fontsize=9.5,
-            va="bottom", ha="left")
+    ax.text(
+        0.006,
+        1.0,
+        f"{label} ",
+        transform=ax.get_yaxis_transform(),
+        color=mode.text_dim,
+        fontsize=9.5,
+        va="bottom",
+        ha="left",
+    )
 
 
 def _footer_run(fig, mode: Mode, doc: dict, extra: str = "") -> None:
@@ -209,9 +228,7 @@ def _log_y_ticks(ax) -> None:
                 ticks.append(v)
     ax.yaxis.set_major_locator(mticker.FixedLocator(ticks))
     ax.yaxis.set_minor_locator(mticker.NullLocator())
-    ax.yaxis.set_major_formatter(
-        mticker.FuncFormatter(lambda v, _: f"{v / 1000:g} ms" if v >= 1000 else f"{v:g} µs")
-    )
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v / 1000:g} ms" if v >= 1000 else f"{v:g} µs"))
 
 
 def chart_bandwidth(data: dict, mode: Mode):
@@ -224,11 +241,22 @@ def chart_bandwidth(data: dict, mode: Mode):
     fig, ax = plt.subplots(figsize=(12.5, 5.6))
     theme.apply(fig, ax, mode)
     ax.axhline(PEAK_GBS, color=mode.text_dim, lw=1.2, zorder=2)
-    ax.text(0.005, PEAK_GBS, f" LPDDR5X peak {PEAK_GBS:.0f} GB/s", transform=ax.get_yaxis_transform(),
-            color=mode.text_dim, fontsize=9.5, va="bottom")
+    ax.text(
+        0.005,
+        PEAK_GBS,
+        f" LPDDR5X peak {PEAK_GBS:.0f} GB/s",
+        transform=ax.get_yaxis_transform(),
+        color=mode.text_dim,
+        fontsize=9.5,
+        va="bottom",
+    )
     Ls: list[int] = []
-    names = {"fa2": "FlashAttention 2", "fi": "FlashInfer", "mjolnir-fp8": "Mjolnir · fp8 KV",
-             "mjolnir": "Mjolnir · e2m3 KV"}
+    names = {
+        "fa2": "FlashAttention 2",
+        "fi": "FlashInfer",
+        "mjolnir-fp8": "Mjolnir · fp8 KV",
+        "mjolnir": "Mjolnir · e2m3 KV",
+    }
     for sid in ("fa2", "fi", "mjolnir-fp8", "mjolnir"):
         if sid not in by:
             continue
@@ -329,7 +357,7 @@ def _heatmap(doc: dict | None, mode: Mode, title: str, subtitle: str, ref_id: st
     # saturate at 2x either way (values are printed in every cell), so one
     # outlier cannot wash out the rest of the matrix
     span = min(1.0, max(0.25, float(np.nanmax(np.abs(np.log2(finite)))) if finite.size else 0.25))
-    norm = TwoSlopeNorm(vmin=2 ** -span, vcenter=1.0, vmax=2**span)
+    norm = TwoSlopeNorm(vmin=2**-span, vcenter=1.0, vmax=2**span)
     h = 1.6 + 0.48 * len(labels)
     fig, ax = plt.subplots(figsize=(12.5, max(3.2, h)))
     theme.apply(fig, ax, mode)
@@ -346,23 +374,36 @@ def _heatmap(doc: dict | None, mode: Mode, title: str, subtitle: str, ref_id: st
             v = vals[i, j]
             if not np.isfinite(v):
                 continue
-            ax.text(j, i, f"{v:.2f}×", ha="center", va="center", fontsize=9.5, color=mode.text,
-                    fontweight="bold" if best_per_col[j] == i else "normal")
+            ax.text(
+                j,
+                i,
+                f"{v:.2f}×",
+                ha="center",
+                va="center",
+                fontsize=9.5,
+                color=mode.text,
+                fontweight="bold" if best_per_col[j] == i else "normal",
+            )
     ax.set_xticks(range(len(Ls)))
     ax.set_xticklabels([L_label(L) for L in Ls])
     ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(labels, color=mode.text)
     ax.set_xlabel("context length L (tokens)")
     ref_label = results.series_by_id(doc)[ref_id]["label"]
-    theme.title(ax, mode, title, f"{subtitle} · cell = {ref_label} time ÷ variant time (>1 = faster) · "
-                                 "bold = fastest at that L")
+    theme.title(
+        ax, mode, title, f"{subtitle} · cell = {ref_label} time ÷ variant time (>1 = faster) · bold = fastest at that L"
+    )
     _footer_run(fig, mode, doc)
     return fig
 
 
 def chart_kvfmt(data: dict, mode: Mode):
-    return _heatmap(data.get("kvfmt"), mode, "KV layouts × formats",
-                    "fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD, interleaved and HND pages")
+    return _heatmap(
+        data.get("kvfmt"),
+        mode,
+        "KV layouts × formats",
+        "fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD, interleaved and HND pages",
+    )
 
 
 def chart_ring(data: dict, mode: Mode):
@@ -409,8 +450,15 @@ def chart_tradeoff(data: dict, mode: Mode):
     _parity_line(ax, mode, "FlashInfer = 1.0×")
     for e, g, lab in pts:
         ax.plot([e], [g], color=mode.mjolnir, marker="o", ms=10, mec=mode.panel, mew=2, zorder=5, ls="none")
-        ax.annotate(lab.replace("-hnd", ""), (e, g), xytext=(10, 6), textcoords="offset points",
-                    color=mode.text, fontsize=10.5, fontweight="bold")
+        ax.annotate(
+            lab.replace("-hnd", ""),
+            (e, g),
+            xytext=(10, 6),
+            textcoords="offset points",
+            color=mode.text,
+            fontsize=10.5,
+            fontweight="bold",
+        )
     ax.set_xscale("log")
     import matplotlib.ticker as mticker
 
@@ -423,8 +471,7 @@ def chart_tradeoff(data: dict, mode: Mode):
         ax,
         mode,
         "Speed vs accuracy per KV format (HND pages)",
-        "x: `mjolnir verify quant` (mean over L) · y: `mjolnir verify kvfmt` geomean over L · "
-        "up-and-left is better",
+        "x: `mjolnir verify quant` (mean over L) · y: `mjolnir verify kvfmt` geomean over L · up-and-left is better",
     )
     _footer_run(fig, mode, kv)
     return fig
@@ -453,8 +500,9 @@ def chart_quant(data: dict, mode: Mode):
     ax.bar(x, means, width=0.55, color=mode.mjolnir, zorder=3)
     ax.errorbar(x, means, yerr=[lo, hi], fmt="none", ecolor=mode.text_dim, elinewidth=1.4, capsize=5, zorder=4)
     for i, (f, mval) in enumerate(zip(order, means)):
-        ax.text(i, mval + hi[i], f"{mval:.3f}", ha="center", va="bottom", color=mode.text, fontsize=10,
-                fontweight="bold")
+        ax.text(
+            i, mval + hi[i], f"{mval:.3f}", ha="center", va="bottom", color=mode.text, fontsize=10, fontweight="bold"
+        )
     ax.set_xticks(list(x))
     ax.set_xticklabels([f"{f}\n{bits.get(f):g} bit" if bits.get(f) else f for f in order], color=mode.text)
     ax.set_ylabel("relative L2 error (lower is better)")
@@ -487,16 +535,25 @@ def chart_pdl(data: dict, mode: Mode):
         x = range(len(rs))
         ax.axhspan(-NOISE * 100, NOISE * 100, color=mode.grid, zorder=1, lw=0)
         ax.axhline(0, color=mode.text_dim, lw=1)
-        ax.bar(x, [r["delta_pct"] for r in rs], width=0.6, zorder=3,
-               color=[mode.mjolnir if r["delta_pct"] < 0 else mode.flashinfer for r in rs])
+        ax.bar(
+            x,
+            [r["delta_pct"] for r in rs],
+            width=0.6,
+            zorder=3,
+            color=[mode.mjolnir if r["delta_pct"] < 0 else mode.flashinfer for r in rs],
+        )
         ax.set_xticks(list(x))
         ax.set_xticklabels([L_label(r["L"]) for r in rs])
         ax.set_ylim(-lim, lim)
         ax.set_xlabel("L (tokens)")
         ax.text(0.01, 0.97, f"batch {b}", transform=ax.transAxes, color=mode.text, fontweight="bold", va="top")
     axes[0].set_ylabel("wall-clock change with PDL (%)")
-    theme.title(axes[0], mode, "Programmatic dependent launch",
-                "harness median, cold L2 · orange = PDL faster, blue = slower · gray band = ±7% noise")
+    theme.title(
+        axes[0],
+        mode,
+        "Programmatic dependent launch",
+        "harness median, cold L2 · orange = PDL faster, blue = slower · gray band = ±7% noise",
+    )
     _footer_run(fig, mode, doc)
     return fig
 
@@ -544,16 +601,28 @@ def chart_fp6prof(data: dict, mode: Mode):
         ax.bar([i + w / 2 + 0.01 for i in x], t_r, width=w, color=mode.mjolnir, zorder=3, label="kernel time")
         if ideal:
             ax.axhline(ideal, color=mode.text, lw=1.4, zorder=4)
-            ax.text(-0.55, ideal + 0.02, f"ideal {ideal:.2f} (bits ratio)", color=mode.text, fontsize=9.5,
-                    ha="left", va="bottom", bbox=dict(facecolor=mode.panel, edgecolor="none", pad=1.5))
+            ax.text(
+                -0.55,
+                ideal + 0.02,
+                f"ideal {ideal:.2f} (bits ratio)",
+                color=mode.text,
+                fontsize=9.5,
+                ha="left",
+                va="bottom",
+                bbox=dict(facecolor=mode.panel, edgecolor="none", pad=1.5),
+            )
         ax.set_xticks(x)
         ax.set_xticklabels([L_label(L) for L in Ls])
         ax.set_ylim(0, 1.15)
         ax.set_xlabel(f"L (tokens) · {lab} vs {base}")
     axes[0].set_ylabel(f"ratio vs {base}")
     theme.legend(axes[-1], mode, loc="upper right")
-    theme.title(axes[0], mode, "Bytes vs time per KV format",
-                "full ncu profiles · L2 bytes fall to the ideal ratio; kernel time shows how much of it becomes speed")
+    theme.title(
+        axes[0],
+        mode,
+        "Bytes vs time per KV format",
+        "full ncu profiles · L2 bytes fall to the ideal ratio; kernel time shows how much of it becomes speed",
+    )
     _footer_run(fig, mode, doc)
     return fig
 
@@ -591,17 +660,27 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     labels = {"NVFP4_MJOLNIR": "Mjolnir", "NVFP4": "FlashInfer", "NVFP4_FA2": "FlashAttention 2"}
     order = [c for c in E2E_CONFIGS if c in rows]
     for ax, conc in zip(axes, concs):
-        ctxs = sorted({c.get("context") or 0 for r in rows.values() for c in r["cells"] if c.get("concurrency") == conc})
+        ctxs = sorted(
+            {c.get("context") or 0 for r in rows.values() for c in r["cells"] if c.get("concurrency") == conc}
+        )
         w = 0.8 / len(order)
         for i, cfg in enumerate(order):
             vals = []
             for ctx in ctxs:
-                cell = next((c for c in rows[cfg]["cells"] if c.get("concurrency") == conc
-                             and (c.get("context") or 0) == ctx), None)
+                cell = next(
+                    (c for c in rows[cfg]["cells"] if c.get("concurrency") == conc and (c.get("context") or 0) == ctx),
+                    None,
+                )
                 vals.append(((cell or {}).get(metric) or {}).get("mean") or 0)
             xs = [j + (i - (len(order) - 1) / 2) * w for j in range(len(ctxs))]
-            ax.bar(xs, vals, width=w * 0.92, color=theme.color(mode, cfg), zorder=3,
-                   label=labels[cfg] if ax is axes[0] else None)
+            ax.bar(
+                xs,
+                vals,
+                width=w * 0.92,
+                color=theme.color(mode, cfg),
+                zorder=3,
+                label=labels[cfg] if ax is axes[0] else None,
+            )
         ax.set_xticks(range(len(ctxs)))
         ax.set_xticklabels([f"{L_label(c)} ctx" if c else "no ctx" for c in ctxs])
         ax.set_xlabel(f"concurrency {conc}")
@@ -609,19 +688,34 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     theme.legend(axes[0], mode, loc="upper right")
     theme.title(axes[0], mode, ttl, sub)
     r0 = rows[order[0]]
-    theme.footer(fig, mode, f"mjolnir bench ab · {r0.get('model', '')} · image {r0.get('image', '')} · "
-                            "llama-benchy, gated clean windows")
+    theme.footer(
+        fig,
+        mode,
+        f"mjolnir bench ab · {r0.get('model', '')} · image {r0.get('image', '')} · llama-benchy, gated clean windows",
+    )
     return fig
 
 
 def chart_e2e_decode(layout: RepoLayout, mode: Mode):
-    return _e2e_chart(layout, mode, "tg_tps", "decode tokens/s (higher is better)",
-                      "End-to-end decode throughput", "vLLM serving the same model with each attention backend")
+    return _e2e_chart(
+        layout,
+        mode,
+        "tg_tps",
+        "decode tokens/s (higher is better)",
+        "End-to-end decode throughput",
+        "vLLM serving the same model with each attention backend",
+    )
 
 
 def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
-    return _e2e_chart(layout, mode, "pp_tps", "prompt tokens/s (higher is better)",
-                      "End-to-end prompt processing", "prefill runs on FlashInfer under the Mjolnir backend too")
+    return _e2e_chart(
+        layout,
+        mode,
+        "pp_tps",
+        "prompt tokens/s (higher is better)",
+        "End-to-end prompt processing",
+        "prefill runs on FlashInfer under the Mjolnir backend too",
+    )
 
 
 # ── registry + render ───────────────────────────────────────────────────────
@@ -657,8 +751,9 @@ def render_all(layout: RepoLayout, data: dict | None = None) -> dict[str, dict]:
     data = data if data is not None else load_verify(layout)
     out_dir = layout.charts_dir
     manifest: dict[str, dict] = {}
-    jobs: list[tuple[str, str, Callable]] = [(n, st, (lambda f: lambda m: f(data, m))(fn))
-                                             for n, (st, fn) in KERNEL_CHARTS.items()]
+    jobs: list[tuple[str, str, Callable]] = [
+        (n, st, (lambda f: lambda m: f(data, m))(fn)) for n, (st, fn) in KERNEL_CHARTS.items()
+    ]
     jobs += [(n, "e2e", (lambda f: lambda m: f(layout, m))(fn)) for n, fn in E2E_CHARTS.items()]
     for name, stage, build in jobs:
         entry = {"stage": stage}

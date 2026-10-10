@@ -60,8 +60,12 @@ def test_parse_benchy_json_empty():
 def test_make_record_maps_settings():
     s = Settings(image="img:v1", model="Qwen/Qwen3.8-27B", quant="NVFP4")
     rec = make_record(
-        s, gate_summary={"clean": True, "confirm": 3}, runs=5, warmup_runs=2,
-        exact_tg=True, cells=[{"concurrency": 1, "context": 0, "prompt": 2048, "gen": 128}],
+        s,
+        gate_summary={"clean": True, "confirm": 3},
+        runs=5,
+        warmup_runs=2,
+        exact_tg=True,
+        cells=[{"concurrency": 1, "context": 0, "prompt": 2048, "gen": 128}],
         raw_relpath="raw/perf-x/",
     )
     assert rec["image"] == "img:v1"

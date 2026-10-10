@@ -67,8 +67,10 @@ def series_table(doc: dict) -> Table:
             cells.append(txt)
         t.add_row(s["label"], *cells)
     if bases:
-        t.caption = "ratios = " + " / ".join(f"{b['label']} time ÷ this time" for b in bases) + (
-            f"  (>1 faster · ±{NOISE_PCT:.0f}% is noise)"
+        t.caption = (
+            "ratios = "
+            + " / ".join(f"{b['label']} time ÷ this time" for b in bases)
+            + (f"  (>1 faster · ±{NOISE_PCT:.0f}% is noise)")
         )
     return t
 

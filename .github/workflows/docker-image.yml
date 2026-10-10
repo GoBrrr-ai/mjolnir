@@ -1,0 +1,116 @@
+# Build the Mjolnir vLLM image (docker/vllm-thor/Dockerfile, repo-root
+# context) for linux/arm64 and push it to Docker Hub.
+#
+# Versioning follows UPSTREAM vLLM, not the Python packages: the tag is the
+# vLLM version of the Dockerfile's BASE_IMAGE (vllm/vllm-openai:v0.30.0-… ->
+# narandill/mjolnir-thor:v0.30.0). Every push also gets an immutable
+# :v0.30.0-<short-sha>, and main gets :latest. Bumping vLLM = bumping
+# BASE_IMAGE (+ VLLM_VERSION in mjolnir_cli/config.py — checked below).
+#
+# One-time setup:
+#   1. Docker Hub: create an access token with write access to the repo.
+#   2. GitHub: Settings -> Secrets and variables -> Actions:
+#        secrets   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+#        variables (optional) IMAGE_REPO   (default narandill/mjolnir-thor)
+#                             IMAGE_RUNNER (default ubuntu-24.04-arm; set to a
+#                             self-hosted Thor runner label to build on Thor)
+#
+# The build runs the patch gates (apply_patches.py / verify_patches.py), the
+# MJOLNIR enum + plugin smoke and the no-GPU canaries; the GPU canaries
+# self-skip on a CPU runner (run `mjolnir image gates` on a Thor afterwards).
+
+name: Docker image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/vllm-thor/**"
+      - "src/mjolnir/**"
+      - ".github/workflows/docker-image.yml"
+    tags:
+      - "image-v*"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "push to Docker Hub"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ vars.IMAGE_RUNNER || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 180
+    env:
+      IMAGE_REPO: ${{ vars.IMAGE_REPO || 'narandill/mjolnir-thor' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version from the upstream vLLM base image
+        id: v
+        run: |
+          set -euo pipefail
+          base=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+[^ -]*).*/\1/p' docker/vllm-thor/Dockerfile)
+          [ -n "$base" ] || { echo "::error::cannot parse BASE_IMAGE vLLM version from the Dockerfile"; exit 1; }
+          cli=$(sed -nE 's/^VLLM_VERSION = "([^"]+)"/\1/p' src/mjolnir-cli/mjolnir_cli/config.py)
+          [ "$base" = "$cli" ] || { echo "::error::Dockerfile vLLM $base != mjolnir_cli VLLM_VERSION $cli (bump both)"; exit 1; }
+          kernel=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' src/mjolnir/mjolnir/__init__.py)
+          short=${GITHUB_SHA::7}
+          tags="${IMAGE_REPO}:v${base},${IMAGE_REPO}:v${base}-${short}"
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then tags="${tags},${IMAGE_REPO}:latest"; fi
+          {
+            echo "vllm=${base}"
+            echo "kernel=${kernel}"
+            echo "tags=${tags}"
+          } >> "$GITHUB_OUTPUT"
+          echo "vLLM ${base} · mjolnir-kernel ${kernel} -> ${tags}"
+
+      - name: Free disk space (the vLLM base image is large)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'workflow_dispatch' || inputs.push
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build (and push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/vllm-thor/Dockerfile
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: ${{ steps.v.outputs.tags }}
+          build-args: |
+            MJOLNIR_REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=v${{ steps.v.outputs.vllm }}
+            io.github.thor-arena.mjolnir.kernel-version=${{ steps.v.outputs.kernel }}
+            io.github.thor-arena.mjolnir.vllm-version=${{ steps.v.outputs.vllm }}
+          cache-from: type=registry,ref=${{ env.IMAGE_REPO }}:buildcache
+          cache-to: ${{ (github.event_name != 'workflow_dispatch' || inputs.push) && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_REPO) || '' }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### narandill/mjolnir-thor"
+            echo "- vLLM base: \`${{ steps.v.outputs.vllm }}\`"
+            echo "- mjolnir-kernel: \`${{ steps.v.outputs.kernel }}\`"
+            echo "- tags: \`${{ steps.v.outputs.tags }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

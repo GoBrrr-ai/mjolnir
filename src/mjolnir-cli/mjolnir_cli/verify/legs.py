@@ -101,9 +101,7 @@ def _last_flag(flags: str, name: str) -> str | None:
 
 # ── the canonical legs ──────────────────────────────────────────────────────
 MJOLNIR = Leg("mjolnir", "Mjolnir (e2m3 KV, HND)", "t5", role="ours")
-MJOLNIR_FP8 = Leg(
-    "mjolnir-fp8", "Mjolnir (fp8 KV, HND)", "t5", role="ours", flags="--kv_format fp8 --kv_layout hnd"
-)
+MJOLNIR_FP8 = Leg("mjolnir-fp8", "Mjolnir (fp8 KV, HND)", "t5", role="ours", flags="--kv_format fp8 --kv_layout hnd")
 FI = Leg("fi", "FlashInfer (fp8 KV, NHD)", "fi", role="baseline", env=(("FI_LAYOUT", "NHD"),))
 FI_HND = Leg("fi-hnd", "FlashInfer (fp8 KV, HND)", "fi", role="baseline", env=(("FI_LAYOUT", "HND"),))
 FA2 = Leg("fa2", "FlashAttention 2 (bf16 KV)", "fa2", role="baseline")

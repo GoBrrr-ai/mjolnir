@@ -34,7 +34,6 @@ from pathlib import Path
 import jinja2
 
 from mjolnir_cli.config import BACKEND_LABELS, DEFAULT_MODEL, IMAGE_REPO, RepoLayout
-from mjolnir_cli.history import load_records
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import ALL_LS, NOISE_PCT, STAGES
 
@@ -91,8 +90,13 @@ def _table(header: list[str], rows: list[list[str]], align: list[str] | None = N
 # ── per-stage tables + findings ─────────────────────────────────────────────
 
 
-SHORT = {"fi": "FlashInfer", "fi-hnd": "FlashInfer HND", "fa2": "FA2", "mjolnir": "Mjolnir e2m3",
-         "mjolnir-fp8": "Mjolnir fp8"}
+SHORT = {
+    "fi": "FlashInfer",
+    "fi-hnd": "FlashInfer HND",
+    "fa2": "FA2",
+    "mjolnir": "Mjolnir e2m3",
+    "mjolnir-fp8": "Mjolnir fp8",
+}
 REF_SHORT = {"fi": "FI", "fi-hnd": "FI-HND", "fa2": "FA2"}
 
 
@@ -153,8 +157,11 @@ def _variant_table(doc: dict, ref_id: str = "fi") -> str:
             c = ratio_md(v, bold_wins=False) if v else "—"
             cells.append(f"**{c}**" if v and v == best_per_L.get(L) else c)
         g = results.geomean(sp.values())
-        rows.append([f"`{s['label']}`", f"`{s['flags']}`" if s.get("flags") else "(default)"] + cells
-                    + [ratio_md(g) if g else "—"])
+        rows.append(
+            [f"`{s['label']}`", f"`{s['flags']}`" if s.get("flags") else "(default)"]
+            + cells
+            + [ratio_md(g) if g else "—"]
+        )
     return _table(header, rows, ["---", "---"] + ["--:"] * (len(Ls) + 1))
 
 
@@ -196,9 +203,11 @@ def _quant_table(doc: dict) -> str:
     rows = []
     for f in order:
         vals = by[f]
-        rows.append([f"`{f}`", f"{bits.get(f):g}" if bits.get(f) else "—"]
-                    + [f"{vals[L]:.4f}" if L in vals else "—" for L in Ls]
-                    + [f"**{sum(vals.values()) / len(vals):.4f}**"])
+        rows.append(
+            [f"`{f}`", f"{bits.get(f):g}" if bits.get(f) else "—"]
+            + [f"{vals[L]:.4f}" if L in vals else "—" for L in Ls]
+            + [f"**{sum(vals.values()) / len(vals):.4f}**"]
+        )
     return _table(header, rows, ["---", "--:"] + ["--:"] * (len(Ls) + 1))
 
 
@@ -219,8 +228,17 @@ def _fp6prof_table(doc: dict) -> str:
     by_L: dict[int, list[dict]] = {}
     for p in profs:
         by_L.setdefault(p["L"], []).append(p)
-    header = ["L", "variant", "bits", "kernel time", "time ratio", "L2 bytes ratio", "ideal", "bytes / L2 request",
-              "top stall (cycles/instr)"]
+    header = [
+        "L",
+        "variant",
+        "bits",
+        "kernel time",
+        "time ratio",
+        "L2 bytes ratio",
+        "ideal",
+        "bytes / L2 request",
+        "top stall (cycles/instr)",
+    ]
     rows = []
     for L, ps in sorted(by_L.items()):
         b = ps[0]
@@ -232,12 +250,19 @@ def _fp6prof_table(doc: dict) -> str:
             sec = m.get("lts__t_sectors_op_read.sum") or m.get("lts__t_sectors.sum")
             req = m.get("lts__t_requests_srcunit_tex_op_read.sum")
             st = max(p.get("stalls", {}).items(), key=lambda kv: kv[1], default=None)
-            rows.append([
-                f"**{L_label(L)}**", f"`{p['label']}`", f"{p['kv_bits']:g}", fmt_us(t / 1e3 if t else None),
-                f"{t / bt:.2f}" if t and bt else "—", f"{sec / bs:.2f}" if sec and bs else "—",
-                f"{p['kv_bits'] / b['kv_bits']:.2f}", f"{sec * 32 / req:.0f} B" if sec and req else "—",
-                f"{st[0]} {st[1]:.1f}" if st else "—",
-            ])
+            rows.append(
+                [
+                    f"**{L_label(L)}**",
+                    f"`{p['label']}`",
+                    f"{p['kv_bits']:g}",
+                    fmt_us(t / 1e3 if t else None),
+                    f"{t / bt:.2f}" if t and bt else "—",
+                    f"{sec / bs:.2f}" if sec and bs else "—",
+                    f"{p['kv_bits'] / b['kv_bits']:.2f}",
+                    f"{sec * 32 / req:.0f} B" if sec and req else "—",
+                    f"{st[0]} {st[1]:.1f}" if st else "—",
+                ]
+            )
     return _table(header, rows, ["---", "---"] + ["--:"] * 6 + ["---"])
 
 
@@ -246,12 +271,19 @@ def _correctness_table(doc: dict) -> str:
     groups: dict[str, list[dict]] = {}
     for c in cs:
         lab = c["label"]
-        g = ("default config" if lab.startswith("default:") else
-             "KV formats" if re.search(r"e2m3|e3m2|e2m1|nvfp4|from float", lab) else
-             "KV layouts / strides" if re.search(r"interl|flashinfer|HND|strided|descale", lab, re.I) else
-             "launch options" if re.search(r"PDL|prefetch|evict", lab) else
-             "scheduling / paging" if re.search(r"page|CTAs|chunks|padded|splits|contiguous", lab) else
-             "shapes / batches")
+        g = (
+            "default config"
+            if lab.startswith("default:")
+            else "KV formats"
+            if re.search(r"e2m3|e3m2|e2m1|nvfp4|from float", lab)
+            else "KV layouts / strides"
+            if re.search(r"interl|flashinfer|HND|strided|descale", lab, re.I)
+            else "launch options"
+            if re.search(r"PDL|prefetch|evict", lab)
+            else "scheduling / paging"
+            if re.search(r"page|CTAs|chunks|padded|splits|contiguous", lab)
+            else "shapes / batches"
+        )
         groups.setdefault(g, []).append(c)
     rows = []
     for g, items in groups.items():
@@ -269,8 +301,14 @@ def _e2e_table(layout: RepoLayout, metric: str, fmt: str) -> str | None:
     if not rows:
         return None
     ordered = [k for k in ("NVFP4_MJOLNIR", "NVFP4", "NVFP4_FA2", "NVFP4@stock", "NVFP4_FA2@stock") if k in rows]
-    cells = sorted({(c.get("concurrency"), c.get("context") or 0) for r in rows.values() for c in r["cells"]
-                    if c.get("concurrency") in (1, 4) and (c.get(metric) or {}).get("mean") is not None})
+    cells = sorted(
+        {
+            (c.get("concurrency"), c.get("context") or 0)
+            for r in rows.values()
+            for c in r["cells"]
+            if c.get("concurrency") in (1, 4) and (c.get(metric) or {}).get("mean") is not None
+        }
+    )
     if not cells:
         return None
     base_key = "NVFP4" if "NVFP4" in rows else ordered[0]
@@ -289,8 +327,14 @@ def _e2e_table(layout: RepoLayout, metric: str, fmt: str) -> str | None:
                 continue
             txt = fmt.format(v)
             if k != base_key:
-                bc = next((x for x in rows[base_key]["cells"] if x.get("concurrency") == c
-                           and (x.get("context") or 0) == ctx), None)
+                bc = next(
+                    (
+                        x
+                        for x in rows[base_key]["cells"]
+                        if x.get("concurrency") == c and (x.get("context") or 0) == ctx
+                    ),
+                    None,
+                )
                 bv = ((bc or {}).get(metric) or {}).get("mean")
                 if bv:
                     txt += " " + pct_md((v - bv) / bv * 100, lower_is_better=False)
@@ -337,8 +381,10 @@ def _findings(stage: str, doc: dict) -> list[str]:
             if geo:
                 g_top = max(geo, key=geo.get)
                 g_low = min(geo, key=geo.get)
-                out.append(f"Best geomean vs FlashInfer: **`{g_top}`** ({geo[g_top]:.2f}×); "
-                           f"worst: `{g_low}` ({geo[g_low]:.2f}×).")
+                out.append(
+                    f"Best geomean vs FlashInfer: **`{g_top}`** ({geo[g_top]:.2f}×); "
+                    f"worst: `{g_low}` ({geo[g_low]:.2f}×)."
+                )
                 spread = geo[g_top] / geo[g_low] - 1
                 if spread < noise:
                     out.append(f"All variants sit within {spread * 100:.0f}% of each other — inside the noise band.")
@@ -356,8 +402,10 @@ def _findings(stage: str, doc: dict) -> list[str]:
         ds = [r["delta_pct"] for r in doc.get("rows", []) if r.get("delta_pct") is not None]
         if ds:
             inside = sum(1 for d in ds if abs(d) < NOISE_PCT)
-            out.append(f"{inside} of {len(ds)} measurements move by less than the ±{NOISE_PCT:.0f}% noise band "
-                       f"(range {min(ds):+.1f}% … {max(ds):+.1f}%).")
+            out.append(
+                f"{inside} of {len(ds)} measurements move by less than the ±{NOISE_PCT:.0f}% noise band "
+                f"(range {min(ds):+.1f}% … {max(ds):+.1f}%)."
+            )
     if stage == "fp6prof":
         profs = [p for p in doc.get("profiles", []) if p.get("ok")]
         by_lab: dict[str, list[tuple[float, float, float]]] = {}
@@ -376,13 +424,17 @@ def _findings(stage: str, doc: dict) -> list[str]:
             t = sum(x[0] for x in xs) / len(xs)
             ideal = xs[0][1]
             realized = (1 - t) / (1 - ideal) if ideal < 1 else 0
-            out.append(f"`{lab}`: kernel time **{t:.2f}×** the baseline for {ideal:.2f}× the bytes — "
-                       f"{realized * 100:.0f}% of the byte saving becomes speed (mean over L).")
+            out.append(
+                f"`{lab}`: kernel time **{t:.2f}×** the baseline for {ideal:.2f}× the bytes — "
+                f"{realized * 100:.0f}% of the byte saving becomes speed (mean over L)."
+            )
     if stage == "correctness":
         cs = doc.get("cases", [])
         ok = sum(1 for c in cs if c.get("passed"))
-        out.append(f"**{ok} / {len(cs)}** checks pass (kernel output and LSE vs the bit-faithful emulator, "
-                   "poisoned unused pages must stay NaN-free).")
+        out.append(
+            f"**{ok} / {len(cs)}** checks pass (kernel output and LSE vs the bit-faithful emulator, "
+            "poisoned unused pages must stay NaN-free)."
+        )
     return out
 
 

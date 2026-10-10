@@ -53,9 +53,7 @@ def test_server_load_parses_labeled_prometheus(metrics_server):
 
 def test_server_load_parses_bare_metric(metrics_server):
     url, _ = metrics_server
-    _MetricsHandler.body = (
-        b"vllm:num_requests_running 1.0\nvllm:num_requests_waiting 0.0\n"
-    )
+    _MetricsHandler.body = b"vllm:num_requests_running 1.0\nvllm:num_requests_waiting 0.0\n"
     assert server_load(url) == (1.0, 0.0)
 
 

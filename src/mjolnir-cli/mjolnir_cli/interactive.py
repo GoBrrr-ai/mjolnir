@@ -40,13 +40,36 @@ def build(layout: RepoLayout, out_dir: Path, data: dict | None = None) -> Path:
     payload = {
         "stages": {k: _slim(v) for k, v in data.items()},
         "titles": {k: {"title": s.title, "summary": s.summary} for k, s in STAGES.items()},
-        "e2e": {k: {"config": v.get("config"), "image": v.get("image"), "cells": [
-            {"concurrency": c.get("concurrency"), "context": c.get("context") or 0,
-             "tg": (c.get("tg_tps") or {}).get("mean"), "pp": (c.get("pp_tps") or {}).get("mean")}
-            for c in v.get("cells", [])]} for k, v in e2e_rows(layout).items()},
-        "colors": {m.name: {"bg": m.bg, "panel": m.panel, "text": m.text, "dim": m.text_dim, "grid": m.grid,
-                            "mjolnir": m.mjolnir, "fi": m.flashinfer, "fa2": m.fa2, "neutral": m.neutral}
-                   for m in theme.MODES},
+        "e2e": {
+            k: {
+                "config": v.get("config"),
+                "image": v.get("image"),
+                "cells": [
+                    {
+                        "concurrency": c.get("concurrency"),
+                        "context": c.get("context") or 0,
+                        "tg": (c.get("tg_tps") or {}).get("mean"),
+                        "pp": (c.get("pp_tps") or {}).get("mean"),
+                    }
+                    for c in v.get("cells", [])
+                ],
+            }
+            for k, v in e2e_rows(layout).items()
+        },
+        "colors": {
+            m.name: {
+                "bg": m.bg,
+                "panel": m.panel,
+                "text": m.text,
+                "dim": m.text_dim,
+                "grid": m.grid,
+                "mjolnir": m.mjolnir,
+                "fi": m.flashinfer,
+                "fa2": m.fa2,
+                "neutral": m.neutral,
+            }
+            for m in theme.MODES
+        },
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "data.json").write_text(json.dumps(payload, separators=(",", ":")))
