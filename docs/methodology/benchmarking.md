@@ -1,8 +1,8 @@
 # Benchmarking Methodology — Clean Windows, Achieved-BW, and Provenance
 
 > **Status:** Normative · **Applies to:** every number published in this repo (README,
-> `docs/`, `benchmarks/history.jsonl`) · **Implementation:** `src/mjolnir/gate.py`,
-> `src/mjolnir/benchy.py`, `src/mjolnir/history.py`
+> `docs/`, `benchmarks/history.jsonl`) · **Implementation:** `mjolnir_cli/gate.py`,
+> `mjolnir_cli/verify/` (kernel), `mjolnir_cli/benchy.py` + `mjolnir_cli/history.py` (serving)
 
 These are the rules every benchmark in this repo follows. A number that cannot be
 traced to a raw artifact produced under these rules does not belong in this repo.
@@ -35,7 +35,7 @@ Consequences:
 - **Never** `docker stop` / restart / kill the live server to "clean" the GPU.
   (That also takes the AI tooling down — the benchmark's operator would die.)
 - Any benchmark that touches the GPU goes through the launcher
-  (`src/mjolnir/tasks.py`), which **preflights the metrics endpoint** and fails
+  (`src/mjolnir-cli/mjolnir_cli/tasks.py`), which **preflights the metrics endpoint** and fails
   fast if the server is down — it never restarts anything.
 
 ## 2. The clean-window gate
@@ -43,11 +43,11 @@ Consequences:
 **Definition.** A *clean window* is a span in which the live server's vLLM request
 queue reads **`num_requests_running == 0` AND `num_requests_waiting == 0`** for
 **N consecutive samples** (N = 6 is the default, `DEFAULT_CONFIRM` in
-`src/mjolnir/gate.py`; individual benches can raise or lower it).
+`src/mjolnir-cli/mjolnir_cli/gate.py`; individual benches can raise or lower it).
 
 **Source of truth.** The gate polls the live server's Prometheus metrics
 (`vllm:num_requests_running`, `vllm:num_requests_waiting`) at
-`http://127.0.0.1:6001/metrics`. Implementation: `src/mjolnir/gate.py`
+`http://127.0.0.1:6001/metrics`. Implementation: `src/mjolnir-cli/mjolnir_cli/gate.py`
 (`CleanWindow`, `wait_for_idle`, `server_load`); CLI: `mjolnir gate --once` (check
 now) or `mjolnir gate` (block until a window opens). Gated bench tasks call the
 gate; a new bench **must** import it, never re-implement it.
@@ -80,43 +80,52 @@ Rules that keep the numbers honest:
 - Wall-clock numbers are never published as absolute "this kernel is X µs"
   against a machine state, only as **ratios in a gated window** (plus the gate
   status). Absolute kernel performance claims use NCU achieved-BW.
-- NCU runs use the dedicated driver task (`mjolnir bench kernel gemv-ncu`,
-  env knobs `NCU_NS`/`NCU_STAGES`/`NCU_L`/`NCU_ITERS`); the tables land in the
-  workstream report (the raw wall-clock JSON lands in `benchmarks/raw/`).
+- NCU runs go through `mjolnir verify <stage>` (one container per leg and L);
+  the per-kernel summaries are parsed into one `mjolnir.verify/1` JSON per run
+  in `benchmarks/raw/verify/<stage>/`, logs in `benchmarks/logs/`.
 - **Achieved-BW convention on CC 11.0:** `dram__bytes.sum` is not available on
   sm_110, so achieved BW is measured at the L2-fabric level:
   `achieved_BW = lts__t_sectors.sum × 32 B / gpu__time_duration.sum`
   (median of 4 profiled launches). The 273 GB/s DRAM roofline is shown for
   reference only; a kernel at 100% of it is already DRAM-saturated.
 - The two instruments are read **together**, and disagreements are documented:
-  in the GEMV ring-depth study, NCU showed the stages 2→16 fix buying +12.9%
-  kernel BW at ns=20 while wall-clock moved only 0.6% — combine/launch overhead
-  and non-KV L2 traffic swallowed the kernel-level gain, which a wall-only
-  bench (or an NCU-only bench) would have mis-attributed. That study also
-  killed a predicted ×3–4.8 in-flight lever with clean-window data
-  ([fa4-hd256-fp8/gemv-ring-fix-bench.md](../fa4-hd256-fp8/gemv-ring-fix-bench.md)).
+  in the retired GEMV kernel's ring-depth study, NCU showed a ring fix buying
+  +12.9% kernel BW while wall clock moved only 0.6% — merge/launch overhead and
+  non-KV L2 traffic swallowed the kernel-level gain, which a wall-only bench
+  (or an NCU-only bench) would have mis-attributed
+  ([deprecated/gemv/docs/gemv-ring-fix-bench.md](../../deprecated/gemv/docs/gemv-ring-fix-bench.md)).
+  The Mjolnir stages that touch launch behaviour (`pdl`, `ab`, `kvfmt`) report
+  both.
 
-## 4. Kernel micro-bench protocol
+## 4. Kernel micro-bench protocol (`mjolnir verify`)
 
-Canonical kernel comparison shape (used by the GEMV workstream):
-
-- **Shape:** L = 8192 KV positions, M = 1 (decode), GQA 24:4 (24 query heads /
-  4 KV heads), bf16 Q × FP8 (e4m3) paged KV, head_dim = 256, page size 16.
-- **Modes compared, back-to-back in one gated window:** the new kernel (swept
-  over its knobs), the incumbent FA4 1-CTA kernel, and the FlashInfer GEMV
-  decode baseline (the bar).
-- **Statistics:** median over 300 iters per configuration (p95 recorded where
-  meaningful); ns / stages sweeps use a fixed small grid
-  (ns ∈ {1, 4, 8, 20, 64}, where 20 = the auto split → 80 CTAs on 20 SMs).
-- **Artifact:** one raw JSON per run (`benchmarks/raw/<name>.json`) with per-cell
-  `{label, median_us, p95_us, clean, samples}`, plus an NCU table for the
-  configurations that matter.
+- **Shape:** one sequence, decode (q_len 1), GQA 24:4 (24 query / 4 KV heads),
+  head_dim 256, page size 128 — Qwen3.8-27B's attention layer.
+- **Context lengths:** every stage defaults to the same eight —
+  L ∈ {128, 4K, 8K, 16K, 32K, 64K, 128K, 256K} — so short-context launch
+  overhead and long-context bandwidth are both always on the chart. A run with
+  any other L list is saved as non-default and never feeds a headline chart.
+- **Legs:** Mjolnir (its harness defaults), FlashInfer (vLLM's decode kernel on
+  Thor; NHD and HND drivers), FlashAttention 2 (`vllm_flash_attn`, bf16 KV —
+  what stock vLLM 0.30.0 picks when FlashInfer is off). All legs of a stage run
+  in the **same run**, so a ratio never mixes machine states.
+- **NCU settings:** `--clock-control base --cache-control all` (base clocks,
+  cold L2 per launch), `--print-summary per-kernel`, 50 profiled iterations
+  per point. A leg's time is its main kernel **plus** its merge / reduction
+  kernel — a split-KV kernel does not get to hide its second launch.
+- **Bandwidth:** effective GB/s = the leg's real KV bytes (format- and
+  layout-aware: an fp6 cache is 0.75 B/element) ÷ total time.
+- **Noise:** on the shared Thor a single result moves about ±7% between runs;
+  tables mark |Δ| < 7% as within noise (`NOISE_PCT`), and a claimed win must
+  hold across L and across two runs.
+- **Correctness first:** every format/layout the benchmarks use is in the
+  `mjolnir verify correctness` matrix against the bit-faithful emulator.
 
 ## 5. End-to-end (serving) benchmark protocol
 
 - **Harness:** `llama-benchy` (directly, not via a wrapper that discards raw
   data — see [research/tool-eval-bench-perf-runs.md](../research/tool-eval-bench-perf-runs.md)).
-  The mjolnir wrapper is `src/mjolnir/benchy.py`; raw JSON lands in
+  The mjolnir wrapper is `mjolnir_cli/benchy.py`; raw JSON lands in
   `benchmarks/raw/perf-<timestamp>/`.
 - **Protocol flags:** `--runs` = measured runs per cell (default 6),
   `--exact-tg` (pin output tokens — kills EOS early-stop variance), `--no-cache`

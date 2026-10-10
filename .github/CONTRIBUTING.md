@@ -1,94 +1,124 @@
 # Contributing to Mjolnir
 
-Mjolnir is a vLLM overlay for the NVIDIA Jetson AGX Thor (`sm_110a`): a
-patched image, a GEMV decode kernel, and the `mjolnir` CLI. Read this before
-opening a PR — most of it is about the two rules that protect every number in
-the repo.
+Mjolnir is an open kernel case study: a decode-attention kernel for the NVIDIA
+Jetson AGX Thor (`sm_110`), the vLLM image it ships in, and the `mjolnir` CLI
+that measures it. Every chapter of the case study is rendered from raw data —
+so **a contribution can be as small as one benchmark run from your Thor**.
 
 ## The two hard rules
 
-1. **The GPU is shared — never kill the server.** The live vLLM server runs
-   the LLM the development agents work on. No stopping, restarting, or
-   rebuilding it to "clean" the GPU. Every GPU bench runs only inside a
-   **clean window** (the server's running + waiting requests read 0 for N
-   consecutive samples), and dirty runs are discarded. The gate lives in
-   [`src/mjolnir/gate.py`](src/mjolnir/gate.py) — **use it, don't re-implement
-   it**. `mjolnir gate --once` checks the current state; `mjolnir bench kernel
-   <task>` gates itself.
-2. **Every number ships with its raw artifact.** Benches emit grep-able JSON
-   (`--out <path>`), append e2e rows to
-   [`benchmarks/history.jsonl`](benchmarks/history.jsonl) through
-   [`src/mjolnir/history.py`](src/mjolnir/history.py), and render charts only
-   through [`src/mjolnir/plots.py`](src/mjolnir/plots.py) +
-   [`src/mjolnir/theme.py`](src/mjolnir/theme.py) — one visual language for
-   every number in the repo. No prose-only results. Wall-clock claims are
-   same-window ratios only; absolute kernel claims use **NCU achieved
-   bandwidth**. Full rules: [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md).
+1. **The GPU is shared — never kill the server.** A live vLLM server may be
+   serving the people (and agents) working on the box. Never stop, restart or
+   rebuild it to "clean" the GPU. Every GPU measurement runs inside a **clean
+   window** (the server's running + waiting requests read 0 for N consecutive
+   samples); dirty runs are discarded. The gate is
+   [`mjolnir_cli/gate.py`](../src/mjolnir-cli/mjolnir_cli/gate.py) — use it,
+   don't re-implement it. Every `mjolnir verify` stage and `mjolnir bench` waits
+   for it by itself; `mjolnir gate --once` shows the current state.
+2. **Every number ships with its raw artifact.** Kernel results are
+   `mjolnir.verify/1` JSON in [`benchmarks/raw/verify/`](../benchmarks/raw/verify/);
+   end-to-end rows go to [`benchmarks/history.jsonl`](../benchmarks/history.jsonl).
+   Charts are rendered only by
+   [`charts.py`](../src/mjolnir-cli/mjolnir_cli/charts.py) with the
+   [`theme.py`](../src/mjolnir-cli/mjolnir_cli/theme.py) design system, and the
+   README / kernel chapters only from their `.md.j2` templates — CI fails if
+   `README.md` doesn't reproduce from the committed data. No prose-only results.
+   Full rules: [`docs/methodology/benchmarking.md`](../docs/methodology/benchmarking.md).
 
 ## Ways to contribute
 
-### Report a problem / request a feature
+### 1. Run the benchmarks on your Thor
 
-Open an [issue](https://github.com/thor-arena/mjolnir/issues). For anything
-measured, include the image tag (`mjolnir image`), the model + quant config,
-and the raw JSON (`--out <path>` from the bench).
+The most useful contribution: independent numbers.
 
-### Add a Thor patch
+```bash
+uv tool install mjolnir-cli
+git clone https://github.com/thor-arena/mjolnir && cd mjolnir
+mjolnir hw setup                     # once: clocks, power mode, docker runtime
+mjolnir verify all                   # correctness + every benchmark stage (~1–2 h)
+uv run mjolnir plot --readme
+```
 
-The patch stack is the heart of the image:
+Open a PR with `benchmarks/raw/verify/**` and the re-rendered `README.md`,
+`docs/kernel/` and `assets/benchmarks/` — or attach the JSON files to an issue
+if you only want to report them. Mention your JetPack / L4T version and power
+mode. ([docs/faq/verify-kernel.md](../docs/faq/verify-kernel.md))
 
-- Patches are **hand-adapted** (not a raw `git apply`) and live in
-  [`docker/vllm-thor/patches/`](docker/vllm-thor/patches/).
-- Each new patch gets: a registration in `apply_patches.py` `PATCH_ORDER`, an
-  entry in `verify_patches.py`, and an entry in
-  [`docker/vllm-thor/PATCHES.md`](docker/vllm-thor/PATCHES.md).
-- The **probe-gated pattern is the norm**: the grant fires only on
-  `capability == (11, 0)` (sm_110), the patch is passive by default until a
-  config opts in — so it sits in the image at zero cost until needed, and
-  upstream landing the feature makes the grant a no-op.
-- **The image build is the gate.** `mjolnir image build` applies and
-  verifies the whole stack and *fails* if a patch stops applying; canaries
-  (`mjolnir image gates`, `mjolnir bench kernel …`) prove the change on real
-  Thor silicon.
+### 2. Improve the kernel
 
-### Improve the GEMV kernel
+`src/mjolnir/mjolnir/t5_decode.py` is the kernel, its harness and the
+bit-faithful emulator. The order is fixed: correctness first, then a same-run
+A/B, then the defaults, then the vLLM side.
 
-Kernel work follows a fixed order: correctness first (`mjolnir verify` must
-be GO), then clean-window-gated benches, then NCU for absolute claims, then
-the ship path (repo kernel file → image rebuild → verify in image). Follow
-[`.opencode/skills/kernel-iteration/SKILL.md`](.opencode/skills/kernel-iteration/SKILL.md);
-the design doc is
-[`docker/vllm-thor/fa4-gemv-kernel/README.md`](docker/vllm-thor/fa4-gemv-kernel/README.md).
+- each chapter in [`docs/kernel/`](../docs/kernel/README.md) ends with **open
+  ideas** — pick one;
+- new paths go behind a harness flag; flip a default only with an A/B win
+  across L (`mjolnir verify ab`);
+- update the chapter's template (`docs/kernel/<stage>.md.j2`) with what you
+  learned — negative results included.
 
-### Bump the base image
+Workflow: [`.opencode/skills/kernel-iteration/SKILL.md`](../.opencode/skills/kernel-iteration/SKILL.md).
 
-New vLLM digest → patch re-verify → canaries → default-tag switch. The build
-is the gate; re-adapt any hunk whose context drifted. Follow
-[`.opencode/skills/update-base-image/SKILL.md`](.opencode/skills/update-base-image/SKILL.md);
-worked examples:
-[`docs/thor-stack/nightly-bump-process.md`](docs/thor-stack/nightly-bump-process.md)
-and [`docs/thor-stack/base-bump-2026-09-26.md`](docs/thor-stack/base-bump-2026-09-26.md).
+Good first projects: a vLLM cache-write path for fp6 KV (the kernel already
+reads it — see [`kvfmt`](../docs/kernel/kvfmt.md)); fusing the split-KV merge
+into the last CTA; closing the fp6 byte-vs-time gap
+([`fp6prof`](../docs/kernel/fp6prof.md)).
 
-### Docs and the CLI
+### 3. Run (or share) an autoresearch session
 
-- User-story guides live in [`docs/faq/`](docs/faq/index.md) — one file per
-  CLI task ("I want to do X" with the exact commands).
-- The README charts are **rendered, not hand-edited**: `mjolnir plot` reads
-  `benchmarks/history.jsonl` and writes `assets/benchmarks/*.png`.
-- CLI conventions: launcher flags parse wherever they appear; task-specific
-  flags pass through verbatim; selections persist to
-  `~/.mjolnir-state.json` with precedence *CLI flag > state > `$MJOLNIR_*` >
-  baked-in default*.
+Let agents run kernel experiments overnight with every attempt on a ledger:
+[`research/README.md`](../research/README.md). Share the exported
+`research/runs/<tag>/` in a PR — a ledger of 40 discarded ideas is a real
+contribution: it tells everyone what not to try. Improvements to the agents
+(`.opencode/agent/`) or the program (`research/program.md`) are welcome too.
 
-## Pre-commit gate (one-time setup)
+### 4. Add a Thor patch, or bump the base image
 
-`pre-commit install` — ruff (`check --fix` + `format`) runs on every commit
-over `src/` (the shippable package = the wheel contents). The docker research
-scripts and the CuTe-DSL kernel are deliberately out of scope: kernel naming
-follows FA conventions (e.g. the running log-sum-exp accumulator `l`). The
-hook version is pinned in `.pre-commit-config.yaml` — the CI in
-[.github/workflows/ci.yml](.github/workflows/ci.yml) runs the same checks on
-every PR, so the gate you see locally is the gate that blocks the release.
+- Patches are **hand-adapted** diffs in
+  [`docker/vllm-thor/patches/`](../docker/vllm-thor/patches/), registered in
+  `apply_patches.py` `PATCH_ORDER`, with a `verify_patches.py` sentinel and a
+  [`PATCHES.md`](../docker/vllm-thor/PATCHES.md) entry. Prefer the probe-gated
+  pattern (active only on `capability == (11, 0)`, passive otherwise).
+- **The image build is the gate**: `mjolnir image build` applies and verifies
+  the stack and fails if a patch stops applying.
+- Base bumps: [`.opencode/skills/update-base-image/SKILL.md`](../.opencode/skills/update-base-image/SKILL.md).
+  The image tag follows the vLLM version (`narandill/mjolnir-thor:v0.30.0`).
+
+### 5. Docs, configs and the CLI
+
+- Task guides live in [`docs/faq/`](../docs/faq/index.md) — one "I want to do X"
+  per file, with the exact commands.
+- New model configs: [`docs/faq/new-model-config.md`](../docs/faq/new-model-config.md).
+- CLI conventions: selections persist to `~/.mjolnir-state.json` with
+  precedence *flag > state > `$MJOLNIR_*` > default*; anything that touches
+  docker or the GPU has `--dry-run`; anything that emits data has `--json` or
+  writes raw JSON.
+
+### Report a problem
+
+Open an [issue](https://github.com/thor-arena/mjolnir/issues) with the image tag
+(`mjolnir image`), the config, and the raw JSON or log path.
+
+## Development setup
+
+```bash
+uv sync                      # both packages, editable, + pytest
+uv run pytest -q             # CLI tests (kernel tests skip without CUDA)
+pre-commit install           # ruff check --fix + format on src/ and tests/
+```
+
+CI ([`ci.yml`](workflows/ci.yml)) runs ruff, pytest, the README reproducibility
+check, both package builds and the vLLM patch check on every PR.
+
+## Releases (maintainers)
+
+| artifact | trigger | version from |
+|---|---|---|
+| `mjolnir-kernel` on PyPI | tag `mjolnir-kernel-v<version>` | `src/mjolnir/mjolnir/__init__.py` |
+| `mjolnir-cli` on PyPI | tag `mjolnir-cli-v<version>` | `src/mjolnir-cli/mjolnir_cli/__init__.py` |
+| `narandill/mjolnir-thor` on Docker Hub | push to `main` touching the image | the vLLM base (`v0.30.0`, `v0.30.0-<sha>`, `latest`) |
+
+The three are versioned independently.
 
 ## Commit style
 
@@ -97,4 +127,4 @@ Short, imperative, grouped by concern (see `git log`).
 ## License
 
 By contributing, you agree that your contributions are made under the
-[MIT](LICENSE) license.
+[MIT](../LICENSE) license.

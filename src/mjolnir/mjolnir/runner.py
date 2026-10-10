@@ -459,7 +459,7 @@ LEGACY_ENV_PREFIX = "THOR_T5_"
 
 def env_flag(name: str, default: str = "") -> str:
     """Read a kernel knob. ``name`` is the canonical ``MJOLNIR_ATTN_*`` name;
-    the pre-rename ``MJOLNIR_ATTN_*`` spelling is still honored as a fallback."""
+    the pre-rename ``THOR_T5_*`` spelling is still honored as a fallback."""
     if name in os.environ:
         return os.environ[name].strip()
     if name.startswith(ENV_PREFIX):

@@ -1,359 +1,201 @@
 # AGENTS.md — working on the Mjolnir repo
 
-This repo is a **custom vLLM overlay for the NVIDIA Jetson AGX Thor**
-(sm_110a) serving Qwen3.8-27B, driven by the `mjolnir` Python package: one
-CLI for serving the patched vLLM image, the FA4 GEMV decode kernel package,
-and the clean-window-gated benchmarks. This file is the single operational
-doc: critical rules, current state, open work. Read it before doing any work
-here.
-
-## Current state
-
-- **14-patch stack** (13 vllm + 1 flashinfer) on vLLM `0.30.0`
-  (`vllm/vllm-openai:v0.30.0-ubuntu2404`, bumped 2026-09-26; image
-  `mjolnir/vllm-thor:qwen38-sm110-v13`). The bump needed only two
-  context-only re-adaptations (55390 hunk #3, 55519 hunk #1 — an upstream
-  docstring reformat, no semantic drift); canaries: T11 FA4 hd256 FP8-KV
-  **PASS** (kernels ran on sm_110a), T10 PASS, T6/T9 INERT-OK (shared-GPU
-  OOM). Depth: `docs/thor-stack/base-bump-2026-09-26.md`. Build gate:
-  `apply_patches.py` + `verify_patches.py` (the image build fails if a patch
-  stops applying). Inventory: `docker/vllm-thor/PATCHES.md`.
-- **v11 (2026-09-24): FA4 hd256 1CTA decode** —
-  `thor-fa4-hd256-1cta-decode-sm110`: decode-shaped hd256 calls (M≤8,
-  non-local, dense or paged-128 TMA) drop the 2CTA cluster to a single CTA →
-  **1.56×** decode at L=8192 M=1 (323 µs → 207 µs clean micro-bench). In-tree
-  hd256 SplitKV investigated, NO-WIN on both paths, kept inert (num_splits=1).
-- **GEMV decode kernel (2026-09-25) — default-on build patch.**
-  `thor-fa4-hd256-gemv-decode-sm110` (+ kernel `.py` via `COPY` in the
-  Dockerfile; opt out with `VLLM_FA4_HD256_GEMV=0`). Pure-FMA CuTe-DSL kernel
-  for M=1 hd256 decode (GQA, dense/paged, fp8 + descales, SplitKV +
-  LSE-merge combine). Gated clean window, L=8192 M=1 GQA 24/4: GEMV auto
-   (ns=20) = **222.8 µs** vs FlashInfer **202.05 µs** in the same window —
-   within ~10% of FI, vs ~2.9× slower before the kernel work. Depth:
-   `docker/vllm-thor/fa4-gemv-kernel/README.md`.
- - **TC decode kernel — varlen-M (M≤8) (2026-10-03).** The tensor-core
-   (mma.sync) hd256 decode kernel (`sm100_hd256_decode_tc_spark`, the FA4/GEMV
-   alternative; reference-only, `VLLM_FA4_HD256_TC_SPARK=1`) now handles **varlen-M** —
-   the MTP/DSpark/DFlash speculative-decode verify (M candidate tokens sharing
-   the KV, causal): the "m" mma dim is the packed GQA group **M×G** (M≤8 → ≤48,
-   fits TILE_M=64; M>8 rejected → FA4/FlashInfer). The kernel was already
-   M-agnostic (runtime `seqlen_q` drives the PackGQA guards); the only change is
-   the dense **LSE select as a compile-time branch on M** (`is_m1` `Constexpr`):
-   M=1 keeps the proven-safe `mode=[1,2,0]` decode codegen (bit-exact — the M=1
-   regression dense 34/35 + paged 8/8 + SplitKV 13/13 is unchanged), M>1 uses
-   `mode=[2,1,0]` (the (B,H,M) layout's correct order — the original `[1,2,0]`
-    mis-placed the M>1 LSE). Gated `verify-tc-spark-decode-varlenM.py` 25/25 GO. Depth:
-    `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.6.
- - **TC decode kernel — fp8-PV mma (2026-10-04).** The tensor-core
-    (`sm100_hd256_decode_tc_spark`) **PV mma is now native fp8** (e4m3 P × e4m3 V, fp32
-    acc) on the fp8-KV leg — resolving the two sm_110a `mma.sync` blockers that kept
-    it bf16: **(a)** the fp8 P A-fragment can't be built in-regs → a **P smem
-    round-trip** (store P element-wise via the QK mma's C-partition to a plain 4 KiB
-    `sP`, reload as the PV A-operand); **(b)** the fp8 V B-operand ldmatrix faults → an
-    **element-wise V load** from the transposed `sVt` (the QK-K-leg idiom). The **bf16-KV
-    leg stays byte-identical** (separate kernel instance — `sP`/`tCsP` are fp8-only).
-     All four verify suites green; **every fp8 cell passes** (incl. fp8 varlen-M M≤8 +
-     SplitKV, which run the fp8 PV mma with the M×G "m" dim). Depth:
-     `docs/fa4-hd256-fp8/tc-parity-plan.md` §2.7.
-  - **GEMV decode kernel — varlen-M (M≤8) (2026-10-04).** The pure-FMA GEMV decode
-     kernel (`sm100_hd256_decode_gemv`, default-on, the M=1 accelerator) now handles
-     **varlen-M** — the MTP-verify step (M query tokens, M≤8, each doing full attention
-     over the shared KV) through the GEMV path via an **in-thread M-loop** (per-M
-     register sizing; `seqlen_q` is a compile-time `Constexpr`, so M lands in
-     `gemv_key` = per-M recompile). M>1 is **dense-Q only** (`cu_seqlens_q is None`),
-     mirroring the TC gate; the KV stream is M-agnostic (loaded once per CTA — all M
-     tokens attend the same KV). **M=1 stays byte-identical** (`M*VEC == VEC`,
-     `range_constexpr(1)`), so the full M=1 regression (`verify-gemv-decode.py`)
-     15/15 GO is unchanged. Gated `verify-gemv-decode-varlenM.py` 25/25 GO (M=1/2/4/8
-     × {dense, varlen-k} × {bf16, fp8} + multi-batch + M=8 SplitKV ns=4 +
-     gate-reject M=9/16). Depth: `docs/fa4-hd256-fp8/gemv-decode-design.md` (varlen-M).
-  - **LiteLLM proxy stack (2026-09-27)**: `mjolnir litellm up|down|status|logs|config`
-  drives the imported proxy stack (`docker/litellm/` — litellm + postgres +
-  redis, `docker compose` under the hood) — **independent of the vLLM
-  server** (reaches it via `host.docker.internal` + the host port; `litellm
-  down` never touches vLLM, and vice versa). The config renders on every
-   `up` from the user's template, with `${MAIN_LLM_MODEL}` = the currently
-   selected model/config (injected trio: `MAIN_LLM_MODEL` /
-   `MAIN_LLM_MODEL_NAME` / `RAW_MODEL_SUFFIXED` +
-   `LITELLM_MAIN_MODEL_BASE_URL`); the rest resolves from the user's env
-   file. **All user-persisted litellm files live in one dir** —
-   `~/.local/share/mjolnir/litellm/`: template
-   `litellm_config.template.yaml` + env `litellm.env` + rendered
-   `litellm_config.yaml` + `db/`, `redis/` state (overrides:
-   `$MJOLNIR_LITELLM_TEMPLATE` / `$MJOLNIR_LITELLM_ENV` /
-   `$MJOLNIR_LITELLM_DATA`). The command group is only enabled by the
-   template's existence (up/config); down/status/logs work on the running
-    stack. FAQ: `docs/faq/litellm-proxy.md`.
- - **Thor HW setup (`mjolnir hw`)**: one-time, idempotent host
-   provisioning — `hw setup` runs `scripts/hw/setup-thor.sh` (the ported
-   ~/thor setup script, self-contained, Thor-only), 10 gated steps:
-   headless boot target, apt upgrade, Docker + NVIDIA default runtime,
-   pip, jtop, 32 GB swap (zRAM off), **fan** (installs the tuned
-   `recommended` + `max` profiles into `/etc/nvfancontrol.conf`, per-profile
-   gated; untouched conf backed up to `.bck` first run only — the rollback
-   point; selects `FAN_DEFAULT_PROFILE` = `recommended` by default),
-   service cleanup, locked max clocks, MAXN power mode. `--fan-profile
-   recommended|max|cool|quiet`, `--skip <steps>`, `--dry-run` (plan only).
-   **Run before serving or benchmarking**; sudo where needed. `hw status`
-   shows the installed profiles/default/backup (no sudo). Conf path
-    overridable for testing via `MJOLNIR_NVFANCONF` (also honored by
-    `hw status`).
-  - **Perses observability stack (2026-09-30)**:
-    `mjolnir perses up|down|status|logs` drives the Perses + Prometheus
-    stack (`docker/perses/`, `docker compose` under the hood) —
-    **independent of the vLLM server** (Prometheus scrapes its
-    `/metrics` via `host.docker.internal` + the resolved port, same as
-    `mjolnir serve`; `perses down` never touches vLLM, and vice versa).
-    The scrape target renders on every `up` from
-    `prometheus.template.yaml` → `${PERSER_DATA_DIR}/prometheus.yml`.
-    **All user-persisted files live in one dir** —
-    `~/.local/share/mjolnir/perses/`: env `perses.env` + rendered
-    `prometheus.yml` + `db/` (Perses file DB) + `prom/` (TSDB) (override:
-    `$MJOLNIR_PERSER_DATA`). The two vLLM dashboards
-    (`docker/perses/dashboards/`, vendored from `vllm-project/vllm`) + the
-    Prometheus datasource + a `vllm` project are **provisioned** by Perses
-    at startup (no percli import) — see
-    `docker/perses/README.md` for the three standalone adaptations
-    (`kind: Dashboard`, `project: vllm`, target-label `namespace`/
-    `service`). UI: `http://127.0.0.1:8080`; Prometheus `:9090`.
-    `up|down|status|logs` all run on the same generic compose-stack driver
-    as litellm — `src/mjolnir/stack.py`.
-  - **The `mjolnir` CLI is shippable**: `serve`,
-    `bench perf|ab|kernel`, `hw` (Thor host pre-config — see below),
-     `model` / `image` (bare = arrow-key picker over `configs/` / local docker
-      images), `vfa prepare`, `verify`, `plot`, `history`, `litellm`, `perses`,
-      `grant-permissions` (one-time NOPASSWD grant for the page-cache clear —
-      the cache-drop command only, never full sudo), `drop-caches` (clear the
-      host page cache)
-      — defaults
-    bake in FA4 + GEMV-on for `Qwen/Qwen3.8-27B` / `NVFP4_FA4hd256`, port 6001.
-  Selections persist to `$MJOLNIR_STATE` (default `~/.mjolnir-state.json`:
-  model + quant + image); precedence: CLI flag > state > `$MJOLNIR_*` >
-  baked-in default.
+This repo is **the Mjolnir decode-attention kernel for the NVIDIA Jetson AGX
+Thor** (`sm_110`, 20 SMs) and everything around it: the vLLM image it ships in
+(`narandill/mjolnir-thor`), the `MJOLNIR` vLLM attention backend, and the
+`mjolnir` CLI that serves, verifies and benchmarks it. Every result in the
+README and `docs/kernel/` is rendered from committed raw data. This file is the
+operational doc: critical rules, layout, how to work. Read it before doing any
+work here.
 
 ## Critical rules (read first)
 
 ### The GPU is shared — never kill the server, wait for idle
-The Thor GPU is shared with the **live vLLM server that serves the LLM the
-subagents run on**. When benchmarking anything on the GPU:
-- **NEVER** stop / restart / kill / rebuild the vLLM server to "clean" the
-  GPU.
-- **Wait for a "clean window"** — vLLM running+waiting requests = 0 for
-  several consecutive samples — BEFORE measuring. The gate lives in
-  `src/mjolnir/gate.py` (`CleanWindow`, `wait_for_idle`, `server_load`);
-  **use it, don't re-implement it.** CLI: `mjolnir gate --once` /
-  `mjolnir bench kernel <task>` (gated tasks gate themselves).
-- **ncu achieved-BW** is more robust than wall-clock under the desktop Xorg
-  co-tenancy (which can't be gated at request level). Wall-clock is only for
-  **relative ratios measured in the same gated window**.
+The Thor GPU is shared with a **live vLLM server that may be serving the LLM
+the agents run on**. When doing anything on the GPU:
+- **NEVER** stop / restart / kill / rebuild the vLLM server (or any container
+  you did not start) to "clean" the GPU.
+- **Wait for a clean window** — vLLM running + waiting requests = 0 for
+  several consecutive samples — before measuring. The gate is
+  `src/mjolnir-cli/mjolnir_cli/gate.py` (`CleanWindow`, `wait_for_idle`,
+  `server_load`); **use it, don't re-implement it.** Every `mjolnir verify`
+  stage and `mjolnir bench` gates itself (`--gate`, default on);
+  `mjolnir gate --once` shows the state.
+- **ncu** (base clocks, cold L2, kernel replay) is the instrument for kernel
+  claims; wall clock is only for **ratios measured in the same run**.
+- On this box a single result moves about **±7%** between runs (`NOISE_PCT`):
+  compare legs measured in the same run, and require a win across L.
 
-### The clean-window gate
-`src/mjolnir/gate.py` is the single source of truth. It polls
-`vllm:num_requests_running` / `vllm:num_requests_waiting` at
-`http://127.0.0.1:6001/metrics` (the co-located server's own port). Import it
-or run it as a CLI; do not copy its logic into a new bench.
+### Every number ships with its raw artifact
+- Kernel results: `mjolnir verify <stage>` → one `mjolnir.verify/1` JSON per run
+  in `benchmarks/raw/verify/<stage>/<run_id>.json` (`"default": true` only when
+  every parameter is the stage default — only those feed headline charts).
+- End-to-end results: `mjolnir bench perf|ab` → `benchmarks/raw/perf-<ts>/` +
+  one row per run in `benchmarks/history.jsonl`.
+- `README.md`, `docs/kernel/*.md` and `assets/benchmarks/` are **generated**
+  (`uv run mjolnir plot --readme`) from `README.md.j2` / `docs/kernel/*.md.j2` and
+  the raw data. Never hand-edit them; CI fails if they don't reproduce.
 
 ### The page-cache clear
-`src/mjolnir/cachectl.py` clears the host page cache (`sysctl -w
-vm.drop_caches=3`) so a warm file cache can't skew a number. It runs
-**always-before** a kernel compile/test/bench (`vfa prepare`, `run_task`) and
-around the server: **before `serve up`** (a clean, reproducible model-load) and
-**after `serve down`** (release the serving file activity). The clear is gated
-on a *targeted* NOPASSWD sudo grant — `mjolnir grant-permissions` checks for
-it and, if missing, installs **only** the cache-clear rule (never full sudo)
-in one password prompt; `mjolnir drop-caches` clears on demand. Without the
-grant the clear is skipped with a hint — a bench or serve never blocks on a
-password.
+`mjolnir_cli/cachectl.py` clears the host page cache (`sysctl -w
+vm.drop_caches=3`) before `serve up` and after `serve down`, gated on a
+*targeted* NOPASSWD grant (`mjolnir grant-permissions` installs only that
+rule; `mjolnir drop-caches` clears on demand). Without the grant the clear is
+skipped with a hint — nothing blocks on a password.
+
+## Current state
+
+- **The kernel** (`src/mjolnir/`, PyPI `mjolnir-kernel`): CuTe-DSL paged decode
+  on `tcgen05` tensor cores — occupancy-pinned split-KV plan (one wave of
+  2 CTAs × 20 SMs), dynamic fp8 Q, TMA KV ring with L2 evict-first, TMEM
+  accumulators, softmax warpgroups, LSE merge kernel; q_len ≤ 1 + spec tokens;
+  full CUDA graphs. Harness default: **e2m3 (fp6) KV on head-major (HND) pages,
+  3-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** (no
+  vLLM fp6 cache-write path yet). Results: README + `docs/kernel/`.
+- **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
+  (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
+  CUSTOM` on stock vLLM 0.30.0 (the `vllm.general_plugins` entry point
+  `mjolnir = "mjolnir:register"` fills both slots). Prefill / mixed steps run on
+  the fallback (`MJOLNIR_ATTN_FALLBACK`, FlashInfer). Knobs: `MJOLNIR_ATTN_*`
+  (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
+- **The image**: `narandill/mjolnir-thor:v0.30.0` on
+  `vllm/vllm-openai:v0.30.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
+  applied and verified at build time; the kernel package installed from
+  `src/mjolnir`. Tags follow the **upstream vLLM version**
+  (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
+  Inventory: `docker/vllm-thor/PATCHES.md`.
+- **Configs** (`configs/Qwen/Qwen3.8-27B/`): `NVFP4_MJOLNIR` (default, Mjolnir),
+  `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV — stock vLLM's
+  choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4).
+- **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
+  + OpenCode agents in `.opencode/agent/` (orchestrator `autoresearch`;
+  `arxiv-researcher`, `web-researcher`, `python-engineer`, `debugger`). The loop
+  is `research/program.md`; every experiment is a ledger row.
+- **Retired**: the FA4 GEMV decode kernel and its tooling are archived in
+  `deprecated/gemv/` (not built, not linted, not in the image).
+- **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
+  `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
+  independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
+  `mjolnir hw setup` provisions a fresh Thor (`scripts/hw/setup-thor.sh`).
 
 ## Repo layout
-- `src/mjolnir/` — **the CLI + package** (typer). `cli.py` (commands),
-  `dockerctl.py` (serve up/down/status — docker orchestration), `gate.py`
-  (the gate), `tasks.py` (kernel test/bench registry + docker launcher),
-  `benchy.py` (llama-benchy wrapper: raw JSON + history), `history.py`
-  (the append-only log), `plots.py` + `theme.py` (charts + design system),
-   `vfa.py` (build a live GEMV'd `vllm_flash_attn` tree for kernel iteration),
-   `stack.py` (the generic `docker compose` side-stack driver), `litellm.py`
-   + `perses.py` (the stack glue on top of it).
-- `docker/vllm-thor/` — **the build.** `Dockerfile` (thin overlay on the vllm
-  aarch64 nightly) + `patches/` (14 hand-adapted patches) +
-  `apply_patches.py` + `verify_patches.py` (the authoritative build gate) +
-  `PATCHES.md` (the per-patch inventory) + canary scripts.
- - `scripts/hw/` — host HW scripts; `setup-thor.sh` is the Thor HW
-   pre-configuration the `mjolnir hw setup` command runs (port of the ~/thor
-   setup script + the tuned fan profiles merged in; self-contained,
-   Thor-only, idempotent).
- - `docker/vllm-thor/fa4-gemv-kernel/` — the **GEMV decode kernel package**
-   (kernel source + `interface-gemv-dispatch.diff` reference + bench/verify
-   scripts + docs). Ships **default-on** in the image (see Current state).
- - `docker/litellm/` + `docker/perses/` — the **side stacks** (the LiteLLM
-   proxy; the Perses + Prometheus observability dashboards), driven by
-   `mjolnir litellm` / `mjolnir perses` via `src/mjolnir/stack.py`
-   (independent of the vLLM server; see their READMEs).
-- `benchmarks/` — `raw/` (committed raw JSONs; perf raws land here at
-  runtime) + `history.jsonl` (append-only e2e bench history — the substrate
-  for the README charts).
-- `assets/` — logo/hero/arch SVGs + generated benchmark charts
-  (`assets/benchmarks/*.png`, rendered by `mjolnir plot`).
-- `configs/<vendor>/<model>/<quant>.yaml` — model configs
-  (default: `configs/Qwen/Qwen3.8-27B/NVFP4_FA4hd256.yaml`). User-local
-  configs also load from `~/.local/share/mjolnir/configs/` (`$MJOLNIR_CONFIGS_DIR`);
-  on a `(model, quant)` clash the repo copy wins. The served model name a
-  bench targets comes from the config's `served-model-name` (else its
-  `model:` field).
-- `docs/` — the formalized research + workstream reports
-  (index at `docs/README.md`):
-  - `docs/methodology/` — the measurement discipline (clean-window gate,
-    NCU achieved-BW vs wall-clock) every number must follow.
-  - `docs/fa4-hd256-fp8/` — the kernel workstream (1CTA, SplitKV, GEMV design
-    + benches).
-  - `docs/thor-stack/` — why the patches exist (hd256 route trace, FP8-on-sm_110
-    proof, GDN prefill, nightly-bump process, e2e forensics).
-  - `docs/draft-cudagraph/` — the c1 regression study + gate patch.
-  - `docs/research/` — formal research notes (upstream status, prior-art,
-    methodology literature review, field notes).
-  - `docs/faq/` — user-story guides for the `mjolnir` CLI (serve, defaults,
-    new model configs, A/B benches, base bumps, GEMV kernel work; index at
-    `docs/faq/index.md`).
 
-## Running kernel tests / benchmarks — use `mjolnir`, don't hand-roll `docker run`
-`mjolnir bench kernel --help-list` shows every task. Examples:
-- `mjolnir image gates` — the sm_110 gate-probe canary (fresh container, no server).
-- `mjolnir bench kernel functional` — the no-GPU functional check.
-- `mjolnir bench kernel gemv-ringfix` — a gated GEMV bench (server up = gated
-  window; offline = ungated run).
-- `mjolnir bench kernel all --port <p>` — the full GEMV bench set in one go
-  (gemv-ringfix + gemv-bench in all 4 modes), one gated window per leg, first
-  failure stops the set.
-- `mjolnir bench kernel gemv-bench --dry-run` — preview the docker command (no container).
+- `src/mjolnir/` — **the kernel package** (`mjolnir-kernel`, import `mjolnir`):
+  - `mjolnir/t5_decode.py` — the CuTe-DSL kernel, split-KV merge, standalone
+    harness (`python -m mjolnir.t5_decode --help`) and `emulate_decode`, the
+    bit-faithful correctness reference. The single source of truth for the
+    kernel; `mjolnir verify` mounts it over the image's copy.
+  - `mjolnir/runner.py` — plan buffers, compile cache, launch, KV views (no vLLM).
+  - `mjolnir/backend.py` — the vLLM backend / builder / impl / metadata.
+  - `mjolnir/__init__.py` — `register()` (the plugin entry point), `BACKEND_NAME`.
+- `src/mjolnir-cli/` — **the CLI** (`mjolnir-cli`, import `mjolnir_cli`, command
+  `mjolnir`; typer):
+  - `cli.py` (commands), `config.py` (defaults: `DEFAULT_QUANT`, `IMAGE_REPO`,
+    `VLLM_VERSION`, `BACKEND_LABELS`; `RepoLayout`; bundled resources),
+    `dockerctl.py` (serve), `gate.py`, `cachectl.py`, `benchy.py` +
+    `history.py` (e2e), `tasks.py` (canary tasks for `image gates`),
+    `stack.py` / `litellm.py` / `perses.py`, `thor.py` (hw), `picker.py`.
+  - `verify/` — `mjolnir verify`: `stages.py` (every stage, `ALL_LS`, the
+    correctness matrix), `legs.py` (Mjolnir / FlashInfer / FA2 legs and ncu
+    filters), `docker.py` (one container per leg), `ncu.py` (summary parsing),
+    `results.py` (the `mjolnir.verify/1` schema), `report.py`, `cli.py`.
+  - `drivers/` — the FlashInfer (NHD/HND) and FA2 benchmark drivers run in the
+    image.
+  - `charts.py` + `theme.py` (every chart; the design system), `readme.py`
+    (README/docs rendering: tables, findings, `chart()`), `interactive.py`
+    (the Plotly site), `autoresearch.py`.
+  - `hatch_build.py` bundles `configs/`, `docker/litellm`, `docker/perses`,
+    `scripts/hw` into the wheel so the CLI works outside a checkout.
+- `tests/cli/` (pytest, runs in CI) and `tests/kernel/` (needs CUDA + CUTLASS
+  DSL; runs on a Thor via `mjolnir verify vllm`).
+- `docker/vllm-thor/` — the image: `Dockerfile` (repo-root build context),
+  `patches/`, `apply_patches.py` + `verify_patches.py` (the build gate),
+  `PATCHES.md`, canary scripts.
+- `configs/<vendor>/<model>/<quant>.yaml` — serving configs; user-local configs
+  in `~/.local/share/mjolnir/configs/` (`$MJOLNIR_CONFIGS_DIR`).
+- `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
+  `history.jsonl`, `logs/` (untracked).
+- `assets/benchmarks/` — generated charts (`*.png`, `*-dark.png`, `manifest.json`).
+- `README.md.j2`, `docs/kernel/*.md.j2` — the templates.
+- `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index
+  `docs/README.md`.
+- `research/` — autoresearch program, ledger (untracked while live), exported runs.
+- `.opencode/` — agents (`agent/`), the `/autoresearch` command, skills
+  (`kernel-iteration`, `update-base-image`).
+- `deprecated/gemv/` — the archived GEMV kernel, its docs, data and tooling.
+- `.github/workflows/` — `ci.yml`, `docker-image.yml`, `release-kernel.yml`,
+  `release-cli.yml`, `pages.yml`.
 
-**Arg model:** launcher flags (`--image`, `--vfa-tree`, `--dry-run`, ...) are
-parsed wherever they appear; the **task's own** flags (`--out`, `--mode`,
-`--no-gate`, ...) pass through to the script verbatim.
+## How to work
 
-**Getting raw numbers for grep:** a bare run (no `--out`) auto-writes the
-GEMV benches into `benchmarks/raw/` — the host dir is mounted at `/raw`
-(`gemv-bench` → `gemv-decode-bench-<mode>.json`, `gemv-ringfix` →
-`gemv-ring-fix-bench.json`) — so the committed raws the charts read stay
-current. `--out <path>` overrides (container path: `/p` = the kernel package
-dir, `/raw` = `benchmarks/raw/`); then grep it:
+### Kernel: verify and benchmark — use `mjolnir verify`, don't hand-roll `docker run`
 ```
-mjolnir bench kernel gemv-ringfix
-grep -E '"(median|p95|bw_gbs_nominal_kv|clean)"' benchmarks/raw/gemv-ring-fix-bench.json
+mjolnir verify list                       # stages + saved runs
+mjolnir verify correctness [--quick]      # vs the emulator
+mjolnir verify sweep                      # Mjolnir vs FlashInfer vs FA2 (ncu)
+mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing
+mjolnir verify vllm                       # the backend inside vLLM
+mjolnir verify bench | all                # every stage once (+ correctness)
+mjolnir verify <stage> --dry-run          # the docker commands, nothing run
+mjolnir verify show <stage>               # the latest saved run
 ```
+Default L for every stage and chart: **128 4096 8192 16384 32768 65536 131072
+262144**. `--ls` narrows a run (saved as non-default). Logs:
+`benchmarks/logs/verify-<run_id>/`. Workflow:
+`.opencode/skills/kernel-iteration/SKILL.md`.
 
-**BENCH tasks gate on the vLLM server** (the gate polls it). Start it with
-`mjolnir serve up` first; if the metrics endpoint is down the launcher notes
-it and the bench runs **ungated** (server offline → nothing co-located to
-gate against — the raw JSON marks the window `"gated": false`, so ungated
-numbers are distinguishable from gated ones). It never fails for an offline
-server and **never** restarts the server.
-
-**End-to-end perf:** `mjolnir bench perf` — gated llama-benchy
-(`--runs 6` measured/cell, one gated sweep by default — `--repeat` adds
-independent windows, `--exact-tg` pins output length). Raw JSON + the vLLM
-server log → `benchmarks/raw/perf-<ts>/`, one row per run →
-`benchmarks/history.jsonl`, llama-benchy's terminal table prints on
-completion, charts auto-render. `mjolnir bench ab`
-does the headline A/B (default legs: the default config vs the baseline
-config on `--image`; each leg is `'<config>'` or `'<image>:<config>'` —
-the image carries the backend, the config the serving params). Restarts
-the server per leg — do it on purpose.
-
-## Building the image
+### Charts, README, site
 ```
-mjolnir image build --tag <tag>        # = docker build -t <tag> docker/vllm-thor/
-mjolnir image gates                   # sm_110 gate-probe canaries (fresh container)
+uv run mjolnir plot --readme              # charts + README.md + docs/kernel/*.md
+uv run mjolnir plot --site _site          # the interactive page (pages.yml publishes it)
 ```
-The build applies the 14 patches (`apply_patches.py`) and verifies them
-(`verify_patches.py`); it **fails** if a patch no longer applies — that's the
-signal the base nightly moved past a patch's assumptions. Bumping the base:
-see the "BUMPING TO A NEWER NIGHTLY" section in the `Dockerfile` and
-`docs/thor-stack/nightly-bump-process.md`. The active image tag is a CLI
-default (`mjolnir serve up --image …` / `$MJOLNIR_IMAGE`); defaults live in
-`src/mjolnir/config.py`.
+New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir
+orange, FlashInfer blue, FA2 aqua — never ad-hoc colors; light + dark variants),
+registered in `render_all`; new table → `readme.py` `TABLES`; reference both from
+the template. Sentences that state a result come from `readme.py` findings,
+not hand-typed numbers.
+
+### End to end
+`mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row);
+`mjolnir bench ab` (default legs `NVFP4_MJOLNIR,NVFP4,NVFP4_FA2`; legs are
+`<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
+purpose, in a window you own.
+
+### Building the image
+```
+mjolnir image build --tag <tag>   # docker build -f docker/vllm-thor/Dockerfile -t <tag> .
+mjolnir image gates               # sm_110 gate-probe canaries (fresh container)
+```
+The build fails if a patch stops applying — the signal the base moved. Bumping:
+`.opencode/skills/update-base-image/SKILL.md` (bump `BASE_IMAGE` **and**
+`VLLM_VERSION` in `config.py` together).
+
+### Autoresearch
+```
+mjolnir autoresearch init <tag>   # branch autoresearch/<tag> + baseline row
+mjolnir autoresearch run          # OpenCode orchestrator; never stops by itself
+mjolnir autoresearch ledger | status | export
+```
+Agents may change only `src/mjolnir/mjolnir/t5_decode.py`; the keep/discard rule
+is in the harness (> 2% geomean gain over the best kept, correctness required).
+
+### Releases
+Three independent versions: `mjolnir-kernel` (tag `mjolnir-kernel-v<ver>`,
+version in `src/mjolnir/mjolnir/__init__.py`), `mjolnir-cli` (tag
+`mjolnir-cli-v<ver>`, `src/mjolnir-cli/mjolnir_cli/__init__.py`) — both via PyPI
+trusted publishing — and the image (vLLM version, on push to `main`).
 
 ## Open work
-
-### Bench (needs the live GPU)
-- [ ] **First gated end-to-end A/B**: `mjolnir bench ab`
-      (default legs: `NVFP4_FA4hd256` vs `NVFP4` on the default image)
-      — produces the first FA4-GEMV row in `benchmarks/history.jsonl` and
-      re-renders the README charts. (Restarts the live server per leg —
-      schedule deliberately.)
-- [ ] Re-measure the seeded history rows under the `--runs 6` protocol and
-      re-baseline the charts.
-
-### GEMV kernel
-- [x] **Large-L validation (32K/64K ncu A/B)** — DONE (2026-10-04): the
-      32K/64K ncu A/B (`ncu-gemv-fi-ab.sh`) profiled FI-tc + GEMV-t1ns20 +
-      GEMV-t2ns10 (kernel-only, `--print-summary per-kernel`, clean window,
-      page-cache cleared, `--clock-control base`). Findings: (1) FI-tc is
-      ~1.8× faster than GEMV-t1ns20 at both lengths (382.6 vs 688.2 µs at 32K,
-      809.8 vs 1350 µs at 64K); (2) the FI-parity shape (GEMV-t2ns10: 40 CTA,
-      96 KiB, one wave) is *slower* than the shipped best (GEMV-t1ns20: 80 CTA,
-      48 KiB) — the single-wave occupancy coupling (the FI plan trick) is a
-      **NO-WIN** on the FMA GEMV; (3) the differentiator is the
-      **compute/commit structure** (the FI-tc's `mma.sync` QK/PV in a 128-thread
-      1×4-warp layout with a coarse 48 KiB `commit_group` vs the GEMV's
-      96-thread pure-FMA loop with fine 3 KiB per-stage commits), NOT the
-      in-flight bytes or the grid/occupancy coupling. `dram__bytes.sum` is
-      `n/a` on the Thor (LPDDR5X doesn't expose the DRAM-bytes counter). Depth:
-      `task/fa4-hd256-fp8/ncu-gemv-fi-ab-report.md` + `gemv-speedup-plan.md` §5.
-- [x] **Bench the `_spark` TC at 32K/64K** — DONE (2026-10-04): added the
-      `_spark` TC as a 4th leg to the ncu A/B. **Key finding: the `_spark` TC is
-      3.1× SLOWER than the GEMV-t1ns20 at 32K (2130 vs 687 µs) and 3.3× SLOWER
-      at 64K (4440 vs 1350 µs)** due to a **20× L2-sector memory-access bug**
-      (43 M vs 2.2 M sectors at 32K, 85.8 M vs 4.3 M at 64K — the SplitKV
-      re-reads the KV 20×). The TC-vs-CC hypothesis is **WRONG** for our
-      `_spark` TC — the FI-tc's speed is its specific implementation (the coarse
-      48 KiB commit + the 128-thread 1×4-warp layout), not the generic compute-ISA
-      difference. The GEMV's per-CTA compute is comparable to the FI-tc (268 K vs
-      242 K cycles/CTA) — the gap is the **memory-pipeline efficiency**. Depth:
-      `ncu-gemv-fi-ab-report.md` + `gemv-speedup-plan.md` §4.
-- [ ] **Fix the `_spark` TC's 20× L2-sector bug — single-stage pipeline** — the
-      `_spark` TC's `cp_async_wait_group(0)` on every 64-row tile exposes the
-      DRAM latency (no ring — the GEMV's 16-stage ring pipelines the cp.async,
-      hiding the latency). The single-stage pipeline causes the 32 MiB L2 to
-      thrash across the 80 CTAs' 67 MB working set, producing 20× the L2
-      sectors of the GEMV/FI-tc. Fix: add a GEMV-style S-stage ring to the
-      `_spark` TC (pipeline the cp.async: load tile i+1 while computing tile i).
-      After the fix, re-bench at 32K/64K. Depth: `ncu-gemv-fi-ab-report.md`.
-- [x] **Coarsen the GEMV commit granularity** — DONE (2026-10-04): tested
-      s4t4 (S=4, tile=4, R=24, 8 commits) + s2t8 (S=2, tile=8, R=48, 4 commits)
-      at 32K/64K + 8K. **s4t4 is ~4.4% faster at 32K/64K** (657.6 vs 687.5 µs
-      at 32K, 1290 vs 1350 µs at 64K) and **~0.5% faster at 8K** (189.96 vs
-      191.00 µs). The L2 sectors are identical — the gain is purely from fewer
-      commit points (8 vs 32). s2t8 is worse (S=2 = the original pre-fix
-      double buffer, too shallow). **s4t4 is now the GEMV default** (the
-      constructor `tile_size_per_bdx=4` + `stages=4`). Next: investigate the
-      128-thread 1×4-warp layout (the FI-tc's structure) for a bigger gain.
-      Depth: `gemv-speedup-plan.md` §4 (Lever 1 + s4t4 data).
-  - [x] **varlen-M GEMV**: decode with MTP verify (M ≤ 8) through the GEMV path —
-        DONE (2026-10-04): in-thread M-loop, `seqlen_q` a compile-time `Constexpr`,
-        M>1 dense-Q only; M=1 byte-identical. See Current state +
-        `verify-gemv-decode-varlenM.py` (25/25 GO) + `gemv-decode-design.md` (varlen-M).
- - [x] **T5 (tcgen05+TMEM+CVT) kernel — ncu A/B vs the GEMV at 32K/64K** — DONE
-       (2026-10-08): the NVIDIA-reference path-(c) kernel, named **T5**
-       (`sm100_hd256_decode_t5` — tcgen05 mma + TMEM + one-time
-       fp8→bf16 in-tensor-core cvt, cp.async page-table ring, one-wave 1/SM)
-       profiled vs the shipped GEMV-t1ns20 (`ncu-cvt-gemv-ab.sh`, base clock).
-       **T5 is ~1.9× faster than the GEMV at both DRAM-bound lengths**
-       (349 vs 688 µs at 32K, 717 vs 1350 µs at 64K) *despite reading 2× the KV
-       bytes* (bf16 from the cvt vs fp8) — i.e. ~2× more DRAM-efficient per
-       byte (192 GB/s vs the GEMV's 49 GB/s ≈ 62% vs 18% of the 273 GB/s peak;
-       the GEMV is latency-bound, T5 is ~DRAM-bound). No L2 thrashing (2.12 M
-       vs 2.24 M sectors at 32K — T5 reads the KV exactly once; the `_spark`
-       TC's 20× bug is NOT replicated). Also ~1.1× faster than the FI-tc
-       baseline (382 µs at 32K). Paged verify passes bit-exact; dense+paged
-       functional GO. The full 4-way L-sweep (FI-tc/GEMV/`_spark`/T5, 8K–128K)
-       is in `docker/vllm-thor/fa4-gemv-kernel/t5-ncu-lsweep.md`. Depth:
-       `task/fa4-hd256-fp8/ncu-cvt-gemv-ab-report.md`.
- - [ ] **Wire T5 into `interface.py` dispatch + a gated bench task** — T5 wins
-       the DRAM-bound A/B; expose it behind a flag (e.g. `VLLM_FA4_HD256_T5=1`),
-       register a `t5-bench` kernel task (the `t5-smoke` functional task is
-       already registered), and re-profile paged (page-table gather overhead).
-       Remaining functional gap: varlen-M (MTP-verify). Depth:
-       `task/fa4-hd256-fp8/ncu-cvt-gemv-ab-report.md`.
+- [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,
+      commit `benchmarks/raw/verify/**`, re-render (the README shows "pending"
+      for stages without a default run).
+- [ ] **End-to-end A/B**: `mjolnir bench ab` (Mjolnir vs FlashInfer vs FA2) —
+      restarts the server per leg; schedule deliberately.
+- [ ] **fp6 KV in vLLM**: a cache-write path for e2m3 so serving gets the
+      harness's fp6 win (`docs/kernel/kvfmt.md`, `quant.md`).
+- [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
+- [ ] Fuse the split-KV merge into the last CTA per sequence.
+- [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
 
 ### FA4 + hd256 + FP8 KV (prefill) — blocked upstream, plan to port later
 FA4's dedicated hd256 kernel is bf16-only upstream (asserts
@@ -432,25 +274,21 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
     (`docs/draft-cudagraph/c1-regression-study.md`).
 
 ## Conventions
-- **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted,
-  **not** a raw `git apply`), are registered in `apply_patches.py`
-  `PATCH_ORDER`, get a `verify_patches.py` entry, and a `PATCHES.md` entry.
-  The **probe-gated pattern** (granted only on sm_110, passive by default
-  until a config opts in) is the norm.
-- **Kernel research** lives in `docs/<workstream>/` (reports); the
-  **shippable** kernel code lives under `docker/vllm-thor/`.
-- **Bench discipline:** every new bench uses `src/mjolnir/gate.py`, emits raw
-  JSON (grep-able, no prose-only results), and appends to
-  `benchmarks/history.jsonl` through `src/mjolnir/history.py`. Subagents
-  spend cycles on the kernel, not the plumbing.
-- **Charts** only go through `src/mjolnir/plots.py` + the `theme.py` design
-  system (one visual language for every number in the repo).
+- **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**
+  a raw `git apply`), registered in `apply_patches.py` `PATCH_ORDER`, with a
+  `verify_patches.py` sentinel and a `PATCHES.md` entry. The **probe-gated
+  pattern** (active only on sm_110, passive until a config opts in) is the norm.
+- **Kernel changes** go behind a harness flag first; a default flips only with a
+  same-run A/B win across L. Never change `emulate_decode` to make a test pass.
+- **Bench discipline:** gate via `gate.py`, raw JSON first, charts second; no
+  prose-only results.
+- **Lint:** `uvx ruff@0.14.14 check src/ tests/` + `format` (pre-commit runs it).
 - **Commit style:** short, imperative, grouped by concern (see `git log`).
 
 ## Pointers
-- The patch inventory + per-patch analysis: `docker/vllm-thor/PATCHES.md`.
-- The GEMV decode kernel (design + results + methodology):
-  `docker/vllm-thor/fa4-gemv-kernel/README.md`.
-- The measurement discipline behind every number:
-  `docs/methodology/benchmarking.md`.
-- The docs index: `docs/README.md`.
+- The kernel case study: `docs/kernel/README.md`.
+- Kernel package + env knobs: `src/mjolnir/README.md`.
+- Patch inventory: `docker/vllm-thor/PATCHES.md`.
+- Measurement discipline: `docs/methodology/benchmarking.md`.
+- Docs index: `docs/README.md`; FAQ: `docs/faq/index.md`.
+- The archived GEMV kernel: `deprecated/gemv/`.

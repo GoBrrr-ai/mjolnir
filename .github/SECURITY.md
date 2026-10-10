@@ -8,8 +8,9 @@ private vulnerability disclosure form:
 
 ## Scope
 
-Mjolnir is a thin overlay on upstream vLLM / FlashInfer: a 14-patch image,
-the GEMV decode kernel, and the `mjolnir` CLI. Most serving code is upstream
+Mjolnir is a thin overlay on upstream vLLM / FlashInfer: a patched image
+(`narandill/mjolnir-thor`), the Mjolnir decode-attention kernel
+(`mjolnir-kernel`), and the `mjolnir` CLI (`mjolnir-cli`). Most serving code is upstream
 — report vulnerabilities in vLLM or FlashInfer to their respective projects.
 
 Two properties of the stack worth knowing:
@@ -23,3 +24,11 @@ Two properties of the stack worth knowing:
   listeners, no telemetry, no outbound connections beyond upstream
   behavior. It changes kernel selection, CUDA-graph capture, and policy
   gates inside vLLM/FlashInfer.
+- **The kernel package registers a vLLM plugin** (`vllm.general_plugins` →
+  `mjolnir:register`): installing `mjolnir-kernel` runs its `register()` in
+  every vLLM process. It only registers an attention backend
+  (`MJOLNIR_ATTN_DISABLE=1` turns it off). Install it from PyPI or this repo
+  only.
+- **Autoresearch runs LLM agents with shell access** scoped by the permissions
+  in `.opencode/agent/` (they can commit and reset on their branch, never push).
+  Run it on a machine and a checkout you are willing to let an agent touch.

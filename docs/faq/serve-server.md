@@ -23,13 +23,13 @@ server's state — see the
 
 ```bash
 mjolnir serve up --model Qwen/Qwen3.8-27B --config NVFP4 \
-                 --image mjolnir/vllm-thor:qwen38-sm110-v13 \
-                 --port 6001 --no-gemv
+                 --image narandill/mjolnir-thor:v0.30.0 \
+                 --port 6001
 mjolnir serve up --dry-run     # print the exact docker run, do nothing
 ```
 
-- `--gemv/--no-gemv` — route M=1 hd256 decode to the GEMV kernel
-  (`VLLM_FA4_HD256_GEMV=1`/`0`); default on.
+- `--config` picks the attention backend too: `NVFP4_MJOLNIR` (default,
+  Mjolnir), `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV).
 - `--wait/--no-wait`, `--wait-timeout` — health-wait behavior.
 
 ## What a first launch does
@@ -49,3 +49,29 @@ mjolnir serve up --dry-run     # print the exact docker run, do nothing
 mjolnir serve status     # expect: running + health ok + queue 0/0
 mjolnir gate --once      # expect: CLEAN
 ```
+
+## The Mjolnir backend
+
+The default config (`configs/<model>/NVFP4_MJOLNIR.yaml`) sets
+`attention-backend: MJOLNIR`; for it, `serve up` adds `VLLM_KV_CACHE_LAYOUT=HND`
+(the kernel reads head-major pages) and passes through any `MJOLNIR_ATTN_*`
+variable from your shell (the knobs are listed in
+[`src/mjolnir/README.md`](../../src/mjolnir/README.md#configuration)):
+
+```bash
+MJOLNIR_ATTN_Q_DTYPE=bf16 mjolnir serve up      # e.g. keep Q in bf16
+```
+
+Without the CLI, on the image:
+
+```bash
+docker run --gpus all --ipc host -e VLLM_KV_CACHE_LAYOUT=HND -p 8000:8000 \
+  narandill/mjolnir-thor:v0.30.0 \
+  vllm serve Qwen/Qwen3.8-27B --attention-backend MJOLNIR
+```
+
+On a stock vLLM 0.30.0 (no image patch), `pip install mjolnir-kernel[dsl]` and
+use `--attention-backend CUSTOM`: the plugin registers itself in the `CUSTOM`
+slot through the `vllm.general_plugins` entry point. Prefill and mixed batches
+run on the fallback backend (`MJOLNIR_ATTN_FALLBACK`, FlashInfer by default);
+Mjolnir takes the decode steps.

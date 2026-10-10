@@ -6,16 +6,16 @@ one wins? Where is each thing persisted? How do I script this non-interactively?
 ## The precedence chain (high → low)
 
 ```
-CLI flag  >  state file  >  $MJOLNIR_* env var  >  baked-in default (src/mjolnir/config.py)
+CLI flag  >  state file  >  $MJOLNIR_* env var  >  baked-in default (mjolnir_cli/config.py)
 ```
 
 | Setting | Flag | Env var | Baked-in default |
 |---|---|---|---|
 | model | `--model` | `MJOLNIR_MODEL` | `Qwen/Qwen3.8-27B` (`DEFAULT_MODEL`) |
-| quant/config | `--config` | `MJOLNIR_QUANT` | `NVFP4_FA4hd256` (`DEFAULT_QUANT`) |
-| image | `--image` | `MJOLNIR_IMAGE` | `mjolnir/vllm-thor:qwen38-sm110-v13` (`DEFAULT_IMAGE`) |
+| quant/config | `--config` | `MJOLNIR_QUANT` | `NVFP4_MJOLNIR` (`DEFAULT_QUANT`) |
+| image | `--image` | `MJOLNIR_IMAGE` | `narandill/mjolnir-thor:v0.30.0` (`DEFAULT_IMAGE`) |
 | port | `--port` | `MJOLNIR_PORT` | `6001` |
-| GEMV kernel on/off | `--gemv/--no-gemv` | `VLLM_FA4_HD256_GEMV` (in-container) | on (it's the point) |
+| Mjolnir kernel knobs | — | `MJOLNIR_ATTN_*` (passed into the container) | see [`src/mjolnir/README.md`](../../src/mjolnir/README.md#configuration) |
 
 ## The state file
 
@@ -24,8 +24,8 @@ a small JSON state file — **not** an env file:
 
 ```bash
 cat ~/.mjolnir-state.json
-# {"model": "Qwen/Qwen3.8-27B", "quant": "NVFP4_FA4hd256",
-#  "image": "mjolnir/vllm-thor:qwen38-sm110-v13"}
+# {"model": "Qwen/Qwen3.8-27B", "quant": "NVFP4_MJOLNIR",
+#  "image": "narandill/mjolnir-thor:v0.30.0"}
 ```
 
 - Location: `$MJOLNIR_STATE`, default `~/.mjolnir-state.json`. Point it at
@@ -41,7 +41,7 @@ cat ~/.mjolnir-state.json
 | `~/.mjolnir-state.json` | `MJOLNIR_STATE` | active model/quant/image |
 | `~/.local/share/mjolnir/` | `MJOLNIR_DATA` | models, FlashInfer/Triton/inductor caches, tiktoken |
 | `~/.local/share/mjolnir/configs/` | `MJOLNIR_CONFIGS_DIR` | user-local model configs |
-| `<repo>/benchmarks/` | `MJOLNIR_BENCHMARKS` | raw JSONs + `history.jsonl` |
+| `<repo>/benchmarks/` | `MJOLNIR_BENCHMARKS` | raw JSONs + `history.jsonl` (outside a checkout: `~/.local/share/mjolnir/benchmarks/`) |
 
 (`MJOLNIR_REPO` pins the repo root for installed-CLI users; the repo is
 otherwise located by walking up from the CWD.)
@@ -53,10 +53,10 @@ run non-interactively** — they print the table and exit 4 telling you to
 pass arguments. So for scripts:
 
 ```bash
-mjolnir model use Qwen/Qwen3.8-27B NVFP4_FA4hd256   # explicit, idempotent
+mjolnir model use Qwen/Qwen3.8-27B NVFP4_MJOLNIR    # explicit, idempotent
 mjolnir model list --json | jq -r '.configs[].model'
 mjolnir serve up --dry-run                            # the exact docker run, no side effects
-mjolnir bench kernel gemv-bench --dry-run
+mjolnir verify sweep --dry-run
 mjolnir history --json
 ```
 

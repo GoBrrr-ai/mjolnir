@@ -9,33 +9,34 @@ locally."
 ```bash
 mjolnir image             # arrow-key picker over every local docker image
 mjolnir image list        # list with ● on the active one
-mjolnir image use mjolnir/vllm-thor:qwen38-sm110-v13   # non-interactive
+mjolnir image use narandill/mjolnir-thor:v0.30.0   # non-interactive
 ```
 
 The choice is written to the state file (`~/.mjolnir-state.json` by default;
 see [settings-precedence.md](settings-precedence.md)). Every later
-`serve` / `bench` / `verify` / `bench kernel` picks it up automatically —
+`serve` / `bench` / `verify` / `autoresearch` picks it up automatically —
 no flags needed.
 
 ## One-off (state untouched)
 
 ```bash
-mjolnir serve up --image narandill/vllm-thor:qwen38-sm110-v12-gemv
-MJOLNIR_IMAGE=narandill/vllm-thor:qwen38-sm110-v9 mjolnir bench perf
+mjolnir serve up --image my/mjolnir-thor:dev
+MJOLNIR_IMAGE=narandill/mjolnir-thor:v0.30.0-<sha> mjolnir verify sweep
 ```
 
 Precedence is always: **CLI flag > state file > `$MJOLNIR_IMAGE` > baked-in
-default** (`DEFAULT_IMAGE` in `src/mjolnir/config.py`).
+default** (`DEFAULT_IMAGE` in `src/mjolnir-cli/mjolnir_cli/config.py`): `narandill/mjolnir-thor:v<vLLM version>`.
 
 ## Build a new one
 
 ```bash
-mjolnir image build --tag mjolnir/vllm-thor:qwen38-sm110-v14
+mjolnir image build --tag my/mjolnir-thor:dev
 mjolnir image gates                    # sm_110 gate-probe canaries, fresh container
 ```
 
-- `build` = `docker build -t <tag> docker/vllm-thor/`; the build applies and
-  verifies the 14-patch stack and **fails** if a patch stops applying
+- `build` = `docker build -f docker/vllm-thor/Dockerfile -t <tag> .` (the repo root
+  is the context: the image installs `src/mjolnir`); the build applies and
+  verifies the patch stack — including the `MJOLNIR` backend enum patch — and **fails** if a patch stops applying
   (that's your "the base moved" signal —
   [base-image-bump.md](base-image-bump.md)).
 - `gates` runs the sm_110 gate-probe canaries (GDN prefill, FA4 FP8-KV,
@@ -43,3 +44,15 @@ mjolnir image gates                    # sm_110 gate-probe canaries, fresh conta
   needed**, no impact on the live server.
 - After a green build + canary: `mjolnir image use <new-tag>` makes it
   active. Keep the old tag around for A/B reference.
+
+## Published images
+
+[`narandill/mjolnir-thor`](https://hub.docker.com/r/narandill/mjolnir-thor) is
+built by `.github/workflows/docker-image.yml`. Tags follow **the upstream vLLM
+version** the image is built on — not the PyPI package versions:
+
+| tag | what |
+|---|---|
+| `v0.30.0` | latest build on vLLM 0.30.0 |
+| `v0.30.0-<sha>` | an immutable build from one commit |
+| `latest` | the newest build from `main` |

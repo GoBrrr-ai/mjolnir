@@ -1,14 +1,14 @@
 # Upgrading the base image and re-adapting the patch stack
 
 **Story:** "A new `vllm/vllm-openai` release/nightly is out. I want to move
-the image base to it, and when the 14-patch stack stops applying, I want to
+the image base to it, and when the patch stack stops applying, I want to
 know *which* hunks are invalidated and how to re-adapt them."
 
 ## Why the build fails on purpose
 
 `docker/vllm-thor/` is a **thin overlay**: the prebuilt aarch64 wheel in the
 base image carries the sm_110a kernels; on top, `apply_patches.py`
-hand-adapts and applies the 14 patches, and `verify_patches.py` asserts every
+hand-adapts and applies the patches, and `verify_patches.py` asserts every
 fix is present. The `RUN apply_patches.py && verify_patches.py` step in the
 Dockerfile **fails the build** if a patch no longer applies or a fix is
 missing — that failure *is* the invalidation signal: the base moved past
@@ -23,10 +23,11 @@ docker image inspect vllm/vllm-openai:v0.31.0-ubuntu2404 \
        --format '{{index .RepoDigests 0}}'
 
 # 2. Point the Dockerfile at it (ARG BASE_IMAGE + BASE_IMAGE_DIGEST,
-#    the "Verified against base" comment, the image label)
+#    the "Verified against base" comment, the image label) and VLLM_VERSION in
+#    src/mjolnir-cli/mjolnir_cli/config.py — CI checks the two agree
 
 # 3. Build the candidate tag — the build is the gate
-mjolnir image build --tag mjolnir/vllm-thor:qwen38-sm110-v14
+mjolnir image build --tag narandill/mjolnir-thor:v0.31.0
 ```
 
 Outcomes of step 3:
@@ -35,7 +36,8 @@ Outcomes of step 3:
   `--forward` skips hunks the base already merged upstream): run the canary,
   tag it canonical, keep the old tag for A/B.
   ```bash
-  mjolnir image gates --image mjolnir/vllm-thor:qwen38-sm110-v14
+  mjolnir image gates --image narandill/mjolnir-thor:v0.31.0
+  mjolnir verify correctness && mjolnir verify vllm   # the kernel + the MJOLNIR backend
   ```
 - **Red** (a patch rejects / a fix is missing): don't force it. Re-adapt the
   invalidated hunk(s) — below — then rebuild.
@@ -68,7 +70,7 @@ new base:
    `touched` list; if the patch is now absorbed upstream, keep the
    `verify_patches.py` entry or consciously drop both (a drop stays a drop —
    re-validate why).
-4. **Re-run the full gate:** `apply_patches.py` (all 14, in `PATCH_ORDER`,
+4. **Re-run the full gate:** `apply_patches.py` (all, in `PATCH_ORDER`,
    plus the flashinfer root) → `verify_patches.py` all fixes present.
 5. **Close the loop:** `mjolnir image build --tag …` → `mjolnir image gates`
    (GPU canary: GDN prefill, FA4 FP8-KV, draft-CG, hd256) → `mjolnir image
@@ -83,3 +85,14 @@ canary transcript — worked examples:
 [`nightly-bump-process.md`](../thor-stack/nightly-bump-process.md)), and a
 commit that groups the Dockerfile + patch + doc changes. The process
 reference is in the Dockerfile's "BUMPING TO A NEWER vLLM" block.
+
+## The image tag follows vLLM
+
+Images are tagged with the upstream vLLM version they are built on
+(`narandill/mjolnir-thor:v0.31.0`), independent of the `mjolnir-kernel` /
+`mjolnir-cli` PyPI versions. Merging the bump to `main` makes
+`.github/workflows/docker-image.yml` publish `v<vllm>`, `v<vllm>-<sha>` and
+`latest`. The `MJOLNIR` backend patch
+(`thor-mjolnir-attention-backend.patch`) is two lines in
+`vllm/v1/attention/backends/registry.py`; CI checks it still applies to the
+base's vLLM tag on every PR.

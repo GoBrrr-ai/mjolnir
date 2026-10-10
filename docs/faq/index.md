@@ -30,12 +30,14 @@ trust or publish any number.
 | The clean-window gate — why every bench waits, and never kills the server | [clean-window-gate.md](clean-window-gate.md) |
 | A/B a custom image against the default image | [ab-image.md](ab-image.md) |
 | A/B different models against each other | [ab-models.md](ab-models.md) |
-| Run kernel benches / correctness suites (with or without the server) | [kernel-bench-tasks.md](kernel-bench-tasks.md) |
-| Where results land, and how to compare runs | [results-history-charts.md](results-history-charts.md) |
+| Verify and benchmark the kernel (`mjolnir verify …`) | [verify-kernel.md](verify-kernel.md) |
+| Where results land, and how charts / README / the site are rendered | [results-history-charts.md](results-history-charts.md) |
 
 ## Image & kernel work
 
 | Story | File |
 |---|---|
 | Upgrade the Dockerfile base image and re-adapt the patch stack | [base-image-bump.md](base-image-bump.md) |
-| Improve the GEMV kernel: methodology, validation, benchmarking | [gemv-kernel-improvement.md](gemv-kernel-improvement.md) |
+| Improve the Mjolnir kernel by hand: measure, A/B, publish | [verify-kernel.md](verify-kernel.md#improving-the-kernel) |
+| Run the autonomous research loop overnight | [autoresearch.md](autoresearch.md) |
+| Serve with `--attention-backend MJOLNIR` (image or stock vLLM) | [serve-server.md](serve-server.md#the-mjolnir-backend) |

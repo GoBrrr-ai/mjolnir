@@ -86,4 +86,4 @@ The services run as their images' nonroot uid, so the subdirs they create
 under `db/`/`prom/` are `0750` and undeletable by the host user — the purge
 therefore runs a throwaway **root** `busybox` container to `rm -rf` them
 (root bypasses the permissions), falling back to a host `rmtree` if docker
-can't run (see `_purge_data` in `src/mjolnir/stack.py`).
+can't run (see `_purge_data` in `src/mjolnir-cli/mjolnir_cli/stack.py`).

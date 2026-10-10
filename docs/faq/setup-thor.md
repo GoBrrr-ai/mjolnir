@@ -75,14 +75,14 @@ sudo nvfancontrol -q     # the daemon's live state (needs sudo)
 ## First boot afterwards
 
 ```bash
-mjolnir serve up          # the baked-in Qwen3.8-27B NVFP4 + FA4 GEMV defaults
+mjolnir serve up          # the baked-in Qwen3.8-27B NVFP4 + Mjolnir defaults
 mjolnir gate --once       # confirm the clean-window gate sees the server
 ```
 
 ## Where it lives
 
 `scripts/hw/setup-thor.sh` (self-contained, Thor-only constants: SoM=thor,
-128 GB, NVIDIA carrier) driven by `src/mjolnir/thor.py` — the CLI maps its
+128 GB, NVIDIA carrier) driven by `mjolnir_cli/thor.py` — the CLI maps its
 flags to the script's options; `--dry-run` previews the plan. The conf path
 is overridable for testing via `MJOLNIR_NVFANCONF` (also honored by
 `mjolnir hw status`).

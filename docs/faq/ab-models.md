@@ -26,7 +26,7 @@ restarted per leg, gated perf bench per leg:
 
 ```bash
 mjolnir bench ab --backends \
-  'Qwen/Qwen3.8-27B/NVFP4_FA4hd256,Meta/Llama-3.3-70B/NVFP4'
+  'Qwen/Qwen3.8-27B/NVFP4_MJOLNIR,Meta/Llama-3.3-70B/NVFP4'
 ```
 
 Both legs serve from the active image (override per leg with the
@@ -35,7 +35,7 @@ images differ). Or run the legs by hand if you want to inspect the server
 between them:
 
 ```bash
-mjolnir bench perf --model Qwen/Qwen3.8-27B --config NVFP4_FA4hd256
+mjolnir bench perf --model Qwen/Qwen3.8-27B --config NVFP4_MJOLNIR
 mjolnir serve down && mjolnir serve up --model Meta/Llama-3.3-70B --config NVFP4
 mjolnir bench perf --model Meta/Llama-3.3-70B --config NVFP4
 ```

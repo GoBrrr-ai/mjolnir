@@ -1,6 +1,6 @@
 # A/B: custom image vs the default image
 
-**Story:** "I built `my/vllm-thor:gemv-v14` and want to know whether it's
+**Story:** "I built `my/mjolnir-thor:dev` and want to know whether it's
 faster than the current default image — a fair, gated, end-to-end number,
 not a vibes estimate."
 
@@ -17,19 +17,19 @@ parameters. Compare two images on the *same* config:
 
 ```bash
 mjolnir bench ab --backends \
-  'mjolnir/vllm-thor:qwen38-sm110-v13:NVFP4_FA4hd256,my/vllm-thor:gemv-v14:NVFP4_FA4hd256'
+  'narandill/mjolnir-thor:v0.30.0:NVFP4_MJOLNIR,my/mjolnir-thor:dev:NVFP4_MJOLNIR'
 ```
 
-Compare backends on one image (the default invocation — FA4-GEMV vs
-FlashInfer):
+Compare backends on one image (the default invocation — Mjolnir vs
+FlashInfer vs FlashAttention 2):
 
 ```bash
-mjolnir bench ab                     # default legs: NVFP4_FA4hd256,NVFP4 on the active image
+mjolnir bench ab                     # default legs: NVFP4_MJOLNIR,NVFP4,NVFP4_FA2 on the active image
 ```
 
 Pin a bare config leg to an image without writing it in every leg:
-`mjolnir bench ab --image my/vllm-thor:gemv-v14 --backends
-NVFP4_FA4hd256,NVFP4`.
+`mjolnir bench ab --image my/mjolnir-thor:dev --backends
+NVFP4_MJOLNIR,NVFP4`.
 
 Protocol per leg (defaults): one gated sweep (6 measured runs per cell +
 2 warmups, `--runs`), contexts 0/4K/8K × concurrency 1/2/4, `--exact-tg`
@@ -53,8 +53,8 @@ ls benchmarks/raw/                    # perf-<ts>/benchy-r*.json — full raw da
 ```
 
 Each leg is a row-set in `benchmarks/history.jsonl` labeled with image +
-model + config + backend (e.g. "FA4-GEMV" vs "FlashInfer"), so
-`mjolnir plot` shows both in `assets/benchmarks/vllm-vs-mjolnir-image.png`
-(image vs image) and `bench-compare.png` (every unique bench as bars).
+model + config + backend (e.g. "Mjolnir" vs "FlashInfer"), so
+`mjolnir plot --readme` shows them in `assets/benchmarks/e2e-decode.png` /
+`e2e-prefill.png` and the README's end-to-end tables.
 Judge with `tg_tps` (decode throughput, tokens/s) per cell — the number the
 kernel work moves — and `pp_tps` for prefill.

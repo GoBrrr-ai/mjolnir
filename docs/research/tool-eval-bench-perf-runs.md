@@ -228,7 +228,7 @@ raw data: it keeps only the per-cell mean, discards stddev, and actively **delet
 llama-benchy's raw JSON (temp file, removed in a `finally` block), with the
 `--save-result` override breaking the run rather than working.
 
-Therefore mjolnir's perf runner ([`src/mjolnir/benchy.py`](../../src/mjolnir/benchy.py))
+Therefore mjolnir's perf runner ([`src/mjolnir-cli/mjolnir_cli/benchy.py`](../../src/mjolnir-cli/mjolnir_cli/benchy.py))
 **wraps llama-benchy directly** instead of going through tool-eval-bench: it invokes
 llama-benchy with the same protocol as the recommended command above — `--runs 5`
 measured and `--warmup-runs 2` discarded per (depth × concurrency) cell,

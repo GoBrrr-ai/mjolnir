@@ -19,7 +19,7 @@ Full discipline: [`../methodology/benchmarking.md`](../methodology/benchmarking.
 
 ## What "clean" means
 
-`src/mjolnir/gate.py` (the single source of truth — import it or run it,
+`src/mjolnir-cli/mjolnir_cli/gate.py` (the single source of truth — import it or run it,
 never re-implement it) polls the server's Prometheus endpoint
 `http://127.0.0.1:6001/metrics` every 2 s and reads
 `vllm:num_requests_running` / `vllm:num_requests_waiting`. The window is
