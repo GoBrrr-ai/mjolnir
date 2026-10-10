@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mjolnir"
 version = "0.1.0"
-description = "Mjolnir — vLLM on Jetson Thor (sm_110): a patched vLLM image, an FA4-native GEMV decode kernel, and a one-command serve / bench / verify CLI."
+description = "Mjolnir — vLLM on Jetson Thor (sm_110): a patched vLLM image, T5 fp8 paged decode attention (CuTe DSL, tcgen05), and a one-command serve / bench / verify CLI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -31,6 +31,9 @@ dev = ["pytest>=9.1.1"]
 
 [project.scripts]
 mjolnir = "mjolnir.cli:app"
+
+[project.entry-points."vllm.general_plugins"]
+thor_t5 = "vllm_thor_t5:register"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mjolnir"]
