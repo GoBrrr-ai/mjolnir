@@ -11,8 +11,11 @@ One line per perf sweep repeat:
       "runs": 5, "warmup_runs": 2, "exact_tg": true,
       "cells": [
         {"concurrency": 1, "context": 8192, "prompt": 2048, "gen": 128,
-         "tg_tps": {"mean": 41.2, "std": 0.7, "values": [...]},
-         "pp_tps": {"mean": 9830.0, "std": 120.0, "values": [...]}},
+         "tg_tps": {"mean": 41.2, "std": 0.7, "values": [...]},   # decode t/s (all requests)
+         "tg_req_tps": {...},                                      # decode t/s per request
+         "pp_tps": {"mean": 9830.0, "std": 120.0, "values": [...]},  # prefill t/s
+         "ttfr_ms": {...}, "ttft_ms": {...},                       # first response / e2e TTFT
+         "itl_ms": {...}},                                         # inter-token latency = 1000 / tg_req
         ...
       ]
     }
@@ -100,12 +103,26 @@ def parse_benchy_json(raw: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for src, dst in (
             ("tg_throughput", "tg_tps"),
+            ("tg_req_throughput", "tg_req_tps"),
             ("pp_throughput", "pp_tps"),
             ("peak_throughput", "peak_tps"),
             ("ttfr", "ttfr_ms"),
+            ("e2e_ttft", "ttft_ms"),
         ):
             m = metric(src)
             if m is not None:
                 cell[dst] = m
+        # inter-token latency: the per-request decode rate inverted, per run
+        # (at c=1 tg_req == tg). llama-benchy reports rates, not ITL itself.
+        if (b.get("concurrency") or 1) == 1:
+            rate = cell.get("tg_req_tps") or cell.get("tg_tps")
+        else:
+            rate = cell.get("tg_req_tps")
+        if rate and rate.get("values"):
+            itl = [1000.0 / v for v in rate["values"] if v and v > 0]
+            if itl:
+                mean = sum(itl) / len(itl)
+                std = (sum((v - mean) ** 2 for v in itl) / (len(itl) - 1)) ** 0.5 if len(itl) > 1 else 0.0
+                cell["itl_ms"] = {"mean": mean, "std": std, "values": itl}
         cells.append(cell)
     return cells

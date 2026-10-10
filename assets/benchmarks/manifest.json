@@ -8,5 +8,10 @@
   "dark": "assets/benchmarks/e2e-prefill-dark.png",
   "light": "assets/benchmarks/e2e-prefill.png",
   "stage": "e2e"
+ },
+ "opening-infographic": {
+  "dark": "assets/opening-infographic.png",
+  "light": "assets/opening-infographic.png",
+  "stage": "e2e"
  }
 }

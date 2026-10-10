@@ -156,6 +156,8 @@ the template. Sentences that state a result come from `readme.py` findings,
 not hand-typed numbers.
 
 ### End to end
+`mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
+TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
 `mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row);
 `mjolnir bench ab` (default legs `NVFP4_MJOLNIR,NVFP4,NVFP4_FA2`; legs are
 `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on

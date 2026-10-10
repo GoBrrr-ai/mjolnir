@@ -37,6 +37,15 @@ vllm serve <model> --attention-backend MJOLNIR
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.30.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/opening-infographic.png">
+  <img src="assets/opening-infographic.png" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
+</picture>
+</p>
+
+<p align="center"><sub>End to end on a Jetson AGX Thor, one request at 8K context: decode <b>+4.0%</b>, prefill <b>+19.0%</b>, time to first token <b>4.30 s → 3.63 s</b>, inter-token latency <b>40.9 ms → 39.3 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub></p>
+
 
 > [!NOTE]
 > The headline benchmark has not been recorded in this checkout yet. Run `mjolnir verify bench` on a Thor and `mjolnir plot --readme` to render the charts and numbers from the raw results.
@@ -87,7 +96,25 @@ The box is shared with a live server, so ±7% between runs is noise; ratios insi
 
 > Pending: `mjolnir verify sweep`.
 
-### End to end (vLLM serving)
+### Official vLLM image vs Mjolnir
+
+The same model and serving config on the official `vllm/vllm-openai` image and on the Mjolnir image, measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond ±7%).
+
+| context | requests | decode (t/s, ↑) | prefill (t/s, ↑) | TTFT (ms, ↓) | ITL (ms, ↓) |
+|--:|--:|--:|--:|--:|--:|
+| no ctx | 1 | 22.5 → **25.7** (+14.3% ✅) | 2,839 → **3,522** (+24.0% ✅) | 874 → **729** (+19.9% ✅) | 44.4 → **38.9** (+14.3% ✅) |
+| 4K | 1 | 24.3 → **24.5** (+0.9% 🟰) | 2,894 → **3,290** (+13.7% ✅) | 2,271 → **2,013** (+12.8% ✅) | 41.1 → **40.8** (+0.9% 🟰) |
+| 8K | 1 | 24.4 → **25.4** (+4.0% 🟰) | 2,468 → **2,938** (+19.0% ✅) | 4,296 → **3,631** (+18.3% ✅) | 40.9 → **39.3** (+4.0% 🟰) |
+| no ctx | 2 | 44.5 → **48.5** (+9.0% ✅) | 2,671 → **3,118** (+16.7% ✅) | 1,475 → **1,255** (+17.5% ✅) | — |
+| 4K | 2 | 45.7 → **47.6** (+4.3% 🟰) | 2,779 → **3,124** (+12.4% ✅) | 4,360 → **3,875** (+12.5% ✅) | — |
+| 8K | 2 | 44.5 → **46.1** (+3.8% 🟰) | 2,468 → **2,862** (+16.0% ✅) | 8,237 → **7,096** (+16.1% ✅) | — |
+| no ctx | 4 | 88.5 → **84.5** (−4.6% 🟰) | 2,892 → **3,325** (+15.0% ✅) | 2,800 → **2,433** (+15.1% ✅) | — |
+| 4K | 4 | 81.0 → **83.8** (+3.5% 🟰) | 2,736 → **3,104** (+13.4% ✅) | 8,946 → **7,882** (+13.5% ✅) | — |
+| 8K | 4 | 68.2 → **70.7** (+3.6% 🟰) | 2,457 → **2,800** (+14.0% ✅) | 16,344 → **14,324** (+14.1% ✅) | — |
+
+<sub>official: `vllm/vllm-openai:v0.30.0-ubuntu2404 · NVFP4 (Native FlashInfer)` · Mjolnir: `narandill/mjolnir-vllm:v14 · NVFP4 (Mjolnir FlashInfer)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+
+### Attention backends on the Mjolnir image
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
@@ -164,6 +191,7 @@ mjolnir model | image                   # pick the model config / image
 mjolnir verify <stage>                  # correctness + ncu benchmarks -> benchmarks/raw/verify
 mjolnir verify bench | all              # every benchmark stage (all = + correctness)
 mjolnir verify show | list              # re-print saved results
+mjolnir bench e2e | compare            # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
 mjolnir bench perf | ab                 # end-to-end serving benchmarks -> history.jsonl
 mjolnir plot --readme [--site DIR]      # charts + README + docs (+ interactive site) from raw data
 mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop

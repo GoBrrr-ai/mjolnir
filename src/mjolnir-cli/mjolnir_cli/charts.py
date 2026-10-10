@@ -718,6 +718,133 @@ def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
     )
 
 
+# ── the README opening infographic (official vLLM image vs Mjolnir image) ──
+
+INFOGRAPHIC = "opening-infographic.png"
+
+
+def _display_family() -> str:
+    """A clean display face for the hero numbers: the first static-weight
+    sans available (variable fonts render thin in matplotlib)."""
+    from matplotlib import font_manager
+
+    for fam in ("Noto Sans", "Nimbus Sans", "Liberation Sans", "DejaVu Sans"):
+        try:
+            path = font_manager.findfont(fam, fallback_to_default=False)
+        except Exception:  # noqa: BLE001
+            continue
+        if path and "dejavu" not in Path(path).name.lower():
+            return fam
+    return "DejaVu Sans"
+
+
+def render_infographic(layout: RepoLayout) -> Path | None:
+    """``assets/opening-infographic.png``: ``assets/background.jpeg`` full
+    bleed; a white card on the left with two small bar charts (decode and
+    prefill t/s, official vLLM image vs Mjolnir image); the big gains on the
+    right. Every number comes from the latest history pair
+    (:func:`mjolnir_cli.e2e.latest_pair`), one request (c=1) at the longest
+    context both sides measured."""
+    from matplotlib.patches import FancyBboxPatch
+
+    from mjolnir_cli import e2e
+
+    if layout.repo_root is None:
+        return None
+    off, mj = e2e.latest_pair(layout.history_file)
+    h = e2e.hero(off, mj) if off and mj else None
+    bg_path = layout.repo_root / "assets" / "background.jpeg"
+    if not h or not bg_path.exists():
+        print("[mjolnir] no official-vLLM / Mjolnir e2e pair in history — infographic skipped (run: mjolnir bench e2e)")
+        return None
+
+    plt = _plt()
+    bg = plt.imread(str(bg_path))
+    H, W = bg.shape[:2]
+    fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
+    ax_bg = fig.add_axes([0, 0, 1, 1])
+    ax_bg.set_axis_off()
+    ax_bg.imshow(bg, extent=(0, W, 0, H))
+
+    ink, dim = "#0d1117", "#57606a"
+    c_off, c_mj = theme.LIGHT.flashinfer, theme.LIGHT.mjolnir
+    card_l, card_r, card_t, card_b = 0.03 * W, 0.46 * W, 0.06 * H, 0.94 * H
+    ax_bg.add_patch(
+        FancyBboxPatch(
+            (card_l, H - card_b),
+            card_r - card_l,
+            card_b - card_t,
+            boxstyle=f"round,pad=0,rounding_size={0.025 * H:.0f}",
+            facecolor="white",
+            edgecolor="none",
+            zorder=2,
+        )
+    )
+    pad_x, pad_y, gap = 0.058 * W, 0.05 * H, 0.03 * H
+    x0, x1 = card_l + pad_x, card_r - 0.04 * W
+    top, bot = card_t + pad_y, card_b - pad_y - 0.05 * H  # room for the source line
+    panel_h = (bot - top - gap) / 2
+    ctx = e2e.ctx_label(h["ctx"])
+    for i, (key, name, fmt) in enumerate((("tg_tps", "decode", "{:.1f}"), ("pp_tps", "prefill", "{:,.0f}"))):
+        y_top = top + i * (panel_h + gap)
+        ax = fig.add_axes([x0 / W, (H - y_top - panel_h) / H, (x1 - x0) / W, panel_h / H])
+        ax.set_facecolor("white")
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+        ax.set_xticks([])
+        va, vb, _ = h[key]
+        ys, vals = [1.05, 0.48], [va, vb]
+        ax.barh(ys, vals, height=0.5, color=[c_off, c_mj], zorder=3)
+        xmax = max(vals) * 1.25
+        ax.set_xlim(0, xmax)
+        ax.set_ylim(-0.05, 1.75)
+        ax.set_yticks(ys)
+        ax.set_yticklabels(["vLLM", "Mjolnir"], color=ink, fontsize=11)
+        ax.tick_params(axis="y", length=0, pad=6)
+        for y, v in zip(ys, vals):
+            ax.text(
+                v + xmax * 0.012,
+                y,
+                fmt.format(v).replace(",", " "),
+                va="center",
+                color=ink,
+                fontsize=12.5,
+                weight="bold",
+            )
+        ax.text(0, 1.0, f"{name} — tokens/s", transform=ax.transAxes, color=ink, fontsize=13, weight="bold", va="top")
+        ax.text(
+            0,
+            0.89,
+            f"1 request · {ctx} context · end to end",
+            transform=ax.transAxes,
+            color=dim,
+            fontsize=9.5,
+            va="top",
+        )
+    src = (
+        f"official {off.get('image', '')} vs {mj.get('image', '')} · {mj.get('model', '')} {mj.get('config', '')}"
+        " · llama-benchy, gated"
+    )
+    fig.text((card_l + pad_x * 0.35) / W, (H - card_b + 0.035 * H) / H, src, color=dim, fontsize=7.5, va="bottom")
+
+    disp = _display_family()
+
+    def stat(y_num: float, y_lab: float, gain: float, noun: str) -> None:
+        fig.text(
+            0.90, y_num, e2e.pct(gain), ha="right", va="center", color="white", fontsize=90, weight="bold", family=disp
+        )
+        word = "faster" if gain >= 0 else "slower"
+        fig.text(0.90, y_lab, f"{word} {noun}", ha="right", va="center", color="white", fontsize=20, family=disp)
+
+    stat(0.68, 0.56, h["tg_tps"][2], "decode")
+    stat(0.30, 0.18, h["pp_tps"][2], "prompt prefill")
+    out = layout.repo_root / "assets" / INFOGRAPHIC
+    fig.savefig(out, dpi=100)
+    plt.close(fig)
+    print(f"[mjolnir] wrote {out}")
+    return out
+
+
 # ── registry + render ───────────────────────────────────────────────────────
 
 KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
@@ -766,6 +893,13 @@ def render_all(layout: RepoLayout, data: dict | None = None) -> dict[str, dict]:
             entry[mode.name] = str(p.relative_to(layout.repo_root) if layout.repo_root else p)
         if "light" in entry:
             manifest[name] = entry
+    info = render_infographic(layout)
+    if info is not None:
+        manifest["opening-infographic"] = {
+            "stage": "e2e",
+            "light": str(info.relative_to(layout.repo_root)),
+            "dark": str(info.relative_to(layout.repo_root)),
+        }
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     print(f"[mjolnir] {len(manifest)} charts (light + dark) -> {out_dir}")

@@ -294,6 +294,38 @@ def _correctness_table(doc: dict) -> str:
     return _table(["case group", "passed", "Q dtypes"], rows, ["---", "--:", "---"])
 
 
+def _vs_vllm_table(off: dict, mj: dict) -> str | None:
+    """Official vLLM image vs the Mjolnir image, every shared cell: each
+    metric as 'official → mjolnir (gain)'; gain is positive when Mjolnir is
+    better (faster decode/prefill, lower TTFT/ITL)."""
+    from mjolnir_cli import e2e
+
+    rows = []
+    for r in e2e.compare(off, mj):
+        line = [f"{e2e.ctx_label(r['ctx'])}", str(r["conc"])]
+        for m in e2e.METRICS:
+            a, b, g = r[m.key]
+            if a is None or b is None:
+                line.append("—")
+                continue
+            line.append(f"{m.fmt.format(a)} → **{m.fmt.format(b)}** ({ratio_pct(g)})")
+        rows.append(line)
+    if not rows:
+        return None
+    head = ["context", "requests"] + [f"{m.label} ({m.unit}, {'↑' if m.higher_better else '↓'})" for m in e2e.METRICS]
+    return _table(head, rows, ["--:", "--:"] + ["--:"] * len(e2e.METRICS))
+
+
+def ratio_pct(g: float | None) -> str:
+    """A gain in %, marked like the rest of the README (✅ > noise, 🟰 within)."""
+    if g is None:
+        return "—"
+    from mjolnir_cli import e2e
+
+    mark = "✅" if g > NOISE_PCT else ("🔻" if g < -NOISE_PCT else "🟰")
+    return f"{e2e.pct(g)} {mark}"
+
+
 def _e2e_table(layout: RepoLayout, metric: str, fmt: str) -> str | None:
     from mjolnir_cli.charts import e2e_rows
 
@@ -487,6 +519,11 @@ class ReadmeContext:
     pending: list = field(default_factory=list)
     e2e_tg: str | None = None
     e2e_pp: str | None = None
+    # official vLLM image vs the Mjolnir image (mjolnir_cli.e2e)
+    vs_vllm: str | None = None  # the comparison table
+    vs_vllm_hero: dict = field(default_factory=dict)  # c=1 headline gains, formatted
+    vs_vllm_official: str = ""
+    vs_vllm_mjolnir: str = ""
 
 
 def _vllm_base_version(layout: RepoLayout) -> str:
@@ -562,6 +599,23 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
         ctx.correctness = f"{sum(1 for c in cs if c.get('passed'))} / {len(cs)}"
     ctx.e2e_tg = _e2e_table(layout, "tg_tps", "{:.1f}")
     ctx.e2e_pp = _e2e_table(layout, "pp_tps", "{:,.0f}")
+    from mjolnir_cli import e2e
+
+    off, mj = e2e.latest_pair(layout.history_file)
+    if off and mj:
+        ctx.vs_vllm = _vs_vllm_table(off, mj)
+        ctx.vs_vllm_official, ctx.vs_vllm_mjolnir = e2e.side_label(off), e2e.side_label(mj)
+        h = e2e.hero(off, mj)
+        if h:
+            ctx.vs_vllm_hero = {
+                "ctx": e2e.ctx_label(h["ctx"]),
+                "tg_tps": e2e.pct(h["tg_tps"][2]),
+                "pp_tps": e2e.pct(h["pp_tps"][2]),
+                "ttft_ms": f"{h['ttft_ms'][0] / 1000:.2f} s → {h['ttft_ms'][1] / 1000:.2f} s"
+                if h["ttft_ms"][2]
+                else "—",
+                "itl_ms": f"{h['itl_ms'][0]:.1f} ms → {h['itl_ms'][1]:.1f} ms" if h["itl_ms"][2] else "—",
+            }
     return ctx
 
 

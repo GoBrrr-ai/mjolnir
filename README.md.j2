@@ -37,6 +37,14 @@ vllm serve <model> --attention-backend MJOLNIR
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.30.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
+{% if ctx.vs_vllm_hero -%}
+<p align="center">
+{{ chart("opening-infographic", "Mjolnir image vs the official vLLM image — end-to-end decode and prefill") }}
+</p>
+
+<p align="center"><sub>End to end on a Jetson AGX Thor, one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub></p>
+{%- endif %}
+
 {% if ctx.has_sweep -%}
 <p align="center">
 {{ chart("kernel-speedup", "Mjolnir decode speedup over FlashInfer at every context length") }}
@@ -122,7 +130,19 @@ The box is shared with a live server, so ±{{ ctx.noise_pct }}% between runs is 
 > Pending: `mjolnir verify sweep`.
 {%- endif %}
 
-### End to end (vLLM serving)
+### Official vLLM image vs Mjolnir
+
+{% if ctx.vs_vllm -%}
+The same model and serving config on the official `vllm/vllm-openai` image and on the Mjolnir image, measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond ±{{ ctx.noise_pct }}%).
+
+{{ ctx.vs_vllm }}
+
+<sub>official: `{{ ctx.vs_vllm_official }}` · Mjolnir: `{{ ctx.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+{%- else -%}
+> Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).
+{%- endif %}
+
+### Attention backends on the Mjolnir image
 
 {% if ctx.e2e_tg -%}
 {{ chart("e2e-decode", "End-to-end decode throughput per attention backend") }}
@@ -186,6 +206,7 @@ mjolnir model | image                   # pick the model config / image
 mjolnir verify <stage>                  # correctness + ncu benchmarks -> benchmarks/raw/verify
 mjolnir verify bench | all              # every benchmark stage (all = + correctness)
 mjolnir verify show | list              # re-print saved results
+mjolnir bench e2e | compare            # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
 mjolnir bench perf | ab                 # end-to-end serving benchmarks -> history.jsonl
 mjolnir plot --readme [--site DIR]      # charts + README + docs (+ interactive site) from raw data
 mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop

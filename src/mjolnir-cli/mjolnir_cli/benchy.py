@@ -101,7 +101,7 @@ def build_command(
 
 
 # Metrics that carry per-run ``values`` (pooled across sweeps for aggregation).
-_METRICS = ("tg_tps", "pp_tps", "peak_tps", "ttfr_ms")
+_METRICS = ("tg_tps", "tg_req_tps", "pp_tps", "peak_tps", "ttfr_ms", "ttft_ms", "itl_ms")
 
 
 def _mean(vals: list[float]) -> float:
