@@ -119,3 +119,17 @@ def test_correctness_cases_pin_the_vllm_config_unless_default():
 def test_every_stage_defaults_to_the_full_L_axis():
     assert stages.ALL_LS == (128, 4096, 8192, 16384, 32768, 65536, 131072, 262144)
     assert set(stages.ALL_ORDER) <= set(stages.STAGES)
+
+
+def test_raw_csv_with_text_only_columns_does_not_crash():
+    from mjolnir_cli.verify import ncu
+
+    text = (
+        '"ID","Kernel Name","gpu__time_duration.sum","note"\n'
+        '"","","usecond",""\n'
+        '"0","decode","12.5","n/a"\n'
+        '"1","decode","13.5","n/a"\n'
+    )
+    mean, units = ncu.parse_raw_csv(text)
+    assert mean["gpu__time_duration.sum"] == 13000.0  # µs -> ns, averaged
+    assert "note" not in mean and "Kernel Name" not in mean

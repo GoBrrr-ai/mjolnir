@@ -273,9 +273,16 @@ class Runner:
             print(f"  ! {name}: ncu exit {rc} with [{attempt}] — retrying with fewer sections", file=sys.stderr)
         if rc != 0 or self.dry_run:
             return rc, {}
-        raw, units = ncu.parse_raw_csv((outdir / f"{name}.raw.csv").read_text(errors="replace"))
-        det_p = outdir / f"{name}.details.csv"
-        details = ncu.parse_details_csv(det_p.read_text(errors="replace")) if det_p.exists() else {}
+        try:
+            raw, units = ncu.parse_raw_csv((outdir / f"{name}.raw.csv").read_text(errors="replace"))
+            det_p = outdir / f"{name}.details.csv"
+            details = ncu.parse_details_csv(det_p.read_text(errors="replace")) if det_p.exists() else {}
+        except (OSError, ValueError, ZeroDivisionError) as e:  # a bad export loses one profile, not the run
+            print(f"  ! {name}: could not parse the ncu export ({e}) — see {outdir}", file=sys.stderr)
+            return 1, {}
+        if not raw:
+            print(f"  ! {name}: the ncu export has no metrics — see {outdir / (name + '.raw.csv')}", file=sys.stderr)
+            return 1, {}
         return rc, {"raw": raw, "units": units, "details": details}
 
     # ── vLLM-side tests (runner tests, smoke) ──────────────────────────────

@@ -543,23 +543,35 @@ def vllm(
     )
 
 
+def _from(order: list[str], start: str | None) -> list[str]:
+    if not start:
+        return list(order)
+    if start not in order:
+        raise typer.BadParameter(f"--from must be one of: {', '.join(order)}")
+    return order[order.index(start) :]
+
+
 def _sequence(names: list[str], image, gate, dry_run, plot) -> int:
     rc = 0
     for name in names:
         defaults = _DEFAULTS[name]
-        r = _execute(
-            name,
-            dict(defaults),
-            dict(defaults),
-            image=image,
-            ls=None,
-            iters=stages.DEFAULT_ITERS,
-            gate=gate,
-            dry_run=dry_run,
-            timeout=180.0,
-            save=True,
-            plot=False,
-        )
+        try:
+            r = _execute(
+                name,
+                dict(defaults),
+                dict(defaults),
+                image=image,
+                ls=None,
+                iters=stages.DEFAULT_ITERS,
+                gate=gate,
+                dry_run=dry_run,
+                timeout=180.0,
+                save=True,
+                plot=False,
+            )
+        except Exception as e:  # noqa: BLE001 — one broken stage must not cost the rest of the suite
+            console.print(f"[red]   verify {name} crashed: {type(e).__name__}: {e} — continuing[/red]")
+            r = 1
         if r == PREFLIGHT_RC:
             return r  # no image / no docker: every later stage would fail the same way
         if r != 0:
@@ -590,9 +602,10 @@ def bench(
     gate: bool = GATE,
     dry_run: bool = DRY,
     plot: bool = typer.Option(True, "--plot/--no-plot"),
+    start: Optional[str] = typer.Option(None, "--from", help="resume the sequence at this stage"),
 ):
     """Every benchmark stage with default parameters (one headline run each), then re-render the charts."""
-    raise typer.Exit(_sequence(stages.BENCH_ORDER, image, gate, dry_run, plot))
+    raise typer.Exit(_sequence(_from(stages.BENCH_ORDER, start), image, gate, dry_run, plot))
 
 
 @app.command("all")
@@ -601,9 +614,10 @@ def all_(
     gate: bool = GATE,
     dry_run: bool = DRY,
     plot: bool = typer.Option(True, "--plot/--no-plot"),
+    start: Optional[str] = typer.Option(None, "--from", help="resume the sequence at this stage"),
 ):
     """Correctness + every benchmark stage, then re-render the charts."""
-    raise typer.Exit(_sequence(stages.ALL_ORDER, image, gate, dry_run, plot))
+    raise typer.Exit(_sequence(_from(stages.ALL_ORDER, start), image, gate, dry_run, plot))
 
 
 @app.command("show")

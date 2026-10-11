@@ -106,11 +106,12 @@ def parse_raw_csv(text: str) -> tuple[dict[str, float], dict[str, str]]:
     for r in data:
         for k, v in zip(hdr, r):
             try:
-                acc.setdefault(k, []).append(float(str(v).replace(",", "")))
+                x = float(str(v).replace(",", ""))
             except ValueError:
-                pass
+                continue  # text columns, "n/a" — never create an empty bucket
+            acc.setdefault(k, []).append(x)
     units = dict(zip(hdr, unit))
-    mean = {k: sum(v) / len(v) for k, v in acc.items()}
+    mean = {k: sum(v) / len(v) for k, v in acc.items() if v}
     # durations -> ns whatever unit this ncu prints
     tu = units.get("gpu__time_duration.sum", "nsecond").strip().lower()
     k_ns = {"nsecond": 1, "ns": 1, "usecond": 1e3, "us": 1e3, "msecond": 1e6, "ms": 1e6, "second": 1e9, "s": 1e9}
