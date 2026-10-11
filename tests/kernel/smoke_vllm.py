@@ -265,9 +265,9 @@ def main():
         "--tie_nats", type=float, default=1.0, help="a divergence passes if the chosen tokens differ by <= this"
     )
     ap.add_argument(
-        "--max_mean_dlp", type=float, default=0.15, help="mean |Δ logprob| of the chosen token on shared prefixes"
+        "--max_mean_dlp", type=float, default=0.06, help="mean |Δ logprob| of the chosen token on shared prefixes"
     )
-    ap.add_argument("--max_dlp", type=float, default=1.0, help="max |Δ logprob| of the chosen token on shared prefixes")
+    ap.add_argument("--max_dlp", type=float, default=0.5, help="max |Δ logprob| of the chosen token on shared prefixes")
     ap.add_argument("--min_prefix", type=int, default=0, help="optional: every prompt must match this many tokens")
     ap.add_argument("--min_match", type=float, default=0.0, help="optional: mean fraction of matching leading tokens")
     ap.add_argument("--child", action="store_true")
