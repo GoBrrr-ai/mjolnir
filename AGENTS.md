@@ -295,6 +295,13 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - **Bench discipline:** gate via `gate.py`, raw JSON first, charts second; no
   prose-only results.
 - **Lint:** `uvx ruff@0.14.14 check src/ tests/` + `format` (pre-commit runs it).
+- **Licensing:** Apache-2.0 (root `LICENSE`, no per-file headers in our files).
+  `src/mjolnir/mjolnir/t5_decode.py` is NVIDIA-CUTLASS-derived and stays
+  BSD-3-Clause — never remove NVIDIA's header. New third-party code → `NOTICE`.
+  `LICENSE`/`NOTICE` are copied into both packages (`tests/cli/test_license.py`
+  checks they match). The image marks every file a patch changes
+  (`apply_patches.py`) and ships `LICENSE`, `NOTICE` and the patches in
+  `/usr/share/doc/mjolnir/`.
 - **Commit style:** short, imperative, grouped by concern (see `git log`).
 
 ## Pointers

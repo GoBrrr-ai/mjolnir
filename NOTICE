@@ -1,0 +1,64 @@
+Mjolnir
+Copyright 2026 Mieszko Syty (ms1design)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE),
+except where a file states otherwise. It includes or modifies the third-party
+works listed below; each keeps its own license and copyright notice.
+
+-------------------------------------------------------------------------------
+1. NVIDIA CUTLASS — CuTe DSL examples                         BSD-3-Clause
+-------------------------------------------------------------------------------
+src/mjolnir/mjolnir/t5_decode.py (the Mjolnir decode-attention kernel) is
+derived from
+
+  examples/python/CuTeDSL/cute/blackwell/kernel/attention/mixed_input_fmha/
+  mixed_input_fmha_decode.py
+  https://github.com/NVIDIA/cutlass
+  Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+The file is distributed under the BSD-3-Clause license, as a whole, with the
+original NVIDIA notice and license text retained at its top; the Mjolnir
+modifications to it are Copyright (c) 2026 Mieszko Syty and are licensed under
+the same BSD-3-Clause terms.
+
+-------------------------------------------------------------------------------
+2. vLLM                                                          Apache-2.0
+-------------------------------------------------------------------------------
+https://github.com/vllm-project/vllm — Copyright the vLLM project contributors.
+
+- docker/vllm-thor/patches/*.patch (except thor-gdn-prefill-fi-sm110.patch)
+  modify vLLM source files; the narandill/mjolnir-vllm image applies them to
+  the vLLM package of the official vllm/vllm-openai image, and marks every file
+  it changes (see docker/vllm-thor/apply_patches.py). Patches 49652, 50885,
+  54165 and 55519 are adapted from the corresponding (unmerged) vLLM pull
+  requests.
+- docker/perses/dashboards/performance_statistics.yaml and
+  query_statistics.yaml are adapted from
+  examples/observability/dashboards/perses/ (changes listed in their headers).
+
+-------------------------------------------------------------------------------
+3. FlashAttention (FA4, CuTe DSL; vendored in vLLM as vllm_flash_attn) BSD-3-Clause
+-------------------------------------------------------------------------------
+https://github.com/Dao-AILab/flash-attention — Copyright (c) Tri Dao and
+contributors. thor-fa4-fp8kv-sm110.patch, thor-fa4-hd256-fp8-sm110.patch and
+thor-fa4-hd256-1cta-decode-sm110.patch modify files of vllm/vllm_flash_attn/
+cute/ (the FlashAttention 4 kernels as vendored by vLLM). The Mjolnir kernel
+itself contains no FlashAttention code; it follows the published
+FlashAttention / FlashDecoding algorithms (online softmax, split-KV + LSE merge).
+
+-------------------------------------------------------------------------------
+4. FlashInfer                                                    Apache-2.0
+-------------------------------------------------------------------------------
+https://github.com/flashinfer-ai/flashinfer — Copyright the FlashInfer
+contributors. thor-gdn-prefill-fi-sm110.patch modifies flashinfer/gdn_prefill.py
+in the image's FlashInfer package.
+
+-------------------------------------------------------------------------------
+The narandill/mjolnir-vllm container image
+-------------------------------------------------------------------------------
+The image is built FROM the official vllm/vllm-openai image and redistributes
+everything in it (vLLM, PyTorch, FlashInfer, NVIDIA CUDA libraries, the
+NVIDIA CUTLASS DSL, Ubuntu packages, ...) under those components' own licenses
+— see the license files inside the image and the upstream projects. It adds
+the mjolnir-kernel package and the patches above; their LICENSE and this
+NOTICE are installed at /usr/share/doc/mjolnir/.

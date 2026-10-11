@@ -68,7 +68,7 @@ LABEL org.opencontainers.image.title="Mjolnir — vLLM for Jetson AGX Thor (sm_1
         org.opencontainers.image.description="vllm-openai v0.31.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
         org.opencontainers.image.source="https://github.com/thor-arena/mjolnir" \
         org.opencontainers.image.revision="${MJOLNIR_REVISION}" \
-        org.opencontainers.image.licenses="MIT"
+        org.opencontainers.image.licenses="Apache-2.0 AND BSD-3-Clause"
 
 # patch(1) for applying the hand-adapted patches.
 RUN apt-get update && \
@@ -184,6 +184,12 @@ RUN python3 /opt/vllm-patches/kernel_test_fi_update.py
 # CUDA device is visible or the GPU is saturated, so a plain no-GPU build still
 # passes; build with --gpus all on a Thor to actually exercise the graph.
 RUN python3 /opt/vllm-patches/kernel_test_dspark_draft_nonncausal.py
+
+# Licensing: the project LICENSE + NOTICE and the exact patch texts ship in
+# the image (the patched vLLM / FlashInfer files point here; see NOTICE). The
+# base image's own components keep their license files where they are.
+COPY LICENSE NOTICE /usr/share/doc/mjolnir/
+RUN cp -r /opt/vllm-patches/patches /usr/share/doc/mjolnir/patches
 
 # Keep the tree tidy; the applied changes live in the site-packages vllm.
 RUN rm -rf /opt/vllm-patches && true

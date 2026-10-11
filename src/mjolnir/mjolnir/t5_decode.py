@@ -1,5 +1,10 @@
 # Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2026 Mieszko Syty (Mjolnir modifications)
 # SPDX-License-Identifier: BSD-3-Clause
+#
+# Derived from NVIDIA CUTLASS, examples/python/CuTeDSL/cute/blackwell/kernel/
+# attention/mixed_input_fmha/mixed_input_fmha_decode.py; this file as a whole
+# stays under the BSD-3-Clause license below (see NOTICE).
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:

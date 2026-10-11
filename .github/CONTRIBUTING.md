@@ -126,5 +126,10 @@ Short, imperative, grouped by concern (see `git log`).
 
 ## License
 
-By contributing, you agree that your contributions are made under the
-[MIT](../LICENSE) license.
+By contributing, you agree that your contributions are licensed under the
+[Apache License 2.0](../LICENSE) (its section 5) — except changes to
+`src/mjolnir/mjolnir/t5_decode.py`, which stays under its BSD-3-Clause license
+(NVIDIA CUTLASS-derived; keep NVIDIA's notice at the top intact). New
+third-party code needs an entry in [NOTICE](../NOTICE) and its license kept
+with it. No per-file license headers in our own files: the repo `LICENSE`
+covers them.

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,7 +8,8 @@ dynamic = ["version"]
 description = "Mjolnir: a tcgen05/TMEM/TMA fp8 paged decode-attention kernel (CuTe DSL) for Jetson AGX Thor (sm_110), packaged as the vLLM `MJOLNIR` attention backend."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = "Apache-2.0 AND BSD-3-Clause"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Mieszko Syty", email = "mieszko@ms1design.pl" }]
 keywords = ["vllm", "attention", "decode", "jetson", "thor", "sm110", "blackwell", "cute-dsl", "tcgen05", "fp8"]
 classifiers = [
@@ -45,4 +46,4 @@ path = "mjolnir/__init__.py"
 packages = ["mjolnir"]
 
 [tool.hatch.build.targets.sdist]
-include = ["mjolnir", "README.md"]
+include = ["mjolnir", "README.md", "LICENSE", "NOTICE"]

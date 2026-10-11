@@ -141,6 +141,39 @@ def apply_one(root: Path, patch_dir: Path, name: str) -> None:
             f.unlink(missing_ok=True)
 
 
+CHANGE_NOTICE = "# Modified by the Mjolnir image (https://github.com/thor-arena/mjolnir):"
+
+
+def patched_files(patch_file: Path) -> list[str]:
+    """Package-relative paths a patch changes (``+++ b/vllm/x.py`` -> ``x.py``)."""
+    out = []
+    for line in patch_file.read_text().splitlines():
+        if line.startswith("+++ b/"):
+            out.append(line[len("+++ b/") :].split("/", 1)[1])
+    return out
+
+
+def mark_changed_files(root: Path, patches_dir: Path, names: list[str]) -> None:
+    """Apache-2.0 section 4(b): every modified file carries a prominent notice
+    that it was changed. One trailing comment per file (appended, so no line
+    numbers shift), naming the patches and where their text is shipped."""
+    by_file: dict[str, list[str]] = {}
+    for name in names:
+        for rel in patched_files(patches_dir / name):
+            by_file.setdefault(rel, []).append(name)
+    for rel, pnames in by_file.items():
+        path = root / rel
+        if not path.exists():
+            continue
+        text = path.read_text()
+        if CHANGE_NOTICE in text:
+            continue
+        sep = "" if text.endswith("\n") else "\n"
+        path.write_text(
+            text + f"{sep}\n{CHANGE_NOTICE}\n# {', '.join(pnames)} (see /usr/share/doc/mjolnir/patches/).\n"
+        )
+
+
 def main() -> int:
     here = Path(__file__).resolve().parent
     patches_dir = here / "patches"
@@ -156,6 +189,9 @@ def main() -> int:
     print(f"flashinfer package root: {fi_root}", file=sys.stderr)
     for name in FLASHINFER_PATCH_ORDER:
         apply_one(fi_root, patches_dir, name)
+
+    mark_changed_files(root, patches_dir, PATCH_ORDER)
+    mark_changed_files(fi_root, patches_dir, FLASHINFER_PATCH_ORDER)
 
     # Authoritative gate: every fix must be present after application.
     sys.path.insert(0, str(here))

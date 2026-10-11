@@ -141,4 +141,6 @@ minimum matching prefix and a mean matching fraction.
 | `mjolnir/backend.py` | the vLLM backend, metadata builder, impl |
 | `mjolnir/__init__.py` | `register()` — the vLLM plugin entry point |
 
-MIT licensed.
+Apache-2.0, except `mjolnir/t5_decode.py`, which is derived from an NVIDIA
+CUTLASS CuTe DSL example and stays under BSD-3-Clause — see `LICENSE` and
+`NOTICE` in this package.
