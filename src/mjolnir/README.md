@@ -108,9 +108,9 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_PRECOMPILE` | `all` | compile every variant at start-up; `none` compiles on first use |
 | `MJOLNIR_ATTN_KV_LAYOUT` | auto | force the KV view: `BHN2D BNH2D B2NHD B2HND 2BNHD 2BHND` |
 | `MJOLNIR_ATTN_FUSED_QPACK` | `1` | `0`: quantize fp8 Q with PyTorch ops (~10 launches) instead of one Triton kernel |
-| `MJOLNIR_ATTN_KV_SCALES` | – | `fp6_e2m3` KV: the per-(layer, KV head) scales file from `python -m mjolnir.calibrate` |
+| `MJOLNIR_ATTN_KV_SCALES` | – | `fp6_e2m3` KV: the per-(layer, KV head, channel) scales file from `python -m mjolnir.calibrate` |
 | `MJOLNIR_ATTN_KV_SCALE_HEADROOM` | `1.0` | `fp6_e2m3` KV: multiply every calibrated scale |
-| `MJOLNIR_ATTN_KV_CALIBRATE` | – | `1`: record the per-head amax of every K/V written (what `mjolnir.calibrate` reads) |
+| `MJOLNIR_ATTN_KV_CALIBRATE` | – | `1`: record the per-channel amax of every K/V written (what `mjolnir.calibrate` reads) |
 
 The pre-rename `THOR_T5_*` spellings are still honored. Each default is backed
 by a measurement — see the
@@ -119,10 +119,12 @@ by a measurement — see the
 ## fp6 (e2m3) KV in vLLM
 
 On the image, `--kv-cache-dtype fp6_e2m3` stores K/V as packed 6-bit e2m3
-codes (25% fewer bytes than fp8) with static per-(layer, KV head) scales.
-Mjolnir writes that cache (`mjolnir/kvfp6.py`), decodes from it directly, and
+codes (25% fewer bytes than fp8) with static per-(layer, KV head, channel)
+scales — per channel because K has outlier channels a head-wide scale would
+crush the rest under. Mjolnir writes that cache (`mjolnir/kvfp6.py`), decodes
+from it directly (K's channel scales folded into Q, V's into the output), and
 expands the pages a prefill / mixed step reads to e4m3 for the FA4 fallback
-(exact). The scales come from a calibration run on fp8 KV:
+(channel scales applied, one descale per head). The scales come from a calibration run on fp8 KV:
 
 ```bash
 python -m mjolnir.calibrate --config <serve.yaml> --out kv_scales.json   # in the image

@@ -19,10 +19,11 @@ Only two things change:
 
 KV formats: fp8 (e4m3, vLLM's own cache write), and ``fp6_e2m3`` on the
 image (``thor-fp6-e2m3-kv-cache.patch`` adds the dtype): packed 6-bit codes
-with static per-(layer, KV head) scales from a calibration file
+with static per-(layer, KV head, channel) scales from a calibration file
 (``mjolnir.kvscales``). Mjolnir writes that cache itself (``mjolnir.kvfp6``),
-T5 reads it directly, and the steps the FlashAttention 4 fallback runs see
-their pages expanded (losslessly) to an fp8 scratch first.
+T5 reads it directly (the channel scales folded into Q and the output), and
+the steps the FlashAttention 4 fallback runs see their pages expanded to an
+fp8 scratch first (channel scales applied, one descale per head).
 
 Select it with `--attention-backend MJOLNIR` (the Mjolnir image's vLLM has
 the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
@@ -233,7 +234,7 @@ def ineligible_reason(kv_cache_spec, layer_names, vllm_config) -> str | None:
 
 
 # --------------------------------------------------------------------------
-# fp6 (e2m3) KV: preconditions and per-head scales
+# fp6 (e2m3) KV: preconditions and per-channel scales
 # --------------------------------------------------------------------------
 def _check_fp6(t5_reason, layer_names) -> None:
     """fp6 caches have exactly two readers: T5 and the fallback's fp8 scratch."""
@@ -271,15 +272,24 @@ def _fp6_scratch(pages: int, H: int, N: int, row: int, device) -> torch.Tensor:
     return buf
 
 
-def _install_fp6_scales(vllm_config, layer_names, h_k: int) -> None:
-    """Per-(layer, KV head) e2m3 scales from the calibration file, installed
-    as the layers' k/v scales (the cache write, T5 and FA4 all read them)."""
+def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
+    """Per-(layer, KV head, channel) e2m3 scales from the calibration file.
+
+    Channel scales s_c (h_k, d) quantize the cache write. Attention never
+    sees them as descales — they fold into the math around it:
+
+    * T5: K's into Q (q . k = sum_c (q_c s_c) code_c) and V's into the output
+      (O_c = s_c sum_t p_t code_tc); the kernel's K/V descales are 1.
+    * FA4 fallback: the scratch holds e4m3(code * s_c / S) with one
+      S = max_c(s_c) * 7.5 / 448 per head, and S is the descale — so
+      ``layer._k_scale`` / ``_v_scale`` are the per-head S.
+    """
     from . import kvscales
 
     path = kvscales.scales_path()
     if not path:
         raise ValueError(
-            "kv cache dtype fp6_e2m3 needs per-head scales: set MJOLNIR_ATTN_KV_SCALES to a "
+            "kv cache dtype fp6_e2m3 needs calibrated scales: set MJOLNIR_ATTN_KV_SCALES to a "
             "calibration file (`mjolnir calibrate`, or python -m mjolnir.calibrate)"
         )
     doc = kvscales.load(path)
@@ -288,11 +298,27 @@ def _install_fp6_scales(vllm_config, layer_names, h_k: int) -> None:
         raise ValueError(f"{path} has no scales for {missing[:3]}{' ...' if len(missing) > 3 else ''}")
     layers = _layers(vllm_config, layer_names)
     for name, layer in layers.items():
-        ks, vs = kvscales.e2m3_scales(doc, name, h_k)
+        ks, vs = kvscales.e2m3_scales(doc, name, h_k, d)
         dev = layer._k_scale.device
-        layer._k_scale = torch.tensor(ks, dtype=torch.float32, device=dev)
-        layer._v_scale = torch.tensor(vs, dtype=torch.float32, device=dev)
-    logger.info("Mjolnir: fp6_e2m3 KV scales for %d layer(s) from %s", len(layers), path)
+        h_r = max(1, int(getattr(layer, "num_heads", h_k)) // h_k)
+        state = {}
+        for side, rows in (("k", ks), ("v", vs)):
+            ch = torch.tensor(rows, dtype=torch.float32, device=dev).contiguous()  # (h_k, d)
+            head = ch.amax(dim=1) * (kvscales.E2M3_MAX / 448.0)  # (h_k,) fallback descale
+            state[f"{side}_ch"] = ch
+            state[f"{side}_head"] = head
+            state[f"{side}_ratio"] = (ch / head[:, None]).contiguous()
+            state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()  # (h_q, d)
+        state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
+        layer._mjolnir_fp6 = state
+        layer._k_scale = state["k_head"]
+        layer._v_scale = state["v_head"]
+    logger.info(
+        "Mjolnir: fp6_e2m3 KV scales (%s) for %d layer(s) from %s",
+        "per channel" if any(kvscales.per_channel(doc, n) for n in layers) else "per head",
+        len(layers),
+        path,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -351,7 +377,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
         if self._fp6:
             _check_fp6(self._t5_reason, layer_names)
-            _install_fp6_scales(vllm_config, layer_names, kv_cache_spec.num_kv_heads)
+            _install_fp6_scales(vllm_config, layer_names, kv_cache_spec.num_kv_heads, kv_cache_spec.head_size)
         self.t5: T5DecodeRunner | None = None
         if self._t5_reason is not None:
             logger.warning(
@@ -572,7 +598,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
     def do_kv_cache_update(self, layer, key, value, kv_cache, slot_mapping):
         """fp6: Mjolnir's own packed write; fp8: the base backend's. In
         calibration mode (MJOLNIR_ATTN_KV_CALIBRATE=1) also fold every
-        written K/V into the layer's per-head amax."""
+        written K/V into the layer's per-channel amax."""
         from . import kvscales
 
         if kvscales.calibrating():
@@ -583,20 +609,22 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             return None
         from . import kvfp6
 
-        kvfp6.write_kv(key, value, kv_cache, slot_mapping, layer._k_scale, layer._v_scale)
+        st = layer._mjolnir_fp6
+        kvfp6.write_kv(key, value, kv_cache, slot_mapping, st["k_ch"], st["v_ch"])
         return None
 
     def _forward_fp6_fallback(self, layer, query, key, value, kv_cache, attn_metadata, *rest, **kwargs):
         """A fallback step on an fp6 cache: expand the pages this step reads
-        to e4m3 (exact: every e2m3 value is an e4m3 value), point a copy of
-        the metadata at the scratch, and run the base forward on it. The
-        layer's per-head k/v scales are the descales of both."""
+        to e4m3 as code * s_c / S (s_c the channel scale, S the layer's
+        per-head k/v scale, the descale FA4 applies), point a copy of the
+        metadata at the scratch, and run the base forward on it."""
         from . import kvfp6
 
         pages = attn_metadata.mjolnir_fp6_pages
         _, H, N, _ = kv_cache.shape
         scratch = _fp6_scratch(pages["total"], H, N, 2 * self.head_size, kv_cache.device)
-        kvfp6.expand_pages_to_fp8(kv_cache, pages["src_pages"], scratch, self.head_size)
+        st = layer._mjolnir_fp6
+        kvfp6.expand_pages_to_fp8(kv_cache, pages["src_pages"], scratch, self.head_size, st["k_ratio"], st["v_ratio"])
         md = copy.copy(attn_metadata)
         md.block_table = pages["block_table"]
         return super().forward(layer, query, key, value, scratch[: max(1, pages["total"])], md, *rest, **kwargs)
@@ -732,6 +760,21 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
+        if self._fp6:  # channel scales fold into Q and O; the cache codes have descale 1
+            st = layer._mjolnir_fp6
+            runner.run(
+                md.plan,
+                query,
+                output,
+                k_cache,
+                v_cache,
+                st["one"],
+                st["one"],
+                self.scale,
+                q_mul=st["k_mul"],
+                o_mul=st["v_mul"],
+            )
+            return output
         runner.run(
             md.plan,
             query,

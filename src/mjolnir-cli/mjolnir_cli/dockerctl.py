@@ -107,7 +107,7 @@ def container_running(name: str = CONTAINER_NAME) -> bool:
 # MJOLNIR configs get it by default.
 MJOLNIR_ENV_DEFAULTS = {"VLLM_KV_CACHE_LAYOUT": "HND"}
 
-# fp6 (e2m3) KV needs per-head scales from `mjolnir calibrate`, stored next
+# fp6 (e2m3) KV needs per-channel scales from `mjolnir calibrate`, stored next
 # to the model's configs (mounted at /configs in the container).
 KV_SCALES_FILE = "kv_scales.json"
 

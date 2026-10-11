@@ -237,7 +237,9 @@ def child(args) -> None:
 
 
 def calibrate(args, out: str) -> str:
-    """Per-head e2m3 scales for the smoke model (mjolnir.calibrate, own process)."""
+    """Per-channel e2m3 scales for the smoke model (mjolnir.calibrate, own
+    process). The full default prompt set: per-channel amax needs coverage —
+    a channel seen too little saturates later."""
     cmd = [
         sys.executable,
         "-m",
@@ -251,13 +253,13 @@ def calibrate(args, out: str) -> str:
         "--gpu-mem",
         str(args.gpu_mem),
         "--prompts",
-        "16",
+        "48",
         "--long",
-        "2",
+        "4",
         "--long-tokens",
         "1500",
         "--max-tokens",
-        "48",
+        "96",
     ]
     print("\n=== calibrate (fp8 KV, e2m3 scales) ===", flush=True)
     env = dict(os.environ)

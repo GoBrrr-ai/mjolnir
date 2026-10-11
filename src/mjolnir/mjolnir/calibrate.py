@@ -1,11 +1,11 @@
-"""Calibrate per-(layer, KV head) K/V scales for the fp6 (e2m3) KV cache.
+"""Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache.
 
 Runs the model in-process on vLLM with the Mjolnir backend on **fp8** KV and
 ``MJOLNIR_ATTN_KV_CALIBRATE=1``: every K/V row the backend writes to the
-cache is folded into a running per-head amax (``mjolnir.kvscales``). After
+cache is folded into a running per-channel amax (``mjolnir.kvscales``). After
 the engine's own warm-up and profiling runs the accumulators are zeroed, a
 varied prompt set is generated (prose, code, math, multilingual, long
-contexts), and the result is written as a ``mjolnir.kv_scales/1`` file —
+contexts), and the result is written as a ``mjolnir.kv_scales/2`` file —
 what ``MJOLNIR_ATTN_KV_SCALES`` points ``--kv-cache-dtype fp6_e2m3`` at.
 
     python -m mjolnir.calibrate --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR.yaml \\
@@ -85,7 +85,7 @@ def main(argv=None) -> int:
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--config", help="vllm serve YAML (the serving config to calibrate)")
     src.add_argument("--model", help="a model id (no config: defaults for everything else)")
-    ap.add_argument("--out", required=True, help="where to write the mjolnir.kv_scales/1 JSON")
+    ap.add_argument("--out", required=True, help="where to write the mjolnir.kv_scales/2 JSON")
     ap.add_argument("--download-dir", default=None)
     ap.add_argument("--max-model-len", type=int, default=32768)
     ap.add_argument("--gpu-mem", type=float, default=None, help="gpu_memory_utilization (default: the config's)")
@@ -139,7 +139,12 @@ def main(argv=None) -> int:
         return 1
     print(f"calibrate: {len(prompts)} prompts, {toks} tokens in {time.time() - t0:.0f}s", flush=True)
     for name, e in doc["amax"].items():
-        print(f"  {name}: K amax {max(e['k']):8.3f}  V amax {max(e['v']):8.3f}  ({len(e['k'])} heads)")
+        k_max, v_max = max(max(r) for r in e["k"]), max(max(r) for r in e["v"])
+        k_med = sorted(x for r in e["k"] for x in r)[len(e["k"]) * len(e["k"][0]) // 2]
+        print(
+            f"  {name}: K amax {k_max:8.3f} (median channel {k_med:7.3f})  V amax {v_max:8.3f}"
+            f"  ({len(e['k'])} heads x {len(e['k'][0])} channels)"
+        )
     print(f"wrote {args.out}  ({len(doc['amax'])} layers)")
     return 0
 

@@ -755,10 +755,10 @@ def calibrate(
     max_model_len: int = typer.Option(32768, "--max-model-len"),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the docker command, run nothing"),
 ):
-    """Calibrate per-(layer, KV head) K/V scales for the fp6 (e2m3) KV cache.
+    """Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache.
 
     Runs the config's model on fp8 KV in the Mjolnir image, records the
-    per-head amax of every K/V written to the cache over a varied prompt set,
+    per-channel amax of every K/V written to the cache over a varied prompt set,
     and writes ``kv_scales.json`` next to the config — what an
     ``kv-cache-dtype: fp6_e2m3`` config is served with. Needs the GPU to
     itself: refuses while the vLLM server is up (stop it with

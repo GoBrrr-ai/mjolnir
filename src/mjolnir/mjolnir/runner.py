@@ -445,13 +445,13 @@ class T5DecodeRunner:
         if not compile_only:
             fn(*args)
 
-    def _pack_q_fused(self, q3, b: int, ql: int, q_view, qd) -> bool:
+    def _pack_q_fused(self, q3, b: int, ql: int, q_view, qd, q_mul=None) -> bool:
         """fp8 Q quantization + packing in one Triton launch (qpack). False
         when unavailable; a failure disables it for good, outside capture."""
         if not self._fused_qpack or q3.stride(-1) != 1:
             return False
         try:
-            qpack.pack_q_fp8(q3, b, ql, self.h_k, self.h_r, q_view, qd)
+            qpack.pack_q_fp8(q3, b, ql, self.h_k, self.h_r, q_view, qd, q_mul)
             return True
         except Exception as e:  # noqa: BLE001 - e.g. a Triton build that cannot target this GPU
             if torch.cuda.is_current_stream_capturing():
@@ -470,6 +470,8 @@ class T5DecodeRunner:
         k_scale: torch.Tensor,  # fp32: 1 elem (per tensor), (h_k,), or (b, h_k)
         v_scale: torch.Tensor,
         softmax_scale: float,
+        q_mul: torch.Tensor | None = None,  # (h_q, d) fp32: Q *= q_mul first (fp6 K channel scales)
+        o_mul: torch.Tensor | None = None,  # (h_q, d) fp32: O *= o_mul last (fp6 V channel scales)
     ):
         b, ql, n_q = plan.num_seqs, plan.q_len, plan.n_q
         h_k, h_r, d = self.h_k, self.h_r, self.d
@@ -492,8 +494,11 @@ class T5DecodeRunner:
             # dynamic per-(seq, kv head) e4m3 quantization into the pack buffer
             qd = self.q_descale[:b]
             q_view = self.q_pack[: b * h_k * n_q * d].view(b, h_k, n_q, d)
-            if not self._pack_q_fused(q3, b, ql, q_view, qd):
-                qg = q3.reshape(b, ql, h_k, h_r, d).float()
+            if not self._pack_q_fused(q3, b, ql, q_view, qd, q_mul):
+                qg = q3.float()
+                if q_mul is not None:
+                    qg = qg * q_mul.view(self.h_q, d)
+                qg = qg.reshape(b, ql, h_k, h_r, d)
                 amax = qg.abs().amax(dim=(1, 3, 4)).clamp_min(1e-6)  # (b, h_k)
                 scale_q = amax / FP8_MAX
                 qd.copy_(scale_q)
@@ -503,6 +508,10 @@ class T5DecodeRunner:
                     .permute(0, 2, 1, 3, 4)
                     .reshape(b, h_k, n_q, d)
                 )
+        elif q_mul is not None:
+            q_view = self.q_pack[: b * h_k * n_q * d].view(b, h_k, n_q, d)
+            qm = (q3.float() * q_mul.view(self.h_q, d)).to(q_view.dtype)
+            q_view.copy_(qm.reshape(b, ql, h_k, h_r, d).permute(0, 2, 1, 3, 4).reshape(b, h_k, n_q, d))
         elif ql == 1 and q3.stride(2) == 1 and q3.stride(1) == d and q3.data_ptr() % 16 == 0:
             q_view = q3.unflatten(1, (h_k, h_r))  # zero-copy (b, h_k, h_r, d)
         else:
@@ -517,6 +526,8 @@ class T5DecodeRunner:
 
         if not direct_out:
             o3.copy_(o_view.reshape(b, h_k, ql, h_r, d).permute(0, 2, 1, 3, 4).reshape(tokens, self.h_q, d))
+        if o_mul is not None:
+            o3.mul_(o_mul.view(self.h_q, d))
         return out
 
 

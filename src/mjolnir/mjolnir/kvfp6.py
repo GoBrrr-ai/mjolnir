@@ -14,7 +14,9 @@ Values are ``code_value * scale`` with a static scale per (layer, KV head):
 * :func:`expand_pages_to_fp8` — prefill / mixed steps run on FlashAttention 4,
   which reads e4m3 only: the pages a step touches are expanded to e4m3 bytes
   in a scratch cache. Every e2m3 value is exactly representable in e4m3, so
-  the expansion is lossless and the same per-head scales are the descales.
+  with per-head scales the expansion is lossless and the same scales are the
+  descales; with per-channel scales s_c each value becomes e4m3(code * s_c / S)
+  for a per-head descale S = max_c(s_c) * 7.5 / 448 (one e4m3 rounding).
 """
 
 from __future__ import annotations
@@ -38,6 +40,17 @@ def row_bytes(head_size: int) -> int:
 
 
 _LUT: dict = {}
+_LUTF: dict = {}
+
+
+def e2m3_values(device) -> torch.Tensor:
+    """(64,) fp32: the value of every e2m3 code."""
+    key = str(device)
+    if key not in _LUTF:
+        from .t5_decode import minifloat_table
+
+        _LUTF[key] = minifloat_table("e2m3").to(device)
+    return _LUTF[key]
 
 
 def e2m3_to_e4m3_lut(device) -> torch.Tensor:
@@ -71,6 +84,26 @@ if triton is not None:
         return code | (sign << 5)
 
     @triton.jit
+    def _group_scales(sp, h, g, gm, D: tl.constexpr, MODE: tl.constexpr):
+        """The scales of the 4 elements of each packed group: per channel
+        (MODE 2), per KV head (1) or per tensor (0)."""
+        if MODE == 2:
+            s0 = tl.load(sp + h * D + 4 * g + 0, mask=gm, other=1.0)
+            s1 = tl.load(sp + h * D + 4 * g + 1, mask=gm, other=1.0)
+            s2 = tl.load(sp + h * D + 4 * g + 2, mask=gm, other=1.0)
+            s3 = tl.load(sp + h * D + 4 * g + 3, mask=gm, other=1.0)
+        else:
+            if MODE == 1:
+                sc = tl.load(sp + h)
+            else:
+                sc = tl.load(sp)
+            s0 = tl.full(g.shape, 1.0, tl.float32) * sc
+            s1 = s0
+            s2 = s0
+            s3 = s0
+        return s0, s1, s2, s3
+
+    @triton.jit
     def _write_kv_kernel(
         key_ptr,
         value_ptr,
@@ -86,8 +119,8 @@ if triton is not None:
         stride_ch,
         stride_cn,
         page_size,
-        K_SCALE_PER_HEAD: tl.constexpr,
-        V_SCALE_PER_HEAD: tl.constexpr,
+        K_SCALE_MODE: tl.constexpr,  # 0 per tensor, 1 per KV head, 2 per (KV head, channel)
+        V_SCALE_MODE: tl.constexpr,
         D: tl.constexpr,
         G_BLOCK: tl.constexpr,
     ):
@@ -106,21 +139,15 @@ if triton is not None:
         for side in tl.static_range(2):
             if side == 0:
                 src = key_ptr + t * stride_kt + h * stride_kh
-                if K_SCALE_PER_HEAD:
-                    sc = tl.load(k_scale_ptr + h)
-                else:
-                    sc = tl.load(k_scale_ptr)
+                s0, s1, s2, s3 = _group_scales(k_scale_ptr, h, g, gm, D, K_SCALE_MODE)
             else:
                 src = value_ptr + t * stride_vt + h * stride_vh
-                if V_SCALE_PER_HEAD:
-                    sc = tl.load(v_scale_ptr + h)
-                else:
-                    sc = tl.load(v_scale_ptr)
+                s0, s1, s2, s3 = _group_scales(v_scale_ptr, h, g, gm, D, V_SCALE_MODE)
             # x / scale, correctly rounded (div_rn): the same codes as the reference quantizer
-            c0 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 0, mask=gm, other=0.0).to(tl.float32), sc))
-            c1 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 1, mask=gm, other=0.0).to(tl.float32), sc))
-            c2 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 2, mask=gm, other=0.0).to(tl.float32), sc))
-            c3 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 3, mask=gm, other=0.0).to(tl.float32), sc))
+            c0 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 0, mask=gm, other=0.0).to(tl.float32), s0))
+            c1 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 1, mask=gm, other=0.0).to(tl.float32), s1))
+            c2 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 2, mask=gm, other=0.0).to(tl.float32), s2))
+            c3 = _e2m3_codes(tl.math.div_rn(tl.load(src + 4 * g + 3, mask=gm, other=0.0).to(tl.float32), s3))
             w = c0 | (c1 << 6) | (c2 << 12) | (c3 << 18)
             base = dst + side * RB + 3 * g
             tl.store(base + 0, (w & 0xFF).to(tl.uint8), mask=gm)
@@ -139,6 +166,10 @@ if triton is not None:
         stride_ob,
         stride_oh,
         stride_on,
+        k_ratio_ptr,
+        v_ratio_ptr,
+        lutf_ptr,
+        RATIO: tl.constexpr,  # apply per-(head, channel) ratios: e4m3(value * ratio)
         D: tl.constexpr,
         G_BLOCK: tl.constexpr,
     ):
@@ -160,15 +191,28 @@ if triton is not None:
                 | (tl.load(b + 2, mask=gm, other=0).to(tl.int32) << 16)
             )
             o = dst + side * D + 4 * g
+            if side == 0:
+                rp = k_ratio_ptr
+            else:
+                rp = v_ratio_ptr
             for k in tl.static_range(4):
                 code = (w >> (6 * k)) & 63
-                tl.store(o + k, tl.load(lut_ptr + code), mask=gm)
+                if RATIO:
+                    r = tl.load(rp + h * D + 4 * g + k, mask=gm, other=0.0)
+                    val = tl.load(lutf_ptr + code) * r
+                    tl.store(o + k, val.to(tl.float8e4nv).to(tl.uint8, bitcast=True), mask=gm)
+                else:
+                    tl.store(o + k, tl.load(lut_ptr + code), mask=gm)
 
 
-def _per_head(scale: torch.Tensor, h_k: int) -> bool:
+def _scale_mode(scale: torch.Tensor, h_k: int, d: int) -> int:
+    """0: per tensor, 1: per KV head, 2: per (KV head, channel) — contiguous."""
     n = scale.numel()
-    assert n in (1, h_k), f"KV scale must be per tensor or per KV head, got {tuple(scale.shape)}"
-    return n == h_k and h_k > 1
+    if n == h_k * d and d > 1 and (h_k > 1 or n > 1):
+        assert scale.is_contiguous(), "per-channel KV scales must be contiguous (h_k, d)"
+        return 2
+    assert n in (1, h_k), f"KV scale must be per tensor, per KV head or (h_k, d), got {tuple(scale.shape)}"
+    return 1 if n == h_k and h_k > 1 else 0
 
 
 def write_kv(
@@ -176,7 +220,7 @@ def write_kv(
     value: torch.Tensor,
     kv_cache: torch.Tensor,  # (B, h_k, N, 2 * row_bytes) uint8 layer view, any strides, unit last stride
     slot_mapping: torch.Tensor,  # (T,) int, -1 = padding
-    k_scale: torch.Tensor,  # fp32: 1 elem or (h_k,)
+    k_scale: torch.Tensor,  # fp32: 1 elem, (h_k,) or (h_k, d)
     v_scale: torch.Tensor,
 ) -> None:
     """Quantize + pack + scatter K/V rows of T tokens into the e2m3 cache."""
@@ -202,8 +246,8 @@ def write_kv(
         kv_cache.stride(1),
         kv_cache.stride(2),
         N,
-        K_SCALE_PER_HEAD=_per_head(k_scale, h_k),
-        V_SCALE_PER_HEAD=_per_head(v_scale, h_k),
+        K_SCALE_MODE=_scale_mode(k_scale, h_k, d),
+        V_SCALE_MODE=_scale_mode(v_scale, h_k, d),
         D=d,
         G_BLOCK=triton.next_power_of_2(d // 4),
         num_warps=2,
@@ -215,8 +259,15 @@ def expand_pages_to_fp8(
     src_blocks: torch.Tensor,  # (P,) int32: cache page of each scratch page
     out: torch.Tensor,  # (>= P, h_k, N, 2 * d) uint8 (e4m3 bytes), unit last stride
     head_size: int,
+    k_ratio: torch.Tensor | None = None,  # (h_k, d) fp32: per-channel scale / per-head descale
+    v_ratio: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Expand P pages (K and V) to e4m3 bytes in ``out[:P]``; returns it."""
+    """Expand P pages (K and V) to e4m3 bytes in ``out[:P]``; returns it.
+
+    Without ratios the e4m3 bytes are the e2m3 values exactly (the cache's
+    scales are the descales). With per-channel scales s_c and a per-head
+    descale S, pass ratio = s_c / S: each value becomes e4m3(code * s_c / S),
+    so the expanded page carries the channel scales and S stays the descale."""
     P = src_blocks.shape[0]
     _, H, N, C = kv_cache.shape
     d = head_size
@@ -234,6 +285,10 @@ def expand_pages_to_fp8(
         out.stride(0),
         out.stride(1),
         out.stride(2),
+        k_ratio if k_ratio is not None else out,
+        v_ratio if v_ratio is not None else out,
+        e2m3_values(kv_cache.device),
+        RATIO=k_ratio is not None,
         D=d,
         G_BLOCK=triton.next_power_of_2(d // 4),
         num_warps=1,
@@ -246,13 +301,18 @@ def expand_pages_to_fp8(
 # own quantizer / packer, so the Triton kernels are checked against them.
 # ---------------------------------------------------------------------------
 def quantize_rows_reference(x: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-    """(..., h_k, d) float -> packed bytes (..., h_k, row_bytes(d)) uint8."""
+    """(..., h_k, d) float -> packed bytes (..., h_k, row_bytes(d)) uint8;
+    scale per tensor, per KV head or (h_k, d) per channel."""
     from .t5_decode import minifloat_quantize, pack_subbyte
 
-    h_k = x.shape[-2]
-    s = scale.float().reshape(-1)
-    s = s.expand(h_k) if s.numel() == 1 else s
-    codes, _ = minifloat_quantize(x.float().cpu() / s.cpu().view(*([1] * (x.dim() - 2)), h_k, 1), "e2m3")
+    h_k, d = x.shape[-2], x.shape[-1]
+    s = scale.float().cpu()
+    if s.numel() == h_k * d and d > 1:
+        s = s.reshape(h_k, d)
+    else:
+        s = s.reshape(-1)
+        s = (s.expand(h_k) if s.numel() == 1 else s).reshape(h_k, 1)
+    codes, _ = minifloat_quantize(x.float().cpu() / s, "e2m3")
     return pack_subbyte(codes, BITS)
 
 

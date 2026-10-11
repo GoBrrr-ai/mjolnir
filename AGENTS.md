@@ -62,7 +62,7 @@ skipped with a hint — nothing blocks on a password.
   accumulators, softmax warpgroups, LSE merge kernel; q_len ≤ 1 + spec tokens;
   full CUDA graphs. Harness default: **e2m3 (fp6) KV on head-major (HND) pages,
   2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** by
-  default, and **fp6 e2m3** with `NVFP4_MJOLNIR_E2M3` (calibrated per-head
+  default, and **fp6 e2m3** with `NVFP4_MJOLNIR_E2M3` (calibrated per-channel
   scales, `mjolnir calibrate`; `docs/faq/fp6-kv.md`). Results: README +
   `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
@@ -209,7 +209,10 @@ trusted publishing — and the image (vLLM version, on push to `main`).
       vLLM image vs Mjolnir) — restarts the server per leg; schedule deliberately.
 - [ ] **fp6 KV in vLLM — validate, then default**: the path is in
       (`thor-fp6-e2m3-kv-cache.patch`, `mjolnir/kvfp6.py`, `NVFP4_MJOLNIR_E2M3`).
-      To make it the default: `mjolnir calibrate`, commit
+      Per-head scales failed smoke e2m3 (Qwen3-0.6B: K outlier channels, amax
+      486 in layer 0, rounded the other channels to 0 — wrong first token);
+      scales are now per (layer, KV head, channel), `kv_scales/2` (a `/1` file
+      still loads but is per head: re-calibrate). To make it the default: `mjolnir calibrate`, commit
       `configs/<model>/kv_scales.json`, pass `mjolnir verify vllm` (smoke e2m3)
       and an e2e run, then set `DEFAULT_QUANT`.
 - [ ] **e2e at the shapes that matter**: decode gains need long contexts

@@ -9,12 +9,12 @@ the harness — fewer KV bytes per token, more tokens in memory."
 (sign, 2-bit exponent, 3-bit mantissa: 0 … ±7.5), four codes in three bytes —
 **25% fewer KV bytes than fp8, 33% more tokens in the same memory**. The
 Mjolnir decode kernel reads it directly (`tcgen05 kind::f8f6f4`); a value is
-`code × scale`, with one static scale per layer and KV head.
+`code × scale`, with one static scale per layer, KV head and **channel**.
 
 | step | who reads the cache | how |
 |---|---|---|
 | decode (incl. MTP verify / draft) | Mjolnir (T5) | packed fp6 straight from the pages |
-| prefill, mixed, chunked | FlashAttention 4 (the fallback) | the step's pages are expanded to e4m3 in a scratch first — exact, every e2m3 value is an e4m3 value |
+| prefill, mixed, chunked | FlashAttention 4 (the fallback) | the step's pages are expanded to e4m3 in a scratch first: `code × s_c / S`, with one descale `S` per head |
 | every step | Mjolnir writes the cache | one Triton kernel: scale, round, pack, scatter |
 
 The image adds the dtype to vLLM (`thor-fp6-e2m3-kv-cache.patch`); only the
@@ -22,21 +22,37 @@ The image adds the dtype to vLLM (`thor-fp6-e2m3-kv-cache.patch`); only the
 
 ## The scales: calibrate once per model
 
-e2m3's range is tiny (steps of 0.125 below 1, max 7.5), so each KV head needs
-a scale fitted to its data. vLLM 0.31 has no runtime KV-scale calculation, so
-Mjolnir calibrates offline:
+e2m3's range is tiny (steps of 0.125 below 1, max 7.5 — about 60× of dynamic
+range), so the scales are fitted to the data **per channel**. Per KV head is
+not enough: K has outlier channels (Qwen3-0.6B layer 0: K amax 486 in one
+channel, a few units in the rest), and a head-wide scale of 486 / 7.5 rounds
+every small channel to zero — the first smoke run with per-head scales got the
+first token wrong.
+
+Per-channel scales cost nothing at decode time — they never reach the kernel
+as descales:
+
+- **K**: `q · k = Σ_c (q_c · s_c) · code_c` — the channel scales multiply Q
+  inside the fused fp8 Q pack (same one launch).
+- **V**: `O_c = s_c · Σ_t p_t · code_tc` — one multiply of the output.
+- **FA4 fallback**: the scratch holds `e4m3(code × s_c / S)` with
+  `S = max_c(s_c) × 7.5 / 448` per head as FA4's descale (one e4m3 rounding).
+
+vLLM 0.31 has no runtime KV-scale calculation, so Mjolnir calibrates offline:
 
 ```bash
 mjolnir serve down                  # calibration loads the model itself — in a window you own
 mjolnir calibrate                   # the active model; fp8 KV, varied prompts, ~minutes
-# -> configs/<model>/kv_scales.json  (per layer, per KV head amax of K and V)
+# -> configs/<model>/kv_scales.json  (per layer, KV head and channel amax of K and V)
 mjolnir serve up --config NVFP4_MJOLNIR_E2M3
 ```
 
 `mjolnir serve` points `MJOLNIR_ATTN_KV_SCALES` at the `kv_scales.json` next
 to the config; set it yourself to use another file. Commit the file with the
 config — it is part of the serving setup. Without it, the server refuses to
-start with fp6 (no silent bad scales).
+start with fp6 (no silent bad scales). Files from before per-channel scales
+(`mjolnir.kv_scales/1`, one amax per head) still load, but give per-head
+accuracy — re-run `mjolnir calibrate`.
 
 Knobs: `MJOLNIR_ATTN_KV_SCALE_HEADROOM` (default 1.0) multiplies every scale —
 above 1 leaves room for values beyond the calibrated amax (they saturate at

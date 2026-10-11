@@ -3,7 +3,7 @@
 Covers what the vLLM backend feeds the runner: every KV-cache layout
 (vLLM main (B,H,N,2D), FlashInfer NHD/HND, FlashAttention (2,B,...)),
 uint8-typed fp8 caches, a strided query (a view of a fused QKV buffer),
-a 2-D output buffer, per-tensor / per-head KV scales, page sizes 16..128,
+a 2-D output buffer, per-tensor / per-head / per-channel KV scales, page sizes 16..128,
 q_len 1 and 2 (spec decode), bf16 and fp8 Q, h_k == 1, CUDA-graph padding
 rows (seq_len 0), and CUDA-graph capture -> replay with a changed plan.
 
@@ -304,6 +304,13 @@ def test_fused_qpack_matches_torch():
         # same scale, same value -> same e4m3 code; allow one rounding step
         # where fp32 division order differs (|x| <= 448: one e4m3 ulp <= 32)
         assert (diff <= ref.float().abs() * 0.0625 + 1e-6).all(), f"pack differs (max {diff.max().item()})"
+        # with a per-(q head, channel) multiplier (fp6 K channel scales folded into Q)
+        mul = (torch.rand(h_k * h_r, d, generator=gen) * 20 + 0.01).to(DEV)
+        qpack.pack_q_fp8(q3, b, ql, h_k, h_r, out, qd, mul)
+        ref, ref_qd = qpack.pack_q_fp8_reference(q3, b, ql, h_k, h_r, mul)
+        assert torch.allclose(qd, ref_qd, rtol=1e-6, atol=0), "descales differ (mul)"
+        diff = (out.float() - ref.float()).abs()
+        assert (diff <= ref.float().abs() * 0.0625 + 1e-6).all(), f"pack differs with mul (max {diff.max().item()})"
 
 
 # ---- fp6 (e2m3) KV: the vLLM write path, the fallback expansion, T5 on it ----
@@ -373,6 +380,151 @@ def test_fp6_expand_is_exact():
         got = out[i].view(torch.float8_e4m3fn).float().cpu()
         assert torch.equal(got[..., :d], want_k) and torch.equal(got[..., d:], want_v), f"page {i} differs"
     assert (out[4:] == 0x7F).all(), "expanded past the pages it was given"
+
+
+def _outlier_channel_scales(gen, h_k, d, base=0.05, outlier=60.0):
+    """(h_k, d) per-channel scales with a few outlier channels per head, like
+    real K (one channel 100x the rest)."""
+    s = torch.rand(h_k, d, generator=gen) * base + base / 4
+    for h in range(h_k):
+        s[h, torch.randint(0, d, (2,), generator=gen)] = outlier * (1 + h / 4)
+    return s
+
+
+def test_fp6_write_per_channel():
+    from mjolnir import kvfp6
+
+    if not kvfp6.triton:
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(21)
+    h_k, d, PS, T = 4, 256, 16, 29
+    cache = _fp6_cache(4, h_k, PS, d)
+    ks = _outlier_channel_scales(gen, h_k, d)
+    vs = torch.rand(h_k, d, generator=gen) * 0.2 + 0.01
+    key = (torch.randn(T, h_k, d, generator=gen) * ks * 7.5 / 3).to(torch.bfloat16).to(DEV)
+    value = (torch.randn(T, h_k, d, generator=gen) * vs * 7.5 / 3).to(torch.bfloat16).to(DEV)
+    slots = torch.randperm(4 * PS, generator=gen)[:T].to(torch.int64)
+    slots[5] = -1
+    kvfp6.write_kv(key, value, cache, slots.to(DEV), ks.to(DEV), vs.to(DEV))
+    rb = kvfp6.row_bytes(d)
+    ref_k = kvfp6.quantize_rows_reference(key.float(), ks)
+    ref_v = kvfp6.quantize_rows_reference(value.float(), vs)
+    got = cache.cpu()
+    for t, slot in enumerate(slots.tolist()):
+        if slot < 0:
+            continue
+        blk, off = divmod(slot, PS)
+        assert torch.equal(got[blk, :, off, :rb], ref_k[t]), f"K row {t} differs"
+        assert torch.equal(got[blk, :, off, rb:], ref_v[t]), f"V row {t} differs"
+    # per-channel resolution: small channels survive next to the outliers
+    k_back = kvfp6.decode_rows_reference(got[slots[0] // PS, :, slots[0] % PS, :rb], d) * ks
+    rel = ((k_back - key[0].float().cpu()).norm() / key[0].float().cpu().norm()).item()
+    assert rel < 0.08, f"per-channel K round trip rel err {rel:.3f}"
+
+
+def test_fp6_expand_with_ratio():
+    from mjolnir import kvfp6
+
+    if not kvfp6.triton:
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(22)
+    h_k, d, PS = 2, 256, 32
+    cache = _fp6_cache(5, h_k, PS, d, head_major=False)
+    cache.copy_(torch.randint(0, 256, cache.shape, generator=gen, dtype=torch.uint8).to(DEV))
+    ch_k = _outlier_channel_scales(gen, h_k, d)
+    ch_v = torch.rand(h_k, d, generator=gen) + 0.1
+    kr = ch_k / (ch_k.amax(1, keepdim=True) * 7.5 / 448)
+    vr = ch_v / (ch_v.amax(1, keepdim=True) * 7.5 / 448)
+    src = torch.tensor([4, 1, 1], dtype=torch.int32, device=DEV)
+    out = torch.full((4, h_k, PS, 2 * d), 0x7F, dtype=torch.uint8, device=DEV)
+    kvfp6.expand_pages_to_fp8(cache, src, out, d, kr.to(DEV), vr.to(DEV))
+    rb = kvfp6.row_bytes(d)
+    for i, page in enumerate(src.tolist()):
+        want_k = (kvfp6.decode_rows_reference(cache[page, :, :, :rb], d) * kr[:, None, :]).to(torch.float8_e4m3fn)
+        want_v = (kvfp6.decode_rows_reference(cache[page, :, :, rb:], d) * vr[:, None, :]).to(torch.float8_e4m3fn)
+        got = out[i].view(torch.float8_e4m3fn).float().cpu()
+        assert torch.equal(got[..., :d], want_k.float()), f"K page {i} differs"
+        assert torch.equal(got[..., d:], want_v.float()), f"V page {i} differs"
+    assert (out[3:] == 0x7F).all(), "expanded past the pages it was given"
+
+
+def test_fp6_runner_per_channel():
+    """T5 on an e2m3 cache with per-channel scales, applied as the backend does:
+    K channel scales folded into Q (q_mul), V's into O (o_mul), kernel descales 1.
+    Checked against exact attention on the dequantized cache (code * s_c)."""
+    from mjolnir import kvfp6
+
+    if not kvfp6.triton:
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(23)
+    h_q, h_k, d, PS, ql = 24, 4, 256, 128, 4
+    h_r = h_q // h_k
+    seq_lens = (900, 130)
+    b = len(seq_lens)
+    n_blocks = [math.ceil(L / PS) for L in seq_lens]
+    num_pages = sum(n_blocks) + 1
+    bt = torch.zeros(4, max(n_blocks) + 1, dtype=torch.int32)
+    perm = torch.randperm(num_pages, generator=gen).tolist()
+    i = 0
+    for r, nb in enumerate(n_blocks):
+        bt[r, :nb] = torch.tensor(perm[i : i + nb])
+        i += nb
+    block_table = bt.to(DEV)
+    sl = torch.zeros(4, dtype=torch.int32)
+    sl[:b] = torch.tensor(seq_lens)
+    cache = _fp6_cache(num_pages, h_k, PS, d)
+    ks = _outlier_channel_scales(gen, h_k, d, base=0.3, outlier=40.0)
+    vs = torch.rand(h_k, d, generator=gen) * 0.1 + 0.02
+    for r, L in enumerate(seq_lens):
+        slots = torch.tensor([int(bt[r, p // PS]) * PS + p % PS for p in range(L)], device=DEV)
+        key = (torch.randn(L, h_k, d, generator=gen) * ks * 2).to(torch.bfloat16).to(DEV)
+        value = (torch.randn(L, h_k, d, generator=gen) * vs * 2).to(torch.bfloat16).to(DEV)
+        kvfp6.write_kv(key, value, cache, slots, ks.to(DEV), vs.to(DEV))
+    rb = kvfp6.row_bytes(d)
+    k_cache, v_cache = split_kv_cache(cache, "BHN2D", rb)
+    runner = T5DecodeRunner(
+        num_heads=h_q,
+        num_kv_heads=h_k,
+        head_size=d,
+        page_size=PS,
+        out_dtype=torch.bfloat16,
+        max_num_seqs=4,
+        max_q_len=ql,
+        q_mode="fp8",
+        kv_format="e2m3",
+    )
+    tokens = b * ql
+    # small Q on the outlier channels (as in real models: q . k stays O(10))
+    query = (torch.randn(tokens, h_q, d, generator=gen) / ks.repeat_interleave(h_r, 0) * 0.5).to(torch.bfloat16)
+    query = query.to(DEV)
+    out = torch.full((tokens, h_q * d), float("nan"), dtype=torch.bfloat16, device=DEV)
+    one = torch.ones(1, device=DEV)
+    plan = runner.plan(sl.tolist(), b, ql, block_table, sl.to(DEV))
+    runner.ensure_compiled(ql, plan.with_reduction)
+    q_mul = ks.repeat_interleave(h_r, 0).contiguous().to(DEV)
+    o_mul = vs.repeat_interleave(h_r, 0).contiguous().to(DEV)
+    runner.run(plan, query, out, k_cache, v_cache, one, one, 1.0 / math.sqrt(d), q_mul=q_mul, o_mul=o_mul)
+    torch.cuda.synchronize()
+    # exact reference: causal attention over the dequantized cache
+    k_vals = kvfp6.decode_rows_reference(k_cache.contiguous(), d) * ks[None, None]  # (pages, PS, h_k, d)
+    v_vals = kvfp6.decode_rows_reference(v_cache.contiguous(), d) * vs[None, None]
+    q = query.float().cpu().view(b, ql, h_k, h_r, d)
+    o = out.view(tokens, h_q, d).float().cpu().view(b, ql, h_k, h_r, d)
+    worst = 0.0
+    for r, L in enumerate(seq_lens):
+        pages = bt[r, : n_blocks[r]].long()
+        K = k_vals[pages].reshape(-1, h_k, d)[:L]
+        V = v_vals[pages].reshape(-1, h_k, d)[:L]
+        for qi in range(ql):
+            n = L - ql + qi + 1  # causal within the MTP verify window
+            s = torch.einsum("khd,tkd->kht", q[r, qi], K[:n]) / math.sqrt(d)
+            ref = torch.einsum("kht,tkd->khd", s.softmax(-1), V[:n])
+            err = ((o[r, qi] - ref).norm() / ref.norm()).item()
+            worst = max(worst, err)
+    assert worst < 0.05, f"per-channel e2m3 T5 vs exact attention: rel err {worst:.4f}"
 
 
 def test_fp6_runner_vs_emulator():
