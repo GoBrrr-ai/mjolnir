@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from mjolnir_cli import cachectl
-from mjolnir_cli.config import CONTAINER_NAME, Settings, configs_root
+from mjolnir_cli.config import CONTAINER_NAME, Settings, config_field, configs_root
 
 # Container-side env (the Thor-specific knobs from the old vllm.yaml service).
 _CONTAINER_ENV: list[str] = [
@@ -107,30 +107,64 @@ def container_running(name: str = CONTAINER_NAME) -> bool:
 # MJOLNIR configs get it by default.
 MJOLNIR_ENV_DEFAULTS = {"VLLM_KV_CACHE_LAYOUT": "HND"}
 
+# fp6 (e2m3) KV needs per-head scales from `mjolnir calibrate`, stored next
+# to the model's configs (mounted at /configs in the container).
+KV_SCALES_FILE = "kv_scales.json"
+
+
+def kv_scales_host_path(s: Settings) -> Path:
+    """Where `mjolnir calibrate` writes, and an fp6 config's scales are read
+    from: next to the config (repo or user-local configs dir)."""
+    return s.config_path.parent / KV_SCALES_FILE
+
 
 def backend_env(s: Settings) -> list[str]:
     """Container env for the config's attention backend: the MJOLNIR
     defaults (overridable from the host env) + every ``MJOLNIR_ATTN_*`` /
-    ``THOR_T5_*`` kernel knob set on the host."""
+    ``THOR_T5_*`` kernel knob set on the host. An fp6_e2m3 config also gets
+    MJOLNIR_ATTN_KV_SCALES pointed at its calibration file."""
     out: list[str] = []
     if (s.attention_backend or "") in ("MJOLNIR", "CUSTOM"):
         for k, v in MJOLNIR_ENV_DEFAULTS.items():
             out.append(f"{k}={os.environ.get(k, v)}")
+        if (config_field(s.config_path, "kv-cache-dtype") or "").startswith("fp6") and not os.environ.get(
+            "MJOLNIR_ATTN_KV_SCALES"
+        ):
+            out.append(f"MJOLNIR_ATTN_KV_SCALES={_container_path(s, kv_scales_host_path(s))}")
     for k, v in sorted(os.environ.items()):
         if k.startswith(("MJOLNIR_ATTN_", "THOR_T5_")):
             out.append(f"{k}={v}")
     return out
 
 
-def build_run_args(s: Settings, image: str | None = None) -> list[str]:
-    """Assemble the full ``docker run`` argv for the vLLM container."""
+def _container_path(s: Settings, host: Path) -> str:
+    """A file under the configs dir, as the container sees it."""
+    try:
+        return "/configs/" + str(Path(host).relative_to(configs_root()))
+    except ValueError:  # user-local configs: mounted file by file under /configs/<model>/
+        return f"/configs/{s.model}/{Path(host).name}"
+
+
+def build_run_args(
+    s: Settings,
+    image: str | None = None,
+    *,
+    name: str = CONTAINER_NAME,
+    detach: bool = True,
+    command: str | None = None,
+    extra_env: tuple[str, ...] = (),
+    extra_mounts: tuple[tuple[str, str], ...] = (),
+) -> list[str]:
+    """Assemble the full ``docker run`` argv for the vLLM container (the
+    server by default; ``command`` runs something else with the same mounts,
+    env and GPU access — ``mjolnir calibrate``)."""
     image = image or s.image
     cmd = [
         _docker(),
         "run",
-        "-d",
+        *(["-d"] if detach else ["--rm"]),
         "--name",
-        CONTAINER_NAME,
+        name,
         "--gpus",
         "all",
         "--ipc",
@@ -159,6 +193,8 @@ def build_run_args(s: Settings, image: str | None = None) -> list[str]:
         cmd += ["-e", k]
     for kv in backend_env(s):
         cmd += ["-e", kv]
+    for kv in extra_env:
+        cmd += ["-e", kv]
     if os.environ.get("HF_TOKEN"):
         cmd += ["-e", f"HF_TOKEN={os.environ['HF_TOKEN']}"]
 
@@ -181,10 +217,16 @@ def build_run_args(s: Settings, image: str | None = None) -> list[str]:
     repo_cfg = configs_root() / s.model / f"{s.quant}.yaml"
     if local_cfg != repo_cfg and local_cfg.exists():
         mounts.append((str(local_cfg), f"/configs/{s.model}/{s.quant}.yaml:ro"))
+        scales = kv_scales_host_path(s)
+        if scales.exists():
+            mounts.append((str(scales), f"/configs/{s.model}/{KV_SCALES_FILE}:ro"))
+    mounts += list(extra_mounts)
     for host, container in mounts:
         if host.startswith("/data") is False and not Path(host).exists() and not host.startswith(("/dev/shm", "/etc/")):
             continue  # optional host files (e.g. /etc/nv_tegra_release)
         cmd += ["-v", f"{host}:{container}"]
+    if command is not None:
+        return [*cmd, image, "-lc", command]
     cmd += ["-p", f"{s.port}:8000"]
 
     serve = (

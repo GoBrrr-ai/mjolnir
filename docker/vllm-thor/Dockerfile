@@ -121,6 +121,9 @@ import mjolnir
 from vllm.v1.attention.backends.registry import AttentionBackendEnum
 
 assert AttentionBackendEnum["MJOLNIR"].get_path() == mjolnir.BACKEND_PATH, "MJOLNIR enum member missing"
+from vllm.v1.kv_cache_interface import KVQuantMode, get_kv_quant_mode
+assert get_kv_quant_mode("fp6_e2m3") == KVQuantMode.FP6_E2M3, "fp6_e2m3 KV dtype missing"
+import mjolnir.calibrate, mjolnir.kvfp6, mjolnir.kvscales, mjolnir.qpack  # noqa: F401 (pure-python, no GPU)
 eps = [e for e in md.entry_points(group="vllm.general_plugins") if e.name == "mjolnir"]
 assert eps and eps[0].value == "mjolnir:register", "mjolnir vllm.general_plugins entry point missing"
 print("mjolnir-kernel", mjolnir.__version__, "->", mjolnir.BACKEND_PATH)

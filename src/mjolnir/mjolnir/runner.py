@@ -65,6 +65,12 @@ def _ptr(t: torch.Tensor):
         return ct.iterator
 
 
+def _kv_cutlass_dtype(kv_format: str):
+    import cutlass
+
+    return {"fp8": cutlass.Float8E4M3FN, "e2m3": cutlass.Float6E2M3FN}[kv_format]
+
+
 def _stream():
     import cuda.bindings.driver as cuda
 
@@ -100,6 +106,12 @@ class VariantKey:
     pdl: bool
     l2_prefetch: int
     kv_evict_first: bool
+    kv_format: str = "fp8"  # "fp8" | "e2m3" (packed fp6, read by kind::f8f6f4)
+
+
+# KV formats the vLLM path serves: e4m3 bytes, or e2m3 codes packed 4 per 3
+# bytes (little-endian bitstream, mjolnir.t5_decode.pack_subbyte).
+RUNNER_KV_FORMATS = {"fp8": 8, "e2m3": 6}
 
 
 @dataclass
@@ -137,6 +149,7 @@ class T5DecodeRunner:
         pdl: bool = False,  # programmatic dependent launch (decode + reduction)
         l2_prefetch: int = 0,  # TMA L2 prefetch distance in 128-row KV tiles
         kv_evict_first: bool = False,  # EVICT_FIRST L2 policy on K/V TMA loads
+        kv_format: str = "fp8",  # "fp8" | "e2m3" (fp8 Q only)
         device: torch.device | str = "cuda",
         sm_count: int | None = None,
     ):
@@ -158,6 +171,11 @@ class T5DecodeRunner:
         self.pdl = bool(pdl)
         self.l2_prefetch = int(l2_prefetch)
         self.kv_evict_first = bool(kv_evict_first)
+        assert kv_format in RUNNER_KV_FORMATS, f"kv_format must be one of {tuple(RUNNER_KV_FORMATS)}"
+        assert kv_format == "fp8" or q_mode == "fp8", f"{kv_format} KV runs on the fp8-Q path only"
+        self.kv_format = kv_format
+        self.kv_bits = RUNNER_KV_FORMATS[kv_format]
+        self.kv_row_bytes = head_size * self.kv_bits // 8  # bytes of one K (or V) row
         self.device = torch.device(device)
         if sm_count is None:
             sm_count = torch.cuda.get_device_properties(self.device).multi_processor_count
@@ -280,6 +298,7 @@ class T5DecodeRunner:
             pdl=self.pdl,
             l2_prefetch=self.l2_prefetch,
             kv_evict_first=self.kv_evict_first,
+            kv_format=self.kv_format,
         )
 
     def _make_kernel(self, key: VariantKey):
@@ -304,6 +323,7 @@ class T5DecodeRunner:
             pdl=key.pdl,
             l2_prefetch=key.l2_prefetch,
             kv_evict_first=key.kv_evict_first,
+            kv_format=key.kv_format,
         )
         import cutlass
 
@@ -313,7 +333,7 @@ class T5DecodeRunner:
             self.h_k,
             self.d,
             cutlass.Float8E4M3FN if fp8 else cutlass.BFloat16,
-            cutlass.Float8E4M3FN,
+            _kv_cutlass_dtype(key.kv_format),
         )
         return k
 
@@ -349,7 +369,10 @@ class T5DecodeRunner:
         dev = self.device
         PS, d = self.page_size, self.d
         n_q = q_len * self.h_r
-        kv = torch.zeros(1, PS, self.h_k, d, dtype=torch.float8_e4m3fn, device=dev)
+        if self.kv_format == "fp8":
+            kv = torch.zeros(1, PS, self.h_k, d, dtype=torch.float8_e4m3fn, device=dev)
+        else:  # packed bytes, like vLLM's uint8 view
+            kv = torch.zeros(1, PS, self.h_k, self.kv_row_bytes, dtype=torch.uint8, device=dev)
         one = torch.ones(1, dtype=torch.float32, device=dev)
         q = torch.zeros(1, self.h_k, n_q, d, device=dev, dtype=torch.float8_e4m3fn if self.fp8_q else torch.bfloat16)
         o = torch.empty(1, self.h_k, n_q, d, dtype=self.out_dtype, device=dev)
@@ -376,9 +399,20 @@ class T5DecodeRunner:
         torch.cuda.synchronize(self.device)
 
     # ---------------------------------------------------------------- launch
+    def _kv_ptr(self, t: torch.Tensor):
+        """K/V pointer: e4m3 elements, or packed fp6 elements of a uint8 byte
+        view (the kernel converts byte strides to element strides)."""
+        if self.kv_format == "fp8":
+            return _ptr(t)
+        import cutlass.cute as cute
+        from cutlass.cute.runtime import make_ptr
+
+        assert t.dtype == torch.uint8 and t.data_ptr() % 32 == 0, "packed fp6 KV needs a 32-byte aligned uint8 view"
+        return make_ptr(_kv_cutlass_dtype(self.kv_format), t.data_ptr(), cute.AddressSpace.gmem, assumed_align=32)
+
     def _launch(self, plan, q, o, k_cache, v_cache, qd, kd, vd, scale, compile_only=False):
         b, n_q = plan.num_seqs, plan.n_q
-        strides = t5.kernel_strides(q, o, k_cache, v_cache, qd, kd, vd)
+        strides = t5.kernel_strides(q, o, k_cache, v_cache, qd, kd, vd, kv_bits=self.kv_bits)
         nqk = self.h_k * n_q
         args = (
             (b, self.h_k, n_q, self.d),
@@ -387,8 +421,8 @@ class T5DecodeRunner:
             plan.num_work,
             strides,
             _ptr(q),
-            _ptr(k_cache),
-            _ptr(v_cache),
+            self._kv_ptr(k_cache),
+            self._kv_ptr(v_cache),
             _ptr(self.dummy_scales),
             _ptr(self.dummy_scales),  # nvfp4 scales (unused: fp8 KV)
             _ptr(plan.block_table),
@@ -440,10 +474,11 @@ class T5DecodeRunner:
         b, ql, n_q = plan.num_seqs, plan.q_len, plan.n_q
         h_k, h_r, d = self.h_k, self.h_r, self.d
         tokens = b * ql
-        if k_cache.dtype == torch.uint8:
-            k_cache = k_cache.view(torch.float8_e4m3fn)
-        if v_cache.dtype == torch.uint8:
-            v_cache = v_cache.view(torch.float8_e4m3fn)
+        if self.kv_format == "fp8":
+            if k_cache.dtype == torch.uint8:
+                k_cache = k_cache.view(torch.float8_e4m3fn)
+            if v_cache.dtype == torch.uint8:
+                v_cache = v_cache.view(torch.float8_e4m3fn)
         q3 = query[:tokens]
         if q3.dim() == 2:
             q3 = q3.view(tokens, self.h_q, d)

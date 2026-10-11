@@ -81,7 +81,8 @@ Mjolnir decode enabled: h_q=… h_k=… d=… page=… q_len<=… Q=fp8 ctas/SM=
 
 ## Requirements
 
-- An fp8 (`fp8` / `fp8_e4m3`) KV cache; head-major pages
+- An fp8 (`fp8` / `fp8_e4m3`) KV cache — or, on the image, a 6-bit
+  `fp6_e2m3` one with calibrated scales (see below); head-major pages
   (`VLLM_KV_CACHE_LAYOUT=HND`) are fastest.
 - `head_size % 128 == 0`; block size 16, 32, 64 or 128.
 - A bf16 or fp16 model.
@@ -106,10 +107,30 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_KV_EVICT_FIRST` | `1` for fp8 Q, `0` for bf16 Q | L2 evict-first policy on K/V loads |
 | `MJOLNIR_ATTN_PRECOMPILE` | `all` | compile every variant at start-up; `none` compiles on first use |
 | `MJOLNIR_ATTN_KV_LAYOUT` | auto | force the KV view: `BHN2D BNH2D B2NHD B2HND 2BNHD 2BHND` |
+| `MJOLNIR_ATTN_FUSED_QPACK` | `1` | `0`: quantize fp8 Q with PyTorch ops (~10 launches) instead of one Triton kernel |
+| `MJOLNIR_ATTN_KV_SCALES` | – | `fp6_e2m3` KV: the per-(layer, KV head) scales file from `python -m mjolnir.calibrate` |
+| `MJOLNIR_ATTN_KV_SCALE_HEADROOM` | `1.0` | `fp6_e2m3` KV: multiply every calibrated scale |
+| `MJOLNIR_ATTN_KV_CALIBRATE` | – | `1`: record the per-head amax of every K/V written (what `mjolnir.calibrate` reads) |
 
 The pre-rename `THOR_T5_*` spellings are still honored. Each default is backed
 by a measurement — see the
 [kernel chapters](https://github.com/thor-arena/mjolnir/tree/main/docs/kernel).
+
+## fp6 (e2m3) KV in vLLM
+
+On the image, `--kv-cache-dtype fp6_e2m3` stores K/V as packed 6-bit e2m3
+codes (25% fewer bytes than fp8) with static per-(layer, KV head) scales.
+Mjolnir writes that cache (`mjolnir/kvfp6.py`), decodes from it directly, and
+expands the pages a prefill / mixed step reads to e4m3 for the FA4 fallback
+(exact). The scales come from a calibration run on fp8 KV:
+
+```bash
+python -m mjolnir.calibrate --config <serve.yaml> --out kv_scales.json   # in the image
+MJOLNIR_ATTN_KV_SCALES=kv_scales.json vllm serve ... --kv-cache-dtype fp6_e2m3 --attention-backend MJOLNIR
+```
+
+(`mjolnir calibrate` / `mjolnir serve` do both for you —
+[docs/faq/fp6-kv.md](https://github.com/thor-arena/mjolnir/blob/main/docs/faq/fp6-kv.md).)
 
 ## Beyond fp8: the harness
 

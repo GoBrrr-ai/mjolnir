@@ -22,6 +22,7 @@ trust or publish any number.
 | Add a new model config (repo or user-local, persisted at `~/`) | [new-model-config.md](new-model-config.md) |
 | What wins: flag, state, env var, or baked-in default? | [settings-precedence.md](settings-precedence.md) |
 | Run the LiteLLM proxy stack (independent of the vLLM server) | [litellm-proxy.md](litellm-proxy.md) |
+| Serve on a 6-bit (e2m3) KV cache: calibrate, serve, check | [fp6-kv.md](fp6-kv.md) |
 
 ## Benchmarking
 

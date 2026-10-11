@@ -24,6 +24,8 @@ still printed, as information.
     python tests/smoke_vllm.py                         # Qwen3-0.6B, CUDA graphs
     python tests/smoke_vllm.py --eager --model Qwen/Qwen3-1.7B
     python tests/smoke_vllm.py --spec 2                # ngram spec decode, q_len 3
+    python tests/smoke_vllm.py --kv fp6_e2m3           # Mjolnir on a 6-bit e2m3 KV cache
+                                                       # (calibrates its scales first)
 
 Works without `pip install` of the plugin: the child then registers the
 backend itself and runs vLLM in-process (VLLM_ENABLE_V1_MULTIPROCESSING=0).
@@ -40,6 +42,17 @@ import time
 
 # Used only when a run returns no logprobs.
 LEGACY_MIN_PREFIX, LEGACY_MIN_MATCH = 8, 0.6
+
+# Default limits per Mjolnir KV format (flags override). fp8 from the first
+# Thor runs (Qwen3-0.6B, vLLM 0.31.0): mean |Δ| 0.018 graph / 0.024 eager,
+# max |Δ| 0.27, divergence gaps 0.12-0.62 nats (0.125 = one bf16 step of a
+# logit near 16-32). fp6 (e2m3) adds its own rounding on top of the fp8
+# reference's (harness: 1.15x fp8's relative L2 error) — twice the room until
+# the first fp6 runs say better.
+LIMITS = {
+    "fp8": {"tie_nats": 1.0, "max_mean_dlp": 0.06, "max_dlp": 0.5},
+    "fp6": {"tie_nats": 1.5, "max_mean_dlp": 0.12, "max_dlp": 1.0},
+}
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -173,7 +186,7 @@ def child(args) -> None:
 
     kw = {
         "model": args.model,
-        "kv_cache_dtype": "fp8",
+        "kv_cache_dtype": args.kv if args.backend in ("MJOLNIR", "CUSTOM") else "fp8",
         "dtype": "bfloat16",
         "enforce_eager": args.eager,
         "max_model_len": args.max_model_len,
@@ -223,6 +236,40 @@ def child(args) -> None:
         json.dump(res, f)
 
 
+def calibrate(args, out: str) -> str:
+    """Per-head e2m3 scales for the smoke model (mjolnir.calibrate, own process)."""
+    cmd = [
+        sys.executable,
+        "-m",
+        "mjolnir.calibrate",
+        "--model",
+        args.model,
+        "--out",
+        out,
+        "--max-model-len",
+        str(args.max_model_len),
+        "--gpu-mem",
+        str(args.gpu_mem),
+        "--prompts",
+        "16",
+        "--long",
+        "2",
+        "--long-tokens",
+        "1500",
+        "--max-tokens",
+        "48",
+    ]
+    print("\n=== calibrate (fp8 KV, e2m3 scales) ===", flush=True)
+    env = dict(os.environ)
+    _add_pkg_path()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [p for p in sys.path if p and os.path.isdir(os.path.join(p, "mjolnir"))][:1] + [env.get("PYTHONPATH", "")]
+    )
+    if subprocess.run(cmd, check=False, env=env).returncode != 0:
+        sys.exit("calibration failed")
+    return out
+
+
 def run_child(args, backend, out):
     cmd = [
         sys.executable,
@@ -243,7 +290,9 @@ def run_child(args, backend, out):
         "--spec",
         str(args.spec),
     ] + (["--eager"] if args.eager else [])
-    print(f"\n=== {backend} ===", flush=True)
+    if backend in ("MJOLNIR", "CUSTOM"):
+        cmd += ["--kv", args.kv]
+    print(f"\n=== {backend}{'' if backend not in ('MJOLNIR', 'CUSTOM') else ' (' + args.kv + ' KV)'} ===", flush=True)
     r = subprocess.run(cmd, check=False)
     if r.returncode != 0:
         sys.exit(f"{backend} run failed (exit {r.returncode})")
@@ -260,14 +309,17 @@ def main():
     ap.add_argument("--gpu_mem", type=float, default=0.15)  # Thor: 0.15 x 122 GiB ~ 18 GiB
     ap.add_argument("--eager", action="store_true")
     ap.add_argument("--spec", type=int, default=0, help="ngram speculative tokens (0 = off)")
+    ap.add_argument("--kv", default="fp8", help="Mjolnir's KV cache dtype: fp8 | fp6_e2m3 (the reference stays fp8)")
     ap.add_argument("--topk", type=int, default=5, help="logprobs returned per step")
     ap.add_argument(
-        "--tie_nats", type=float, default=1.0, help="a divergence passes if the chosen tokens differ by <= this"
+        "--tie_nats", type=float, default=None, help="a divergence passes if the chosen tokens differ by <= this"
     )
     ap.add_argument(
-        "--max_mean_dlp", type=float, default=0.06, help="mean |Δ logprob| of the chosen token on shared prefixes"
+        "--max_mean_dlp", type=float, default=None, help="mean |Δ logprob| of the chosen token on shared prefixes"
     )
-    ap.add_argument("--max_dlp", type=float, default=0.5, help="max |Δ logprob| of the chosen token on shared prefixes")
+    ap.add_argument(
+        "--max_dlp", type=float, default=None, help="max |Δ logprob| of the chosen token on shared prefixes"
+    )
     ap.add_argument("--min_prefix", type=int, default=0, help="optional: every prompt must match this many tokens")
     ap.add_argument("--min_match", type=float, default=0.0, help="optional: mean fraction of matching leading tokens")
     ap.add_argument("--child", action="store_true")
@@ -276,8 +328,14 @@ def main():
     args = ap.parse_args()
     if args.child:
         return child(args)
+    limits = LIMITS["fp6" if args.kv.startswith("fp6") else "fp8"]
+    for k, v in limits.items():
+        if getattr(args, k) is None:
+            setattr(args, k, v)
 
     tmp = os.environ.get("TMPDIR", "/tmp")
+    if args.kv.startswith("fp6") and not os.environ.get("MJOLNIR_ATTN_KV_SCALES"):
+        os.environ["MJOLNIR_ATTN_KV_SCALES"] = calibrate(args, os.path.join(tmp, "t5_smoke_kv_scales.json"))
     ref = run_child(args, args.reference, os.path.join(tmp, "t5_smoke_ref.json"))
     t5 = run_child(args, "MJOLNIR", os.path.join(tmp, "t5_smoke_t5.json"))
 

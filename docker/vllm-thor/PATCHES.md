@@ -11,7 +11,8 @@ gate" below), one **flashinfer-side** sm_110 enablement hunk (see "Thor sm_110
 GDN prefill enablement (flashinfer side)" below), one hd256 FP8-KV kernel +
 policy patch (probe-gated, T11 canary in `kernel_test_sm110_gates.py`) and one
 hd256 1CTA decode carve-out (see "Thor hd256 1CTA decode carve-out (v11,
-2026-09-24)" below). Thirteen patches in total, applied by `apply_patches.py`
+2026-09-24)" below), plus the fp6 e2m3 KV cache dtype for the Mjolnir backend.
+Fourteen patches in total, applied by `apply_patches.py`
 onto the installed vllm package **and** the installed flashinfer package;
 verified by `verify_patches.py`.
 
@@ -34,6 +35,7 @@ Base this was verified against: **vllm 0.31.0**
 | `thor-draft-cg-gate-sm110.patch` | — (Thor-authored) | **Shape-gate the DSpark draft's FULL cudagraph replay on sm_110 (the c1 fix).** The forensics showed the graphed draft is 7–16% *slower* than the eager draft at N=1 (replay overhead eats the launch savings on a tiny 5-layer draft). The gate routes per-step draft batches below `VLLM_THOR_DRAFT_CG_MIN_BATCH` requests (default **2**; min 1, where 1 = today's behavior) through the **existing eager fallback** via the dispatch's `need_eager` channel — no new eager path, no capture-logic changes. sm_110 only: off sm_110 the decision helper is a structural no-op (always CG). One-shot `THOR draft-CG gate: …` log lines; any gate evaluation error degrades to the CG behavior (logged once). Probe-gated, inert on non-sm_110, default N=1→eager. |
 | `thor-fa4-hd256-1cta-decode-sm110.patch` | — (Thor-authored) | **The 1CTA decode carve-out for the FA4 hd256 kernel (the v11 "N-2 decode" workstream).** Decode-shaped hd256 calls — `max_seqlen_q <= 8` (decode M 1..8, incl. MTP verify; prefill is 1024+), non-local, dense or paged-128 TMA (the kernel's only legal paged mode) — now OR into the `hd256_use_2cta` carve-out in `vllm_flash_attn/cute/interface.py` (one hunk), so the kernel drops its 2CTA cluster to a single CTA (`cluster (1,1)`, `CtaGroup.ONE`): a **1.56× decode win** at L=8192 M=1 (clean micro-bench 2CTA 323 µs → 1CTA 207 µs), with 1CTA == 2CTA == fp32-ref within fp8 tolerance; the kernel file is untouched and the 2CTA prefill path is unchanged (separate compile keys coexist in one process). The in-tree hd256 SplitKV machinery was investigated and is a no-win on **both** the 2CTA and 1CTA paths — kept inert (see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below). |
 | `thor-mjolnir-attention-backend.patch` | — (Thor-authored) | **The `MJOLNIR` attention-backend name.** Adds `MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"` to `AttentionBackendEnum` (`v1/attention/backends/registry.py`), so `vllm serve <model> --attention-backend MJOLNIR` parses (the CLI resolves the name through the enum *before* plugins could add one — an `Enum` cannot grow at runtime) and `Attention.__init__`'s `AttentionBackendEnum[backend.get_name()]` round-trip works. The class itself comes from the `mjolnir-kernel` package, installed by the `Dockerfile`; its `vllm.general_plugins` entry point also maps `CUSTOM` to the same class, so a stock vLLM can use `--attention-backend CUSTOM`. Also makes **FlashAttention 4 the Mjolnir backend's default fallback** (its prefill/mixed-step backend) on sm_110: a `fa_utils.py` hunk resolves `flash_attn_version` to 4 when the selected backend is `MJOLNIR`/`CUSTOM`, `MJOLNIR_ATTN_FALLBACK` is unset or `FLASH_ATTN`, and none is configured — see "The Mjolnir attention backend" below. |
+| `thor-fp6-e2m3-kv-cache.patch` | — (Thor-authored) | **The `fp6_e2m3` KV cache dtype.** Adds `"fp6_e2m3"` to `CacheDType` (`config/cache.py`), its storage dtype (`uint8`) and `is_quantized_kv_cache` (`utils/torch_utils.py`), and `KVQuantMode.FP6_E2M3` with its `get_kv_quant_mode` mapping (`v1/kv_cache_interface.py`). Nothing else: the Mjolnir backend publishes the packed cell size (`customize_spec`: `d·6/8` bytes per K and per V row), writes the cache, reads it in decode, and expands a step's pages to e4m3 for the FA4 fallback. Inert unless a config sets `kv-cache-dtype: fp6_e2m3`; no other backend accepts it. See "fp6 e2m3 KV cache" below. |
 | `thor-gdn-prefill-sm110.patch` | — (Thor-authored) | GDN **prefill** grant in `_resolve_gdn_prefill_backend()` (the fast FlashInfer kernel for the model's GDN layers) — probe-gated at import; see "Thor sm_110 gate probes". |
 | `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
 | `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
@@ -575,6 +577,35 @@ correctness-verified harness for future kernel work):
   which is also the reference architecture for the next GEMV-style kernel.
   — *superseded as the decode answer first by the (now archived) GEMV kernel,
   then by the Mjolnir kernel (`--attention-backend MJOLNIR`).*
+
+## fp6 e2m3 KV cache — `patches/thor-fp6-e2m3-kv-cache.patch`
+
+**What:** the dtype name and quant mode vLLM needs to allocate and validate a
+6-bit KV cache; everything that touches the bytes lives in `mjolnir-kernel`
+(`mjolnir/kvfp6.py`, `mjolnir/kvscales.py`, `mjolnir/backend.py`):
+
+- **page size** — `MjolnirAttentionBackend.customize_spec` sets
+  `state_content_bytes = 2 · d · 6/8` (384 B per (head, token) at d=256, vs
+  512 for fp8), so the allocator, the hybrid (GDN) page alignment and the
+  memory budget see the real size;
+- **write** — `do_kv_cache_update` → one Triton kernel: `x / scale`, round to
+  nearest e2m3 (saturating), pack 4 codes into 3 bytes, scatter by slot;
+- **decode** — T5 reads the packed codes (`kv_format="e2m3"`);
+- **prefill / mixed** — FA4 reads e4m3 only, so the step's pages are expanded
+  to an e4m3 scratch (exact) and FA4 runs on a copy of its metadata pointing
+  at it; cascade attention is off for fp6;
+- **scales** — static per (layer, KV head), `amax / 7.5`, from a
+  `mjolnir calibrate` file (`MJOLNIR_ATTN_KV_SCALES`), installed as the
+  layers' `_k_scale` / `_v_scale` (per head), which the write, T5 and FA4
+  all read. No file → the server refuses to start with fp6.
+
+**Sentinel:** `verify_patches.py` checks the dtype literal, the storage map,
+`FP6_E2M3 = 11` and the mapping. **Build smoke:** the `Dockerfile` asserts
+`get_kv_quant_mode("fp6_e2m3") == KVQuantMode.FP6_E2M3` and imports the
+kernel package's fp6 modules. **Tests:** `tests/kernel/test_runner.py` (the
+write vs the kernel package's quantizer and packer, the expansion vs a
+decode, T5 on an fp6 cache vs the emulator) and `smoke_vllm.py --kv fp6_e2m3`
+(`mjolnir verify vllm`, mode `e2m3`).
 
 ## The Mjolnir attention backend — `patches/thor-mjolnir-attention-backend.patch`
 

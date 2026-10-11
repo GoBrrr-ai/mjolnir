@@ -741,6 +741,72 @@ def gate(
     raise typer.Exit(_run_gate(s, args, False))
 
 
+# ── calibrate (fp6 KV scales) ───────────────────────────────────────────────
+
+
+@app.command()
+def calibrate(
+    model: Optional[str] = typer.Option(None, "--model", help="vendor/Model (default: the active one)"),
+    config: Optional[str] = typer.Option(None, "--config", help="the config to calibrate (default: the active one)"),
+    image: Optional[str] = typer.Option(None, "--image", help="the Mjolnir image"),
+    out: Optional[Path] = typer.Option(None, "--out", help="default: kv_scales.json next to the config"),
+    prompts: int = typer.Option(48, "--prompts", help="short prompts"),
+    long: int = typer.Option(6, "--long", help="long-context prompts"),
+    max_model_len: int = typer.Option(32768, "--max-model-len"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="print the docker command, run nothing"),
+):
+    """Calibrate per-(layer, KV head) K/V scales for the fp6 (e2m3) KV cache.
+
+    Runs the config's model on fp8 KV in the Mjolnir image, records the
+    per-head amax of every K/V written to the cache over a varied prompt set,
+    and writes ``kv_scales.json`` next to the config — what an
+    ``kv-cache-dtype: fp6_e2m3`` config is served with. Needs the GPU to
+    itself: refuses while the vLLM server is up (stop it with
+    ``mjolnir serve down`` in a window you own)."""
+    s = _settings(model, config, image, None)
+    if not dry_run and dockerctl.container_running():
+        typer.secho(
+            "the vLLM server is running — calibration loads the model itself. Stop the server "
+            "first (mjolnir serve down), in a window you own.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(3)
+    target = out or dockerctl.kv_scales_host_path(s)
+    if not os.access(target.parent if target.parent.exists() else Path.home(), os.W_OK):
+        from mjolnir_cli.config import user_configs_dir
+
+        target = user_configs_dir() / s.model / dockerctl.KV_SCALES_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    mounts = [(str(target.parent.resolve()), "/out")]
+    env = []
+    try:  # a checkout's kernel package over the image's (calibrate.py may be newer)
+        from mjolnir_cli.config import find_repo_root
+
+        src = find_repo_root() / "src" / "mjolnir"
+        if (src / "mjolnir" / "calibrate.py").exists():
+            mounts.append((str(src), "/opt/mjolnir-src:ro"))
+            env.append("PYTHONPATH=/opt/mjolnir-src")
+    except FileNotFoundError:
+        pass
+    cmd = (
+        f"python3 -m mjolnir.calibrate --config /configs/{s.model}/{s.quant}.yaml --out /out/{target.name} "
+        f"--download-dir /data/models/huggingface --max-model-len {max_model_len} "
+        f"--prompts {prompts} --long {long}"
+    )
+    argv = dockerctl.build_run_args(
+        s, name="mjolnir-calibrate", detach=False, command=cmd, extra_env=tuple(env), extra_mounts=tuple(mounts)
+    )
+    if dry_run:
+        typer.echo(" ".join(argv))
+        return
+    typer.secho(f"calibrating {s.model}/{s.quant} on {s.image} -> {target}", fg=typer.colors.CYAN)
+    rc = subprocess.run(argv).returncode
+    if rc == 0:
+        typer.secho(f"wrote {target}", fg=typer.colors.GREEN)
+    raise typer.Exit(rc)
+
+
 # ── permissions / cache ─────────────────────────────────────────────────────
 
 

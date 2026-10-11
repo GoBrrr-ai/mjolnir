@@ -306,6 +306,157 @@ def test_fused_qpack_matches_torch():
         assert (diff <= ref.float().abs() * 0.0625 + 1e-6).all(), f"pack differs (max {diff.max().item()})"
 
 
+# ---- fp6 (e2m3) KV: the vLLM write path, the fallback expansion, T5 on it ----
+def _fp6_cache(num_pages, h_k, page_size, d, head_major=True):
+    """A vLLM-shaped (B, H, N, 2 * row) uint8 layer view; head_major=False
+    stores it token-major underneath (LBNHC-like strides), as a layout check."""
+    from mjolnir import kvfp6
+
+    C = 2 * kvfp6.row_bytes(d)
+    if head_major:
+        return torch.zeros(num_pages, h_k, page_size, C, dtype=torch.uint8, device=DEV)
+    return torch.zeros(num_pages, page_size, h_k, C, dtype=torch.uint8, device=DEV).transpose(1, 2)
+
+
+def test_fp6_write_matches_reference():
+    from mjolnir import kvfp6
+
+    if not kvfp6.triton:
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(11)
+    h_k, d, PS, T = 4, 256, 16, 37
+    for head_major in (True, False):
+        cache = _fp6_cache(6, h_k, PS, d, head_major)
+        cache.fill_(0xA5)  # untouched slots must keep this
+        key = (torch.randn(T, h_k, d, generator=gen) * 3).to(torch.bfloat16).to(DEV)
+        value = (torch.randn(T, h_k, d, generator=gen) * 0.3).to(torch.bfloat16).to(DEV)
+        slots = torch.randperm(6 * PS, generator=gen)[:T].to(torch.int64)
+        slots[[3, 17]] = -1  # padding tokens
+        ks = torch.tensor([0.5, 0.4, 0.7, 0.45], device=DEV)
+        vs = torch.tensor([0.05], device=DEV)  # per tensor
+        kvfp6.write_kv(key, value, cache, slots.to(DEV), ks, vs)
+        rb = kvfp6.row_bytes(d)
+        ref_k = kvfp6.quantize_rows_reference(key.float(), ks)
+        ref_v = kvfp6.quantize_rows_reference(value.float(), vs)
+        got = cache.cpu()
+        for t, slot in enumerate(slots.tolist()):
+            if slot < 0:
+                continue
+            blk, off = divmod(slot, PS)
+            assert torch.equal(got[blk, :, off, :rb], ref_k[t]), f"K row {t} differs"
+            assert torch.equal(got[blk, :, off, rb:], ref_v[t]), f"V row {t} differs"
+        written = {s for s in slots.tolist() if s >= 0}
+        untouched = [s for s in range(6 * PS) if s not in written]
+        for slot in untouched[:20]:
+            blk, off = divmod(slot, PS)
+            assert (got[blk, :, off] == 0xA5).all(), "wrote a slot it was not given"
+
+
+def test_fp6_expand_is_exact():
+    from mjolnir import kvfp6
+
+    if not kvfp6.triton:
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(12)
+    h_k, d, PS = 2, 256, 32
+    cache = _fp6_cache(9, h_k, PS, d, head_major=False)
+    cache.copy_(torch.randint(0, 256, cache.shape, generator=gen, dtype=torch.uint8).to(DEV))
+    src = torch.tensor([7, 2, 2, 0], dtype=torch.int32, device=DEV)
+    out = torch.full((6, h_k, PS, 2 * d), 0x7F, dtype=torch.uint8, device=DEV)
+    kvfp6.expand_pages_to_fp8(cache, src, out, d)
+    rb = kvfp6.row_bytes(d)
+    for i, page in enumerate(src.tolist()):
+        want_k = kvfp6.decode_rows_reference(cache[page, :, :, :rb], d)
+        want_v = kvfp6.decode_rows_reference(cache[page, :, :, rb:], d)
+        got = out[i].view(torch.float8_e4m3fn).float().cpu()
+        assert torch.equal(got[..., :d], want_k) and torch.equal(got[..., d:], want_v), f"page {i} differs"
+    assert (out[4:] == 0x7F).all(), "expanded past the pages it was given"
+
+
+def test_fp6_runner_vs_emulator():
+    """T5 on an e2m3 cache written by the vLLM write path, in vLLM's (B,H,N,2*row)
+    layout, MTP verify shape, per-head scales — vs the emulator on the decoded values."""
+    from mjolnir import kvfp6
+
+    if not kvfp6.triton:
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(13)
+    h_q, h_k, d, PS, ql = 24, 4, 256, 128, 4
+    seq_lens = (3000, 129, 700)
+    b = len(seq_lens)
+    n_blocks = [math.ceil(L / PS) for L in seq_lens]
+    num_pages = sum(n_blocks) + 2
+    perm = torch.randperm(num_pages, generator=gen).tolist()
+    bt = torch.zeros(8, max(n_blocks) + 1, dtype=torch.int32)
+    i = 0
+    for r, nb in enumerate(n_blocks):
+        bt[r, :nb] = torch.tensor(perm[i : i + nb])
+        i += nb
+    block_table = bt.to(DEV)
+    sl = torch.zeros(8, dtype=torch.int32)
+    sl[:b] = torch.tensor(seq_lens)
+    seq_lens_d = sl.to(DEV)
+    cache = _fp6_cache(num_pages, h_k, PS, d)
+    ks = torch.tensor([0.6, 0.5, 0.8, 0.55], device=DEV)
+    vs = torch.tensor([0.12, 0.1, 0.15, 0.09], device=DEV)
+    for r, L in enumerate(seq_lens):  # write every token of every sequence
+        slots = torch.tensor([int(bt[r, p // PS]) * PS + p % PS for p in range(L)], device=DEV)
+        key = (torch.randn(L, h_k, d, generator=gen) * 2).to(torch.bfloat16).to(DEV)
+        value = (torch.randn(L, h_k, d, generator=gen) * 0.5).to(torch.bfloat16).to(DEV)
+        kvfp6.write_kv(key, value, cache, slots, ks, vs)
+    rb = kvfp6.row_bytes(d)
+    assert detect_kv_layout(cache.shape, h_k, PS, rb) == "BHN2D"
+    k_cache, v_cache = split_kv_cache(cache, "BHN2D", rb)
+    runner = T5DecodeRunner(
+        num_heads=h_q,
+        num_kv_heads=h_k,
+        head_size=d,
+        page_size=PS,
+        out_dtype=torch.bfloat16,
+        max_num_seqs=8,
+        max_q_len=ql,
+        q_mode="fp8",
+        kv_format="e2m3",
+    )
+    tokens = b * ql
+    qkv = (torch.randn(tokens, (h_q + 2 * h_k) * d, generator=gen) * 0.5).to(torch.bfloat16).to(DEV)
+    query = qkv[:, : h_q * d].view(tokens, h_q, d)
+    out = torch.full((tokens + 2, h_q * d), float("nan"), dtype=torch.bfloat16, device=DEV)
+    plan = runner.plan(sl.tolist(), b, ql, block_table, seq_lens_d, margin=3)
+    runner.ensure_compiled(ql, plan.with_reduction)
+    runner.run(plan, query, out, k_cache, v_cache, ks, vs, 1.0 / math.sqrt(d))
+    torch.cuda.synchronize()
+    assert torch.isnan(out[tokens:]).all(), "wrote past the batch"
+    k_vals = kvfp6.decode_rows_reference(k_cache.contiguous(), d)  # (pages, PS, h_k, d) code values
+    v_vals = kvfp6.decode_rows_reference(v_cache.contiguous(), d)
+    n_q = ql * (h_q // h_k)
+    q_packed = runner.q_pack[: b * h_k * n_q * d].view(b, h_k, n_q, d).float().cpu()
+    qd = runner.q_descale[:b].float().cpu()
+    o_emu, _, _ = t5.emulate_decode(
+        q_packed,
+        k_vals,
+        v_vals,
+        block_table[:b].cpu(),
+        seq_lens_d[:b].cpu(),
+        qd,
+        ks.cpu()[None].expand(b, h_k).clone(),
+        vs.cpu()[None].expand(b, h_k).clone(),
+        1.0 / math.sqrt(d),
+        1.0,
+        ql,
+        plan.chunk_tiles,
+        True,
+    )
+    ref = o_emu.view(b, h_k, ql, h_q // h_k, d).permute(0, 2, 1, 3, 4).reshape(tokens, h_q, d)
+    o = out[:tokens].view(tokens, h_q, d).float().cpu()
+    err = (o - ref).abs().max().item()
+    tol = 2e-2 * max(1.0, ref.abs().max().item())
+    assert math.isfinite(err) and err <= tol, f"e2m3 T5 vs emulator: max|err| {err:.4g} > {tol:.4g}"
+
+
 def test_cuda_graph_replay_with_new_plan():
     _graph_replay(pdl=False, kv_evict_first=False)
 

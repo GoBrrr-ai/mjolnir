@@ -72,6 +72,10 @@ PATCH_ORDER = [
     # package) to v1/attention/backends/registry.py, which no other patch
     # touches — order-independent. Makes `--attention-backend MJOLNIR` parse.
     "thor-mjolnir-attention-backend.patch",
+    # fp6 e2m3 KV cache dtype for the Mjolnir backend: config/cache.py,
+    # utils/torch_utils.py, v1/kv_cache_interface.py — files no other patch
+    # touches, order-independent. Inert unless a config asks for fp6_e2m3.
+    "thor-fp6-e2m3-kv-cache.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

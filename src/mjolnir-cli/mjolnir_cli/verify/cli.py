@@ -524,7 +524,9 @@ def timing(
 
 @app.command()
 def vllm(
-    smoke_modes: str = typer.Option("graph eager", "--smoke-modes", help="graph | eager | spec<N>; '' = none"),
+    smoke_modes: str = typer.Option(
+        "graph eager e2m3", "--smoke-modes", help="graph | eager | e2m3 (fp6 KV) | spec<N>; '' = none"
+    ),
     model: str = typer.Option("Qwen/Qwen3-0.6B", "--model"),
     tokens: int = typer.Option(128, "--tokens"),
     image: Optional[str] = IMAGE,
@@ -536,7 +538,7 @@ def vllm(
     _run(
         "vllm",
         {"smoke_modes": smoke_modes, "model": model, "tokens": tokens, "timeout": timeout},
-        {"smoke_modes": "graph eager", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
+        {"smoke_modes": "graph eager e2m3", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
         image,
         None,
         stages.DEFAULT_ITERS,

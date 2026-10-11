@@ -40,6 +40,7 @@ CONTAINER_NAME = "mjolnir-vllm"
 # Friendly backend labels for the history log / charts, keyed by quant config.
 BACKEND_LABELS = {
     "NVFP4_MJOLNIR": "Mjolnir",
+    "NVFP4_MJOLNIR_E2M3": "Mjolnir fp6 KV",
     "NVFP4": "FlashInfer",
     "NVFP4_FA2": "FlashAttention 2",
     "NVFP4_FA4hd256": "FlashAttention 4 hd256",

@@ -17,6 +17,13 @@ Only two things change:
   * the impl: forward() runs the T5 kernel when it gets T5 metadata,
     otherwise it calls the base forward.
 
+KV formats: fp8 (e4m3, vLLM's own cache write), and ``fp6_e2m3`` on the
+image (``thor-fp6-e2m3-kv-cache.patch`` adds the dtype): packed 6-bit codes
+with static per-(layer, KV head) scales from a calibration file
+(``mjolnir.kvscales``). Mjolnir writes that cache itself (``mjolnir.kvfp6``),
+T5 reads it directly, and the steps the FlashAttention 4 fallback runs see
+their pages expanded (losslessly) to an fp8 scratch first.
+
 Select it with `--attention-backend MJOLNIR` (the Mjolnir image's vLLM has
 the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
 `vllm.general_plugins` entry point registers the class at vLLM start-up.
@@ -24,6 +31,7 @@ the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, ClassVar
 
@@ -54,6 +62,13 @@ except ImportError:
     from vllm.v1.attention.backends.utils import AttentionCGSupport  # type: ignore
 
 FP8_CACHE_DTYPES = ("fp8", "fp8_e4m3")
+FP6_CACHE_DTYPES = ("fp6_e2m3",)
+MJOLNIR_CACHE_DTYPES = FP8_CACHE_DTYPES + FP6_CACHE_DTYPES
+
+
+def _kv_format(cache_dtype: str) -> str:
+    return "e2m3" if str(cache_dtype) in FP6_CACHE_DTYPES else "fp8"
+
 
 # Builder-level step counters (per process): smoke tests read these to make
 # sure decode steps really ran on T5.
@@ -123,6 +138,16 @@ _BaseImpl = _Base.get_impl_cls()
 _BASE_WRITES_KV_IN_FORWARD = getattr(_Base, "forward_includes_kv_cache_update", True)
 
 
+def _fp6_known_to_vllm() -> bool:
+    """Does this vLLM have the fp6_e2m3 cache dtype (the image's patch)?"""
+    try:
+        from vllm.v1.kv_cache_interface import KVQuantMode, get_kv_quant_mode
+
+        return get_kv_quant_mode("fp6_e2m3") == getattr(KVQuantMode, "FP6_E2M3", None)
+    except ImportError:
+        return False
+
+
 def _block_size_ok(sizes, size: int) -> bool:
     """Does a backend's supported-size list (ints and MultipleOf) take ``size``?"""
     for s in sizes:
@@ -181,8 +206,8 @@ def ineligible_reason(kv_cache_spec, layer_names, vllm_config) -> str | None:
     if env_flag("MJOLNIR_ATTN_DISABLE") in ("1", "true", "yes"):
         return "MJOLNIR_ATTN_DISABLE set"
     cache_dtype = str(getattr(vllm_config.cache_config, "cache_dtype", "auto"))
-    if cache_dtype not in FP8_CACHE_DTYPES:
-        return f"kv cache dtype {cache_dtype!r} (T5 needs fp8_e4m3)"
+    if cache_dtype not in MJOLNIR_CACHE_DTYPES:
+        return f"kv cache dtype {cache_dtype!r} (T5 needs fp8_e4m3 or fp6_e2m3)"
     head = getattr(kv_cache_spec, "head_size", None)
     if head is None or head % 128:
         return f"head_size {head} (needs a multiple of 128)"
@@ -205,6 +230,69 @@ def ineligible_reason(kv_cache_spec, layer_names, vllm_config) -> str | None:
         if r:
             return f"layer {name}: {r}"
     return None
+
+
+# --------------------------------------------------------------------------
+# fp6 (e2m3) KV: preconditions and per-head scales
+# --------------------------------------------------------------------------
+def _check_fp6(t5_reason, layer_names) -> None:
+    """fp6 caches have exactly two readers: T5 and the fallback's fp8 scratch."""
+    if t5_reason is not None:
+        raise ValueError(
+            f"kv cache dtype fp6_e2m3 needs the Mjolnir decode kernel, but it is off for "
+            f"{layer_names[:1]}: {t5_reason}. Serve fp8 KV for this model."
+        )
+    if _FALLBACK != "FLASH_ATTN":
+        raise ValueError(
+            f"kv cache dtype fp6_e2m3 needs the FLASH_ATTN fallback (prefill reads an fp8 "
+            f"scratch through it); MJOLNIR_ATTN_FALLBACK is {_FALLBACK}"
+        )
+    from . import kvscales
+
+    if kvscales.calibrating():
+        raise ValueError("calibrate on fp8 KV (MJOLNIR_ATTN_KV_CALIBRATE), then serve fp6_e2m3 with the file")
+
+
+_FP6_SCRATCH: dict = {}
+
+
+def _fp6_scratch(pages: int, H: int, N: int, row: int, device) -> torch.Tensor:
+    """A growing per-device (pages, H, N, 2d) uint8 buffer for the fallback's
+    e4m3 pages. Layers run one after another, so one buffer serves them all;
+    it lives outside vLLM's KV budget (a 200K-token context at H=4, d=256 is
+    ~0.4 GB) and grows to the largest step seen."""
+    key = (str(device), H, N, row)
+    buf = _FP6_SCRATCH.get(key)
+    need = max(1, pages)
+    if buf is None or buf.shape[0] < need:
+        cap = max(need, 2 * buf.shape[0] if buf is not None else need)
+        buf = torch.empty(cap, H, N, row, dtype=torch.uint8, device=device)
+        _FP6_SCRATCH[key] = buf
+    return buf
+
+
+def _install_fp6_scales(vllm_config, layer_names, h_k: int) -> None:
+    """Per-(layer, KV head) e2m3 scales from the calibration file, installed
+    as the layers' k/v scales (the cache write, T5 and FA4 all read them)."""
+    from . import kvscales
+
+    path = kvscales.scales_path()
+    if not path:
+        raise ValueError(
+            "kv cache dtype fp6_e2m3 needs per-head scales: set MJOLNIR_ATTN_KV_SCALES to a "
+            "calibration file (`mjolnir calibrate`, or python -m mjolnir.calibrate)"
+        )
+    doc = kvscales.load(path)
+    missing = kvscales.missing_layers(doc, layer_names)
+    if missing:
+        raise ValueError(f"{path} has no scales for {missing[:3]}{' ...' if len(missing) > 3 else ''}")
+    layers = _layers(vllm_config, layer_names)
+    for name, layer in layers.items():
+        ks, vs = kvscales.e2m3_scales(doc, name, h_k)
+        dev = layer._k_scale.device
+        layer._k_scale = torch.tensor(ks, dtype=torch.float32, device=dev)
+        layer._v_scale = torch.tensor(vs, dtype=torch.float32, device=dev)
+    logger.info("Mjolnir: fp6_e2m3 KV scales for %d layer(s) from %s", len(layers), path)
 
 
 # --------------------------------------------------------------------------
@@ -257,7 +345,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         # builder). The capability is whatever the base builder grants.
         spec = getattr(vllm_config, "speculative_config", None)
         self._plan_margin = int(getattr(spec, "num_speculative_tokens", 0) or 0) if spec is not None else 0
+        self._kv_format = _kv_format(getattr(vllm_config.cache_config, "cache_dtype", "auto"))
+        self._fp6 = self._kv_format == "e2m3"
+        self._page = kv_cache_spec.block_size
         self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
+        if self._fp6:
+            _check_fp6(self._t5_reason, layer_names)
+            _install_fp6_scales(vllm_config, layer_names, kv_cache_spec.num_kv_heads)
         self.t5: T5DecodeRunner | None = None
         if self._t5_reason is not None:
             logger.warning(
@@ -279,6 +373,8 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             num_heads = mc.get_num_attention_heads(pc)
         q_mode = env_flag("MJOLNIR_ATTN_Q_DTYPE", "fp8").lower()
         q_mode = {"bf16": "bf16", "bfloat16": "bf16", "fp8": "fp8", "e4m3": "fp8"}[q_mode]
+        if self._fp6 and q_mode != "fp8":
+            raise ValueError("fp6_e2m3 KV runs on the fp8-Q path only: unset MJOLNIR_ATTN_Q_DTYPE")
         self.t5 = T5DecodeRunner(
             num_heads=num_heads,
             num_kv_heads=kv_cache_spec.num_kv_heads,
@@ -300,6 +396,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             l2_prefetch=int(env_flag("MJOLNIR_ATTN_L2_PREFETCH", "0")),
             kv_evict_first=env_flag("MJOLNIR_ATTN_KV_EVICT_FIRST", "1" if q_mode == "fp8" else "0").lower()
             in ("1", "true", "yes"),
+            kv_format=self._kv_format,
             device=device,
         )
         pre = env_flag("MJOLNIR_ATTN_PRECOMPILE", "all").lower()
@@ -309,7 +406,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         logger.info(
             "Mjolnir decode enabled: h_q=%d h_k=%d d=%d page=%d q_len<=%d Q=%s "
             "ctas/SM=%d slots(q1)=%d pdl=%s l2_prefetch=%d "
-            "kv_evict_first=%s fallback=%s",
+            "kv_evict_first=%s kv=%s fallback=%s",
             num_heads,
             kv_cache_spec.num_kv_heads,
             kv_cache_spec.head_size,
@@ -321,6 +418,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             self.t5.pdl,
             self.t5.l2_prefetch,
             self.t5.kv_evict_first,
+            self._kv_format,
             _fallback_name(),
         )
 
@@ -384,7 +482,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         q_len = self._t5_q_len(cam) if common_prefix_len == 0 else None
         if q_len is None:
             STATS["fallback_steps"] += 1
-            return super().build(common_prefix_len, cam, fast_build)
+            md = super().build(common_prefix_len, cam, fast_build)
+            if self._fp6:
+                md.mjolnir_fp6_pages = self._fp6_page_map(cam)
+            return md
         STATS["t5_steps"] += 1
         t5 = self.t5
         num_seqs = cam.num_reqs
@@ -400,6 +501,30 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         t5.ensure_compiled(q_len, plan.with_reduction)
         return MjolnirMetadata(plan=plan, runner=t5, cam=cam)
 
+    def _fp6_page_map(self, cam):
+        """For a step the fallback runs on an fp6 cache: which cache page
+        becomes which scratch page, and the block table over the scratch.
+        Scratch page offset_r + j holds request r's page j (no deduplication:
+        a shared prefix page is expanded once per request that uses it)."""
+        num_reqs = cam.num_reqs
+        lens = [int(x) for x in self._seq_lens_cpu(cam)[:num_reqs]]
+        n_pages = [max(1, -(-L // self._page)) if L > 0 else 0 for L in lens]
+        total = sum(n_pages)
+        width = cam.block_table_tensor.shape[1]
+        remap = torch.zeros(cam.block_table_tensor.shape[0], width, dtype=torch.int32)
+        req_idx, page_idx, off = [], [], 0
+        for r, n in enumerate(n_pages):
+            if n:
+                remap[r, :n] = torch.arange(off, off + n, dtype=torch.int32)
+                req_idx += [r] * n
+                page_idx += list(range(n))
+            off += n
+        dev = cam.block_table_tensor.device
+        rows = torch.tensor(req_idx, dtype=torch.long).pin_memory().to(dev, non_blocking=True)
+        cols = torch.tensor(page_idx, dtype=torch.long).pin_memory().to(dev, non_blocking=True)
+        src = cam.block_table_tensor[rows, cols].to(torch.int32).contiguous()
+        return {"src_pages": src, "block_table": remap.pin_memory().to(dev, non_blocking=True), "total": total}
+
     def build_for_cudagraph_capture(self, common_attn_metadata):
         return self.build(0, common_attn_metadata)
 
@@ -413,7 +538,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     def use_cascade_attention(self, *args, **kwargs) -> bool:
         # Cascade steps are built by the base builder (common_prefix_len > 0);
-        # keep the base decision.
+        # keep the base decision — except on fp6, whose fallback path expands
+        # per-request pages and has no shared-prefix variant.
+        if self._fp6:
+            return False
         return super().use_cascade_attention(*args, **kwargs)
 
 
@@ -429,11 +557,49 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         # wants fp8 Q next to an fp8 KV cache (FlashAttention 4 on sm_110
         # needs Q, K and V in one fp8 dtype) gets it quantized here, on the
         # steps it runs — the same static quantization the layer would do.
-        fp8_kv = str(getattr(self, "kv_cache_dtype", "auto")) in FP8_CACHE_DTYPES
-        self._fallback_fp8_q = bool(self.supports_quant_query_input) and fp8_kv and _FALLBACK == "FLASH_ATTN"
+        cache_dtype = str(getattr(self, "kv_cache_dtype", "auto"))
+        # fp6: the fallback reads an fp8 scratch (see _forward_fp6_fallback)
+        self._fp6 = cache_dtype in FP6_CACHE_DTYPES
+        quantized_kv = cache_dtype in MJOLNIR_CACHE_DTYPES
+        self._fallback_fp8_q = (
+            bool(self.supports_quant_query_input) and quantized_kv and _FALLBACK == "FLASH_ATTN"
+        ) or self._fp6
         self.supports_quant_query_input = False
         self._kv_layout: str | None = None
         self._t5_reason = _layer_reason(self)
+
+    # -- KV cache write ----------------------------------------------------
+    def do_kv_cache_update(self, layer, key, value, kv_cache, slot_mapping):
+        """fp6: Mjolnir's own packed write; fp8: the base backend's. In
+        calibration mode (MJOLNIR_ATTN_KV_CALIBRATE=1) also fold every
+        written K/V into the layer's per-head amax."""
+        from . import kvscales
+
+        if kvscales.calibrating():
+            kvscales.observe(getattr(layer, "layer_name", str(id(layer))), key, value, slot_mapping)
+        if not self._fp6:
+            return super().do_kv_cache_update(layer, key, value, kv_cache, slot_mapping)
+        if getattr(self, "kv_sharing_target_layer_name", None) is not None:
+            return None
+        from . import kvfp6
+
+        kvfp6.write_kv(key, value, kv_cache, slot_mapping, layer._k_scale, layer._v_scale)
+        return None
+
+    def _forward_fp6_fallback(self, layer, query, key, value, kv_cache, attn_metadata, *rest, **kwargs):
+        """A fallback step on an fp6 cache: expand the pages this step reads
+        to e4m3 (exact: every e2m3 value is an e4m3 value), point a copy of
+        the metadata at the scratch, and run the base forward on it. The
+        layer's per-head k/v scales are the descales of both."""
+        from . import kvfp6
+
+        pages = attn_metadata.mjolnir_fp6_pages
+        _, H, N, _ = kv_cache.shape
+        scratch = _fp6_scratch(pages["total"], H, N, 2 * self.head_size, kv_cache.device)
+        kvfp6.expand_pages_to_fp8(kv_cache, pages["src_pages"], scratch, self.head_size)
+        md = copy.copy(attn_metadata)
+        md.block_table = pages["block_table"]
+        return super().forward(layer, query, key, value, scratch[: max(1, pages["total"])], md, *rest, **kwargs)
 
     def _quantize_q(self, layer, query: torch.Tensor) -> torch.Tensor:
         """Static fp8 Q for the fallback, as the attention layer would
@@ -454,12 +620,18 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         return False  # T5 writes bf16/fp16 output
 
     def _kv_views(self, kv_cache: torch.Tensor, runner: T5DecodeRunner):
+        # fp6 rows are packed bytes: K|V split at d * 6 / 8 bytes, not d
+        row = runner.kv_row_bytes
         if self._kv_layout is None:
-            self._kv_layout = detect_kv_layout(kv_cache.shape, runner.h_k, runner.page_size, runner.d)
+            self._kv_layout = detect_kv_layout(kv_cache.shape, runner.h_k, runner.page_size, row)
             logger.info(
-                "Mjolnir: KV cache %s %s -> layout %s", tuple(kv_cache.shape), tuple(kv_cache.stride()), self._kv_layout
+                "Mjolnir: KV cache %s %s -> layout %s (%s)",
+                tuple(kv_cache.shape),
+                tuple(kv_cache.stride()),
+                self._kv_layout,
+                runner.kv_format,
             )
-        return split_kv_cache(kv_cache, self._kv_layout, runner.d)
+        return split_kv_cache(kv_cache, self._kv_layout, row)
 
     def _write_kv(self, layer, key, value, kv_cache, k_cache, v_cache, md):
         """Only for base backends whose forward() also writes the KV cache
@@ -503,6 +675,20 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 # only when it believes the layer quantized Q.
                 self.supports_quant_query_input = True
                 try:
+                    if self._fp6:
+                        return self._forward_fp6_fallback(
+                            layer,
+                            query,
+                            key,
+                            value,
+                            kv_cache,
+                            attn_metadata,
+                            output,
+                            output_scale,
+                            output_block_scale,
+                            *args,
+                            **kwargs,
+                        )
                     return super().forward(
                         layer,
                         query,
@@ -590,6 +776,40 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
             base = _Base.get_supported_kernel_block_sizes()
         ours = [s for s in SUPPORTED_PAGE_SIZES if _block_size_ok(base, s)]
         return ours or list(base)
+
+    # -- KV cache dtypes --------------------------------------------------
+    # The fallback's own list, plus fp6_e2m3 where vLLM knows the dtype (the
+    # image's thor-fp6-e2m3-kv-cache patch) and the FA4 fallback can read the
+    # fp8 scratch.
+    supported_kv_cache_dtypes: ClassVar[list] = list(getattr(_Base, "supported_kv_cache_dtypes", [])) + (
+        list(FP6_CACHE_DTYPES) if _FALLBACK == "FLASH_ATTN" else []
+    )
+
+    @classmethod
+    def supports_kv_cache_dtype(cls, kv_cache_dtype) -> bool:
+        if kv_cache_dtype in FP6_CACHE_DTYPES:
+            return _fp6_known_to_vllm() and _FALLBACK == "FLASH_ATTN" and _Base.supports_kv_cache_dtype("fp8")
+        return _Base.supports_kv_cache_dtype(kv_cache_dtype)
+
+    @classmethod
+    def supports_combination(cls, head_size, dtype, kv_cache_dtype, block_size, *args, **kwargs):
+        # fp6: the fallback runs on an e4m3 scratch, so it must support fp8
+        if kv_cache_dtype in FP6_CACHE_DTYPES:
+            kv_cache_dtype = "fp8"
+        return _Base.supports_combination(head_size, dtype, kv_cache_dtype, block_size, *args, **kwargs)
+
+    @classmethod
+    def customize_spec(cls, spec):
+        """fp6_e2m3: one (head, token) cell is the packed K row then the
+        packed V row, d * 6 / 8 bytes each."""
+        mode = getattr(spec, "kv_quant_mode", None)
+        if getattr(mode, "is_fp6", False) and getattr(spec, "state_content_bytes", None) is None:
+            from dataclasses import replace
+
+            from .kvfp6 import row_bytes
+
+            return replace(spec, state_content_bytes=row_bytes(spec.head_size) + row_bytes(spec.head_size_v))
+        return super().customize_spec(spec)
 
     @staticmethod
     def get_impl_cls():

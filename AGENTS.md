@@ -28,7 +28,9 @@ the agents run on**. When doing anything on the GPU:
   µs drift ~10% between runs at long L — compare legs measured in the same run
   and require a win across L. **L=16K is bimodal** (0.98× or 1.14× vs
   FlashInfer depending on the run): never decide on 16K alone. End-to-end
-  serving numbers use a wider ±7% band (`E2E_NOISE_PCT`).
+  serving numbers use the same ±3% band (`E2E_NOISE_PCT`), but with MTP the
+  per-run decode rate spreads 10–15% (acceptance varies by prompt): decode
+  cells need `--repeat` before a few-% difference means anything.
 - **Native vLLM baselines (FlashInfer, FA2) are measured only on the official
   `vllm/vllm-openai` image**, never on ours — the Mjolnir image patches
   FlashInfer paths too. `mjolnir verify` runs reference legs there
@@ -59,8 +61,10 @@ skipped with a hint — nothing blocks on a password.
   2 CTAs × 20 SMs), dynamic fp8 Q, TMA KV ring with L2 evict-first, TMEM
   accumulators, softmax warpgroups, LSE merge kernel; q_len ≤ 1 + spec tokens;
   full CUDA graphs. Harness default: **e2m3 (fp6) KV on head-major (HND) pages,
-  2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** (no
-  vLLM fp6 cache-write path yet). Results: README + `docs/kernel/`.
+  2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** by
+  default, and **fp6 e2m3** with `NVFP4_MJOLNIR_E2M3` (calibrated per-head
+  scales, `mjolnir calibrate`; `docs/faq/fp6-kv.md`). Results: README +
+  `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
   CUSTOM` on stock vLLM 0.31.0 (the `vllm.general_plugins` entry point
@@ -69,7 +73,7 @@ skipped with a hint — nothing blocks on a password.
   vLLM; the FA4 default lives in the enum patch's `fa_utils` hunk). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
 - **The image**: `narandill/mjolnir-vllm:v0.31.0` on
-  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 12 vLLM patches + 1 FlashInfer patch,
+  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
@@ -203,8 +207,14 @@ trusted publishing — and the image (vLLM version, on push to `main`).
       for stages without a default run).
 - [ ] **End-to-end**: `mjolnir bench e2e` (native FlashInfer on the official
       vLLM image vs Mjolnir) — restarts the server per leg; schedule deliberately.
-- [ ] **fp6 KV in vLLM**: a cache-write path for e2m3 so serving gets the
-      harness's fp6 win (`docs/kernel/kvfmt.md`, `quant.md`).
+- [ ] **fp6 KV in vLLM — validate, then default**: the path is in
+      (`thor-fp6-e2m3-kv-cache.patch`, `mjolnir/kvfp6.py`, `NVFP4_MJOLNIR_E2M3`).
+      To make it the default: `mjolnir calibrate`, commit
+      `configs/<model>/kv_scales.json`, pass `mjolnir verify vllm` (smoke e2m3)
+      and an e2e run, then set `DEFAULT_QUANT`.
+- [ ] **e2e at the shapes that matter**: decode gains need long contexts
+      (64K+) and concurrency; `mjolnir verify sweep --batch 4 --q-len 4`
+      measures the MTP=3 verify shape in ncu.
 - [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
 - [ ] Fuse the split-KV merge into the last CTA per sequence.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).

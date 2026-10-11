@@ -413,6 +413,12 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
     ("fp8 from float (accuracy ref)", "--batches 2 --seqlen 5000 --varlen --kv_from_float", FP8),
     ("e3m2 KV p128", "--seqlen 8192 --kv_format e3m2", FP8),
     ("e2m3 KV p16 varlen", "--batches 4 --seqlen 3000 --varlen --page_size 16 --kv_format e2m3", FP8),
+    (
+        "e2m3 KV vLLM layout (interl p128 q_len=4)",
+        "--batches 4 --seqlen 5000 --varlen --page_size 128 --q_len 4 --kv_format e2m3 --kv_layout interleaved "
+        "--strided_qo",
+        FP8,
+    ),
     ("e2m1 KV p128", "--seqlen 8192 --kv_format e2m1", FP8),
     (
         "e2m1 KV HND p16 q_len=2",
@@ -588,7 +594,7 @@ def smoke_summary(c: dict) -> str:
 def stage_vllm(
     ctx: Ctx,
     repo: Path,
-    smoke_modes: str = "graph eager",
+    smoke_modes: str = "graph eager e2m3",
     model: str = "Qwen/Qwen3-0.6B",
     tokens: int = 128,
     timeout: float = 1800.0,
@@ -614,6 +620,8 @@ def stage_vllm(
         args = f"--model {model} --max_tokens {tokens}"
         if mode == "eager":
             args += " --eager"
+        elif mode == "e2m3":  # Mjolnir on a 6-bit e2m3 KV cache (calibrates its own scales)
+            args += " --kv fp6_e2m3"
         elif mode.startswith("spec"):
             args += f" --spec {mode[4:] or 2}"
         elif mode != "graph":
