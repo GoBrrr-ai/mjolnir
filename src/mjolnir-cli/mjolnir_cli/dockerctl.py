@@ -112,6 +112,58 @@ MJOLNIR_ENV_DEFAULTS = {"VLLM_KV_CACHE_LAYOUT": "HND"}
 KV_SCALES_FILE = "kv_scales.json"
 
 
+# What the image's installed mjolnir package is built from: `mjolnir image
+# build` stamps the checkout's HEAD into this label.
+REVISION_LABEL = "org.opencontainers.image.revision"
+KERNEL_PATHS = ("src/mjolnir", "docker/vllm-thor")
+
+
+def stale_image(image: str) -> str | None:
+    """Why ``image`` serves an older Mjolnir than this checkout, or None.
+
+    Serving uses the package installed in the image (only verify and
+    calibrate overlay the checkout's source), so a checkout that changed
+    ``src/mjolnir`` or the patch stack after the build serves old code. None
+    when it cannot tell: no checkout, no label (e.g. the official image), or
+    a revision git does not know."""
+    try:
+        from mjolnir_cli.config import find_repo_root
+
+        root = find_repo_root()
+    except FileNotFoundError:
+        return None
+    try:
+        rc, rev = _run_quiet(
+            [_docker(), "image", "inspect", "-f", '{{ index .Config.Labels "' + REVISION_LABEL + '" }}', image]
+        )
+    except (DockerError, OSError):  # no docker / no image: nothing to say
+        return None
+    rev = rev.strip()
+    if rc != 0 or not rev or rev in ("unknown", "<no value>"):
+        return None
+    r = subprocess.run(
+        ["git", "-C", str(root), "diff", "--quiet", rev, "HEAD", "--", *KERNEL_PATHS],
+        capture_output=True,
+    )
+    if r.returncode != 1:  # 0: same code; >1: revision unknown here
+        return None
+    log = (
+        subprocess.run(
+            ["git", "-C", str(root), "log", "--oneline", f"{rev}..HEAD", "--", *KERNEL_PATHS],
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+    head = f"{len(log)} commit(s)" if log else "changes"
+    return (
+        f"{image} was built from {rev}; {head} to {', '.join(KERNEL_PATHS)} since "
+        f"({'; '.join(log[:3])}{' ...' if len(log) > 3 else ''}). It serves the old code — "
+        "rebuild: mjolnir image build"
+    )
+
+
 def kv_scales_host_path(s: Settings) -> Path:
     """Where `mjolnir calibrate` writes, and an fp6 config's scales are read
     from: next to the config (repo or user-local configs dir)."""

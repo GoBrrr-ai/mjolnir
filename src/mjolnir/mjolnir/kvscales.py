@@ -53,8 +53,14 @@ def load(path: str | os.PathLike) -> dict:
     key = str(path)
     if key not in _FILES:
         doc = json.loads(Path(path).read_text())
-        if doc.get("format") not in FORMATS or not isinstance(doc.get("amax"), dict):
-            raise ValueError(f"{path}: not a {FORMAT} file")
+        fmt = doc.get("format")
+        if fmt not in FORMATS or not isinstance(doc.get("amax"), dict):
+            hint = (
+                " — the file is newer than this mjolnir package (rebuild the image: mjolnir image build)"
+                if isinstance(fmt, str) and fmt.startswith("mjolnir.kv_scales/")
+                else ""
+            )
+            raise ValueError(f"{path}: format {fmt!r}, this mjolnir reads {', '.join(FORMATS)}{hint}")
         _FILES[key] = doc
     return _FILES[key]
 

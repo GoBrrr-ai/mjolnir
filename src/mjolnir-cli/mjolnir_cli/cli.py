@@ -209,6 +209,9 @@ def serve_up(
     if not s.config_path.exists():
         typer.secho(f"config not found: {s.config_path}", fg=typer.colors.RED, err=True)
         raise typer.Exit(4)
+    stale = dockerctl.stale_image(s.image)
+    if stale:
+        typer.secho(f"warning: {stale}", fg=typer.colors.YELLOW, err=True)
     try:
         dockerctl.serve_up(s, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run)
     except (dockerctl.DockerError, TimeoutError) as e:
@@ -1106,6 +1109,9 @@ def bench_e2e(
         help="run one leg: 'mjolnir' or 'official'; the comparison pairs it with the other side's latest record",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the two serve commands, run nothing"),
+    allow_stale_image: bool = typer.Option(
+        False, "--allow-stale-image", help="benchmark a Mjolnir image older than the checkout's kernel"
+    ),
 ):
     """Official vLLM image vs the Mjolnir image, end to end: decode and prefill
     throughput, time to first token and inter-token latency per context x
@@ -1128,6 +1134,12 @@ def bench_e2e(
             typer.secho(f"--only must be 'mjolnir' or 'official', got {only!r}", fg=typer.colors.RED, err=True)
             raise typer.Exit(2)
         legs = [legs[1] if side == "mjolnir" else legs[0]]
+    stale = dockerctl.stale_image(image) if any(leg[1] == image for leg in legs) else None
+    if stale and not dry_run:
+        if not allow_stale_image:
+            typer.secho(f"{stale} (or --allow-stale-image)", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        typer.secho(f"warning: {stale}", fg=typer.colors.YELLOW, err=True)
     if dry_run:
         for m_, img, q, _ in legs:
             s.model, s.image, s.quant = m_, img, q
