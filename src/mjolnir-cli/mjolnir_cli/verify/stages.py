@@ -145,9 +145,20 @@ def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.=-]+", "_", s).strip("_")
 
 
-def stage_sweep(ctx: Ctx, legs: str = "fi,fa2,mjolnir-fp8,mjolnir", page: int | None = None) -> dict:
+def stage_sweep(
+    ctx: Ctx, legs: str = "fi,fa2,mjolnir-fp8,mjolnir", page: int | None = None, batch: int = 1, q_len: int = 1
+) -> dict:
+    """Every leg at every L. ``batch`` sequences of L tokens with ``q_len``
+    query tokens each (default one decode token of one sequence; serving with
+    MTP=3 verifies 4 tokens per sequence: ``batch=4, q_len=4``)."""
     sel = L_.legs_from_ids(legs)
-    return {"series": run_series(ctx, sel, "sweep"), "params": {"legs": [x.id for x in sel]}}
+    if (batch, q_len) != (1, 1) and any(x.kind == "fa2" for x in sel):
+        raise ValueError("the fa2 leg measures b=1, q_len=1 only — drop it from --legs for --batch/--q-len")
+    ctx.runner.batch, ctx.runner.q_len = batch, q_len
+    params: dict = {"legs": [x.id for x in sel]}
+    if (batch, q_len) != (1, 1):
+        params.update(batch=batch, q_len=q_len)
+    return {"series": run_series(ctx, sel, "sweep"), "params": params}
 
 
 def stage_hndsweep(ctx: Ctx, legs: str = "fi,fi-hnd,mjolnir-fp8") -> dict:

@@ -236,12 +236,17 @@ def sweep(
     save: bool = SAVE,
     plot: bool = PLOT,
     page: int = PAGE,
+    batch: int = typer.Option(1, "--batch", help="sequences per step, each of L tokens (serving: 1-4)"),
+    q_len: int = typer.Option(1, "--q-len", help="query tokens per sequence (MTP=3 verification: 4)"),
 ):
-    """The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks)."""
+    """The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks).
+
+    `--batch 4 --q-len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
+    with MTP=3 at 4 concurrent requests (saved as a non-default run)."""
     _run(
         "sweep",
-        {"legs": legs},
-        {"legs": "fi,fa2,mjolnir-fp8,mjolnir"},
+        {"legs": legs, "batch": batch, "q_len": q_len},
+        {"legs": "fi,fa2,mjolnir-fp8,mjolnir", "batch": 1, "q_len": 1},
         image,
         ls,
         iters,

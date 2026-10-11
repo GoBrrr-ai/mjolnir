@@ -68,6 +68,8 @@ class Runner:
     hk: int = 4
     d: int = 256
     page: int = 128
+    batch: int = 1  # sequences per decode step (each of L tokens) — `verify sweep --batch`
+    q_len: int = 1  # query tokens per sequence (MTP=3 verification is 4) — `verify sweep --q-len`
 
     _ready: set = field(default_factory=set, repr=False)
 
@@ -138,6 +140,8 @@ class Runner:
             f"BENCH_HK={self.hk}",
             f"BENCH_D={self.d}",
             f"BENCH_PAGE={self.page}",
+            f"BENCH_B={self.batch}",
+            f"BENCH_QLEN={self.q_len}",
         ]
         if leg.kind == "t5":
             args = self.harness_args(
@@ -153,6 +157,8 @@ class Runner:
                     str(self.d),
                     "--page_size",
                     str(self.page),
+                    *(["--batches", str(self.batch)] if self.batch != 1 else []),
+                    *(["--q_len", str(self.q_len)] if self.q_len != 1 else []),
                     "--iterations",
                     str(iters),
                     "--warmup_iterations",
@@ -214,7 +220,7 @@ class Runner:
             return rc, None
         from mjolnir_cli.verify.legs import MAIN, MERGE
 
-        kv_bytes = L * self.hk * self.d * 2 * leg.kv_bits / 8
+        kv_bytes = self.batch * L * self.hk * self.d * 2 * leg.kv_bits / 8
         return rc, ncu.parse_file(log, MAIN[leg.kind], MERGE[leg.kind], L, kv_bytes)
 
     # ── full ncu profile (fp6prof) ─────────────────────────────────────────

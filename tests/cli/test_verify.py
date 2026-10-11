@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from mjolnir_cli.verify import legs, ncu, results, stages
 
 NCU_LOG = """\
@@ -133,3 +132,24 @@ def test_raw_csv_with_text_only_columns_does_not_crash():
     mean, units = ncu.parse_raw_csv(text)
     assert mean["gpu__time_duration.sum"] == 13000.0  # µs -> ns, averaged
     assert "note" not in mean and "Kernel Name" not in mean
+
+
+def test_sweep_batch_and_q_len_reach_both_drivers(tmp_path):
+    from mjolnir_cli.verify.docker import Runner
+
+    r = Runner(image="img", logdir=tmp_path, batch=4, q_len=4)
+    cmd, _ = r.leg_command(legs.legs_from_ids("mjolnir-fp8")[0], 8192, 10)
+    assert "--batches 4" in cmd and "--q_len 4" in cmd
+    _, env = r.leg_command(legs.legs_from_ids("fi")[0], 8192, 10)
+    assert "BENCH_B=4" in env and "BENCH_QLEN=4" in env
+    one = Runner(image="img", logdir=tmp_path)
+    cmd, _ = one.leg_command(legs.legs_from_ids("mjolnir-fp8")[0], 8192, 10)
+    assert "--batches" not in cmd and "--q_len" not in cmd  # the default command is unchanged
+
+
+def test_sweep_rejects_fa2_for_batched_shapes(tmp_path):
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(runner=SimpleNamespace(batch=1, q_len=1))
+    with pytest.raises(ValueError, match="fa2"):
+        stages.stage_sweep(ctx, legs="fi,fa2", batch=4, q_len=4)

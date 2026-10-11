@@ -1,15 +1,18 @@
 """FlashInfer paged fp8 decode driver for ncu (NHD or HND KV layout).
 
-The FlashInfer leg of ``mjolnir verify``: one sequence of BENCH_L tokens,
-bf16 Q, fp8 e4m3 KV, tensor-core decode (``use_tensor_cores=True``, plan
-once, split-KV as FlashInfer chooses) — the decode path vLLM's FlashInfer
-backend runs. BENCH_ITERS launches, no warmup, so ncu sees exactly
+The FlashInfer leg of ``mjolnir verify``: BENCH_B sequences (default 1) of
+BENCH_L tokens, bf16 Q, fp8 e4m3 KV, tensor-core decode
+(``use_tensor_cores=True``, plan once, split-KV as FlashInfer chooses) — the
+decode path vLLM's FlashInfer backend runs. BENCH_QLEN > 1 (speculative
+verification, e.g. 4 for MTP=3) runs the paged *prefill* wrapper, causal,
+BENCH_QLEN query tokens per sequence — how stock vLLM's FlashInfer backend
+runs a multi-token verify batch. BENCH_ITERS launches, no warmup, so ncu sees exactly
 BENCH_ITERS invocations. The KV data is generated once in NHD order; the
 HND run uses the same values transposed, so NHD vs HND differ only in layout.
 
     FI_LAYOUT=HND BENCH_L=65536 BENCH_ITERS=50 python3 fi_driver.py
 
-Env: FI_LAYOUT (NHD|HND), BENCH_L, BENCH_ITERS, BENCH_HQ (24), BENCH_HK (4),
+Env: FI_LAYOUT (NHD|HND), BENCH_L, BENCH_ITERS, BENCH_B (1), BENCH_QLEN (1), BENCH_HQ (24), BENCH_HK (4),
      BENCH_D (256), BENCH_PAGE (128), BENCH_CONTIG=1 (pages in order; default
      is a random page permutation, as the Mjolnir harness), FI_CHECK=1 (also
      run the other layout once and assert the outputs match), BENCH_SEED.
@@ -38,12 +41,14 @@ def main():
     assert layout in ("NHD", "HND"), layout
     L, iters = env_int("L", 8192), env_int("ITERS", 50)
     hq, hk, d, ps = env_int("HQ", 24), env_int("HK", 4), env_int("D", 256), env_int("PAGE", 128)
+    b, qlen = env_int("B", 1), env_int("QLEN", 1)
     check = os.environ.get("FI_CHECK", "0") == "1"
     torch.manual_seed(env_int("SEED", 1111))
     dev = "cuda"
 
-    pages = (L + ps - 1) // ps
-    last = L - (pages - 1) * ps
+    pages_seq = (L + ps - 1) // ps
+    last = L - (pages_seq - 1) * ps
+    pages = b * pages_seq
     # (pages, 2, PS, h_k, d) in fp8, filled in chunks to bound the temp size
     nhd = torch.empty(pages, 2, ps, hk, d, dtype=torch.float8_e4m3fn, device=dev)
     step = max(1, (64 << 20) // (2 * ps * hk * d))
@@ -63,12 +68,29 @@ def main():
         indices = torch.arange(pages, dtype=torch.int32, device=dev)
     else:
         indices = torch.randperm(pages, device=dev).to(torch.int32)
-    indptr = torch.tensor([0, pages], dtype=torch.int32, device=dev)
-    last_len = torch.tensor([last], dtype=torch.int32, device=dev)
-    q = torch.randn(1, hq, d, device=dev, dtype=torch.bfloat16)
+    indptr = torch.arange(b + 1, dtype=torch.int32, device=dev) * pages_seq
+    last_len = torch.full((b,), last, dtype=torch.int32, device=dev)
+    q = torch.randn(b * qlen, hq, d, device=dev, dtype=torch.bfloat16)
 
     def make(lay):
         ws = torch.empty(256 << 20, dtype=torch.uint8, device=dev)
+        if qlen > 1:
+            w = flashinfer.BatchPrefillWithPagedKVCacheWrapper(ws, kv_layout=lay)
+            qo_indptr = torch.arange(b + 1, dtype=torch.int32, device=dev) * qlen
+            w.plan(
+                qo_indptr,
+                indptr,
+                indices,
+                last_len,
+                hq,
+                hk,
+                d,
+                ps,
+                causal=True,
+                q_data_type=torch.bfloat16,
+                kv_data_type=torch.float8_e4m3fn,
+            )
+            return w
         w = flashinfer.BatchDecodeWithPagedKVCacheWrapper(ws, kv_layout=lay, use_tensor_cores=True)
         kw = dict(pos_encoding_mode="NONE", q_data_type=torch.bfloat16, kv_data_type=torch.float8_e4m3fn)
         try:
@@ -85,7 +107,7 @@ def main():
     kv = cache(layout)
     torch.cuda.synchronize()
     print(
-        f"FI {layout}: L={L} pages={pages}x{ps} h_q={hq} h_k={hk} d={d} "
+        f"FI {layout}: b={b} q_len={qlen} L={L} pages={pages}x{ps} h_q={hq} h_k={hk} d={d} "
         f"cache {tuple(kv.shape)} stride {kv.stride()} iters={iters}",
         flush=True,
     )
