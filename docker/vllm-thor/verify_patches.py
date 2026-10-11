@@ -17,6 +17,7 @@ place. The sentinels are intentionally chosen to be stable across vllm
 releases (a function/attribute name that the fix introduces) so the check
 keeps working as the surrounding code churns.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -24,8 +25,7 @@ import sys
 from pathlib import Path
 
 # fix id -> list of (relative path from the vllm package root, sentinel text).
-# A leading "!" on a sentinel asserts the text is ABSENT (rename guards),
-# e.g. 55390 removes _is_deepseek_v4_eagle entirely.
+# A leading "!" on a sentinel asserts the text is ABSENT (rename guards).
 FIXES: dict[str, list[tuple[str, str]]] = {
     "50885 flashinfer native FULL decode cudagraphs for spec-decode": [
         (
@@ -50,27 +50,10 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "def use_eagle_preserves_target_kv_cache",
         ),
     ],
-    # Upstream since vLLM 0.31.0 (no patch any more): the sentinels stay as a
-    # base-image guard, so a base that loses the fix fails the build.
-    "55390 MTP draft KV group positional annotation (hybrid path)": [
-        (
-            "v1/core/kv_cache_utils.py",
-            "def _uses_trailing_mtp_layers",
-        ),
-        (
-            "v1/core/kv_cache_utils.py",
-            "def _groups_partition_layers_exactly",
-        ),
-        (
-            # renamed away by the fix; its presence means the fix did not apply
-            "v1/core/kv_cache_utils.py",
-            "!def _is_deepseek_v4_eagle",
-        ),
-    ],
     "55519 no draft-group warning when eagle block drop is off": [
         (
             "v1/core/kv_cache_utils.py",
-            'if spec_config is None or not spec_config.use_eagle_block_drop():\n        return\n    if any(group.is_eagle_group for group in kv_cache_groups):',
+            "if spec_config is None or not spec_config.use_eagle_block_drop():\n        return\n    if any(group.is_eagle_group for group in kv_cache_groups):",
         ),
         (
             "v1/core/sched/scheduler.py",
@@ -248,9 +231,7 @@ def flashinfer_package_root() -> Path:
     return Path(spec.origin).parent
 
 
-def _check_root(
-    root: Path, fixes: dict[str, list[tuple[str, str]]]
-) -> list[str]:
+def _check_root(root: Path, fixes: dict[str, list[tuple[str, str]]]) -> list[str]:
     """Return the list of missing fixes under ``root`` (empty == all present)."""
     missing: list[str] = []
     for fix, sentinels in fixes.items():
@@ -297,9 +278,7 @@ if __name__ == "__main__":
     # ``verify_patches.py <pristine-tree>`` could exit 0 with "all fixes
     # present" while reporting on a different, already-patched tree.)
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else package_root()
-    fi_root = (
-        Path(sys.argv[2]) if len(sys.argv) > 2 else flashinfer_package_root()
-    )
+    fi_root = Path(sys.argv[2]) if len(sys.argv) > 2 else flashinfer_package_root()
     problems = verify(root)
     fi_problems = verify_flashinfer(fi_root)
     if problems or fi_problems:

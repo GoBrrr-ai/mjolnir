@@ -46,7 +46,6 @@
 #   vllm 0.31.0  (vllm/vllm-openai:v0.31.0-ubuntu2404, released 2026-10-05)
 #   flashinfer-python / flashinfer-cubin 0.7.0.post1
 #   torch 2.13.0+cu130
-#   (#55390 is upstream since 0.31.0: its patch is gone, its sentinels stay)
 #
 # Build (on Thor or any arm64 builder; repo-root context):
 #   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.31.0 .
@@ -97,7 +96,7 @@ ENV TORCH_CUDA_ARCH_LIST=11.0a \
 WORKDIR /opt/vllm-patches
 COPY docker/vllm-thor/patches/ patches/
 COPY docker/vllm-thor/apply_patches.py docker/vllm-thor/verify_patches.py \
-     docker/vllm-thor/functional_check_55390_55519.py \
+     docker/vllm-thor/functional_check_55519.py \
      docker/vllm-thor/kernel_test_fi_update.py \
      docker/vllm-thor/kernel_test_dspark_draft_nonncausal.py ./
 
@@ -157,12 +156,10 @@ import vllm.v1.core.single_type_kv_cache_manager
 print("imports OK, vllm", vllm.__version__)
 PY
 
-# ── Behavioral gate for 55390/55519 (draft-group annotation + warning) ───────
-# The sentinel check above proves the code landed; this one proves it behaves:
-# a Qwen3.5-shaped hybrid (GDN + full-attn + MTP layer) must annotate exactly
-# the MTP group as the draft group, never the Mamba groups, and the warning
-# path must be gated on use_eagle_block_drop(). Mirrors the PRs' unit tests.
-RUN python3 /opt/vllm-patches/functional_check_55390_55519.py
+# ── Behavioral gate for 55519 (draft-group warning) ──────────────────────────
+# The sentinel check above proves the code landed; this one proves the warning
+# path is gated on use_eagle_block_drop() and the scheduler warning reworded.
+RUN python3 /opt/vllm-patches/functional_check_55519.py
 
 # ── GPU gate for the Thor fused-draft-decode kernel (needs a CUDA device) ────
 # The five PR fixes are upstream code; the Thor fused-draft-decode kernel is

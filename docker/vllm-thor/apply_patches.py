@@ -29,9 +29,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Order: #55390 (MTP draft-group annotation) is upstream since vLLM 0.31.0, so
-# its patch is gone; 55519 is re-adapted onto the upstream code (it still
-# touches v1/core/kv_cache_utils.py + v1/core/sched/scheduler.py). The gdn-prefill
+# Order: 55519 is re-adapted onto upstream vLLM 0.31.0 (it touches
+# v1/core/kv_cache_utils.py + v1/core/sched/scheduler.py). The gdn-prefill
 # and fa4 sm_110 gate patches touch files disjoint from every other patch
 # (qwen_gdn_linear_attn.py; v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches

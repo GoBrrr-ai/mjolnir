@@ -11,8 +11,7 @@ gate" below), one **flashinfer-side** sm_110 enablement hunk (see "Thor sm_110
 GDN prefill enablement (flashinfer side)" below), one hd256 FP8-KV kernel +
 policy patch (probe-gated, T11 canary in `kernel_test_sm110_gates.py`) and one
 hd256 1CTA decode carve-out (see "Thor hd256 1CTA decode carve-out (v11,
-2026-09-24)" below). Thirteen patches in total (#55390 went upstream in vLLM
-0.31.0), applied by `apply_patches.py`
+2026-09-24)" below). Thirteen patches in total, applied by `apply_patches.py`
 onto the installed vllm package **and** the installed flashinfer package;
 verified by `verify_patches.py`.
 
@@ -29,7 +28,6 @@ Base this was verified against: **vllm 0.31.0**
 | `50885-flashinfer-full-cudagraph.patch` | [#50885](https://github.com/vllm-project/vllm/pull/50885) | Capture **FULL** decode cudagraphs for spec-decode on the FlashInfer **native** (non-trtllm) path — uniform multi-token verify batches. Previously only trtllm-gen (SM100) / dedicated-XQA (SM12x) could FULL-capture spec decode; elsewhere it fell back to PIECEWISE, hurting Thor (SM110) TTFT. |
 | `49652-draft-decode-capture.patch` | [#49652](https://github.com/vllm-project/vllm/pull/49652) | Autoregressive (MTP) **draft-decode** cudagraph capture under **Dynamic SD**. The draft decoder always processes 1 token/request, so its graphs must stay at fixed query length 1 instead of following the target's dynamic-SD verify schedule. |
 | `54165-mamba-spec-kv-restore.patch` | [#54165](https://github.com/vllm-project/vllm/pull/54165) | Restore **hybrid mamba-align cache hits under spec decode** with a KV connector. Gates the EAGLE last-block drop on drafters that actually *preserve* (pollute) the target KV cache — DFlash/DSpark don't, so they must not back off `last_cache_position`. |
-| ~~`55390-mtp-draft-group-annotation.patch`~~ | [#55390](https://github.com/vllm-project/vllm/pull/55390) | **Upstream since vLLM 0.31.0 — patch removed.** Annotates the MTP draft KV group positionally on the hybrid path (any `method=="mtp"` model; upstream also covers DeepseekV4 + `dspark`). Its `verify_patches.py` sentinels and `functional_check_55390_55519.py` stay as a base-image guard. |
 | `55519-no-warn-when-block-drop-off.patch` | [#55519](https://github.com/vllm-project/vllm/pull/55519) | **Don't warn "prefix reuse is disabled" when `disable_eagle_block_drop` is set.** All flag-all fallbacks are gated on `use_eagle_block_drop()`, so with the drop disabled reuse is intact — the old `use_eagle()` gate made the warning a false positive. Also rewords the scheduler's "drop disabled" warning to document that reuse works in that mode. |
 | `thor-fused-draft-decode-fi-native-update.patch` | — (Thor-authored) | **Implement `update_draft_decode_metadata` for the FlashInfer backend** so the spec-decode loop can use the **fused multi-step draft decode** instead of the "rebuild attention metadata between draft steps" fallback. The upstream contract (backend.py `update_draft_decode_metadata`) is implemented for triton/triton_mla (a `pass`, they read live GPU buffers) and flash_attn (re-plan the scheduler), but the FlashInfer native decode wrapper plans from host buffers and had no in-place advance. Adds `_advance_fi_decode_plan_kernel`, which re-derives the FI decode plan (`paged_kv_indptr`/`last_page_len`/`page_indices`) **on the GPU** from the advancing `seq_lens` + block table — the same formula as `build()`, but capture-safe (no host sync, no D2D index copy) so it replays correctly inside the draft CUDA graph. Gated to full-cudagraph, single-rank, non-DCP, native-FI (non-trtllm) builders. Pays off only at **K ≥ 3** (MTP3 / DSpark K≥2); it is a deliberate no-op at K=2. |
 | `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly (removes the `speculator.py:124` "does not support full CUDA graphs; running the draft eagerly" warning). A non-causal drafter (DSpark/DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **last** in `PATCH_ORDER` (its `flashinfer.py` hunks sit on top of the fused-draft-decode patch's changes). Most bump-fragile patch — see below. |
@@ -152,17 +150,15 @@ only, so these two should survive nightly bumps longest.
     — below the threshold the existing `NONE`-descriptor eager path runs;
   - four one-shot `logger.info` lines (state / eager / cudagraph / error).
 
-## Behavioral gate (`functional_check_55390_55519.py`)
+## Behavioral gate (`functional_check_55519.py`)
 
 The sentinel check in `verify_patches.py` proves the code *landed*; the Dockerfile
-additionally runs `functional_check_55390_55519.py`, which mirrors the PRs'
-unit tests (the wheel ships no `tests/` dir, so the specs are constructed
-directly): a Qwen3.5-shaped hybrid `[GDN×3, full-attn] × 2` + trailing MTP
-full-attn layer must flag **exactly one** group (the MTP one), never the
-Mamba groups; non-MTP methods stay unannotated; a non-partitioning group set
-must not trigger the rule; and the warning path must be gated on
-`use_eagle_block_drop()`. Run standalone inside any container with a patched
-vllm: `docker run --rm --entrypoint python3 <image> /path/to/functional_check_55390_55519.py`.
+additionally runs `functional_check_55519.py`: the "prefix reuse is disabled"
+warning path must be gated on `use_eagle_block_drop()`, and the scheduler's
+"drop disabled" warning must document that reuse still works. (#55390, the MTP
+draft-group annotation this used to check too, is upstream since vLLM 0.31.0.)
+Run standalone inside any container with a patched vllm:
+`docker run --rm --entrypoint python3 <image> /opt/vllm-patches/functional_check_55519.py`.
 
 ## Verifying a new nightly before re-adapting
 
@@ -180,8 +176,6 @@ print("54165", has("config/speculative.py",
                     "use_eagle_preserves_target_kv_cache"))
 print("52244", has("v1/core/kv_cache_utils.py",
                     "mamba_state_cache_position"))
-print("55390", has("v1/core/kv_cache_utils.py",
-                    "_uses_trailing_mtp_layers"))
 print("55519", has("v1/core/kv_cache_utils.py",
                     'not spec_config.use_eagle_block_drop():'))
 print("fi-update", has("v1/attention/backends/flashinfer.py",

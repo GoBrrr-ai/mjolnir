@@ -68,8 +68,7 @@ skipped with a hint — nothing blocks on a password.
   the fallback (`MJOLNIR_ATTN_FALLBACK`, FlashInfer). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
 - **The image**: `narandill/mjolnir-vllm:v0.31.0` on
-  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 12 vLLM patches + 1 FlashInfer patch
-  (#55390 went upstream in 0.31.0),
+  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 12 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.

@@ -45,8 +45,8 @@ TASKS: list[Task] = [
     ),
     Task(
         "functional",
-        "docker/vllm-thor/functional_check_55390_55519.py",
-        "55390/55519 draft-group annotation + warning check (no GPU)",
+        "docker/vllm-thor/functional_check_55519.py",
+        "55519 draft-group warning gate check (no GPU)",
         gpu=False,
     ),
 ]
