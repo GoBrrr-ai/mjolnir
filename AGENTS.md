@@ -55,7 +55,7 @@ skipped with a hint — nothing blocks on a password.
   2 CTAs × 20 SMs), dynamic fp8 Q, TMA KV ring with L2 evict-first, TMEM
   accumulators, softmax warpgroups, LSE merge kernel; q_len ≤ 1 + spec tokens;
   full CUDA graphs. Harness default: **e2m3 (fp6) KV on head-major (HND) pages,
-  3-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** (no
+  2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** (no
   vLLM fp6 cache-write path yet). Results: README + `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend

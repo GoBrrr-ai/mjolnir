@@ -51,4 +51,16 @@ Repeat until stopped:
 - bytes: fp8 → fp6 KV read directly by `kind::f8f6f4` (25% fewer bytes);
 - streaming: head-major pages, L2 evict-first, the ring depth;
 - occupancy: exactly one wave of 2 CTAs × 20 SMs, split-KV merge in a second kernel;
-- open: fp6 realizes only part of its byte saving (`docs/kernel/fp6prof.md`: 64-byte L2 requests); fp4 needs finer scales (per-channel K folded into Q, per-token V folded into P); the split-KV merge could fuse into the last CTA per sequence; the softmax warpgroups' register budget at 2 CTAs/SM.
+- ring depth: for fp6, shallower is faster — 2 < 3 < 4 < 5 < 6 at 64K–256K (2 beat 3 by 11–14%, ring run `20261011-091005`); at 3 stages fp6 was within ±4% of fp8 at ≥64K, at 2 it is 12–18% faster than fp8 (across runs, so confirm). fp8 has not been re-swept.
+
+Open, ranked by expected value (numbers from the 2026-10-11 `mjolnir verify bench` run):
+
+1. **fp8 ring depth** — the serving path (vLLM writes fp8) still uses 4 stages; sweep 1–3 with `--kv_format fp8 --kv_layout hnd`.
+2. **Sub-tile split granularity** — at 4K only 32 of 40 CTAs get work (32 tiles, chunk 4 → 8 chunks per head); 64-row chunks would cut the critical path ~12% at 4K and ~7% at 8K.
+3. **Fuse the split-KV merge** into the last CTA per sequence — it is a ~7 µs second launch: 14% of the step at 4K, 9% at 8K.
+4. **The 16K dip** — Mjolnir is 0.98–1.07× FlashInfer at 16K in every run while 8K and 32K are better; find out whether it is a cliff (dense L sweep 12K–24K).
+5. **nvfp4 through block-scaled MMA** (`tcgen05 kind::mxf4nvf4`, one e4m3 scale per 16) instead of the convert warpgroup: today nvfp4 is 0.47–0.74× FlashInfer, while e2m1 at the same byte count is 2.2–2.5× faster than FlashInfer at ≥16K; nvfp4 error is 0.14 rel L2 vs 0.21 for e2m1.
+6. **fp4 accuracy** — e2m1 rel L2 0.21 (fp8 0.045, e2m3 0.052); finer scales: per-channel K folded into Q, per-token V folded into P.
+7. **fp6 request size** — e2m3 issues 1.5× the L2 requests of fp8 at 64 B each (fp6prof); a TMA box that yields 128 B requests may close the rest of the gap to the 0.75× byte ratio.
+
+Known negative (don't repeat without a new reason): L2 prefetch (1, 2, 4 tiles ahead: 7–27% slower at ≥8K); PDL (no wall-clock gain beyond ±4%, +15% at L=128); interleaved / NHD pages (0.83–0.92× FlashInfer at ≥8K vs 1.07–1.25× on HND).

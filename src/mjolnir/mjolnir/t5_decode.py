@@ -153,7 +153,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         ctas_per_sm=2,  # co-resident CTAs per SM; 2 is the Thor default (1/SM: 0.80x FI
         #                 at 128K-256K), each CTA gets half the smem/regs/TMEM
         with_reduction=True,  # False: no split in this plan -> no reduction launch
-        max_kv_stages=0,  # KV ring depth; 0 = whole KV tiles (1 tile at 2/SM, 2 at 1/SM; fp6 at 2/SM d=256: 3)
+        max_kv_stages=0,  # KV ring depth; 0 = whole KV tiles (1 tile at 2/SM, 2 at 1/SM; fp6 at 2/SM d=256: 2)
         pdl=False,  # programmatic dependent launch for decode + reduction
         l2_prefetch=0,  # TMA-prefetch K/V tiles this many tiles ahead into L2 (0 = off)
         kv_evict_first=False,  # TMA K/V loads with an L2 EVICT_FIRST cache policy
@@ -265,12 +265,14 @@ class MixedInputFusedMultiHeadAttentionDecode:
     def _default_kv_stages(self, stages_per_tile):
         """(default ring depth, round smem-limited depths to whole tiles).
         Plain Python (not traced). fp6 KV at 2 CTAs/SM, d=256 (4 stages per
-        tile): 3 stages — measured 4-5% faster than the whole-tile 4 at
-        64K/256K in two Thor A/Bs (fp8 is the opposite: 4 beat 3)."""
+        tile): 2 stages. Depth is monotonic for fp6 at long L — 2 < 3 < 4 <
+        5 < 6 in ncu time; 2 beat 3 by 11-14% at 64K/128K/256K (verify ring
+        20261011-091005), after 3 had beaten 4 by 4-5% in two earlier A/Bs.
+        fp8 keeps the whole tile (4) until its own ring sweep says otherwise."""
         if self.max_kv_stages > 0:
             return self.max_kv_stages, False
         if self.kv_format in ("e3m2", "e2m3") and self.ctas_per_sm == 2 and stages_per_tile == 4:
-            return 3, False
+            return 2, False
         return stages_per_tile * (1 if self.ctas_per_sm == 2 else 2), True
 
     def _kv_tx_dtype(self, kv_smem_dtype):
@@ -446,8 +448,9 @@ class MixedInputFusedMultiHeadAttentionDecode:
         # 2, 3, 5, 6 at 8K/64K/256K, and 1/SM depth 8 beat 13. Ring depths
         # that are not tile multiples rotate a tile's K/V across slots and
         # stream worse on LPDDR5X; deeper is not better.
-        # Exception, fp6 KV (e3m2/e2m3) at 2/SM, d=256: depth 3 beat 4 by 4-5%
-        # at 64K/256K in two A/Bs (6 was worst) — see _default_kv_stages.
+        # Exception, fp6 KV (e3m2/e2m3) at 2/SM, d=256: shallower is faster —
+        # depth 2 beat 3 by 11-14% at 64K-256K, 3 beat 4 by 4-5%, 6 was worst
+        # — see _default_kv_stages.
         stages_per_tile = (blk_tile_d // mma_tile_k) + (blk_tile_d // mma_tile_m)
         # Plain ternaries, not if/else: the DSL stages if/else into regions
         # whose bindings don't escape (NameError after the block).

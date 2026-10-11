@@ -416,6 +416,8 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
         BOTH,
     ),
     ("default: headdim 128 + PDL", "@default --batches 2 --seqlen 9000 --varlen --headdim 128 --pdl", BOTH),
+    ("ring depth 2, fp8 (ring wraps)", "--seqlen 65536 --kv_layout hnd --kv_stages 2", BOTH),
+    ("ring depth 2, e2m3 varlen p16", "@default --batches 4 --seqlen 9000 --varlen --page_size 16 --kv_stages 2", FP8),
     ("kv evict_first", "--batches 4 --seqlen 20000 --varlen --kv_evict_first", BOTH),
     ("evict + PDL L=8192", "--seqlen 8192 --kv_evict_first --pdl", BOTH),
     (

@@ -8,7 +8,7 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 
 ## How it is measured
 
-`--kv_stages 2…6` against the default (one whole KV tile at 2 CTAs/SM: 4 stages for fp8, 3 for fp6 — see the kernel's `_default_kv_stages`), on the harness default config, every L.
+`--kv_stages 2…6` against the default (one whole KV tile at 2 CTAs/SM — 4 stages — for fp8; 2 stages for fp6, see the kernel's `_default_kv_stages`), on the harness default config, every L.
 
 ## Result
 
