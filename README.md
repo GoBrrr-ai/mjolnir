@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/header.png" alt="Mjolnir" width="100%">
+  <img src="assets/hero.png" alt="Mjolnir — Jetson AGX Thor vLLM serving CLI with dedicated paged fp8 decode-attention kernel" width="100%">
 </p>
 
 <p align="center">
@@ -44,7 +44,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </picture>
 </p>
 
-> <sub>End to end on a Jetson AGX Thor, one request at 32K context: decode <b>−4.8%</b>, prefill <b>+91.3%</b>, time to first token <b>19.96 s → 11.40 s</b>, inter-token latency <b>42.0 ms → 44.5 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens), one request at 32K context: decode <b>−4.8%</b>, prefill <b>+91.3%</b>, time to first token <b>19.96 s → 11.40 s</b>, inter-token latency <b>42.0 ms → 44.5 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <p align="center">
 <picture>
@@ -137,32 +137,32 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### Official vLLM image vs Mjolnir
 
-Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config, measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
+Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
   <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 </picture>
 
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±7% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
+Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = better beyond the ±3% noise band, grey = within it, red = worse beyond it). With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
 
 | context | requests | decode (t/s, ↑) | prefill (t/s, ↑) | TTFT (ms, ↓) | ITL (ms, ↓) |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 24.6 → **24.0** (−2.6% 🟰) | — | 819 → **740** (+10.6% ✅) | 40.9 → **42.4** (−3.5% 🟰) |
-| 4K | 1 | 25.6 → **24.3** (−5.0% 🟰) | 2,852 → **8,210** (+187.8% ✅) | 2,289 → **1,788** (+28.0% ✅) | 39.4 → **41.4** (−4.8% 🟰) |
-| 8K | 1 | 22.9 → **23.1** (+0.9% 🟰) | 2,559 → **4,545** (+77.6% ✅) | 4,136 → **3,292** (+25.6% ✅) | 44.1 → **43.4** (+1.6% 🟰) |
-| 16K | 1 | 23.5 → **23.6** (+0.5% 🟰) | 2,203 → **3,895** (+76.8% ✅) | 8,501 → **5,771** (+47.3% ✅) | 43.3 → **42.6** (+1.7% 🟰) |
-| 32K | 1 | 23.9 → **22.7** (−4.8% 🟰) | 1,756 → **3,359** (+91.3% ✅) | 19,960 → **11,405** (+75.0% ✅) | 42.0 → **44.5** (−5.6% 🟰) |
-| no ctx | 2 | 44.3 → **45.9** (+3.7% 🟰) | 2,724 → **3,245** (+19.1% ✅) | 1,443 → **1,138** (+26.9% ✅) | 42.7 → **40.6** (+5.2% 🟰) |
-| 4K | 2 | 45.1 → **41.7** (−7.4% 🔻) | 2,746 → **3,502** (+27.5% ✅) | 4,415 → **3,384** (+30.4% ✅) | 41.5 → **44.8** (−7.3% 🔻) |
-| 8K | 2 | 43.9 → **43.5** (−0.8% 🟰) | 2,504 → **3,292** (+31.5% ✅) | 8,118 → **6,083** (+33.5% ✅) | 43.1 → **42.9** (+0.5% 🟰) |
-| 16K | 2 | 42.4 → **43.5** (+2.7% 🟰) | 2,189 → **3,262** (+49.0% ✅) | 16,781 → **11,149** (+50.5% ✅) | 44.8 → **43.3** (+3.6% 🟰) |
-| 32K | 2 | 33.7 → **35.6** (+5.6% 🟰) | 1,748 → **3,071** (+75.7% ✅) | 39,137 → **22,047** (+77.5% ✅) | 50.5 → **48.9** (+3.3% 🟰) |
-| no ctx | 4 | 85.3 → **78.4** (−8.1% 🔻) | 2,927 → **3,539** (+20.9% ✅) | 2,767 → **2,209** (+25.2% ✅) | 42.6 → **45.0** (−5.3% 🟰) |
-| 4K | 4 | 82.9 → **73.8** (−11.1% 🔻) | 2,717 → **3,412** (+25.6% ✅) | 9,012 → **7,011** (+28.5% ✅) | 44.7 → **47.3** (−5.4% 🟰) |
-| 8K | 4 | 70.2 → **62.1** (−11.6% 🔻) | 2,478 → **3,270** (+32.0% ✅) | 16,208 → **11,895** (+36.3% ✅) | 47.3 → **49.5** (−4.4% 🟰) |
-| 16K | 4 | 41.3 → **42.6** (+3.0% 🟰) | 2,163 → **3,188** (+47.4% ✅) | 32,462 → **21,161** (+53.4% ✅) | 60.2 → **61.7** (−2.4% 🟰) |
-| 32K | 4 | 11.5 → **17.0** (+48.0% ✅) | 1,733 → **2,990** (+72.6% ✅) | 65,974 → **37,300** (+76.9% ✅) | 161.8 → **121.7** (+33.0% ✅) |
+| no ctx | 1 | 24.6 → **24.0** ($\color{grey}{\text{−2.6\%}}$) | — | 819 → **740** ($\color{#16a34a}{\text{+10.6\%}}$) | 40.9 → **42.4** ($\color{#dc2626}{\text{−3.5\%}}$) |
+| 4K | 1 | 25.6 → **24.3** ($\color{#dc2626}{\text{−5.0\%}}$) | 2,852 → **8,210** ($\color{#16a34a}{\text{+187.8\%}}$) | 2,289 → **1,788** ($\color{#16a34a}{\text{+28.0\%}}$) | 39.4 → **41.4** ($\color{#dc2626}{\text{−4.8\%}}$) |
+| 8K | 1 | 22.9 → **23.1** ($\color{grey}{\text{+0.9\%}}$) | 2,559 → **4,545** ($\color{#16a34a}{\text{+77.6\%}}$) | 4,136 → **3,292** ($\color{#16a34a}{\text{+25.6\%}}$) | 44.1 → **43.4** ($\color{grey}{\text{+1.6\%}}$) |
+| 16K | 1 | 23.5 → **23.6** ($\color{grey}{\text{+0.5\%}}$) | 2,203 → **3,895** ($\color{#16a34a}{\text{+76.8\%}}$) | 8,501 → **5,771** ($\color{#16a34a}{\text{+47.3\%}}$) | 43.3 → **42.6** ($\color{grey}{\text{+1.7\%}}$) |
+| 32K | 1 | 23.9 → **22.7** ($\color{#dc2626}{\text{−4.8\%}}$) | 1,756 → **3,359** ($\color{#16a34a}{\text{+91.3\%}}$) | 19,960 → **11,405** ($\color{#16a34a}{\text{+75.0\%}}$) | 42.0 → **44.5** ($\color{#dc2626}{\text{−5.6\%}}$) |
+| no ctx | 2 | 44.3 → **45.9** ($\color{#16a34a}{\text{+3.7\%}}$) | 2,724 → **3,245** ($\color{#16a34a}{\text{+19.1\%}}$) | 1,443 → **1,138** ($\color{#16a34a}{\text{+26.9\%}}$) | 42.7 → **40.6** ($\color{#16a34a}{\text{+5.2\%}}$) |
+| 4K | 2 | 45.1 → **41.7** ($\color{#dc2626}{\text{−7.4\%}}$) | 2,746 → **3,502** ($\color{#16a34a}{\text{+27.5\%}}$) | 4,415 → **3,384** ($\color{#16a34a}{\text{+30.4\%}}$) | 41.5 → **44.8** ($\color{#dc2626}{\text{−7.3\%}}$) |
+| 8K | 2 | 43.9 → **43.5** ($\color{grey}{\text{−0.8\%}}$) | 2,504 → **3,292** ($\color{#16a34a}{\text{+31.5\%}}$) | 8,118 → **6,083** ($\color{#16a34a}{\text{+33.5\%}}$) | 43.1 → **42.9** ($\color{grey}{\text{+0.5\%}}$) |
+| 16K | 2 | 42.4 → **43.5** ($\color{grey}{\text{+2.7\%}}$) | 2,189 → **3,262** ($\color{#16a34a}{\text{+49.0\%}}$) | 16,781 → **11,149** ($\color{#16a34a}{\text{+50.5\%}}$) | 44.8 → **43.3** ($\color{#16a34a}{\text{+3.6\%}}$) |
+| 32K | 2 | 33.7 → **35.6** ($\color{#16a34a}{\text{+5.6\%}}$) | 1,748 → **3,071** ($\color{#16a34a}{\text{+75.7\%}}$) | 39,137 → **22,047** ($\color{#16a34a}{\text{+77.5\%}}$) | 50.5 → **48.9** ($\color{#16a34a}{\text{+3.3\%}}$) |
+| no ctx | 4 | 85.3 → **78.4** ($\color{#dc2626}{\text{−8.1\%}}$) | 2,927 → **3,539** ($\color{#16a34a}{\text{+20.9\%}}$) | 2,767 → **2,209** ($\color{#16a34a}{\text{+25.2\%}}$) | 42.6 → **45.0** ($\color{#dc2626}{\text{−5.3\%}}$) |
+| 4K | 4 | 82.9 → **73.8** ($\color{#dc2626}{\text{−11.1\%}}$) | 2,717 → **3,412** ($\color{#16a34a}{\text{+25.6\%}}$) | 9,012 → **7,011** ($\color{#16a34a}{\text{+28.5\%}}$) | 44.7 → **47.3** ($\color{#dc2626}{\text{−5.4\%}}$) |
+| 8K | 4 | 70.2 → **62.1** ($\color{#dc2626}{\text{−11.6\%}}$) | 2,478 → **3,270** ($\color{#16a34a}{\text{+32.0\%}}$) | 16,208 → **11,895** ($\color{#16a34a}{\text{+36.3\%}}$) | 47.3 → **49.5** ($\color{#dc2626}{\text{−4.4\%}}$) |
+| 16K | 4 | 41.3 → **42.6** ($\color{#16a34a}{\text{+3.0\%}}$) | 2,163 → **3,188** ($\color{#16a34a}{\text{+47.4\%}}$) | 32,462 → **21,161** ($\color{#16a34a}{\text{+53.4\%}}$) | 60.2 → **61.7** ($\color{grey}{\text{−2.4\%}}$) |
+| 32K | 4 | 11.5 → **17.0** ($\color{#16a34a}{\text{+48.0\%}}$) | 1,733 → **2,990** ($\color{#16a34a}{\text{+72.6\%}}$) | 65,974 → **37,300** ($\color{#16a34a}{\text{+76.9\%}}$) | 161.8 → **121.7** ($\color{#16a34a}{\text{+33.0\%}}$) |
 
 > <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR (Mjolnir)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
@@ -206,7 +206,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [#49652](https://github.com/vllm-project/vllm/pull/49652) | draft-decode cudagraphs under dynamic speculative decoding |
 | [#54165](https://github.com/vllm-project/vllm/pull/54165) | Mamba/GDN `copy_kv_cache` restore under speculative decode |
 | [#55519](https://github.com/vllm-project/vllm/pull/55519) | no false-positive KV-reuse warning on the GDN hybrid |
-| Thor `sm_110` patches | GDN prefill enablement, FA4 hd256 fp8-KV + 1-CTA decode, fused draft-decode plan advance, DSpark non-causal draft cudagraph, draft-cudagraph shape gate |
+| Thor `sm_110` patches | GDN prefill enablement, FA4 hd256 fp8-KV + 1-CTA decode, fused draft-decode plan advance, DSpark non-causal draft cudagraph, draft-cudagraph shape gate, the `MJOLNIR` backend name + FA4 fallback default, the `fp6_e2m3` KV cache dtype |
 
 > [!TIP]
 > Details: [`docker/vllm-thor/PATCHES.md`](docker/vllm-thor/PATCHES.md).

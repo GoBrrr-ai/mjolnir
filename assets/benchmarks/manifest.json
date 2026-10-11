@@ -19,6 +19,11 @@
   "light": "assets/benchmarks/fp6prof-bytes-vs-time.png",
   "stage": "fp6prof"
  },
+ "hero": {
+  "dark": "assets/hero.png",
+  "light": "assets/hero.png",
+  "stage": "readme"
+ },
  "hnd-layout": {
   "dark": "assets/benchmarks/hnd-layout-dark.png",
   "light": "assets/benchmarks/hnd-layout.png",

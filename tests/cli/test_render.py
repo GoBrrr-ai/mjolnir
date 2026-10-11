@@ -87,3 +87,39 @@ def test_render_is_idempotent(repo):
     first = (repo / "README.md").read_text()
     readme.render_readme(layout)
     assert (repo / "README.md").read_text() == first
+
+
+def test_hero_overlays_the_background_under_the_logotype(tmp_path):
+    from PIL import Image
+
+    from mjolnir_cli.config import RepoLayout, find_repo_root
+
+    root = find_repo_root()
+    (tmp_path / "assets").mkdir()
+    shutil.copy(root / "assets" / charts.HERO_BACKGROUND, tmp_path / "assets" / charts.HERO_BACKGROUND)
+    layout = RepoLayout(
+        repo_root=tmp_path,
+        data_dir=tmp_path,
+        state_file=tmp_path / "s.json",
+        benchmarks_dir=tmp_path / "benchmarks",
+        history_file=tmp_path / "h.jsonl",
+    )
+    out = charts.render_hero(layout)
+    bg = Image.open(tmp_path / "assets" / charts.HERO_BACKGROUND)
+    hero = Image.open(out)
+    assert out.name == "hero.png" and hero.size == bg.size
+    left, top, right, bottom = charts._logotype_box(bg)
+    assert left > bg.size[0] * 0.6 and bottom < bg.size[1] * 0.8  # the MJOLNIR logotype, right side
+    # the logotype is untouched; the area under it now carries the slogan and pills
+    assert (
+        hero.crop((left, top, right, bottom)).tobytes() == bg.convert("RGB").crop((left, top, right, bottom)).tobytes()
+    )
+    under = (left, bottom + 20, right, min(bg.size[1], bottom + 200))
+    assert hero.crop(under).tobytes() != bg.convert("RGB").crop(under).tobytes()
+
+
+def test_readme_uses_the_hero():
+    from mjolnir_cli.config import find_repo_root
+
+    tpl = (find_repo_root() / "README.md.j2").read_text()
+    assert 'src="assets/hero.png"' in tpl and "header.png" not in tpl

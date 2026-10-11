@@ -197,5 +197,14 @@ def spec_label(*recs: dict) -> str:
     return " vs ".join(labels)
 
 
+def spec_short(*recs: dict) -> str:
+    """``MTP×3`` — the compact form for tight layouts (the infographic)."""
+    labels = []
+    for r in recs:
+        sp = spec_of(r)
+        labels.append(f"{(sp['method'] or 'spec').upper()}×{sp['tokens']}" if sp else "no spec. decoding")
+    return labels[0] if len(set(labels)) == 1 else " vs ".join(labels)
+
+
 def side_label(rec: dict) -> str:
     return f"{rec.get('image', '')} · {rec.get('config', '')} ({rec.get('backend', '')})"
