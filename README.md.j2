@@ -68,6 +68,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 | correctness vs a bit-faithful emulator | **{{ ctx.correctness }}** checks pass |
 {% endif %}
 
+> [!NOTE]
 > <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `{{ ctx.sweep_run }}`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
 {%- else %}
 > [!NOTE]
@@ -76,7 +77,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 ## Quickstart
 
-> [!NOTE]
+> [!IMPORTANT]
 > Requirements: Jetson AGX Thor (JetPack 7.x, `sm_110a`), Docker + NVIDIA Container Toolkit, [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
@@ -137,7 +138,7 @@ Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vll
 
 {{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir") }}
 
-> Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±{{ ctx.e2e_noise_pct }}% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
+Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±{{ ctx.e2e_noise_pct }}% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
 
 {{ ctx.vs_vllm }}
 
@@ -180,7 +181,8 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [#55519](https://github.com/vllm-project/vllm/pull/55519) | no false-positive KV-reuse warning on the GDN hybrid |
 | Thor `sm_110` patches | GDN prefill enablement, FA4 hd256 fp8-KV + 1-CTA decode, fused draft-decode plan advance, DSpark non-causal draft cudagraph, draft-cudagraph shape gate |
 
-Details: [`docker/vllm-thor/PATCHES.md`](docker/vllm-thor/PATCHES.md).
+> [!TIP]
+> Details: [`docker/vllm-thor/PATCHES.md`](docker/vllm-thor/PATCHES.md).
 
 ## The CLI
 
@@ -198,7 +200,8 @@ mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop
 mjolnir gate | hw | litellm | perses    # clean-window gate, host setup, side stacks
 ```
 
-Every `verify` stage defaults to `L = {{ ctx.ls }}`; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
+> [!TIP]
+> Every `verify` stage defaults to `L = {{ ctx.ls }}`; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
 
 ## Contributing
 
