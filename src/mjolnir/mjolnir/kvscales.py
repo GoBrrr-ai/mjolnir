@@ -109,8 +109,11 @@ def observe(layer_name: str, key: torch.Tensor, value: torch.Tensor, slot_mappin
 
 
 def reset() -> None:
-    """Zero the accumulators (after engine warm-up and profiling runs)."""
-    with _LOCK:
+    """Zero the accumulators (after engine warm-up and profiling runs).
+
+    They were created inside vLLM's forward (torch.inference_mode), so they
+    are inference tensors: in-place updates are only allowed in that mode."""
+    with _LOCK, torch.inference_mode():
         for k, v in _CALIB.values():
             k.zero_()
             v.zero_()
@@ -119,7 +122,7 @@ def reset() -> None:
 
 
 def snapshot(model: str = "") -> dict:
-    with _LOCK:
+    with _LOCK, torch.inference_mode():
         amax = {name: {"k": k.tolist(), "v": v.tolist()} for name, (k, v) in sorted(_CALIB.items())}
         tokens = max((int(t.item()) for t in _CALIB_TOKENS.values()), default=0)
     return {"format": FORMAT, "model": model, "tokens": tokens, "amax": amax}
