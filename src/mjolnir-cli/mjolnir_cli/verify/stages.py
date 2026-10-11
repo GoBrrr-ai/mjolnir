@@ -541,6 +541,39 @@ def stage_correctness(
 # ── vllm (runner tests + end-to-end smoke) ──────────────────────────────────
 
 
+def parse_smoke(text: str) -> dict:
+    """Metrics from a ``smoke_vllm.py`` log (absent ones are None)."""
+    m = re.search(r"mean match ([0-9.]+), worst prefix (\d+)", text)
+    lp = re.search(
+        r"logprob agreement: mean \|Δ\| (\S+), max \|Δ\| (\S+), near-ties (\d+)/(\d+), worst gap (\S+)", text
+    )
+
+    def num(v: str) -> float | None:
+        return None if v == "n/a" else float(v.rstrip(","))
+
+    return {
+        "mean_match": float(m.group(1)) if m else None,
+        "worst_prefix": int(m.group(2)) if m else None,
+        "mean_dlp": num(lp.group(1).rstrip(",")) if lp else None,
+        "max_dlp": num(lp.group(2).rstrip(",")) if lp else None,
+        "near_ties": int(lp.group(3)) if lp else None,
+        "divergences": int(lp.group(4)) if lp else None,
+        "worst_gap": num(lp.group(5)) if lp else None,
+    }
+
+
+def smoke_summary(c: dict) -> str:
+    """One compact line for a smoke case: logprob agreement, then the match."""
+    parts = []
+    if c.get("mean_dlp") is not None:
+        parts.append(f"|Δlp| {c['mean_dlp']:.3f} mean · {c['max_dlp']:.3f} max")
+    if c.get("divergences") is not None:
+        parts.append(f"near-ties {c['near_ties']}/{c['divergences']}")
+    if c.get("mean_match") is not None:
+        parts.append(f"match {c['mean_match']:.2f}")
+    return ("  " + " · ".join(parts)) if parts else ""
+
+
 def stage_vllm(
     ctx: Ctx,
     repo: Path,
@@ -552,7 +585,8 @@ def stage_vllm(
 ) -> dict:
     """The vLLM plugin: runner-vs-emulator tests (every KV layout, strided Q,
     scales, q_len 2, CUDA-graph replay), then greedy MJOLNIR-vs-FLASHINFER
-    smoke runs in a real ``vllm`` process."""
+    smoke runs in a real ``vllm`` process, judged by logprob agreement and
+    near-tie divergences (see ``tests/kernel/smoke_vllm.py``)."""
     hf = hf_home or Path.home() / ".cache" / "huggingface"
     cases = []
     log = ctx.logdir / "vllm" / "test_runner.log"
@@ -577,17 +611,11 @@ def stage_vllm(
         rc = ctx.runner.tests(log, repo, f"python3 tests/smoke_vllm.py {args}", timeout, hf)
         text = log.read_text(errors="replace") if log.exists() else ""
         ok = (rc == 0 and bool(re.search(r"^PASS$", text, re.M))) or ctx.runner.dry_run
-        m = re.search(r"mean match ([0-9.]+), worst prefix (\d+)", text)
-        cases.append(
-            {
-                "label": f"smoke {mode}",
-                "passed": ok,
-                "mean_match": float(m.group(1)) if m else None,
-                "worst_prefix": int(m.group(2)) if m else None,
-                "log": str(log),
-            }
-        )
-        ctx.out(f" {'✅' if ok else '❌'} smoke {mode}" + (f"  mean match {m.group(1)}" if m else ""))
+        cases.append({"label": f"smoke {mode}", "passed": ok, **parse_smoke(text), "log": str(log)})
+        ctx.out(f" {'✅' if ok else '❌'} smoke {mode:<6}" + smoke_summary(cases[-1]))
+        if not ok:
+            for line in re.findall(r"^  ❌ (.*)$", text, re.M)[:3]:
+                ctx.out(f"      │ {line}")
     return {"cases": cases, "params": {"smoke_modes": smoke_modes, "model": model, "tokens": tokens}}
 
 

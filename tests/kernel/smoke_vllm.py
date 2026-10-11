@@ -1,10 +1,25 @@
 """End-to-end vLLM smoke test: MJOLNIR vs the stock backend.
 
 Runs the same greedy prompts twice, each in its own process — once with
-the stock backend (FLASHINFER) and once with MJOLNIR — then compares the
-generated tokens. fp8 KV cache on both sides, so the only difference is the
-decode kernel (T5 uses fp8 P and, by default, fp8 Q, so the first few tokens
-must match and the rest should mostly match).
+the stock backend (FLASHINFER) and once with MJOLNIR — with the top-k
+logprobs of every decode step, then compares the two. fp8 KV cache on both
+sides, so the only difference is the decode kernel.
+
+Why not "the greedy tokens must match": greedy decoding of a small model on
+an fp8 KV cache is chaotic. Two near-equal candidates (a fluent "Rome" vs a
+fluent "also") flip on any rounding change — FlashInfer's own output differs
+between CUDA-graph and eager mode — and after one flip the two texts share
+nothing, so the matching prefix measures luck, not the kernel. What *is* a
+property of the kernel:
+
+* on the shared prefix (identical context on both sides) the chosen token
+  gets the same logprob from both backends, within fp8 rounding;
+* where the outputs first diverge, it is a near-tie: each backend's token is
+  in the other's top-k and loses by at most ``--tie_nats``.
+
+A broken kernel fails both — wrong attention moves logprobs by whole nats and
+diverges onto a token the reference never considered. The matching prefix is
+still printed, as information.
 
     python tests/smoke_vllm.py                         # Qwen3-0.6B, CUDA graphs
     python tests/smoke_vllm.py --eager --model Qwen/Qwen3-1.7B
@@ -22,6 +37,9 @@ import os
 import subprocess
 import sys
 import time
+
+# Used only when a run returns no logprobs.
+LEGACY_MIN_PREFIX, LEGACY_MIN_MATCH = 8, 0.6
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -62,6 +80,86 @@ def _add_pkg_path():
     raise SystemExit("the mjolnir kernel package was not found: set MJOLNIR_SRC to src/mjolnir")
 
 
+def _top_logprobs(steps) -> list[dict[str, float]] | None:
+    """vLLM's per-step {token id: Logprob} (list or FlatLogprobs) as plain
+    JSON: [{"<id>": logprob, ...}, ...]."""
+    if steps is None:
+        return None
+    return [{str(int(t)): float(getattr(lp, "logprob", lp)) for t, lp in step.items()} for step in steps]
+
+
+def compare_prompt(ref_tok, t5_tok, ref_lp, t5_lp, tie_nats: float) -> dict:
+    """One prompt: the matching prefix, |Δ logprob| of the chosen token on it,
+    and — if the outputs diverge — whether the divergence is a near-tie.
+
+    ``*_lp`` are per-step {token id: logprob} dicts (keys int or str), or None
+    when the run had no logprobs."""
+    n = next((k for k, (x, y) in enumerate(zip(ref_tok, t5_tok)) if x != y), min(len(ref_tok), len(t5_tok)))
+    out: dict = {"prefix": n, "len": len(ref_tok), "deltas": [], "diverged": n < len(ref_tok)}
+    if ref_lp is None or t5_lp is None:
+        return out
+
+    def lp(steps, k, tok):
+        d = steps[k] if k < len(steps) else {}
+        v = d.get(str(tok), d.get(tok)) if isinstance(d, dict) else None
+        return None if v is None else float(v)
+
+    for k in range(n):
+        a, b = lp(ref_lp, k, ref_tok[k]), lp(t5_lp, k, ref_tok[k])
+        if a is not None and b is not None:
+            out["deltas"].append(abs(a - b))
+    if out["diverged"] and n < len(t5_tok):
+        a, b = ref_tok[n], t5_tok[n]
+        ra, rb = lp(ref_lp, n, a), lp(ref_lp, n, b)  # the reference's view of both tokens
+        ta, tb = lp(t5_lp, n, a), lp(t5_lp, n, b)  # Mjolnir's view
+        gaps = [g for g in ((ra - rb) if None not in (ra, rb) else None, (tb - ta) if None not in (ta, tb) else None)]
+        out["step"] = n
+        out["gap"] = max((g for g in gaps if g is not None), default=None)
+        out["tie"] = None not in gaps and max(gaps) <= tie_nats
+    return out
+
+
+def judge(results: list[dict], stats: dict, args) -> tuple[bool, dict]:
+    """Overall verdict from the per-prompt comparisons (see the module doc)."""
+    deltas = [d for r in results for d in r["deltas"]]
+    div = [r for r in results if r["diverged"]]
+    have_lp = any("tie" in r for r in div) or bool(deltas)
+    summary = {
+        "mean_match": sum(r["prefix"] / max(1, r["len"]) for r in results) / max(1, len(results)),
+        "worst_prefix": min((r["prefix"] for r in results), default=0),
+        "mean_dlp": sum(deltas) / len(deltas) if deltas else None,
+        "max_dlp": max(deltas) if deltas else None,
+        "diverged": len(div),
+        "ties": sum(1 for r in div if r.get("tie")),
+        "worst_gap": max((r["gap"] for r in div if r.get("gap") is not None), default=None),
+        "logprobs": have_lp,
+    }
+    why = []
+    if stats.get("t5_steps", 1) == 0:
+        why.append("Mjolnir never ran a decode step (check the 'Mjolnir' log lines)")
+    if summary["worst_prefix"] < args.min_prefix:
+        why.append(f"worst prefix {summary['worst_prefix']} < --min_prefix {args.min_prefix}")
+    if summary["mean_match"] < args.min_match:
+        why.append(f"mean match {summary['mean_match']:.2f} < --min_match {args.min_match}")
+    if have_lp:
+        if summary["mean_dlp"] is not None and summary["mean_dlp"] > args.max_mean_dlp:
+            why.append(f"mean |Δlogprob| {summary['mean_dlp']:.3f} > --max_mean_dlp {args.max_mean_dlp}")
+        if summary["max_dlp"] is not None and summary["max_dlp"] > args.max_dlp:
+            why.append(f"max |Δlogprob| {summary['max_dlp']:.3f} > --max_dlp {args.max_dlp}")
+        if summary["ties"] < summary["diverged"]:
+            why.append(
+                f"{summary['diverged'] - summary['ties']} divergence(s) are not near-ties (≤ {args.tie_nats} nats)"
+            )
+    elif summary["worst_prefix"] < LEGACY_MIN_PREFIX or summary["mean_match"] < LEGACY_MIN_MATCH:
+        # no logprobs (a config that cannot return them): the old, stricter token criterion
+        why.append(
+            f"no logprobs; token criterion: worst prefix {summary['worst_prefix']} (≥ {LEGACY_MIN_PREFIX}), "
+            f"mean match {summary['mean_match']:.2f} (≥ {LEGACY_MIN_MATCH})"
+        )
+    summary["why"] = why
+    return not why, summary
+
+
 def child(args) -> None:
     os.environ.setdefault("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
     _add_pkg_path()
@@ -73,16 +171,16 @@ def child(args) -> None:
             args.backend = "CUSTOM"  # stock vLLM (no MJOLNIR enum member): same class via CUSTOM
     from vllm import LLM, SamplingParams
 
-    kw = dict(
-        model=args.model,
-        kv_cache_dtype="fp8",
-        dtype="bfloat16",
-        enforce_eager=args.eager,
-        max_model_len=args.max_model_len,
-        gpu_memory_utilization=args.gpu_mem,
-        max_num_seqs=max(16, len(PROMPTS)),
-        seed=0,
-    )
+    kw = {
+        "model": args.model,
+        "kv_cache_dtype": "fp8",
+        "dtype": "bfloat16",
+        "enforce_eager": args.eager,
+        "max_model_len": args.max_model_len,
+        "gpu_memory_utilization": args.gpu_mem,
+        "max_num_seqs": max(16, len(PROMPTS)),
+        "seed": 0,
+    }
     if args.spec:
         kw["speculative_config"] = {
             "method": "ngram",
@@ -96,8 +194,13 @@ def child(args) -> None:
         os.environ["VLLM_ATTENTION_BACKEND"] = args.backend
         llm = LLM(**kw)
 
-    sp = SamplingParams(temperature=0.0, max_tokens=args.max_tokens, ignore_eos=True)
-    llm.generate(PROMPTS[:2], sp)  # warm-up
+    sp = SamplingParams(temperature=0.0, max_tokens=args.max_tokens, ignore_eos=True, logprobs=args.topk)
+    try:
+        llm.generate(PROMPTS[:2], sp)  # warm-up
+    except (ValueError, NotImplementedError) as e:  # a config that cannot return logprobs
+        print(f"logprobs unavailable ({e}); comparing tokens only", flush=True)
+        sp = SamplingParams(temperature=0.0, max_tokens=args.max_tokens, ignore_eos=True)
+        llm.generate(PROMPTS[:2], sp)
     t0 = time.perf_counter()
     outs = llm.generate(PROMPTS, sp)
     dt = time.perf_counter() - t0
@@ -105,6 +208,8 @@ def child(args) -> None:
         "backend": args.backend,
         "tokens": [list(o.outputs[0].token_ids) for o in outs],
         "text": [o.outputs[0].text for o in outs],
+        # per prompt, per step: {token id (str, JSON keys): logprob}
+        "logprobs": [_top_logprobs(o.outputs[0].logprobs) for o in outs],
         "seconds": dt,
     }
     if args.backend in ("MJOLNIR", "CUSTOM"):
@@ -139,7 +244,7 @@ def run_child(args, backend, out):
         str(args.spec),
     ] + (["--eager"] if args.eager else [])
     print(f"\n=== {backend} ===", flush=True)
-    r = subprocess.run(cmd)
+    r = subprocess.run(cmd, check=False)
     if r.returncode != 0:
         sys.exit(f"{backend} run failed (exit {r.returncode})")
     with open(out) as f:
@@ -155,10 +260,16 @@ def main():
     ap.add_argument("--gpu_mem", type=float, default=0.15)  # Thor: 0.15 x 122 GiB ~ 18 GiB
     ap.add_argument("--eager", action="store_true")
     ap.add_argument("--spec", type=int, default=0, help="ngram speculative tokens (0 = off)")
+    ap.add_argument("--topk", type=int, default=5, help="logprobs returned per step")
     ap.add_argument(
-        "--min_prefix", type=int, default=8, help="every prompt must match the reference for this many tokens"
+        "--tie_nats", type=float, default=1.0, help="a divergence passes if the chosen tokens differ by <= this"
     )
-    ap.add_argument("--min_match", type=float, default=0.6, help="mean fraction of identical leading tokens required")
+    ap.add_argument(
+        "--max_mean_dlp", type=float, default=0.15, help="mean |Δ logprob| of the chosen token on shared prefixes"
+    )
+    ap.add_argument("--max_dlp", type=float, default=1.0, help="max |Δ logprob| of the chosen token on shared prefixes")
+    ap.add_argument("--min_prefix", type=int, default=0, help="optional: every prompt must match this many tokens")
+    ap.add_argument("--min_match", type=float, default=0.0, help="optional: mean fraction of matching leading tokens")
     ap.add_argument("--child", action="store_true")
     ap.add_argument("--backend", default="MJOLNIR")
     ap.add_argument("--out", default="")
@@ -170,26 +281,42 @@ def main():
     ref = run_child(args, args.reference, os.path.join(tmp, "t5_smoke_ref.json"))
     t5 = run_child(args, "MJOLNIR", os.path.join(tmp, "t5_smoke_t5.json"))
 
-    print("\n=== comparison (leading identical tokens) ===")
-    fracs, worst = [], 10**9
+    print("\n=== comparison (shared prefix, |Δ logprob| on it, first divergence) ===")
+    results = []
     for i, (a, b) in enumerate(zip(ref["tokens"], t5["tokens"])):
-        n = next((k for k, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
-        fracs.append(n / max(1, len(a)))
-        worst = min(worst, n)
-        mark = "✅" if n == len(a) else ("\U0001f7e1" if n >= args.min_prefix else "❌")
-        print(f"  {mark} prompt {i}: {n:4d}/{len(a)}  {PROMPTS[i][:40]!r}")
-        if n < len(a):
-            print(f"       ref: {ref['text'][i][:90]!r}\n       t5 : {t5['text'][i][:90]!r}")
-    mean = sum(fracs) / len(fracs)
+        rl, tl = (ref.get("logprobs") or [None] * len(PROMPTS))[i], (t5.get("logprobs") or [None] * len(PROMPTS))[i]
+        r = compare_prompt(a, b, rl, tl, args.tie_nats)
+        results.append(r)
+        dl = f"  max |Δlp| {max(r['deltas']):.3f}" if r["deltas"] else ""
+        if not r["diverged"]:
+            print(f"  ✅ prompt {i}: {r['prefix']:4d}/{r['len']}{dl}  {PROMPTS[i][:40]!r}")
+            continue
+        tie = r.get("tie")
+        mark = "\U0001f7e1" if tie else "❌"
+        gap = (
+            f"near-tie, gap {r['gap']:.2f} nats"
+            if tie
+            else (f"gap {r['gap']:.2f} nats" if r.get("gap") is not None else "not in the other's top-k")
+        )
+        print(f"  {mark} prompt {i}: {r['prefix']:4d}/{r['len']}{dl}  diverges: {gap}  {PROMPTS[i][:40]!r}")
+        print(f"       ref: {ref['text'][i][:90]!r}\n       t5 : {t5['text'][i][:90]!r}")
     stats = t5.get("stats", {})
+    ok, s = judge(results, stats, args)
     print(
-        f"\n  mean match {mean:.2f}, worst prefix {worst}, "
+        f"\n  mean match {s['mean_match']:.2f}, worst prefix {s['worst_prefix']}, "
         f"time ref {ref['seconds']:.2f}s / T5 {t5['seconds']:.2f}s, T5 stats {stats}"
     )
-    ok = worst >= args.min_prefix and mean >= args.min_match
-    if stats.get("t5_steps", 1) == 0:
-        print("  ❌ T5 never ran a decode step (check the 'Mjolnir' log lines)")
-        ok = False
+    if s["logprobs"]:
+
+        def fmt(v):
+            return "n/a" if v is None else f"{v:.3f}"
+
+        print(
+            f"  logprob agreement: mean |Δ| {fmt(s['mean_dlp'])}, max |Δ| {fmt(s['max_dlp'])}, "
+            f"near-ties {s['ties']}/{s['diverged']}, worst gap {fmt(s['worst_gap'])}"
+        )
+    for w in s["why"]:
+        print(f"  ❌ {w}")
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
 

@@ -36,11 +36,33 @@ mjolnir verify show sweep           # re-print the latest run
 | `ab` | any harness flag sets | `ab-heatmap` |
 | `fp6prof` | full ncu profiles: bytes vs requests vs time | `fp6prof-bytes-vs-time` |
 | `timing` | harness medians, 1 vs 2 CTAs/SM | — |
-| `vllm` | the plugin inside vLLM: runner tests + greedy smoke | — |
+| `vllm` | the plugin inside vLLM: runner tests + greedy smoke (logprob agreement vs FlashInfer) | — |
 
 All benchmark stages default to the same eight context lengths —
 **128, 4K, 8K, 16K, 32K, 64K, 128K, 256K** — so every chart covers short and
 long context. `--ls "8192 65536"` narrows a run while iterating.
+
+## Reading the vLLM smoke runs
+
+`smoke graph` / `smoke eager` run eight greedy prompts on Qwen3-0.6B (fp8 KV)
+twice — FlashInfer, then Mjolnir — and compare each step's top-5 logprobs:
+
+```
+ ✅ smoke graph   |Δlp| 0.021 mean · 0.310 max · near-ties 5/5 · match 0.43
+```
+
+- **|Δlp|** — how differently the two backends score the *same* token on the
+  prefix where both texts still agree. fp8 Q/P rounding moves this by
+  hundredths; a broken kernel moves it by whole nats (fails above 0.15 mean or
+  1.0 max).
+- **near-ties** — where the texts first differ, was it a coin flip? Each
+  backend's token must be in the other's top-5, at most 1 nat behind. A
+  divergence onto a token the reference never considered fails.
+- **match** — the mean fraction of identical leading tokens. Information only:
+  once a near-tie flips, a 0.6B model's greedy continuation goes somewhere
+  else entirely (FlashInfer itself answers differently in graph vs eager
+  mode), so a low match is not a kernel bug. The thresholds are flags on
+  `tests/kernel/smoke_vllm.py` (`--tie_nats`, `--max_mean_dlp`, `--max_dlp`).
 
 ## Where results go
 

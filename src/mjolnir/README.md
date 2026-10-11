@@ -128,9 +128,13 @@ or directly in the container: `python tests/kernel/test_runner.py`,
 `python tests/kernel/smoke_vllm.py [--eager] [--spec 2]` (they find the package
 installed, via `$MJOLNIR_SRC`, or by walking up to `src/mjolnir`).
 
-Mjolnir rounds P (and, by default, Q) to e4m3, so greedy outputs match
-FlashInfer for the leading tokens and may drift later; the smoke test checks a
-minimum matching prefix and a mean matching fraction.
+Mjolnir rounds P (and, by default, Q) to e4m3, so greedy outputs can flip on
+near-tie tokens and then drift apart — FlashInfer's own greedy output differs
+between CUDA-graph and eager mode. The smoke test therefore compares
+per-step logprobs, not text: the chosen tokens must get the same logprob from
+both backends on the shared prefix, and every divergence must be a near-tie
+(each token in the other's top-5, at most 1 nat apart). The matching prefix
+is printed as information.
 
 ## Files
 
