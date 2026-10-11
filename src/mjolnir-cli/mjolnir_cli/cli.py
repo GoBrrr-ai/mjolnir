@@ -40,8 +40,10 @@ from mjolnir_cli import __version__
 from mjolnir_cli.config import (
     BACKEND_LABELS,
     BASELINE_QUANT,
+    DEFAULT_IMAGE,
     DEFAULT_QUANT,
-    FA2_QUANT,
+    STOCK_IMAGE,
+    VLLM_VERSION,
     Settings,
     ConfigEntry,
     load_layout,
@@ -474,26 +476,41 @@ def image_list():
 
 @image_app.command("build")
 def image_build(
-    tag: Optional[str] = typer.Option(None, "--tag"),
-    image: Optional[str] = typer.Option(None, "--image"),
+    tag: Optional[str] = typer.Option(
+        None,
+        "--tag",
+        help=f"image tag (default: {DEFAULT_IMAGE} — the repo + the vLLM version the Dockerfile builds on)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Build the Mjolnir vLLM image: the patch stack + the mjolnir-kernel
-    package from this checkout (repo-root build context)."""
-    s = _settings(None, None, image, None)
-    tag = tag or s.image
+    package from this checkout (repo-root build context).
+
+    The default tag is always the canonical one (IMAGE_REPO:v<vLLM version>),
+    never the remembered active image — that may be an older build."""
+    tag = tag or DEFAULT_IMAGE
     try:
         root = load_layout().require_repo("image build")
     except FileNotFoundError as e:
-        typer.secho(f"{e} — or pull the published image: docker pull {s.image}", fg=typer.colors.RED, err=True)
+        typer.secho(f"{e} — or pull the published image: docker pull {DEFAULT_IMAGE}", fg=typer.colors.RED, err=True)
         raise typer.Exit(4)
-    cmd = ["docker", "build", "-f", str(root / "docker" / "vllm-thor" / "Dockerfile"), "-t", tag, str(root)]
+    rev = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+    cmd = ["docker", "build", "-f", str(root / "docker" / "vllm-thor" / "Dockerfile"), "-t", tag]
+    if rev.returncode == 0 and rev.stdout.strip():
+        cmd += ["--build-arg", f"MJOLNIR_REVISION={rev.stdout.strip()}"]
+    cmd.append(str(root))
     if dry_run:
         print(" ".join(cmd))
         return
     rc = subprocess.call(cmd)
     if rc == 0:
-        typer.secho(f"built {tag} — canary:  mjolnir image gates", fg=typer.colors.GREEN)
+        typer.secho(f"built {tag} — canary:  mjolnir image gates --image {tag}", fg=typer.colors.GREEN)
+        active = _settings(None, None, None, None).image
+        if active != tag:
+            typer.secho(
+                f"note: the active image is {active} — make the new build active:  mjolnir image use {tag}",
+                fg=typer.colors.YELLOW,
+            )
     raise typer.Exit(rc)
 
 
@@ -874,7 +891,7 @@ def _ab_legs(
 @bench_app.command("ab")
 def bench_ab(
     backends: str = typer.Option(
-        f"{DEFAULT_QUANT},{BASELINE_QUANT},{FA2_QUANT}",
+        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT}",
         "--backends",
         help="comma-separated legs: each is "
         "'<config>' (the --model/state "
@@ -911,20 +928,20 @@ def bench_ab(
     except ValueError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4)
-    for leg_model, leg_image, quant in legs:
-        s.model = leg_model
-        s.image = leg_image
-        s.quant = quant
-        typer.secho(
-            f"\n{'=' * 62}\n  A/B leg: {leg_model}/{quant}  (image {leg_image})\n{'=' * 62}", fg=typer.colors.CYAN
-        )
-        dockerctl.serve_down(s)
-        dockerctl.serve_up(s, wait=True)
-        try:
-            benchy.run_perf(s, layout, runs=runs, repeat=repeat, warmup_runs=2, exact_tg=True, gate=gate)
-        except benchy.BenchError as e:
-            typer.secho(str(e), fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
+    from mjolnir_cli import e2e
+
+    for m_, img, q in legs:
+        if q != DEFAULT_QUANT and e2e.is_mjolnir({"image": img}):
+            typer.secho(
+                f"note: {q} on {img} is not native vLLM (the Mjolnir image patches FlashInfer too) — it is kept in "
+                f"history but never charted; measure native backends on {STOCK_IMAGE}",
+                fg=typer.colors.YELLOW,
+            )
+    _run_legs(s, layout, [(m, i, q, None) for m, i, q in legs], runs=runs, repeat=repeat, gate=gate)
+    _rerender(layout)
+
+
+def _rerender(layout) -> None:
     try:
         charts.render_all(layout)
     except RuntimeError as e:
@@ -933,6 +950,134 @@ def bench_ab(
         readme.render_readme(layout)
     except (RuntimeError, FileNotFoundError) as e:
         typer.secho(f"(readme skipped: {e})", fg=typer.colors.YELLOW, err=True)
+
+
+def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
+    """Serve each (model, image, config, label) leg in turn — the server is
+    restarted per leg on purpose — and run one gated perf bench on it."""
+    for leg_model, leg_image, quant, label in legs:
+        s.model, s.image, s.quant = leg_model, leg_image, quant
+        s.label = label
+        typer.secho(f"\n{'=' * 62}\n  leg: {leg_model}/{quant}  (image {leg_image})\n{'=' * 62}", fg=typer.colors.CYAN)
+        dockerctl.serve_down(s)
+        dockerctl.serve_up(s, wait=True)
+        try:
+            benchy.run_perf(s, layout, warmup_runs=2, exact_tg=True, **perf)
+        except benchy.BenchError as e:
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+
+
+def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool = False) -> int:
+    from mjolnir_cli import e2e
+
+    off, mj = e2e.latest_pair(layout.history_file, mjolnir_config)
+    if not off or not mj:
+        missing = "the official vLLM image" if not off else "a Mjolnir image"
+        typer.secho(f"no run on {missing} in {layout.history_file} — run: mjolnir bench e2e", fg=typer.colors.YELLOW)
+        return 4
+    rows = e2e.compare(off, mj)
+    if as_json:
+        typer.echo(
+            json.dumps({"official": e2e.side_label(off), "mjolnir": e2e.side_label(mj), "cells": rows}, indent=2)
+        )
+        return 0
+    con = Console()
+    t = Table(
+        box=box.SIMPLE_HEAD,
+        title="official vLLM image → Mjolnir image (gain: + = Mjolnir better)",
+        caption=f"official: {e2e.side_label(off)}\nmjolnir:  {e2e.side_label(mj)}",
+    )
+    t.add_column("ctx", justify="right")
+    t.add_column("c", justify="right")
+    for m in e2e.METRICS:
+        t.add_column(f"{m.label} {m.unit} {'↑' if m.higher_better else '↓'}", justify="right")
+    for r in rows:
+        cells = []
+        for m in e2e.METRICS:
+            a, b, g = r[m.key]
+            if a is None or b is None:
+                cells.append("—")
+                continue
+            color = "green" if g > 0 else "red"
+            cells.append(f"{m.fmt.format(a)} → {m.fmt.format(b)} [{color}]{e2e.pct(g)}[/{color}]")
+        t.add_row(e2e.ctx_label(r["ctx"]), str(r["conc"]), *cells)
+    con.print(t)
+    h = e2e.hero(off, mj)
+    if h:
+        con.print(
+            f"[bold]1 request @ {e2e.ctx_label(h['ctx'])}:[/bold] decode {e2e.pct(h['tg_tps'][2])} · "
+            f"prefill {e2e.pct(h['pp_tps'][2])} · TTFT {e2e.pct(h['ttft_ms'][2])} · ITL {e2e.pct(h['itl_ms'][2])}"
+        )
+    return 0
+
+
+@bench_app.command("e2e")
+def bench_e2e(
+    official_image: str = typer.Option(STOCK_IMAGE, "--official-image", help="the upstream vLLM image (baseline)"),
+    official_config: str = typer.Option(
+        BASELINE_QUANT, "--official-config", help="config served on the official image (stock backends only)"
+    ),
+    image: str = typer.Option(DEFAULT_IMAGE, "--image", help="the Mjolnir image"),
+    config: str = typer.Option(DEFAULT_QUANT, "--config", help="config served on the Mjolnir image"),
+    model: Optional[str] = typer.Option(None, "--model"),
+    runs: int = typer.Option(6, "--runs", help="measured runs per cell"),
+    repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps per leg"),
+    depths: str = typer.Option("0,4096,8192,16384,32768", "--depths", help="context depths (tokens already in the KV)"),
+    concurrency: str = typer.Option("1,2,4", "--concurrency"),
+    pp: int = typer.Option(2048, "--pp", help="prompt tokens per request (prefill)"),
+    tg: int = typer.Option(128, "--tg", help="generated tokens per request (decode)"),
+    gate: bool = typer.Option(True, "--gate/--no-gate"),
+    port: Optional[int] = typer.Option(None, "--port"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="print the two serve commands, run nothing"),
+):
+    """Official vLLM image vs the Mjolnir image, end to end: decode and prefill
+    throughput, time to first token and inter-token latency per context x
+    concurrency. Serves each image in turn (the server is restarted per leg),
+    benchmarks it with llama-benchy, then prints the comparison and re-renders
+    the README (infographic + table)."""
+    s = _settings(model, None, None, port)
+    layout = load_layout()
+
+    def ints(v: str) -> list[int]:
+        return [int(x) for x in v.replace(" ", ",").split(",") if x.strip()]
+
+    legs = [
+        (s.model, official_image, official_config, f"vLLM {VLLM_VERSION} (official image)"),
+        (s.model, image, config, None),
+    ]
+    if dry_run:
+        for m_, img, q, _ in legs:
+            s.model, s.image, s.quant = m_, img, q
+            dockerctl.serve_up(s, wait=False, dry_run=True)
+        return
+    typer.secho(
+        "bench e2e restarts the vLLM server for each image — the GPU must be yours for the whole run.",
+        fg=typer.colors.YELLOW,
+    )
+    _run_legs(
+        s,
+        layout,
+        legs,
+        runs=runs,
+        repeat=repeat,
+        gate=gate,
+        depths=ints(depths),
+        concurrency=ints(concurrency),
+        pp=pp,
+        tg=tg,
+    )
+    _print_compare(layout, config)
+    _rerender(layout)
+
+
+@bench_app.command("compare")
+def bench_compare(
+    config: Optional[str] = typer.Option(None, "--config", help="Mjolnir-side config (default: the Mjolnir backend)"),
+    as_json: bool = typer.Option(False, "--json", "-j"),
+):
+    """Official vLLM image vs Mjolnir image from the history — no new run."""
+    raise typer.Exit(_print_compare(load_layout(), config, as_json))
 
 
 # ── plot / history ──────────────────────────────────────────────────────────

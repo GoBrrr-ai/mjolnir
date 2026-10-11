@@ -20,7 +20,7 @@ no flags needed.
 ## One-off (state untouched)
 
 ```bash
-mjolnir serve up --image my/mjolnir-thor:dev
+mjolnir serve up --image my/mjolnir-vllm:dev
 MJOLNIR_IMAGE=narandill/mjolnir-vllm:v0.30.0-<sha> mjolnir verify sweep
 ```
 
@@ -30,7 +30,7 @@ default** (`DEFAULT_IMAGE` in `src/mjolnir-cli/mjolnir_cli/config.py`): `narandi
 ## Build a new one
 
 ```bash
-mjolnir image build --tag my/mjolnir-thor:dev
+mjolnir image build --tag my/mjolnir-vllm:dev
 mjolnir image gates                    # sm_110 gate-probe canaries, fresh container
 ```
 

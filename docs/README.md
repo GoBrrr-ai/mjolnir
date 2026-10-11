@@ -19,8 +19,8 @@ or upstream PR/issue anchors cited inline.
 | [`research/`](research/) | Research notes — upstream status, prior-art surveys, field notes. |
 | [`../research/`](../research/) | The **autoresearch** loop: program, agents, ledgers of every experiment. |
 
-The retired GEMV decode kernel and its reports live under
-[`deprecated/gemv/`](../deprecated/gemv/).
+The retired GEMV decode kernel and its reports are in git history:
+[`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
 
 ## Suggested reading order
 
@@ -62,6 +62,7 @@ The retired GEMV decode kernel and its reports live under
 | [default-model-quant.md](faq/default-model-quant.md) | The active model/config; config → attention backend → chart label. |
 | [new-model-config.md](faq/new-model-config.md) | Add a model config: repo `configs/` vs user-local configs. |
 | [base-image-bump.md](faq/base-image-bump.md) | Bump the vLLM base; the build as gate; re-adapting hunks; image tags follow vLLM. |
+| [e2e-vs-vllm.md](faq/e2e-vs-vllm.md) | Official vLLM image vs Mjolnir end to end: `bench e2e` / `bench compare`, decode, prefill, TTFT, ITL. |
 | [ab-image.md](faq/ab-image.md) | A/B a custom image or backend vs the default: `bench ab`. |
 | [ab-models.md](faq/ab-models.md) | A/B different models: model-qualified legs, fairness rules. |
 | [clean-window-gate.md](faq/clean-window-gate.md) | The shared-GPU rule, what "clean" means, `mjolnir gate`. |

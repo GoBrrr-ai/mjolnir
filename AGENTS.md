@@ -25,6 +25,11 @@ the agents run on**. When doing anything on the GPU:
   claims; wall clock is only for **ratios measured in the same run**.
 - On this box a single result moves about **±7%** between runs (`NOISE_PCT`):
   compare legs measured in the same run, and require a win across L.
+- **Native vLLM baselines (FlashInfer, FA2) are measured only on the official
+  `vllm/vllm-openai` image**, never on ours — the Mjolnir image patches
+  FlashInfer paths too. `mjolnir verify` runs reference legs there
+  (`MJOLNIR_REF_IMAGE` overrides); e2e charts ignore native configs served
+  from a Mjolnir image.
 
 ### Every number ships with its raw artifact
 - Kernel results: `mjolnir verify <stage>` → one `mjolnir.verify/1` JSON per run
@@ -71,8 +76,9 @@ skipped with a hint — nothing blocks on a password.
   + OpenCode agents in `.opencode/agent/` (orchestrator `autoresearch`;
   `arxiv-researcher`, `web-researcher`, `python-engineer`, `debugger`). The loop
   is `research/program.md`; every experiment is a ledger row.
-- **Retired**: the FA4 GEMV decode kernel and its tooling are archived in
-  `deprecated/gemv/` (not built, not linted, not in the image).
+- **Retired**: the FA4 GEMV decode kernel and its tooling were removed; the
+  last snapshot is in git history at
+  [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
   `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
   independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
@@ -122,7 +128,6 @@ skipped with a hint — nothing blocks on a password.
 - `research/` — autoresearch program, ledger (untracked while live), exported runs.
 - `.opencode/` — agents (`agent/`), the `/autoresearch` command, skills
   (`kernel-iteration`, `update-base-image`).
-- `deprecated/gemv/` — the archived GEMV kernel, its docs, data and tooling.
 - `.github/workflows/` — `ci.yml`, `docker-image.yml`, `release-kernel.yml`,
   `release-cli.yml`, `pages.yml`.
 
@@ -156,9 +161,11 @@ the template. Sentences that state a result come from `readme.py` findings,
 not hand-typed numbers.
 
 ### End to end
+`mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
+TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
 `mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row);
-`mjolnir bench ab` (default legs `NVFP4_MJOLNIR,NVFP4,NVFP4_FA2`; legs are
-`<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
+`mjolnir bench ab` (default legs: `NVFP4` on the official image vs `NVFP4_MJOLNIR`; legs
+are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.
 
 ### Building the image
@@ -189,8 +196,8 @@ trusted publishing — and the image (vLLM version, on push to `main`).
 - [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,
       commit `benchmarks/raw/verify/**`, re-render (the README shows "pending"
       for stages without a default run).
-- [ ] **End-to-end A/B**: `mjolnir bench ab` (Mjolnir vs FlashInfer vs FA2) —
-      restarts the server per leg; schedule deliberately.
+- [ ] **End-to-end**: `mjolnir bench e2e` (native FlashInfer on the official
+      vLLM image vs Mjolnir) — restarts the server per leg; schedule deliberately.
 - [ ] **fp6 KV in vLLM**: a cache-write path for e2m3 so serving gets the
       harness's fp6 win (`docs/kernel/kvfmt.md`, `quant.md`).
 - [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
@@ -291,4 +298,4 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - Patch inventory: `docker/vllm-thor/PATCHES.md`.
 - Measurement discipline: `docs/methodology/benchmarking.md`.
 - Docs index: `docs/README.md`; FAQ: `docs/faq/index.md`.
-- The archived GEMV kernel: `deprecated/gemv/`.
+- The retired GEMV kernel (git history): [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).

@@ -93,7 +93,7 @@ Rules that keep the numbers honest:
   +12.9% kernel BW while wall clock moved only 0.6% — merge/launch overhead and
   non-KV L2 traffic swallowed the kernel-level gain, which a wall-only bench
   (or an NCU-only bench) would have mis-attributed
-  ([deprecated/gemv/docs/gemv-ring-fix-bench.md](../../deprecated/gemv/docs/gemv-ring-fix-bench.md)).
+  ([gemv-ring-fix-bench.md, git history](https://github.com/thor-arena/mjolnir/blob/gemv-archive/deprecated/gemv/docs/gemv-ring-fix-bench.md)).
   The Mjolnir stages that touch launch behaviour (`pdl`, `ab`, `kvfmt`) report
   both.
 
@@ -105,10 +105,14 @@ Rules that keep the numbers honest:
   L ∈ {128, 4K, 8K, 16K, 32K, 64K, 128K, 256K} — so short-context launch
   overhead and long-context bandwidth are both always on the chart. A run with
   any other L list is saved as non-default and never feeds a headline chart.
-- **Legs:** Mjolnir (its harness defaults), FlashInfer (vLLM's decode kernel on
-  Thor; NHD and HND drivers), FlashAttention 2 (`vllm_flash_attn`, bf16 KV —
-  what stock vLLM 0.30.0 picks when FlashInfer is off). All legs of a stage run
-  in the **same run**, so a ratio never mixes machine states.
+- **Legs:** Mjolnir (its harness defaults, on the Mjolnir image), FlashInfer
+  (vLLM's decode kernel on Thor; NHD and HND drivers) and FlashAttention 2
+  (`vllm_flash_attn`, bf16 KV — what stock vLLM 0.30.0 picks when FlashInfer is
+  off). **The references run on the official `vllm/vllm-openai` image** — the
+  Mjolnir image patches FlashInfer paths, so a reference measured there would
+  not be native vLLM (`MJOLNIR_REF_IMAGE` overrides, recorded as `ref_image`
+  in every result). All legs of a stage run in the **same run**, so a ratio
+  never mixes machine states.
 - **NCU settings:** `--clock-control base --cache-control all` (base clocks,
   cold L2 per launch), `--print-summary per-kernel`, 50 profiled iterations
   per point. A leg's time is its main kernel **plus** its merge / reduction

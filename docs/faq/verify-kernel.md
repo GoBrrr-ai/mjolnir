@@ -4,9 +4,11 @@
 against FlashInfer and FlashAttention 2, and have the README charts update from
 my numbers."
 
-Everything runs in the image (`narandill/mjolnir-vllm:v<vllm>`), one container
-per leg, against the kernel source in your checkout (`src/mjolnir/` is mounted
-over the installed package). Every stage waits for a
+Everything runs in containers, one per leg: Mjolnir legs on the Mjolnir image
+(`narandill/mjolnir-vllm:v<vllm>`) against the kernel source in your checkout
+(`src/mjolnir/` is mounted over the installed package); the FlashInfer and FA2
+reference legs on the **official** `vllm/vllm-openai:v<vllm>-ubuntu2404` image,
+so they are native vLLM (`MJOLNIR_REF_IMAGE` overrides). Every stage waits for a
 [clean window](clean-window-gate.md) when the live server is busy — and never
 stops it.
 

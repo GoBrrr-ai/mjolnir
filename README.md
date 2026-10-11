@@ -38,6 +38,8 @@ vllm serve <model> --attention-backend MJOLNIR
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.30.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
 
+
+
 > [!NOTE]
 > The headline benchmark has not been recorded in this checkout yet. Run `mjolnir verify bench` on a Thor and `mjolnir plot --readme` to render the charts and numbers from the raw results.
 
@@ -87,28 +89,9 @@ The box is shared with a live server, so ±7% between runs is noise; ratios insi
 
 > Pending: `mjolnir verify sweep`.
 
-### End to end (vLLM serving)
+### Official vLLM image vs Mjolnir
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
-  <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput per attention backend" width="100%">
-</picture>
-
-**Decode tokens/s** (llama-benchy, gated clean windows; Δ vs FlashInfer):
-
-| backend (image) | c1 · no ctx | c1 · 4K ctx | c1 · 8K ctx | c4 · no ctx | c4 · 4K ctx | c4 · 8K ctx |
-|---|--:|--:|--:|--:|--:|--:|
-| **FlashInfer** | 25.7 | 24.5 | 25.4 | 84.5 | 83.8 | 70.7 |
-| **FlashInfer (stock vLLM image)** | 22.5 $\color{#dc2626}{\text{−12.5\%}}$ | 24.3 $\color{grey}{\text{−0.9\%}}$ | 24.4 $\color{grey}{\text{−3.9\%}}$ | 88.5 $\color{grey}{\text{+4.8\%}}$ | 81.0 $\color{grey}{\text{−3.4\%}}$ | 68.2 $\color{grey}{\text{−3.5\%}}$ |
-
-**Prompt tokens/s:**
-
-| backend (image) | c1 · no ctx | c1 · 4K ctx | c1 · 8K ctx | c4 · no ctx | c4 · 4K ctx | c4 · 8K ctx |
-|---|--:|--:|--:|--:|--:|--:|
-| **FlashInfer** | 3,522 | 3,290 | 2,938 | 3,325 | 3,104 | 2,800 |
-| **FlashInfer (stock vLLM image)** | 2,839 $\color{#dc2626}{\text{−19.4\%}}$ | 2,894 $\color{#dc2626}{\text{−12.0\%}}$ | 2,468 $\color{#dc2626}{\text{−16.0\%}}$ | 2,892 $\color{#dc2626}{\text{−13.0\%}}$ | 2,736 $\color{#dc2626}{\text{−11.9\%}}$ | 2,457 $\color{#dc2626}{\text{−12.3\%}}$ |
-
-<sub>From [`benchmarks/history.jsonl`](benchmarks/history.jsonl) (`mjolnir bench ab`). Prefill runs on FlashInfer under the Mjolnir backend too, so prompt processing should match FlashInfer.</sub>
+> Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).
 
 ## How the kernel works
 
@@ -164,6 +147,7 @@ mjolnir model | image                   # pick the model config / image
 mjolnir verify <stage>                  # correctness + ncu benchmarks -> benchmarks/raw/verify
 mjolnir verify bench | all              # every benchmark stage (all = + correctness)
 mjolnir verify show | list              # re-print saved results
+mjolnir bench e2e | compare            # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
 mjolnir bench perf | ab                 # end-to-end serving benchmarks -> history.jsonl
 mjolnir plot --readme [--site DIR]      # charts + README + docs (+ interactive site) from raw data
 mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop
@@ -195,8 +179,7 @@ Mjolnir is meant to be a **community case study**: every claim is reproducible w
 ├── assets/benchmarks/          generated charts (light + dark)
 ├── docs/kernel/                the kernel case study (rendered from *.md.j2 + raw data)
 ├── research/                   the autoresearch program + ledger
-├── .opencode/                  OpenCode agents (autoresearch, researchers, engineer, debugger)
-└── deprecated/gemv/            the retired GEMV decode kernel (archived)
+└── .opencode/                  OpenCode agents (autoresearch, researchers, engineer, debugger)
 ```
 
 ## Security
