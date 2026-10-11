@@ -173,6 +173,30 @@ def _disk_load(key):
         return None
 
 
+def _export(fn, path, symbol: str) -> None:
+    """Write ``fn``'s object file to ``path`` (atomically), exported under
+    ``symbol``. CuTe DSL 4.7 (vLLM 0.31's): ``export_to_c(dir, stem,
+    function_prefix=...)`` writes ``<dir>/<stem>.o`` + ``.h``; later DSLs:
+    ``export_to_c(path, function_name=...)``."""
+    import inspect
+
+    params = inspect.signature(fn.export_to_c).parameters
+    stem = f"{path.stem}.tmp{os.getpid()}"
+    tmp_o, tmp_h = path.parent / f"{stem}.o", path.parent / f"{stem}.h"
+    try:
+        if "function_prefix" in params:
+            fn.export_to_c(str(path.parent), stem, function_prefix=symbol)
+        elif "function_name" in params:
+            fn.export_to_c(str(tmp_o), function_name=symbol)
+        else:
+            raise TypeError(f"unknown export_to_c signature {tuple(params)}")
+        os.replace(tmp_o, path)
+    finally:
+        for t in (tmp_o, tmp_h):
+            if t.exists():
+                t.unlink()
+
+
 def _disk_store(key, fn) -> None:
     global _disk_cache_ok
     if not _disk_cache_ok:
@@ -183,13 +207,7 @@ def _disk_store(key, fn) -> None:
             return
         path, symbol = entry
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".o.tmp.{os.getpid()}")
-        try:
-            fn.export_to_c(str(tmp), function_name=symbol)
-            os.replace(tmp, path)
-        finally:
-            if tmp.exists():
-                tmp.unlink()
+        _export(fn, path, symbol)
     except Exception as e:  # noqa: BLE001 - persistence is best effort
         _disk_cache_ok = False
         _log.warning("Mjolnir: kernel cache store failed (%r); cache off for this process", e)
