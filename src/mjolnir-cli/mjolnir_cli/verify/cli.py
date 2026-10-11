@@ -522,6 +522,62 @@ def timing(
     )
 
 
+@app.command("spec")
+def spec(
+    legs: str = typer.Option(
+        "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+        "--legs",
+        help="side:config, comma-separated; official = the stock vLLM image, mjolnir = --image",
+    ),
+    drafts: str = typer.Option("1 2 3 4", "--drafts", help="num_speculative_tokens values to serve"),
+    concurrency: str = typer.Option("1 4", "--concurrency", help="requests in flight per block"),
+    max_tokens: int = typer.Option(256, "--max-tokens", help="generated tokens per request"),
+    long_words: int = typer.Option(6000, "--long-words", help="the long-context prompt's size (0 = none)"),
+    model: Optional[str] = typer.Option(None, "--model", help="model (default: the active one)"),
+    restart: bool = typer.Option(
+        False, "--restart", help="stop a running vLLM server (default: refuse — the GPU must be yours)"
+    ),
+    image: Optional[str] = IMAGE,
+    dry_run: bool = DRY,
+    timeout: float = typer.Option(1800.0, "--timeout", help="per-point server start timeout (s)"),
+    save: bool = SAVE,
+    plot: bool = PLOT,
+):
+    """MTP per config and draft count: tokens/step, per-position acceptance, decode t/s (restarts the server per point)."""
+    defaults = {
+        "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+        "drafts": "1 2 3 4",
+        "concurrency": "1 4",
+        "max_tokens": 256,
+        "long_words": 6000,
+        "model": None,
+        "restart": restart,
+        "timeout": 1800.0,
+    }
+    _run(
+        "spec",
+        {
+            "legs": legs,
+            "drafts": drafts,
+            "concurrency": concurrency,
+            "max_tokens": max_tokens,
+            "long_words": long_words,
+            "model": model,
+            "restart": restart,
+            "timeout": timeout,
+        },
+        defaults,
+        image,
+        None,
+        stages.DEFAULT_ITERS,
+        False,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
+
+
 @app.command("kv-cache-size")
 def kv_cache_size(
     legs: str = typer.Option(

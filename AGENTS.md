@@ -150,6 +150,7 @@ mjolnir verify sweep                      # Mjolnir vs FlashInfer vs FA2 (ncu)
 mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing
 mjolnir verify vllm                       # the backend inside vLLM
 mjolnir verify kv-cache-size              # KV tokens per config (restarts the server per leg; refuses while one runs)
+mjolnir verify spec                       # MTP acceptance per position + decode t/s for 1-4 drafts per config (same)
 mjolnir verify bench | all                # every stage once (+ correctness)
 mjolnir verify <stage> --dry-run          # the docker commands, nothing run
 mjolnir verify show <stage>               # the latest saved run

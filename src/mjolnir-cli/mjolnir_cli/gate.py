@@ -97,10 +97,11 @@ def spec_delta(before: dict | None, after: dict | None) -> dict | None:
     d = {k: after.get(k, 0.0) - before.get(k, 0.0) for k in set(_SPEC.values())}
     if d.get("drafts", 0) <= 0:
         return {"preemptions": int(d.get("preemptions", 0))} if "preemptions" in after else None
-    pos = {
-        k: (after["per_pos"].get(k, 0.0) - before.get("per_pos", {}).get(k, 0.0)) / d["drafts"]
+    counts = {
+        k: after["per_pos"].get(k, 0.0) - before.get("per_pos", {}).get(k, 0.0)
         for k in sorted(after.get("per_pos", {}))
     }
+    pos = {k: v / d["drafts"] for k, v in counts.items()}
     return {
         "drafts": int(d["drafts"]),
         "draft_tokens": int(d.get("draft_tokens", 0)),
@@ -108,6 +109,7 @@ def spec_delta(before: dict | None, after: dict | None) -> dict | None:
         "acceptance_length": round(1 + d.get("accepted", 0) / d["drafts"], 3),
         "acceptance_rate": round(d.get("accepted", 0) / d["draft_tokens"], 4) if d.get("draft_tokens") else None,
         "per_pos": [round(v, 4) for v in pos.values()],
+        "per_pos_accepted": [int(v) for v in counts.values()],  # raw counts, for pooling
         "preemptions": int(d.get("preemptions", 0)),
     }
 

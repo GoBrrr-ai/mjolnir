@@ -211,10 +211,13 @@ def build_run_args(
     command: str | None = None,
     extra_env: tuple[str, ...] = (),
     extra_mounts: tuple[tuple[str, str], ...] = (),
+    serve_args: tuple[str, ...] = (),
 ) -> list[str]:
     """Assemble the full ``docker run`` argv for the vLLM container (the
     server by default; ``command`` runs something else with the same mounts,
-    env and GPU access — ``mjolnir calibrate``)."""
+    env and GPU access — ``mjolnir calibrate``). ``serve_args`` are appended
+    to ``vllm serve`` and override the config (e.g. ``--speculative-config``
+    for ``mjolnir verify spec``)."""
     image = image or s.image
     cmd = [
         _docker(),
@@ -297,12 +300,22 @@ def build_run_args(
         "--enable-prompt-tokens-details "
         "--download-dir /data/models/huggingface"
     )
+    if serve_args:
+        import shlex
+
+        serve += " " + " ".join(shlex.quote(a) for a in serve_args)
     cmd += [image, "-lc", serve]
     return cmd
 
 
-def serve_up(s: Settings, wait: bool = True, wait_timeout_s: float = 1800.0, dry_run: bool = False) -> None:
-    cmd = build_run_args(s)
+def serve_up(
+    s: Settings,
+    wait: bool = True,
+    wait_timeout_s: float = 1800.0,
+    dry_run: bool = False,
+    serve_args: tuple[str, ...] = (),
+) -> None:
+    cmd = build_run_args(s, serve_args=serve_args)
     if dry_run:
         print(" ".join(cmd))
         return

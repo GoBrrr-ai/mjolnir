@@ -290,7 +290,13 @@ def run_perf(
             **tot,
             "acceptance_length": round(1 + tot["accepted"] / tot["drafts"], 3) if tot["drafts"] else None,
             "acceptance_rate": round(tot["accepted"] / tot["draft_tokens"], 4) if tot["draft_tokens"] else None,
-            "per_pos": sweep_spec[-1].get("per_pos", []),
+            # pooled like the totals: accepted at each position over all drafts
+            "per_pos": [
+                round(sum(col) / tot["drafts"], 4)
+                for col in zip(*(x.get("per_pos_accepted") or [] for x in sweep_spec))
+            ]
+            if tot["drafts"]
+            else [],
         }
     hist.append_record(layout.history_file, rec)
     records.append(rec)

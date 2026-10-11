@@ -332,6 +332,33 @@ def ratio_pct(g: float | None) -> str:
 def _findings(stage: str, doc: dict) -> list[str]:
     """Data-driven one-liners for the docs (no hand-written numbers)."""
     out: list[str] = []
+    if stage == "spec":
+        from mjolnir_cli.verify.spec import best_k
+
+        rows = [r for r in doc.get("rows", []) if r.get("decode_tps")]
+        for (cfg, conc), b in sorted(best_k(rows).items()):
+            ref = next((r for r in rows if r["config"] == cfg and r["concurrency"] == conc and r["k"] == 3), None)
+            vs = (
+                f", {(b['decode_tps'] / ref['decode_tps'] - 1) * 100:+.1f}% vs 3 drafts" if ref and b is not ref else ""
+            )
+            out.append(
+                f"{spec_label(cfg)}, {conc} request{'s' if conc > 1 else ''}: best with **{b['k']} draft"
+                f"{'s' if b['k'] > 1 else ''}** — {b['decode_tps']:.1f} t/s per request, "
+                f"{b['acceptance_length']:.2f} tokens per step{vs}."
+            )
+        by_cfg: dict = {}
+        for r in rows:
+            if r["k"] == 3 and r["concurrency"] == 1 and r.get("acceptance_length"):
+                by_cfg[r["config"]] = r["acceptance_length"]
+        if "NVFP4" in by_cfg:
+            for cfg, a in by_cfg.items():
+                if cfg != "NVFP4":
+                    out.append(
+                        f"Acceptance, 3 drafts, 1 request: {spec_label(cfg)} {a:.2f} vs official "
+                        f"{by_cfg['NVFP4']:.2f} tokens/step ({(a / by_cfg['NVFP4'] - 1) * 100:+.1f}%) — "
+                        "same prompts, temperature 0."
+                    )
+        return out
     if stage == "kv-cache-size":
         rows = {r["id"]: r for r in doc.get("rows", []) if r.get("kv_tokens")}
         e2m3 = next((r for r in rows.values() if str(r.get("kv_dtype", "")).startswith("fp6")), None)
@@ -476,6 +503,41 @@ def _kvcache_table(doc: dict) -> str:
     return _table(head, out, ["---", "---"] + ["--:"] * (len(head) - 2))
 
 
+def spec_label(cfg: str, side: str | None = None) -> str:
+    return {
+        "NVFP4": "official vLLM · FlashInfer fp8",
+        "NVFP4_MJOLNIR": "Mjolnir · fp8 KV",
+        "NVFP4_MJOLNIR_E2M3": "Mjolnir · fp6 KV",
+    }.get(cfg, cfg)
+
+
+def _spec_table(doc: dict) -> str:
+    from mjolnir_cli.verify.spec import best_k
+
+    rows = [r for r in doc.get("rows", []) if r.get("decode_tps")]
+    best = {(cfg, c): r["k"] for (cfg, c), r in best_k(rows).items()}
+    kmax = max((len(r.get("per_pos") or []) for r in rows), default=0)
+    out = []
+    for r in sorted(rows, key=lambda r: (r["config"], r["concurrency"], r["k"])):
+        star = " **★**" if best.get((r["config"], r["concurrency"])) == r["k"] else ""
+        pos = list(r.get("per_pos") or []) + [None] * (kmax - len(r.get("per_pos") or []))
+        out.append(
+            [
+                spec_label(r["config"]),
+                str(r["concurrency"]),
+                f"{r['k']}{star}",
+                f"{r.get('acceptance_length') or 0:.2f}",
+                *(f"{p:.2f}" if p is not None else "" for p in pos),
+                f"{r['decode_tps']:.1f}",
+                f"{r.get('agg_tps') or 0:.1f}",
+                f"{(r.get('ttft_ms') or 0) / 1000:.2f} s",
+            ]
+        )
+    head = ["config", "c", "drafts", "tokens/step", *(f"accept @{i + 1}" for i in range(kmax))]
+    head += ["decode t/s/req", "aggregate t/s", "TTFT"]
+    return _table(head, out, ["---"] + ["--:"] * (len(head) - 1))
+
+
 TABLES = {
     "sweep": lambda d: _series_time_table(d, ("fi", "fa2")),
     "hndsweep": lambda d: _series_time_table(d, ("fi", "fi-hnd")),
@@ -488,6 +550,7 @@ TABLES = {
     "fp6prof": _fp6prof_table,
     "correctness": _correctness_table,
     "kv-cache-size": _kvcache_table,
+    "spec": _spec_table,
 }
 
 

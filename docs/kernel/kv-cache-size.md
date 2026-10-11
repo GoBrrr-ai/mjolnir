@@ -60,4 +60,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV format accuracy](quant.md) · [case study](README.md) · [Full profiles per KV format →](fp6prof.md)
+[← KV format accuracy](quant.md) · [case study](README.md) · [Speculative decoding →](spec.md)

@@ -1100,6 +1100,75 @@ def chart_kvcache(data: dict, mode: Mode):
     return fig
 
 
+def chart_spec(data: dict, mode: Mode):
+    """Decode t/s per request vs draft count (one panel per concurrency) and
+    per-position acceptance at the largest draft count."""
+    from mjolnir_cli.readme import spec_label
+
+    doc = data.get("spec")
+    rows = [r for r in (doc or {}).get("rows", []) if r.get("decode_tps")]
+    if not rows:
+        return None
+    concs = sorted({r["concurrency"] for r in rows})
+    cfgs = list(dict.fromkeys(r["config"] for r in rows))
+    plt = _plt()
+    fig, axes = plt.subplots(
+        1, len(concs) + 1, figsize=(12.5, 4.8), gridspec_kw={"width_ratios": [1] * len(concs) + [1.1]}
+    )
+    axes = list(axes)
+    theme.apply(fig, axes, mode)
+    for ax, conc in zip(axes, concs):
+        for cfg in cfgs:
+            pts = sorted((r["k"], r["decode_tps"]) for r in rows if r["config"] == cfg and r["concurrency"] == conc)
+            if not pts:
+                continue
+            ax.plot([k for k, _ in pts], [v for _, v in pts], label=spec_label(cfg), **theme.line_kw(mode, cfg))
+            kb, vb = max(pts, key=lambda p: p[1])
+            ax.annotate("★", (kb, vb), textcoords="offset points", xytext=(0, 9), ha="center", color=mode.text)
+        ks = sorted({r["k"] for r in rows})
+        ax.set_xticks(ks)
+        ax.set_xlabel(f"draft tokens · {conc} request{'s' if conc > 1 else ''} in flight")
+    axes[0].set_ylabel("decode tokens/s per request")
+    theme.legend(axes[0], mode, loc="lower right")
+    # per-position acceptance at the largest k, first concurrency
+    axp = axes[-1]
+    kmax = max(r["k"] for r in rows)
+    w = 0.8 / max(1, len(cfgs))
+    for i, cfg in enumerate(cfgs):
+        r = next((r for r in rows if r["config"] == cfg and r["k"] == kmax and r["concurrency"] == concs[0]), None)
+        pp = (r or {}).get("per_pos") or []
+        if not pp:
+            continue
+        xs = [j + (i - (len(cfgs) - 1) / 2) * w for j in range(len(pp))]
+        hollow = not theme.filled(cfg)
+        c = theme.color(mode, cfg)
+        axp.bar(
+            xs,
+            pp,
+            width=w * 0.92,
+            color=mode.panel if hollow else c,
+            edgecolor=c,
+            linewidth=1.6 if hollow else 0,
+            hatch="//" if hollow else None,
+            zorder=3,
+        )
+    axp.set_xticks(range(kmax))
+    axp.set_xticklabels([f"#{j + 1}" for j in range(kmax)])
+    axp.set_ylim(0, 1)
+    axp.set_xlabel(f"draft position · {kmax} drafts, {concs[0]} request")
+    axp.set_ylabel("accepted (share of steps)")
+    theme.title(
+        axes[0],
+        mode,
+        "Speculative decoding: draft count",
+        "same prompts at temperature 0 for every point · ★ = best draft count · decode = tokens after the first "
+        "÷ time to the last",
+    )
+    models = ", ".join(dict.fromkeys(str(r.get("image", "")) for r in rows))
+    theme.footer(fig, mode, f"mjolnir verify spec · run {doc['run_id']} · {models}")
+    return fig
+
+
 KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
     # name -> (stage it documents, builder)
     "kernel-speedup": ("sweep", chart_speedup),
@@ -1115,6 +1184,7 @@ KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
     "pdl-delta": ("pdl", chart_pdl),
     "fp6prof-bytes-vs-time": ("fp6prof", chart_fp6prof),
     "kv-cache-capacity": ("kv-cache-size", chart_kvcache),
+    "spec-drafts": ("spec", chart_spec),
 }
 E2E_CHARTS: dict[str, Callable] = {"e2e-decode": chart_e2e_decode, "e2e-prefill": chart_e2e_prefill}
 

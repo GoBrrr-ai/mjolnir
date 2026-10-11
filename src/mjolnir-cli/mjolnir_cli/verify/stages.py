@@ -643,6 +643,12 @@ def stage_vllm(
     return {"cases": cases, "params": {"smoke_modes": smoke_modes, "model": model, "tokens": tokens}}
 
 
+def _spec_stage(ctx: Ctx, **kw) -> dict:
+    from mjolnir_cli.verify.spec import stage_spec
+
+    return stage_spec(ctx, **kw)
+
+
 def _kvcache_stage(ctx: Ctx, **kw) -> dict:
     from mjolnir_cli.verify.kvcache import stage_kvcache
 
@@ -719,6 +725,13 @@ STAGES: dict[str, Stage] = {
             _kvcache_stage,
         ),
         Stage(
+            "spec",
+            "Speculative decoding",
+            "serving",
+            "MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count",
+            _spec_stage,
+        ),
+        Stage(
             "vllm",
             "vLLM integration",
             "tests",
@@ -754,6 +767,13 @@ def summarize(stage: str, doc: dict) -> dict:
         out = {
             r["id"]: {"kv_tokens": r.get("kv_tokens"), "max_concurrency": r.get("max_concurrency")}
             for r in doc.get("rows", [])
+        }
+    if stage == "spec":
+        from mjolnir_cli.verify.spec import best_k
+
+        out = {
+            f"{cfg} c={conc}": {"k": r["k"], "decode_tps": r["decode_tps"], "acceptance_length": r["acceptance_length"]}
+            for (cfg, conc), r in sorted(best_k(doc.get("rows", [])).items())
         }
     if stage == "correctness" or stage == "vllm":
         cs = doc.get("cases", [])

@@ -164,7 +164,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 | chapter | question it answers |
 |---|---|
-{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
+{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
 | [{{ stages[name].title }}](docs/kernel/{{ name }}.md) {% if not has(name) %}*(pending)*{% endif %} | {{ stages[name].summary }} |
 {% endfor %}
 

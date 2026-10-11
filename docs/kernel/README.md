@@ -58,11 +58,12 @@ flowchart LR
 | 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261011-115251` |
 | 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261011-121120` |
 | 6 | [KV cache capacity](kv-cache-size.md) | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context | ✅ run `20261011-213435` |
-| 7 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261011-125212` |
-| 8 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261011-121857` |
-| 9 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261011-122836` |
-| 10 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261011-123457` |
-| 11 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261011-124125` |
+| 7 | [Speculative decoding](spec.md) | MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count | ⏳ pending |
+| 8 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261011-125212` |
+| 9 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261011-121857` |
+| 10 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261011-122836` |
+| 11 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261011-123457` |
+| 12 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261011-124125` |
 
 
 ## Reproducing everything
