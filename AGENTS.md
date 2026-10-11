@@ -78,7 +78,7 @@ skipped with a hint — nothing blocks on a password.
   is `research/program.md`; every experiment is a ledger row.
 - **Retired**: the FA4 GEMV decode kernel and its tooling were removed; the
   last snapshot is in git history at
-  [`06a9ff4:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/06a9ff4/deprecated/gemv).
+  [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
   `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
   independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
@@ -298,4 +298,4 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - Patch inventory: `docker/vllm-thor/PATCHES.md`.
 - Measurement discipline: `docs/methodology/benchmarking.md`.
 - Docs index: `docs/README.md`; FAQ: `docs/faq/index.md`.
-- The retired GEMV kernel (git history): [`06a9ff4:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/06a9ff4/deprecated/gemv).
+- The retired GEMV kernel (git history): [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).

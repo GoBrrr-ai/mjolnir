@@ -93,7 +93,7 @@ Rules that keep the numbers honest:
   +12.9% kernel BW while wall clock moved only 0.6% — merge/launch overhead and
   non-KV L2 traffic swallowed the kernel-level gain, which a wall-only bench
   (or an NCU-only bench) would have mis-attributed
-  ([gemv-ring-fix-bench.md, git history](https://github.com/thor-arena/mjolnir/blob/06a9ff4/deprecated/gemv/docs/gemv-ring-fix-bench.md)).
+  ([gemv-ring-fix-bench.md, git history](https://github.com/thor-arena/mjolnir/blob/gemv-archive/deprecated/gemv/docs/gemv-ring-fix-bench.md)).
   The Mjolnir stages that touch launch behaviour (`pdl`, `ab`, `kvfmt`) report
   both.
 
