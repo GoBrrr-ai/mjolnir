@@ -13,6 +13,7 @@ Nothing here imports vLLM, so tests/test_runner.py exercises it directly.
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 import threading
@@ -20,9 +21,11 @@ from dataclasses import dataclass
 
 import torch
 
+from . import qpack
 from . import t5_decode as t5
 
 FP8_MAX = 448.0
+_log = logging.getLogger("vllm.mjolnir")
 SUPPORTED_PAGE_SIZES = (16, 32, 64, 128)
 
 _TORCH_TO_CUTLASS = None
@@ -193,6 +196,14 @@ class T5DecodeRunner:
             if self.fp8_q
             else torch.ones(1, dtype=torch.float32, device=dev)
         )
+        # One fused Triton launch for the fp8 Q quantization (MJOLNIR_ATTN_FUSED_QPACK=0:
+        # the PyTorch ops, ~10 launches per layer and step).
+        self._fused_qpack = (
+            self.fp8_q
+            and self.device.type == "cuda"
+            and qpack.available()
+            and env_flag("MJOLNIR_ATTN_FUSED_QPACK", "1").lower() not in ("0", "false", "no")
+        )
 
     # ------------------------------------------------------------------ plan
     def n_tiles(self, q_len: int) -> int:
@@ -209,10 +220,15 @@ class T5DecodeRunner:
         q_len: int,
         block_table: torch.Tensor,
         seq_lens: torch.Tensor,
+        margin: int = 0,
     ) -> StepPlan:
-        """CPU plan + async copy into the persistent device buffers."""
+        """CPU plan + async copy into the persistent device buffers.
+
+        ``margin`` plans every sequence that many tokens longer: the kernel
+        masks with the device ``seq_lens``, so the plan stays valid while
+        they grow by up to ``margin`` (fused multi-step draft decode)."""
         assert 1 <= q_len <= self.max_q_len and num_seqs <= self.max_num_seqs
-        lens = [int(x) for x in seq_lens_cpu[:num_seqs]]
+        lens = [int(x) + margin for x in seq_lens_cpu[:num_seqs]]
         cap = self._cap[q_len]
         p = t5.plan_split_kv(
             lens,
@@ -395,6 +411,21 @@ class T5DecodeRunner:
         if not compile_only:
             fn(*args)
 
+    def _pack_q_fused(self, q3, b: int, ql: int, q_view, qd) -> bool:
+        """fp8 Q quantization + packing in one Triton launch (qpack). False
+        when unavailable; a failure disables it for good, outside capture."""
+        if not self._fused_qpack or q3.stride(-1) != 1:
+            return False
+        try:
+            qpack.pack_q_fp8(q3, b, ql, self.h_k, self.h_r, q_view, qd)
+            return True
+        except Exception as e:  # noqa: BLE001 - e.g. a Triton build that cannot target this GPU
+            if torch.cuda.is_current_stream_capturing():
+                raise
+            self._fused_qpack = False
+            _log.warning("Mjolnir: fused fp8 Q pack unavailable (%r); using the PyTorch ops", e)
+            return False
+
     def run(
         self,
         plan: StepPlan,
@@ -424,18 +455,19 @@ class T5DecodeRunner:
         qd = self.q_descale
         if self.fp8_q:
             # dynamic per-(seq, kv head) e4m3 quantization into the pack buffer
-            qg = q3.reshape(b, ql, h_k, h_r, d).float()
-            amax = qg.abs().amax(dim=(1, 3, 4)).clamp_min(1e-6)  # (b, h_k)
-            scale_q = amax / FP8_MAX
             qd = self.q_descale[:b]
-            qd.copy_(scale_q)
             q_view = self.q_pack[: b * h_k * n_q * d].view(b, h_k, n_q, d)
-            q_view.copy_(
-                (qg / scale_q[:, None, :, None, None])
-                .to(torch.float8_e4m3fn)
-                .permute(0, 2, 1, 3, 4)
-                .reshape(b, h_k, n_q, d)
-            )
+            if not self._pack_q_fused(q3, b, ql, q_view, qd):
+                qg = q3.reshape(b, ql, h_k, h_r, d).float()
+                amax = qg.abs().amax(dim=(1, 3, 4)).clamp_min(1e-6)  # (b, h_k)
+                scale_q = amax / FP8_MAX
+                qd.copy_(scale_q)
+                q_view.copy_(
+                    (qg / scale_q[:, None, :, None, None])
+                    .to(torch.float8_e4m3fn)
+                    .permute(0, 2, 1, 3, 4)
+                    .reshape(b, h_k, n_q, d)
+                )
         elif ql == 1 and q3.stride(2) == 1 and q3.stride(1) == d and q3.data_ptr() % 16 == 0:
             q_view = q3.unflatten(1, (h_k, h_r))  # zero-copy (b, h_k, h_r, d)
         else:

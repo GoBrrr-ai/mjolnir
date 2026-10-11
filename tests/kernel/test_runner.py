@@ -103,6 +103,7 @@ def run_case(
     pdl=False,
     l2_prefetch=0,
     kv_evict_first=False,
+    plan_margin=0,
 ):
     gen = torch.Generator().manual_seed(seed)
     # vLLM's seq_len counts the step's own q_len tokens, so a live sequence
@@ -163,7 +164,7 @@ def run_case(
         l2_prefetch=l2_prefetch,
         kv_evict_first=kv_evict_first,
     )
-    plan = runner.plan(seq_lens_t.tolist(), b, q_len, block_table, seq_lens_d)
+    plan = runner.plan(seq_lens_t.tolist(), b, q_len, block_table, seq_lens_d, margin=plan_margin)
     runner.ensure_compiled(q_len, plan.with_reduction)
     runner.run(plan, query, out, k_cache, v_cache, k_scale, v_scale, softmax_scale)
     torch.cuda.synchronize()
@@ -268,6 +269,41 @@ def test_full_wave_no_split():
 def test_padding_rows_are_zero():
     # CUDA-graph padding requests: seq_len 0 -> zero output, not NaN
     run_case(layout="BHN2D", seq_lens=(700, 33, 0, 0), q_mode="fp8", check_zero_rows=(2, 3))
+
+
+def test_mtp_verify_shape_fp8():
+    # what MTP=3 verification sends on Qwen3.8-27B: q_len 4, 24/4 heads, d 256, 128-token pages
+    run_case(layout="BHN2D", h_q=24, h_k=4, page_size=128, q_len=4, q_mode="fp8", seq_lens=(5000, 300, 9000, 129))
+
+
+def test_plan_margin_covers_draft_steps():
+    # fused draft decode: the plan is made for seq_len + margin, the kernel runs
+    # on the shorter live seq_lens; chunks past a sequence's end must be empty
+    # (127 + 3 and 255 + 3 cross a 128-row tile boundary)
+    run_case(layout="BHN2D", seq_lens=(127, 1, 255, 2046), q_mode="fp8", plan_margin=3)
+    run_case(layout="BHN2D", seq_lens=(127, 128, 129), q_mode="fp8", plan_margin=3, page_size=128, h_q=24, h_k=4)
+
+
+def test_fused_qpack_matches_torch():
+    from mjolnir import qpack
+
+    if not qpack.available():
+        print("   (no Triton: skipped)")
+        return
+    gen = torch.Generator().manual_seed(3)
+    for b, ql, h_k, h_r, d in ((1, 1, 4, 6, 256), (4, 4, 4, 6, 256), (3, 2, 8, 2, 128)):
+        tokens = b * ql
+        qkv = (torch.randn(tokens, (h_k * h_r + 2 * h_k) * d, generator=gen) * 3).to(torch.bfloat16).to(DEV)
+        q3 = qkv[:, : h_k * h_r * d].view(tokens, h_k * h_r, d)  # strided, like vLLM's qkv.split()
+        out = torch.empty(b, h_k, ql * h_r, d, dtype=torch.float8_e4m3fn, device=DEV)
+        qd = torch.empty(b, h_k, dtype=torch.float32, device=DEV)
+        qpack.pack_q_fp8(q3, b, ql, h_k, h_r, out, qd)
+        ref, ref_qd = qpack.pack_q_fp8_reference(q3, b, ql, h_k, h_r)
+        assert torch.allclose(qd, ref_qd, rtol=1e-6, atol=0), "descales differ"
+        diff = (out.float() - ref.float()).abs()
+        # same scale, same value -> same e4m3 code; allow one rounding step
+        # where fp32 division order differs (|x| <= 448: one e4m3 ulp <= 32)
+        assert (diff <= ref.float().abs() * 0.0625 + 1e-6).all(), f"pack differs (max {diff.max().item()})"
 
 
 def test_cuda_graph_replay_with_new_plan():

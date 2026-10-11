@@ -244,12 +244,19 @@ class MjolnirMetadata:
 class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
     # Shared-metadata shortcut across groups would bypass our plan.
     supports_update_block_table: bool = False
-    supports_draft_decode_metadata_update: bool = False
 
     def __init__(self, kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs):
         super().__init__(kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs)
-        # Draft-graph metadata refresh is base-backend specific.
-        self.supports_draft_decode_metadata_update = False
+        # Fused multi-step draft decode (MTP / EAGLE): the speculator builds the
+        # draft metadata once and runs every draft step on it, advancing the
+        # device seq_lens in place. A T5 plan stays valid across those steps if
+        # it is made for the longest of them — the kernel masks with the live
+        # seq_lens, so tiles past a sequence's end are empty — hence every plan
+        # gets num_speculative_tokens of headroom, and update_draft_decode_metadata
+        # has nothing to do for T5 steps (fallback steps defer to the base
+        # builder). The capability is whatever the base builder grants.
+        spec = getattr(vllm_config, "speculative_config", None)
+        self._plan_margin = int(getattr(spec, "num_speculative_tokens", 0) or 0) if spec is not None else 0
         self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
         self.t5: T5DecodeRunner | None = None
         if self._t5_reason is not None:
@@ -387,6 +394,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             q_len,
             cam.block_table_tensor,
             cam.seq_lens,
+            margin=self._plan_margin,
         )
         # Never compiled inside graph capture: build() runs outside it.
         t5.ensure_compiled(q_len, plan.with_reduction)
@@ -394,6 +402,14 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     def build_for_cudagraph_capture(self, common_attn_metadata):
         return self.build(0, common_attn_metadata)
+
+    def update_draft_decode_metadata(self, metadata) -> None:
+        """Fused draft decode: advance the metadata to the next draft step,
+        capture-safe. A T5 plan already covers it (see __init__); other steps
+        were built by the base builder, which updates its own metadata."""
+        if getattr(metadata, "is_t5", False):
+            return
+        super().update_draft_decode_metadata(metadata)
 
     def use_cascade_attention(self, *args, **kwargs) -> bool:
         # Cascade steps are built by the base builder (common_prefix_len > 0);
