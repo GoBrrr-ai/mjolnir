@@ -954,18 +954,23 @@ def _rerender(layout) -> None:
 
 def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
     """Serve each (model, image, config, label) leg in turn — the server is
-    restarted per leg on purpose — and run one gated perf bench on it."""
+    restarted per leg on purpose — run one gated perf bench on it, and stop
+    the leg's server when it is done (or fails), so no vLLM stays up holding
+    the GPU after the bench."""
     for leg_model, leg_image, quant, label in legs:
         s.model, s.image, s.quant = leg_model, leg_image, quant
         s.label = label
         typer.secho(f"\n{'=' * 62}\n  leg: {leg_model}/{quant}  (image {leg_image})\n{'=' * 62}", fg=typer.colors.CYAN)
         dockerctl.serve_down(s)
-        dockerctl.serve_up(s, wait=True)
         try:
+            dockerctl.serve_up(s, wait=True)
             benchy.run_perf(s, layout, warmup_runs=2, exact_tg=True, **perf)
         except benchy.BenchError as e:
             typer.secho(str(e), fg=typer.colors.RED, err=True)
             raise typer.Exit(1)
+        finally:
+            typer.secho(f"  leg done: stopping the vLLM server ({leg_image})", fg=typer.colors.CYAN)
+            dockerctl.serve_down(s)
 
 
 def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool = False) -> int:
@@ -986,7 +991,7 @@ def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool =
     t = Table(
         box=box.SIMPLE_HEAD,
         title="official vLLM image → Mjolnir image (gain: + = Mjolnir better)",
-        caption=f"official: {e2e.side_label(off)}\nmjolnir:  {e2e.side_label(mj)}",
+        caption=f"official: {e2e.side_label(off)}\nmjolnir:  {e2e.side_label(mj)}\nboth: {e2e.spec_label(off, mj)}",
     )
     t.add_column("ctx", justify="right")
     t.add_column("c", justify="right")
@@ -999,7 +1004,7 @@ def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool =
             if a is None or b is None:
                 cells.append("—")
                 continue
-            color = "green" if g > 0 else "red"
+            color = "green" if g >= e2e.E2E_NOISE_PCT else ("red" if g <= -e2e.E2E_NOISE_PCT else "grey50")
             cells.append(f"{m.fmt.format(a)} → {m.fmt.format(b)} [{color}]{e2e.pct(g)}[/{color}]")
         t.add_row(e2e.ctx_label(r["ctx"]), str(r["conc"]), *cells)
     con.print(t)

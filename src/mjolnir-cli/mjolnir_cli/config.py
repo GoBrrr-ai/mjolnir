@@ -104,6 +104,19 @@ def config_field(path: Path, key: str) -> str | None:
     return str(v) if v else None
 
 
+def config_speculative(path: Path) -> dict | None:
+    """The config's speculative decoding as ``{"method": "mtp", "tokens": 3}``
+    (None when the config has none or is unreadable)."""
+    try:
+        data = yaml.safe_load(Path(path).read_text())
+    except Exception:  # noqa: BLE001
+        return None
+    spec = data.get("speculative-config") if isinstance(data, dict) else None
+    if not isinstance(spec, dict) or not spec.get("num_speculative_tokens"):
+        return None
+    return {"method": str(spec.get("method", "")), "tokens": int(spec["num_speculative_tokens"])}
+
+
 def config_attention_backend(path: Path) -> str | None:
     """The attention backend a config selects (``attention-backend`` or
     ``attention-config.backend``), upper-cased; None when unset."""

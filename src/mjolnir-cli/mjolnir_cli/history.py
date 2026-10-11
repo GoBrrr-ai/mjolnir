@@ -68,6 +68,7 @@ def make_record(
         "model": s.model,
         "config": s.quant,
         "backend": s.backend_label,
+        "spec": _spec(s),
         "gate": gate_summary,
         "runs": runs,
         "warmup_runs": warmup_runs,
@@ -75,6 +76,16 @@ def make_record(
         "cells": cells,
         "raw": raw_relpath,
     }
+
+
+def _spec(s) -> dict | None:
+    """Speculative decoding the served config used (e2e numbers depend on it)."""
+    try:
+        from mjolnir_cli.config import config_speculative
+
+        return config_speculative(s.config_path)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def parse_benchy_json(raw: dict[str, Any]) -> list[dict[str, Any]]:

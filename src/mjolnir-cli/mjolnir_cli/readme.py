@@ -317,13 +317,16 @@ def _vs_vllm_table(off: dict, mj: dict) -> str | None:
 
 
 def ratio_pct(g: float | None) -> str:
-    """A gain in %, marked like the rest of the README (✅ > noise, 🟰 within)."""
+    """A gain in %, colored like the rest of the README: green = better beyond
+    the ±E2E_NOISE_PCT band, grey = within it, red = worse beyond it."""
     if g is None:
         return "—"
     from mjolnir_cli import e2e
 
-    mark = "✅" if g > e2e.E2E_NOISE_PCT else ("🔻" if g < -e2e.E2E_NOISE_PCT else "🟰")
-    return f"{e2e.pct(g)} {mark}"
+    noise = e2e.E2E_NOISE_PCT
+    color = _GREEN if g >= noise else (_RED if g <= -noise else _GREY)
+    sign = "+" if g > 0 else (_MINUS if g < 0 else "")
+    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(g):.1f}\\%}}}}$"
 
 
 def _findings(stage: str, doc: dict) -> list[str]:
@@ -474,6 +477,7 @@ class ReadmeContext:
     vs_vllm_hero: dict = field(default_factory=dict)  # c=1 headline gains, formatted
     vs_vllm_official: str = ""
     vs_vllm_mjolnir: str = ""
+    vs_vllm_spec: str = ""  # speculative decoding both sides ran with, e.g. "MTP, 3 speculative tokens"
 
 
 def _vllm_base_version(layout: RepoLayout) -> str:
@@ -553,6 +557,7 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
     if off and mj:
         ctx.vs_vllm = _vs_vllm_table(off, mj)
         ctx.vs_vllm_official, ctx.vs_vllm_mjolnir = e2e.side_label(off), e2e.side_label(mj)
+        ctx.vs_vllm_spec = e2e.spec_label(off, mj)
         h = e2e.hero(off, mj)
         if h:
             ctx.vs_vllm_hero = {

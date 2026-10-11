@@ -42,7 +42,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 {{ chart("opening-infographic", "Mjolnir image vs the official vLLM image — end-to-end decode and prefill") }}
 </p>
 
-> <sub>End to end on a Jetson AGX Thor, one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+> <sub>End to end on a Jetson AGX Thor ({{ ctx.vs_vllm_spec }}), one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 {%- endif %}
 
 {% if ctx.has_sweep -%}
@@ -134,11 +134,11 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ ctx.noise_pct
 ### Official vLLM image vs Mjolnir
 
 {% if ctx.vs_vllm -%}
-Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config, measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
+Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: {{ ctx.vs_vllm_spec }}** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
 
 {{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir") }}
 
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±{{ ctx.e2e_noise_pct }}% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
+Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = better beyond the ±{{ ctx.e2e_noise_pct }}% noise band, grey = within it, red = worse beyond it). With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
 
 {{ ctx.vs_vllm }}
 

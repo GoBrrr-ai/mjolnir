@@ -75,9 +75,8 @@ def test_native_backends_on_the_mjolnir_image_never_count(tmp_path):
 
 
 def test_bench_e2e_only_runs_one_leg(monkeypatch):
-    from typer.testing import CliRunner
-
     from mjolnir_cli import cli, dockerctl
+    from typer.testing import CliRunner
 
     served = []
     monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: served.append((s.image, s.quant)))
@@ -91,3 +90,55 @@ def test_bench_e2e_only_runs_one_leg(monkeypatch):
     assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run"]).exit_code == 0
     assert len(served) == 2
     assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", "fi"]).exit_code == 2
+
+
+def test_spec_label_from_records_and_configs():
+    mtp3 = {"spec": {"method": "mtp", "tokens": 3}}
+    assert e2e.spec_label(mtp3, dict(mtp3)) == "MTP, 3 speculative tokens"
+    assert e2e.spec_label(mtp3, {"spec": {}}) == "MTP, 3 speculative tokens vs no speculative decoding"
+    # older records carry no "spec": it is read from the config they name
+    old = {"model": "Qwen/Qwen3.8-27B", "config": "NVFP4_MJOLNIR"}
+    assert e2e.spec_label(old) == "MTP, 3 speculative tokens"
+
+
+def test_e2e_cells_are_colored_by_the_band():
+    from mjolnir_cli import readme
+
+    assert e2e.E2E_NOISE_PCT == 3.0
+    assert "#16a34a" in readme.ratio_pct(3.5) and "+3.5" in readme.ratio_pct(3.5)
+    assert "grey" in readme.ratio_pct(2.9) and "grey" in readme.ratio_pct(-2.9)
+    assert "#dc2626" in readme.ratio_pct(-3.1) and "−3.1" in readme.ratio_pct(-3.1)
+    assert not any(ch in readme.ratio_pct(10) for ch in "✅🟰🔻")
+
+
+def test_each_leg_stops_its_server(monkeypatch):
+    from mjolnir_cli import benchy, cli, dockerctl
+
+    calls = []
+    monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: calls.append(("down", s.quant)))
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: calls.append(("up", s.quant)))
+    monkeypatch.setattr(benchy, "run_perf", lambda s, layout, **kw: calls.append(("bench", s.quant)))
+    s = cli._settings(None, None, None, None)
+    cli._run_legs(s, None, [(s.model, "a", "NVFP4", None), (s.model, "b", "NVFP4_MJOLNIR", None)])
+    assert calls == [
+        ("down", "NVFP4"),
+        ("up", "NVFP4"),
+        ("bench", "NVFP4"),
+        ("down", "NVFP4"),
+        ("down", "NVFP4_MJOLNIR"),
+        ("up", "NVFP4_MJOLNIR"),
+        ("bench", "NVFP4_MJOLNIR"),
+        ("down", "NVFP4_MJOLNIR"),
+    ]
+
+    def boom(s, layout, **kw):
+        raise benchy.BenchError("llama-benchy failed")
+
+    calls.clear()
+    monkeypatch.setattr(benchy, "run_perf", boom)
+    import pytest
+    import typer
+
+    with pytest.raises(typer.Exit):
+        cli._run_legs(s, None, [(s.model, "a", "NVFP4", None)])
+    assert calls[-1] == ("down", "NVFP4")  # stopped even when the bench fails

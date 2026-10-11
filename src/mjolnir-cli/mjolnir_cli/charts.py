@@ -657,6 +657,8 @@ def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
 
 
 def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: str, sub: str):
+    from mjolnir_cli import e2e
+
     rows = e2e_rows(layout)
     if "NVFP4_MJOLNIR" not in rows or len(rows) < 2:
         return None
@@ -700,7 +702,8 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     theme.footer(
         fig,
         mode,
-        f"mjolnir bench e2e · {rows['NVFP4_MJOLNIR'].get('model', '')} · {imgs} · llama-benchy, gated clean windows",
+        f"mjolnir bench e2e · {rows['NVFP4_MJOLNIR'].get('model', '')} · "
+        f"{e2e.spec_label(*(rows[c] for c, _ in order))} · {imgs} · llama-benchy, gated clean windows",
     )
     return fig
 
@@ -861,7 +864,13 @@ def render_infographic(layout: RepoLayout) -> Path | None:
                     zorder=6,
                 )
             )
-    T(L, 0.035, f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy, gated clean windows", 9, faint)
+    T(
+        L,
+        0.035,
+        f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  {e2e.spec_label(off, mj)}  ·  llama-benchy, gated clean windows",
+        9,
+        faint,
+    )
 
     out = layout.repo_root / "assets" / INFOGRAPHIC
     fig.savefig(out, dpi=100)

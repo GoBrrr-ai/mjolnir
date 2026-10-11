@@ -14,7 +14,7 @@ mjolnir bench compare --json # the same, for scripts
 
 `bench e2e` serves each image in turn **(it restarts the vLLM server per
 leg — the GPU must be yours for the run)**, waits for a clean window, runs
-llama-benchy on it, appends one record per image to
+llama-benchy on it, stops that leg's server, appends one record per image to
 `benchmarks/history.jsonl`, prints the comparison table and re-renders the
 README — the opening infographic and the "Official vLLM image vs Mjolnir"
 table come from this pair.
@@ -58,8 +58,19 @@ backends are only ever measured on the untouched `vllm/vllm-openai` image;
 | **ITL** ms | `1000 / tg_req_throughput` — the gap between tokens of one request | lower |
 
 Gains are always "+ = Mjolnir better": for TTFT and ITL that is
-official ÷ Mjolnir − 1. The README marks a gain beyond ±7% with ✅ and
-anything inside it with 🟰.
+official ÷ Mjolnir − 1. The README colors a gain green beyond the ±3% band,
+grey inside it and red below it (as the kernel tables do).
+
+**Both sides run MTP speculative decoding with 3 speculative tokens** (the
+`speculative-config` of `NVFP4` and `NVFP4_MJOLNIR`; each history record stores
+it as `spec`, and the README, charts and `bench compare` print it). Decode t/s
+is therefore tokens *accepted* per second: it depends on how many of the 3
+draft tokens the target accepts, which varies by prompt — single runs spread
+10–15%, so a 6-run mean carries a 2–6% standard error. Decode differences
+inside ~6% need `--repeat 2` or more to tell apart. The attention kernel is
+also only a slice of a decode step here (16 of 64 layers are full attention;
+the NVFP4 weights dominate the bytes read), so its share — and Mjolnir's
+effect on decode — grows with context and concurrency.
 
 The infographic picks **one request at the longest context both runs
 measured** — the decode-bound case the kernel is built for — and the table

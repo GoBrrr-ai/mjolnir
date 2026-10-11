@@ -52,10 +52,12 @@ METRICS: tuple[Metric, ...] = (
 BY_KEY = {m.key: m for m in METRICS}
 
 # End-to-end numbers are wall-clock serving runs (two separate server launches,
-# llama-benchy means over runs): their noise is larger than the kernel's
-# same-run ncu ratios (verify.stages.NOISE_PCT). Per-run decode t/s spreads
-# ~10-15% in history.jsonl; the means of 6+ runs per side differ by up to ~7%.
-E2E_NOISE_PCT = 7.0
+# llama-benchy means over runs). The band that colors a gain: ±3%, the same as
+# the kernel's same-run ncu band (verify.stages.NOISE_PCT). Caveat: with MTP
+# speculative decoding the per-run decode t/s spreads ~10-15% (the acceptance
+# rate varies by prompt), so a decode mean of 6 runs carries a ~2-6% standard
+# error — a decode gain inside ~6% needs repeated sweeps (--repeat) to trust.
+E2E_NOISE_PCT = 3.0
 
 
 def is_official(rec: dict) -> bool:
@@ -167,6 +169,32 @@ def pct(v: float | None) -> str:
     if v is None:
         return "—"
     return f"{'−' if v < 0 else '+'}{abs(v):.1f}%"
+
+
+def spec_of(rec: dict) -> dict | None:
+    """The speculative decoding a record ran with: stored in the record since
+    the field exists, else read from the config it names."""
+    if rec.get("spec") is not None:
+        return rec["spec"] or None
+    from mjolnir_cli.config import config_speculative, configs_root
+
+    path = configs_root() / str(rec.get("model", "")) / f"{rec.get('config', '')}.yaml"
+    return config_speculative(path) if path.exists() else None
+
+
+def spec_label(*recs: dict) -> str:
+    """``MTP, 3 speculative tokens`` (``on both sides`` / per side when they differ)."""
+
+    def one(sp: dict | None) -> str:
+        if not sp:
+            return "no speculative decoding"
+        n = sp["tokens"]
+        return f"{sp['method'].upper() or 'speculative'}, {n} speculative token{'s' if n != 1 else ''}"
+
+    labels = [one(spec_of(r)) for r in recs]
+    if len(set(labels)) == 1:
+        return labels[0]
+    return " vs ".join(labels)
 
 
 def side_label(rec: dict) -> str:
