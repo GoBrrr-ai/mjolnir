@@ -29,7 +29,7 @@
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir is a paged fp8 decode-attention kernel for the NVIDIA Jetson AGX Thor (`sm_110`)**, written in CuTe DSL on Blackwell's `tcgen05` tensor cores, TMEM and TMA, and shipped as a vLLM attention backend:
+**Mjolnir is a paged fp8 decode-attention kernel for the NVIDIA Jetson AGX Thor (`sm_110`)**, written in CuTe DSL on Blackwell's `tcgen05` tensor cores, `TMEM` and `TMA`, and shipped as a vLLM attention backend:
 
 ```bash
 vllm serve <model> --attention-backend MJOLNIR
@@ -42,7 +42,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 {{ chart("opening-infographic", "Mjolnir image vs the official vLLM image — end-to-end decode and prefill") }}
 </p>
 
-<p align="center"><sub>End to end on a Jetson AGX Thor, one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub></p>
+> <sub>End to end on a Jetson AGX Thor, one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 {%- endif %}
 
 {% if ctx.has_sweep -%}
@@ -68,7 +68,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 | correctness vs a bit-faithful emulator | **{{ ctx.correctness }}** checks pass |
 {% endif %}
 
-<sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `{{ ctx.sweep_run }}`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
+> <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `{{ ctx.sweep_run }}`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
 {%- else %}
 > [!NOTE]
 > The headline benchmark has not been recorded in this checkout yet. Run `mjolnir verify bench` on a Thor and `mjolnir plot --readme` to render the charts and numbers from the raw results.
@@ -123,7 +123,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ ctx.noise_pct
 
 {{ ctx.tables.sweep }}
 
-<sub>Bold = fastest at that L. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
+> <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
 {{ chart("kernel-bandwidth", "Effective KV bandwidth vs the LPDDR5X peak") }}
 {%- else -%}
@@ -137,11 +137,11 @@ Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vll
 
 {{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir") }}
 
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±{{ ctx.e2e_noise_pct }}% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
+> Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±{{ ctx.e2e_noise_pct }}% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
 
 {{ ctx.vs_vllm }}
 
-<sub>official: `{{ ctx.vs_vllm_official }}` · Mjolnir: `{{ ctx.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+> <sub>official: `{{ ctx.vs_vllm_official }}` · Mjolnir: `{{ ctx.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 {%- else -%}
 > Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).
 {%- endif %}
@@ -152,7 +152,7 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 
 | | design choice | why on Thor |
 |---|---|---|
-| ⚙️ | **Warp-specialized tcgen05 pipeline** — a TMA warp streams K/V pages through an SMEM ring, an MMA warp runs `S = QKᵀ` and `O += PV` on the tensor cores into TMEM, softmax warpgroups read S from TMEM and write P | the tensor cores and TMEM keep scores off the register file; the TMA engine walks the page table so the SMs never issue loads |
+| ⚙️ | **Warp-specialized `tcgen05` pipeline** — a TMA warp streams K/V pages through an SMEM ring, an MMA warp runs `S = QKᵀ` and `O += PV` on the tensor cores into TMEM, softmax warpgroups read S from TMEM and write P | the tensor cores and TMEM keep scores off the register file; the TMA engine walks the page table so the SMs never issue loads |
 | 📐 | **Occupancy-pinned split-KV** — every step fills exactly 2 CTAs × 20 SMs; long sequences split into chunks, a small reduction kernel merges them | one full wave at every L; a fixed padded grid replays under full CUDA graphs |
 | 🧊 | **fp8 everything** — Q quantized per (sequence, KV head) on the fly, fp8 KV, P stored as e4m3 | one MMA kind, no conversion warps, half the KV bytes of bf16 |
 | 🗂️ | **Head-major (HND) pages** — each KV head's page is one contiguous block | longer DRAM bursts per TMA box: [hndsweep](docs/kernel/hndsweep.md) |
@@ -198,7 +198,7 @@ mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop
 mjolnir gate | hw | litellm | perses    # clean-window gate, host setup, side stacks
 ```
 
-Every `verify` stage defaults to L = {{ ctx.ls }}; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
+Every `verify` stage defaults to `L = {{ ctx.ls }}`; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
 
 ## Contributing
 

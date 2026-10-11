@@ -29,7 +29,7 @@
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir is a paged fp8 decode-attention kernel for the NVIDIA Jetson AGX Thor (`sm_110`)**, written in CuTe DSL on Blackwell's `tcgen05` tensor cores, TMEM and TMA, and shipped as a vLLM attention backend:
+**Mjolnir is a paged fp8 decode-attention kernel for the NVIDIA Jetson AGX Thor (`sm_110`)**, written in CuTe DSL on Blackwell's `tcgen05` tensor cores, `TMEM` and `TMA`, and shipped as a vLLM attention backend:
 
 ```bash
 vllm serve <model> --attention-backend MJOLNIR
@@ -44,7 +44,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </picture>
 </p>
 
-<p align="center"><sub>End to end on a Jetson AGX Thor, one request at 32K context: decode <b>−1.0%</b>, prefill <b>+8.6%</b>, time to first token <b>19.96 s → 18.39 s</b>, inter-token latency <b>42.0 ms → 42.7 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub></p>
+> <sub>End to end on a Jetson AGX Thor, one request at 32K context: decode <b>−4.8%</b>, prefill <b>+91.3%</b>, time to first token <b>19.96 s → 11.40 s</b>, inter-token latency <b>42.0 ms → 44.5 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <p align="center">
 <picture>
@@ -64,7 +64,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 | correctness vs a bit-faithful emulator | **89 / 89** checks pass |
 
 
-<sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261011-113515`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
+> <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261011-113515`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
 
 ## Quickstart
 
@@ -127,7 +127,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 | **256K** | 2.83 ms | 4.63 ms | 2.45 ms | **2.07 ms** | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.37\times}}$ | $\color{#16a34a}{\mathbf{1.89\times}}$ | $\color{#16a34a}{\mathbf{2.24\times}}$ |
 | geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{1.84\times}}$ | $\color{#16a34a}{\mathbf{2.01\times}}$ |
 
-<sub>Bold = fastest at that L. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
+> <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-bandwidth-dark.png">
@@ -143,27 +143,27 @@ Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image,
   <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 </picture>
 
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±7% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
+> Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±7% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
 
 | context | requests | decode (t/s, ↑) | prefill (t/s, ↑) | TTFT (ms, ↓) | ITL (ms, ↓) |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 24.6 → **25.4** (+3.3% 🟰) | 2,992 → **3,324** (+11.1% ✅) | 819 → **752** (+8.9% ✅) | 40.9 → **39.5** (+3.5% 🟰) |
-| 4K | 1 | 25.6 → **23.2** (−9.2% 🔻) | 2,852 → **3,173** (+11.3% ✅) | 2,289 → **2,070** (+10.6% ✅) | 39.4 → **43.3** (−9.2% 🔻) |
-| 8K | 1 | 22.9 → **24.7** (+7.6% ✅) | 2,559 → **2,866** (+12.0% ✅) | 4,136 → **3,706** (+11.6% ✅) | 44.1 → **40.6** (+8.7% ✅) |
-| 16K | 1 | 23.5 → **25.3** (+7.6% ✅) | 2,203 → **2,435** (+10.5% ✅) | 8,501 → **7,701** (+10.4% ✅) | 43.3 → **39.6** (+9.3% ✅) |
-| 32K | 1 | 23.9 → **23.6** (−1.0% 🟰) | 1,756 → **1,907** (+8.6% ✅) | 19,960 → **18,387** (+8.6% ✅) | 42.0 → **42.7** (−1.7% 🟰) |
-| no ctx | 2 | 44.3 → **48.1** (+8.7% ✅) | 2,724 → **3,177** (+16.6% ✅) | 1,443 → **1,161** (+24.3% ✅) | 42.7 → **39.8** (+7.4% ✅) |
-| 4K | 2 | 45.1 → **46.6** (+3.4% 🟰) | 2,746 → **3,119** (+13.6% ✅) | 4,415 → **3,845** (+14.8% ✅) | 41.5 → **40.7** (+2.1% 🟰) |
-| 8K | 2 | 43.9 → **46.2** (+5.3% 🟰) | 2,504 → **2,821** (+12.7% ✅) | 8,118 → **7,104** (+14.3% ✅) | 43.1 → **41.0** (+5.2% 🟰) |
-| 16K | 2 | 42.4 → **43.5** (+2.6% 🟰) | 2,189 → **2,423** (+10.7% ✅) | 16,781 → **15,037** (+11.6% ✅) | 44.8 → **42.6** (+5.3% 🟰) |
-| 32K | 2 | 33.7 → **29.8** (−11.6% 🔻) | 1,748 → **1,899** (+8.7% ✅) | 39,137 → **35,213** (+11.1% ✅) | 50.5 → **54.5** (−7.4% 🔻) |
-| no ctx | 4 | 85.3 → **81.9** (−4.0% 🟰) | 2,927 → **3,327** (+13.7% ✅) | 2,767 → **2,392** (+15.7% ✅) | 42.6 → **43.3** (−1.6% 🟰) |
-| 4K | 4 | 82.9 → **78.6** (−5.2% 🟰) | 2,717 → **3,075** (+13.2% ✅) | 9,012 → **7,822** (+15.2% ✅) | 44.7 → **44.2** (+1.2% 🟰) |
-| 8K | 4 | 70.2 → **61.3** (−12.6% 🔻) | 2,478 → **2,784** (+12.4% ✅) | 16,208 → **13,918** (+16.5% ✅) | 47.3 → **49.4** (−4.3% 🟰) |
-| 16K | 4 | 41.3 → **35.8** (−13.5% 🔻) | 2,163 → **2,395** (+10.7% ✅) | 32,462 → **27,998** (+15.9% ✅) | 60.2 → **66.4** (−9.4% 🔻) |
-| 32K | 4 | 11.5 → **11.4** (−0.9% 🟰) | 1,733 → **1,877** (+8.3% ✅) | 65,974 → **58,144** (+13.5% ✅) | 161.8 → **172.0** (−5.9% 🟰) |
+| no ctx | 1 | 24.6 → **24.0** (−2.6% 🟰) | — | 819 → **740** (+10.6% ✅) | 40.9 → **42.4** (−3.5% 🟰) |
+| 4K | 1 | 25.6 → **24.3** (−5.0% 🟰) | 2,852 → **8,210** (+187.8% ✅) | 2,289 → **1,788** (+28.0% ✅) | 39.4 → **41.4** (−4.8% 🟰) |
+| 8K | 1 | 22.9 → **23.1** (+0.9% 🟰) | 2,559 → **4,545** (+77.6% ✅) | 4,136 → **3,292** (+25.6% ✅) | 44.1 → **43.4** (+1.6% 🟰) |
+| 16K | 1 | 23.5 → **23.6** (+0.5% 🟰) | 2,203 → **3,895** (+76.8% ✅) | 8,501 → **5,771** (+47.3% ✅) | 43.3 → **42.6** (+1.7% 🟰) |
+| 32K | 1 | 23.9 → **22.7** (−4.8% 🟰) | 1,756 → **3,359** (+91.3% ✅) | 19,960 → **11,405** (+75.0% ✅) | 42.0 → **44.5** (−5.6% 🟰) |
+| no ctx | 2 | 44.3 → **45.9** (+3.7% 🟰) | 2,724 → **3,245** (+19.1% ✅) | 1,443 → **1,138** (+26.9% ✅) | 42.7 → **40.6** (+5.2% 🟰) |
+| 4K | 2 | 45.1 → **41.7** (−7.4% 🔻) | 2,746 → **3,502** (+27.5% ✅) | 4,415 → **3,384** (+30.4% ✅) | 41.5 → **44.8** (−7.3% 🔻) |
+| 8K | 2 | 43.9 → **43.5** (−0.8% 🟰) | 2,504 → **3,292** (+31.5% ✅) | 8,118 → **6,083** (+33.5% ✅) | 43.1 → **42.9** (+0.5% 🟰) |
+| 16K | 2 | 42.4 → **43.5** (+2.7% 🟰) | 2,189 → **3,262** (+49.0% ✅) | 16,781 → **11,149** (+50.5% ✅) | 44.8 → **43.3** (+3.6% 🟰) |
+| 32K | 2 | 33.7 → **35.6** (+5.6% 🟰) | 1,748 → **3,071** (+75.7% ✅) | 39,137 → **22,047** (+77.5% ✅) | 50.5 → **48.9** (+3.3% 🟰) |
+| no ctx | 4 | 85.3 → **78.4** (−8.1% 🔻) | 2,927 → **3,539** (+20.9% ✅) | 2,767 → **2,209** (+25.2% ✅) | 42.6 → **45.0** (−5.3% 🟰) |
+| 4K | 4 | 82.9 → **73.8** (−11.1% 🔻) | 2,717 → **3,412** (+25.6% ✅) | 9,012 → **7,011** (+28.5% ✅) | 44.7 → **47.3** (−5.4% 🟰) |
+| 8K | 4 | 70.2 → **62.1** (−11.6% 🔻) | 2,478 → **3,270** (+32.0% ✅) | 16,208 → **11,895** (+36.3% ✅) | 47.3 → **49.5** (−4.4% 🟰) |
+| 16K | 4 | 41.3 → **42.6** (+3.0% 🟰) | 2,163 → **3,188** (+47.4% ✅) | 32,462 → **21,161** (+53.4% ✅) | 60.2 → **61.7** (−2.4% 🟰) |
+| 32K | 4 | 11.5 → **17.0** (+48.0% ✅) | 1,733 → **2,990** (+72.6% ✅) | 65,974 → **37,300** (+76.9% ✅) | 161.8 → **121.7** (+33.0% ✅) |
 
-<sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR (Mjolnir)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+> <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR (Mjolnir)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
 ## How the kernel works
 
@@ -171,7 +171,7 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 
 | | design choice | why on Thor |
 |---|---|---|
-| ⚙️ | **Warp-specialized tcgen05 pipeline** — a TMA warp streams K/V pages through an SMEM ring, an MMA warp runs `S = QKᵀ` and `O += PV` on the tensor cores into TMEM, softmax warpgroups read S from TMEM and write P | the tensor cores and TMEM keep scores off the register file; the TMA engine walks the page table so the SMs never issue loads |
+| ⚙️ | **Warp-specialized `tcgen05` pipeline** — a TMA warp streams K/V pages through an SMEM ring, an MMA warp runs `S = QKᵀ` and `O += PV` on the tensor cores into TMEM, softmax warpgroups read S from TMEM and write P | the tensor cores and TMEM keep scores off the register file; the TMA engine walks the page table so the SMs never issue loads |
 | 📐 | **Occupancy-pinned split-KV** — every step fills exactly 2 CTAs × 20 SMs; long sequences split into chunks, a small reduction kernel merges them | one full wave at every L; a fixed padded grid replays under full CUDA graphs |
 | 🧊 | **fp8 everything** — Q quantized per (sequence, KV head) on the fly, fp8 KV, P stored as e4m3 | one MMA kind, no conversion warps, half the KV bytes of bf16 |
 | 🗂️ | **Head-major (HND) pages** — each KV head's page is one contiguous block | longer DRAM bursts per TMA box: [hndsweep](docs/kernel/hndsweep.md) |
@@ -225,7 +225,7 @@ mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop
 mjolnir gate | hw | litellm | perses    # clean-window gate, host setup, side stacks
 ```
 
-Every `verify` stage defaults to L = 128 4K 8K 16K 32K 64K 128K 256K; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
+Every `verify` stage defaults to `L = 128 4K 8K 16K 32K 64K 128K 256K`; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
 
 ## Contributing
 
