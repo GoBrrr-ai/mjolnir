@@ -33,6 +33,11 @@ _CONTAINER_ENV: list[str] = [
     "VLLM_ASSETS_CACHE=/data/assets",
     "VLLM_TUNED_CONFIG_FOLDER=/data/kernels-cache",
     "FLASHINFER_JIT_DIR=/data/flashinfer-cache",
+    # FlashInfer 0.7 keeps its JIT modules, CuTe-DSL objects and downloaded
+    # cubins under $FLASHINFER_WORKSPACE_BASE/.cache/flashinfer (default:
+    # $HOME, i.e. the container's throwaway /root): point it at the mounted
+    # cache so fp4_gemm_cutlass & co. build once, not on every server start
+    "FLASHINFER_WORKSPACE_BASE=/data/flashinfer-cache",
     "TRITON_CACHE_DIR=/data/triton-cache",
     "TORCHINDUCTOR_CACHE_DIR=/data/cache/inductor",
     "TORCH_COMPILE_CACHE_DIR=/data/cache/torch_compile_cache",
