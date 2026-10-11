@@ -53,7 +53,7 @@ flowchart LR
 
 | # | chapter | question | status |
 |---|---|---|---|
-{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
+{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
 | {{ loop.index }} | [{{ stages[name].title }}]({{ name }}.md) | {{ stages[name].summary }} | {% if has(name) %}✅ run `{{ ctx.runs[name] }}`{% else %}⏳ pending{% endif %} |
 {% endfor %}
 

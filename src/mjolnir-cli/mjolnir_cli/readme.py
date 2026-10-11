@@ -332,6 +332,23 @@ def ratio_pct(g: float | None) -> str:
 def _findings(stage: str, doc: dict) -> list[str]:
     """Data-driven one-liners for the docs (no hand-written numbers)."""
     out: list[str] = []
+    if stage == "kv-cache-size":
+        rows = {r["id"]: r for r in doc.get("rows", []) if r.get("kv_tokens")}
+        e2m3 = next((r for r in rows.values() if str(r.get("kv_dtype", "")).startswith("fp6")), None)
+        for other in rows.values():
+            if e2m3 and other is not e2m3:
+                gain = e2m3["kv_tokens"] / other["kv_tokens"] - 1
+                out.append(
+                    f"**{kvcache_label(e2m3)}** holds **{e2m3['kv_tokens']:,} tokens**, "
+                    f"{gain * 100:+.0f}% vs {kvcache_label(other)} ({other['kv_tokens']:,})."
+                )
+        for r in rows.values():
+            if r.get("max_concurrency"):
+                out.append(
+                    f"{kvcache_label(r)}: {r['max_concurrency']:.1f} requests at the full "
+                    f"{L_label(r.get('max_model_len') or 0)} context (vLLM's own estimate)."
+                )
+        return out
     by = results.series_by_id(doc)
     noise = NOISE_PCT / 100
     if stage in ("sweep", "hndsweep"):
@@ -424,6 +441,41 @@ def _findings(stage: str, doc: dict) -> list[str]:
     return out
 
 
+KVCACHE_CTXS = (4096, 8192, 16384, 32768, 65536, 131072)
+
+
+def kvcache_label(r: dict) -> str:
+    """'official · FlashInfer fp8', 'Mjolnir · fp6 e2m3', ..."""
+    kv = str(r.get("kv_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3")
+    if r.get("side") != "official":
+        return f"Mjolnir · {kv} KV"
+    be = {"flashinfer": "FlashInfer", "flash_attn": "FlashAttention"}.get(str(r.get("backend") or "").lower())
+    return f"official vLLM · {be or r.get('backend') or '?'} · {kv} KV"
+
+
+def _kvcache_table(doc: dict) -> str:
+    rows = [r for r in doc.get("rows", []) if r.get("kv_tokens")]
+    pp, tg = doc.get("params", {}).get("e2e_pp", 2048), doc.get("params", {}).get("e2e_tg", 128)
+    base = rows[0]["kv_tokens"] if rows else None
+    out = []
+    for r in rows:
+        fit = [str(r["kv_tokens"] // (c + pp + tg)) for c in KVCACHE_CTXS]
+        out.append(
+            [
+                f"`{r['config']}`",
+                kvcache_label(r),
+                f"{r.get('kv_gib') or 0:.1f} GiB",
+                f"{r['kv_tokens']:,}",
+                f"{r['kv_tokens'] / base:.2f}×" if base else "—",
+                f"{r.get('max_concurrency') or 0:.1f}× @ {L_label(r.get('max_model_len') or 0)}",
+                *fit,
+            ]
+        )
+    head = ["config", "serving", "KV memory", "KV tokens", "vs first", "max concurrency"]
+    head += [f"fits @ {L_label(c)}" for c in KVCACHE_CTXS]
+    return _table(head, out, ["---", "---"] + ["--:"] * (len(head) - 2))
+
+
 TABLES = {
     "sweep": lambda d: _series_time_table(d, ("fi", "fa2")),
     "hndsweep": lambda d: _series_time_table(d, ("fi", "fi-hnd")),
@@ -435,6 +487,7 @@ TABLES = {
     "pdl": _pdl_table,
     "fp6prof": _fp6prof_table,
     "correctness": _correctness_table,
+    "kv-cache-size": _kvcache_table,
 }
 
 

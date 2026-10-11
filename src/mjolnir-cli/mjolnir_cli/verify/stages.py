@@ -76,7 +76,7 @@ class Ctx:
 class Stage:
     name: str
     title: str
-    kind: str  # "correctness" | "ncu" | "harness" | "profile" | "tests"
+    kind: str  # "correctness" | "ncu" | "harness" | "profile" | "tests" | "serving"
     summary: str  # one line (help text, docs index)
     fn: Callable[..., dict] | None = None
 
@@ -638,6 +638,12 @@ def stage_vllm(
     return {"cases": cases, "params": {"smoke_modes": smoke_modes, "model": model, "tokens": tokens}}
 
 
+def _kvcache_stage(ctx: Ctx, **kw) -> dict:
+    from mjolnir_cli.verify.kvcache import stage_kvcache
+
+    return stage_kvcache(ctx, **kw)
+
+
 # ── registry ────────────────────────────────────────────────────────────────
 
 STAGES: dict[str, Stage] = {
@@ -701,6 +707,13 @@ STAGES: dict[str, Stage] = {
             "timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing
         ),
         Stage(
+            "kv-cache-size",
+            "KV cache capacity",
+            "serving",
+            "tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context",
+            _kvcache_stage,
+        ),
+        Stage(
             "vllm",
             "vLLM integration",
             "tests",
@@ -732,6 +745,11 @@ def summarize(stage: str, doc: dict) -> dict:
                         "max": round(max(sp.values()), 4),
                         "per_L": {str(k): round(v, 4) for k, v in sp.items()},
                     }
+    if stage == "kv-cache-size":
+        out = {
+            r["id"]: {"kv_tokens": r.get("kv_tokens"), "max_concurrency": r.get("max_concurrency")}
+            for r in doc.get("rows", [])
+        }
     if stage == "correctness" or stage == "vllm":
         cs = doc.get("cases", [])
         out = {"passed": sum(1 for c in cs if c.get("passed")), "failed": sum(1 for c in cs if not c.get("passed"))}

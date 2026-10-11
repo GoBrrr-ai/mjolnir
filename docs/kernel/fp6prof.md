@@ -71,4 +71,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV format accuracy](quant.md) · [case study](README.md) · [KV ring depth →](ring.md)
+[← KV cache capacity](kv-cache-size.md) · [case study](README.md) · [KV ring depth →](ring.md)

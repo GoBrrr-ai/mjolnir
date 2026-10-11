@@ -149,6 +149,7 @@ mjolnir verify correctness [--quick]      # vs the emulator
 mjolnir verify sweep                      # Mjolnir vs FlashInfer vs FA2 (ncu)
 mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing
 mjolnir verify vllm                       # the backend inside vLLM
+mjolnir verify kv-cache-size              # KV tokens per config (restarts the server per leg; refuses while one runs)
 mjolnir verify bench | all                # every stage once (+ correctness)
 mjolnir verify <stage> --dry-run          # the docker commands, nothing run
 mjolnir verify show <stage>               # the latest saved run
@@ -172,7 +173,10 @@ not hand-typed numbers.
 ### End to end
 `mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
 TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
-`mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row);
+`mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row,
+incl. `spec_stats`: MTP tokens per verify step and per-position acceptance from
+the server's counters — decode t/s = tokens/step ÷ step time, so compare it
+before blaming the kernel);
 `mjolnir bench ab` (default legs: `NVFP4` on the official image vs `NVFP4_MJOLNIR`; legs
 are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.

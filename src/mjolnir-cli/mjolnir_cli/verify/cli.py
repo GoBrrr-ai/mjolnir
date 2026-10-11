@@ -522,6 +522,44 @@ def timing(
     )
 
 
+@app.command("kv-cache-size")
+def kv_cache_size(
+    legs: str = typer.Option(
+        "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+        "--legs",
+        help="side:config, comma-separated; official = the stock vLLM image, mjolnir = --image",
+    ),
+    model: Optional[str] = typer.Option(None, "--model", help="model (default: the active one)"),
+    restart: bool = typer.Option(
+        False, "--restart", help="stop a running vLLM server (default: refuse — the GPU must be yours)"
+    ),
+    image: Optional[str] = IMAGE,
+    dry_run: bool = DRY,
+    timeout: float = typer.Option(1800.0, "--timeout", help="per-leg wait for the KV sizing (s)"),
+    save: bool = SAVE,
+    plot: bool = PLOT,
+):
+    """KV cache capacity per config: serves each leg (restarting the server), reads vLLM's KV sizing, stops it."""
+    _run(
+        "kv-cache-size",
+        {"legs": legs, "model": model, "restart": restart, "timeout": timeout},
+        {
+            "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+            "model": None,
+            "restart": restart,
+            "timeout": 1800.0,
+        },
+        image,
+        None,
+        stages.DEFAULT_ITERS,
+        False,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
+
+
 @app.command()
 def vllm(
     smoke_modes: str = typer.Option(

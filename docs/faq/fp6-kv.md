@@ -66,6 +66,7 @@ mjolnir verify vllm                                 # includes "smoke e2m3": cal
                                                     # logprobs with FlashInfer on fp8
 mjolnir bench e2e --only mjolnir --config NVFP4_MJOLNIR_E2M3
 mjolnir bench compare --config NVFP4_MJOLNIR_E2M3
+mjolnir verify kv-cache-size                        # tokens of KV: official fp8 vs Mjolnir fp8 vs fp6
 ```
 
 What to expect: the fp6 kernel reads 25% fewer bytes; in ncu it is 1.03–1.09×

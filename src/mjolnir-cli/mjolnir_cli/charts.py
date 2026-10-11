@@ -635,8 +635,10 @@ def chart_fp6prof(data: dict, mode: Mode):
 E2E_SERIES = (
     ("NVFP4", "FlashInfer · official vLLM"),
     ("NVFP4_FA2", "FlashAttention 2 · official vLLM"),
-    ("NVFP4_MJOLNIR", "Mjolnir"),
+    ("NVFP4_MJOLNIR", "Mjolnir · fp8 KV"),
+    ("NVFP4_MJOLNIR_E2M3", "Mjolnir · fp6 KV"),
 )
+MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3")
 
 
 def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
@@ -650,7 +652,9 @@ def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
         cfg = r.get("config")
         if not r.get("cells"):
             continue
-        ok = (cfg == "NVFP4_MJOLNIR" and e2e.is_mjolnir(r)) or (cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r))
+        ok = (cfg in MJOLNIR_E2E_CONFIGS and e2e.is_mjolnir(r)) or (
+            cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r)
+        )
         if ok and (cfg not in latest or r.get("epoch", 0) >= latest[cfg].get("epoch", 0)):
             latest[cfg] = r
     return latest
@@ -660,7 +664,8 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     from mjolnir_cli import e2e
 
     rows = e2e_rows(layout)
-    if "NVFP4_MJOLNIR" not in rows or len(rows) < 2:
+    mj_cfgs = [c for c in MJOLNIR_E2E_CONFIGS if c in rows]
+    if not mj_cfgs or len(rows) < 2:
         return None
     plt = _plt()
     concs = [c for c in (1, 4) if any(cc.get("concurrency") == c for r in rows.values() for cc in r["cells"])]
@@ -684,11 +689,15 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
                 )
                 vals.append(((cell or {}).get(metric) or {}).get("mean") or 0)
             xs = [j + (i - (len(order) - 1) / 2) * w for j in range(len(ctxs))]
+            hollow = not theme.filled(cfg)
             ax.bar(
                 xs,
                 vals,
                 width=w * 0.92,
-                color=theme.color(mode, cfg),
+                color=mode.panel if hollow else theme.color(mode, cfg),
+                edgecolor=theme.color(mode, cfg),
+                linewidth=1.6 if hollow else 0,
+                hatch="//" if hollow else None,
                 zorder=3,
                 label=lbl if ax is axes[0] else None,
             )
@@ -702,8 +711,8 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     theme.footer(
         fig,
         mode,
-        f"mjolnir bench e2e · {rows['NVFP4_MJOLNIR'].get('model', '')} · "
-        f"{e2e.spec_label(*(rows[c] for c, _ in order))} · {imgs} · llama-benchy, gated clean windows",
+        f"mjolnir bench e2e · {rows[mj_cfgs[-1]].get('model', '')} · "
+        f"{e2e.spec_short(*(rows[c] for c, _ in order))} · {imgs} · llama-benchy",
     )
     return fig
 
@@ -1014,6 +1023,83 @@ def render_infographic(layout: RepoLayout) -> Path | None:
 
 # ── registry + render ───────────────────────────────────────────────────────
 
+
+def _kvcache_series(r: dict) -> str:
+    if r.get("side") == "official":
+        return "NVFP4"
+    return "mjolnir" if str(r.get("kv_dtype", "")).startswith("fp6") else "mjolnir-fp8"
+
+
+def chart_kvcache(data: dict, mode: Mode):
+    """KV capacity per config: tokens (left) and the concurrent e2e-shaped
+    requests (context + 2048 prompt + 128 generated) they fit (right)."""
+    from mjolnir_cli.readme import kvcache_label
+
+    doc = data.get("kv-cache-size")
+    rows = [r for r in (doc or {}).get("rows", []) if r.get("kv_tokens")]
+    if not rows:
+        return None
+    pp, tg = doc.get("params", {}).get("e2e_pp", 2048), doc.get("params", {}).get("e2e_tg", 128)
+    plt = _plt()
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12.5, 4.8), gridspec_kw={"width_ratios": [1, 1.6]})
+    theme.apply(fig, [ax0, ax1], mode)
+    ys = list(range(len(rows)))[::-1]
+    for y, r in zip(ys, rows):
+        sid = _kvcache_series(r)
+        c = theme.color(mode, sid)
+        hollow = not theme.filled(sid)
+        ax0.barh(
+            y,
+            r["kv_tokens"] / 1e6,
+            height=0.6,
+            color=mode.panel if hollow else c,
+            edgecolor=c,
+            linewidth=2,
+            hatch="//" if hollow else None,
+            zorder=3,
+        )
+        ax0.text(
+            r["kv_tokens"] / 1e6,
+            y,
+            f"  {r['kv_tokens'] / 1e6:.2f} M",
+            va="center",
+            ha="left",
+            color=mode.text,
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax0.set_yticks(ys)
+    ax0.set_yticklabels([kvcache_label(r).replace(" · ", "\n", 1) for r in rows], fontsize=9)
+    ax0.set_xlabel("KV cache, million tokens")
+    ax0.set_xlim(0, max(r["kv_tokens"] for r in rows) / 1e6 * 1.32)
+    ctxs = [0, 4096, 8192, 16384, 32768, 65536, 131072]
+    for r in rows:
+        sid = _kvcache_series(r)
+        fit = [r["kv_tokens"] / (c + pp + tg) for c in ctxs]
+        ax1.plot(range(len(ctxs)), fit, label=kvcache_label(r), **theme.line_kw(mode, sid))
+    ax1.axhspan(0, 4, color=mode.neutral, alpha=0.6, zorder=1, lw=0)
+    ax1.text(len(ctxs) - 1, 4.4, "e2e bench: 1-4 concurrent requests", color=mode.text_dim, fontsize=9, ha="right")
+    ax1.set_yscale("log", base=2)
+    ax1.set_ylim(2, max(r["kv_tokens"] for r in rows) / (pp + tg) * 2.2)
+    ax1.set_xticks(range(len(ctxs)))
+    ax1.set_xticklabels([f"{L_label(c)}" if c else "0" for c in ctxs])
+    ax1.set_xlabel(f"context per request (+ {pp:,} prompt + {tg} generated tokens)")
+    ax1.set_ylabel("concurrent requests that fit")
+    from matplotlib.ticker import FuncFormatter
+
+    ax1.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    theme.legend(ax1, mode, loc="upper right")
+    theme.title(
+        ax0,
+        mode,
+        "KV cache capacity",
+        "vLLM's own KV sizing at startup, same model and memory budget · request capacity ignores max-num-seqs",
+    )
+    models = ", ".join(dict.fromkeys(str(r.get("model", "")) for r in rows))
+    theme.footer(fig, mode, f"mjolnir verify kv-cache-size · run {doc['run_id']} · {models}")
+    return fig
+
+
 KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
     # name -> (stage it documents, builder)
     "kernel-speedup": ("sweep", chart_speedup),
@@ -1028,6 +1114,7 @@ KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
     "ab-heatmap": ("ab", chart_ab),
     "pdl-delta": ("pdl", chart_pdl),
     "fp6prof-bytes-vs-time": ("fp6prof", chart_fp6prof),
+    "kv-cache-capacity": ("kv-cache-size", chart_kvcache),
 }
 E2E_CHARTS: dict[str, Callable] = {"e2e-decode": chart_e2e_decode, "e2e-prefill": chart_e2e_prefill}
 
