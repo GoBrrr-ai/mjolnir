@@ -2,7 +2,7 @@
 
 > How a paged fp8 decode-attention kernel was built for one GPU — the Jetson AGX Thor (`sm_110`, 20 SMs, 32 MiB L2, ~273 GB/s LPDDR5X) — and measured step by step against FlashInfer and FlashAttention 2. Every chart and table on these pages is rendered from raw results in [`benchmarks/raw/verify/`](../../benchmarks/raw/verify/) by `mjolnir plot --readme`; every chapter ends with the command that reproduces it.
 
-**Where it stands:** 1.26× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 1.85× FlashAttention 2, 86 / 86 correctness checks — run `20261011-082714`.
+**Where it stands:** 1.28× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.01× FlashAttention 2, 89 / 89 correctness checks — run `20261011-113515`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/kernel-speedup-dark.png">
@@ -52,16 +52,16 @@ flowchart LR
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261011-081738` |
-| 2 | [Headline L-sweep](sweep.md) | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L | ✅ run `20261011-082714` |
-| 3 | [Head-major pages](hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261011-084025` |
-| 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261011-084420` |
-| 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261011-090233` |
-| 6 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261011-095706` |
-| 7 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261011-091005` |
-| 8 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261011-091935` |
-| 9 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261011-092546` |
-| 10 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261011-093214` |
+| 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261011-105337` |
+| 2 | [Headline L-sweep](sweep.md) | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L | ✅ run `20261011-113515` |
+| 3 | [Head-major pages](hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261011-114842` |
+| 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261011-115251` |
+| 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261011-121120` |
+| 6 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261011-125212` |
+| 7 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261011-121857` |
+| 8 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261011-122836` |
+| 9 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261011-123457` |
+| 10 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261011-124125` |
 
 
 ## Reproducing everything

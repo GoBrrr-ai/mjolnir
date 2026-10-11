@@ -37,7 +37,14 @@ vllm serve <model> --attention-backend MJOLNIR
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/opening-infographic.png">
+  <img src="assets/opening-infographic.png" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
+</picture>
+</p>
 
+<p align="center"><sub>End to end on a Jetson AGX Thor, one request at 32K context: decode <b>−1.0%</b>, prefill <b>+8.6%</b>, time to first token <b>19.96 s → 18.39 s</b>, inter-token latency <b>42.0 ms → 42.7 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub></p>
 
 <p align="center">
 <picture>
@@ -48,16 +55,16 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 | decode kernel, one step (ncu, cold L2) | result |
 |---|---|
-| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.26× faster** (from 1.07× at 16K to 1.92× at 128) |
-| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **1.85× faster** |
+| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.28× faster** (from 1.09× at 16K to 1.71× at 128) |
+| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **2.01× faster** |
 | faster than FlashInfer beyond the ±3% noise band | **8 of 8** context lengths |
-| at the longest context (256K tokens) | **1.27×** vs FlashInfer |
-| one decode step at 64K tokens | **667.7 µs** (FlashInfer 840.3 µs, FlashAttention 2 1.28 ms) |
-| fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.21×** vs FlashInfer, geomean |
-| correctness vs a bit-faithful emulator | **86 / 86** checks pass |
+| at the longest context (256K tokens) | **1.37×** vs FlashInfer |
+| one decode step at 64K tokens | **602.3 µs** (FlashInfer 814.9 µs, FlashAttention 2 1.28 ms) |
+| fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.17×** vs FlashInfer, geomean |
+| correctness vs a bit-faithful emulator | **89 / 89** checks pass |
 
 
-<sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261011-082714`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
+<sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261011-113515`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
 
 ## Quickstart
 
@@ -110,15 +117,15 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 | L | FlashInfer | FA2 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA2 | e2m3 vs FA2 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 25.5 µs | 19.5 µs | 13.6 µs | **13.3 µs** | $\color{#16a34a}{\mathbf{1.87\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.43\times}}$ | $\color{#16a34a}{\mathbf{1.47\times}}$ |
-| **4K** | 60.3 µs | 88.8 µs | 54.8 µs | **49.4 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.62\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ |
-| **8K** | 93.3 µs | 179.1 µs | 84.4 µs | **80.5 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{2.12\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ |
-| **16K** | 184.4 µs | 340.3 µs | 177.2 µs | **172.9 µs** | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.97\times}}$ |
-| **32K** | 405.3 µs | 668.4 µs | **366.1 µs** | 366.9 µs | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ | $\color{#16a34a}{\mathbf{1.82\times}}$ |
-| **64K** | 840.3 µs | 1.28 ms | 711.8 µs | **667.7 µs** | $\color{#16a34a}{\mathbf{1.18\times}}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ |
-| **128K** | 1.60 ms | 2.37 ms | **1.31 ms** | 1.32 ms | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.82\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ |
-| **256K** | 3.05 ms | 4.51 ms | 2.44 ms | **2.40 ms** | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{1.85\times}}$ | $\color{#16a34a}{\mathbf{1.88\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.85\times}}$ |
+| **128** | 22.1 µs | 20.3 µs | 13.8 µs | **12.9 µs** | $\color{#16a34a}{\mathbf{1.60\times}}$ | $\color{#16a34a}{\mathbf{1.71\times}}$ | $\color{#16a34a}{\mathbf{1.47\times}}$ | $\color{#16a34a}{\mathbf{1.57\times}}$ |
+| **4K** | 60.9 µs | 95.2 µs | 56.4 µs | **51.9 µs** | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.69\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ |
+| **8K** | 96.8 µs | 180.7 µs | 87.2 µs | **84.6 µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{2.07\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ |
+| **16K** | 189.3 µs | 353.3 µs | **169.3 µs** | 173.2 µs | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ |
+| **32K** | 384.0 µs | 668.9 µs | 362.6 µs | **334.6 µs** | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.15\times}}$ | $\color{#16a34a}{\mathbf{1.84\times}}$ | $\color{#16a34a}{\mathbf{2.00\times}}$ |
+| **64K** | 814.9 µs | 1.28 ms | 693.2 µs | **602.3 µs** | $\color{#16a34a}{\mathbf{1.18\times}}$ | $\color{#16a34a}{\mathbf{1.35\times}}$ | $\color{#16a34a}{\mathbf{1.85\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ |
+| **128K** | 1.48 ms | 2.42 ms | 1.30 ms | **1.10 ms** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.35\times}}$ | $\color{#16a34a}{\mathbf{1.87\times}}$ | $\color{#16a34a}{\mathbf{2.21\times}}$ |
+| **256K** | 2.83 ms | 4.63 ms | 2.45 ms | **2.07 ms** | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.37\times}}$ | $\color{#16a34a}{\mathbf{1.89\times}}$ | $\color{#16a34a}{\mathbf{2.24\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{1.84\times}}$ | $\color{#16a34a}{\mathbf{2.01\times}}$ |
 
 <sub>Bold = fastest at that L. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
@@ -129,7 +136,34 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### Official vLLM image vs Mjolnir
 
-> Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).
+Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config, measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
+  <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
+</picture>
+
+Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±7% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
+
+| context | requests | decode (t/s, ↑) | prefill (t/s, ↑) | TTFT (ms, ↓) | ITL (ms, ↓) |
+|--:|--:|--:|--:|--:|--:|
+| no ctx | 1 | 24.6 → **25.4** (+3.3% 🟰) | 2,992 → **3,324** (+11.1% ✅) | 819 → **752** (+8.9% ✅) | 40.9 → **39.5** (+3.5% 🟰) |
+| 4K | 1 | 25.6 → **23.2** (−9.2% 🔻) | 2,852 → **3,173** (+11.3% ✅) | 2,289 → **2,070** (+10.6% ✅) | 39.4 → **43.3** (−9.2% 🔻) |
+| 8K | 1 | 22.9 → **24.7** (+7.6% ✅) | 2,559 → **2,866** (+12.0% ✅) | 4,136 → **3,706** (+11.6% ✅) | 44.1 → **40.6** (+8.7% ✅) |
+| 16K | 1 | 23.5 → **25.3** (+7.6% ✅) | 2,203 → **2,435** (+10.5% ✅) | 8,501 → **7,701** (+10.4% ✅) | 43.3 → **39.6** (+9.3% ✅) |
+| 32K | 1 | 23.9 → **23.6** (−1.0% 🟰) | 1,756 → **1,907** (+8.6% ✅) | 19,960 → **18,387** (+8.6% ✅) | 42.0 → **42.7** (−1.7% 🟰) |
+| no ctx | 2 | 44.3 → **48.1** (+8.7% ✅) | 2,724 → **3,177** (+16.6% ✅) | 1,443 → **1,161** (+24.3% ✅) | 42.7 → **39.8** (+7.4% ✅) |
+| 4K | 2 | 45.1 → **46.6** (+3.4% 🟰) | 2,746 → **3,119** (+13.6% ✅) | 4,415 → **3,845** (+14.8% ✅) | 41.5 → **40.7** (+2.1% 🟰) |
+| 8K | 2 | 43.9 → **46.2** (+5.3% 🟰) | 2,504 → **2,821** (+12.7% ✅) | 8,118 → **7,104** (+14.3% ✅) | 43.1 → **41.0** (+5.2% 🟰) |
+| 16K | 2 | 42.4 → **43.5** (+2.6% 🟰) | 2,189 → **2,423** (+10.7% ✅) | 16,781 → **15,037** (+11.6% ✅) | 44.8 → **42.6** (+5.3% 🟰) |
+| 32K | 2 | 33.7 → **29.8** (−11.6% 🔻) | 1,748 → **1,899** (+8.7% ✅) | 39,137 → **35,213** (+11.1% ✅) | 50.5 → **54.5** (−7.4% 🔻) |
+| no ctx | 4 | 85.3 → **81.9** (−4.0% 🟰) | 2,927 → **3,327** (+13.7% ✅) | 2,767 → **2,392** (+15.7% ✅) | 42.6 → **43.3** (−1.6% 🟰) |
+| 4K | 4 | 82.9 → **78.6** (−5.2% 🟰) | 2,717 → **3,075** (+13.2% ✅) | 9,012 → **7,822** (+15.2% ✅) | 44.7 → **44.2** (+1.2% 🟰) |
+| 8K | 4 | 70.2 → **61.3** (−12.6% 🔻) | 2,478 → **2,784** (+12.4% ✅) | 16,208 → **13,918** (+16.5% ✅) | 47.3 → **49.4** (−4.3% 🟰) |
+| 16K | 4 | 41.3 → **35.8** (−13.5% 🔻) | 2,163 → **2,395** (+10.7% ✅) | 32,462 → **27,998** (+15.9% ✅) | 60.2 → **66.4** (−9.4% 🔻) |
+| 32K | 4 | 11.5 → **11.4** (−0.9% 🟰) | 1,733 → **1,877** (+8.3% ✅) | 65,974 → **58,144** (+13.5% ✅) | 161.8 → **172.0** (−5.9% 🟰) |
+
+<sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR (Mjolnir)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
 ## How the kernel works
 
