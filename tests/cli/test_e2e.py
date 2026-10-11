@@ -31,7 +31,7 @@ def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
         _rec("narandill/mjolnir-vllm:v0.30.0", "NVFP4_MJOLNIR", 4, [_cell(1, 8192, 30, 2600, 3200)]),
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    off, mj = e2e.latest_pair(h)
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR")
     assert off["epoch"] == 3 and mj["config"] == "NVFP4_MJOLNIR"  # backend config beats a newer FI run
     hero = e2e.hero(off, mj)
     assert hero["ctx"] == 8192
@@ -70,18 +70,19 @@ def test_native_backends_on_the_mjolnir_image_never_count(tmp_path):
         _rec("narandill/mjolnir-vllm:v14", "NVFP4", 2, [_cell(1, 8192, 25, 2900, 3500)]),
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    off, mj = e2e.latest_pair(h)
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR")
     assert off["image"].startswith("vllm/") and mj is None
 
 
 def test_bench_e2e_only_runs_one_leg(monkeypatch):
     from mjolnir_cli import cli, dockerctl
+    from mjolnir_cli.config import DEFAULT_QUANT
     from typer.testing import CliRunner
 
     served = []
     monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: served.append((s.image, s.quant)))
     runner = CliRunner()
-    for side, want in (("mjolnir", "NVFP4_MJOLNIR"), ("official", "NVFP4")):
+    for side, want in (("mjolnir", DEFAULT_QUANT), ("official", "NVFP4")):
         served.clear()
         r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", side])
         assert r.exit_code == 0, r.output

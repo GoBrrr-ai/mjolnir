@@ -206,5 +206,19 @@ def spec_short(*recs: dict) -> str:
     return labels[0] if len(set(labels)) == 1 else " vs ".join(labels)
 
 
+def acceptance_line(off: dict, mj: dict) -> str:
+    """'\nMTP tokens/step: 2.84 → 2.71 · preemptions 0 → 0' when both legs
+    recorded spec stats (bench runs since the counters were added). Decode
+    t/s = tokens per step / step time, so a lower acceptance length slows
+    decode with the same kernel time."""
+    a, b = off.get("spec_stats") or {}, mj.get("spec_stats") or {}
+    if not a.get("acceptance_length") or not b.get("acceptance_length"):
+        return ""
+    return (
+        f"\nspec. decoding tokens/step: {a['acceptance_length']:.2f} → {b['acceptance_length']:.2f}"
+        f" · preemptions {a.get('preemptions', 0)} → {b.get('preemptions', 0)}"
+    )
+
+
 def side_label(rec: dict) -> str:
     return f"{rec.get('image', '')} · {rec.get('config', '')} ({rec.get('backend', '')})"

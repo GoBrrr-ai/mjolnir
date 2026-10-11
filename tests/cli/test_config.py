@@ -36,7 +36,8 @@ def _clean_mjolnir_env(monkeypatch):
 def test_defaults_with_no_env_or_cli():
     s = config.resolve(None, None, None, None)
     assert (s.model, s.quant, s.image, s.port) == (DEFAULT_MODEL, DEFAULT_QUANT, DEFAULT_IMAGE, DEFAULT_PORT)
-    assert s.backend_label == "Mjolnir"  # via BACKEND_LABELS[DEFAULT_QUANT]
+    assert s.backend_label == config.BACKEND_LABELS[DEFAULT_QUANT]
+    assert s.backend_label.startswith("Mjolnir")  # the default serves the Mjolnir kernel
     assert DEFAULT_IMAGE.endswith(f":v{config.VLLM_VERSION}")  # image tag follows upstream vLLM
 
 

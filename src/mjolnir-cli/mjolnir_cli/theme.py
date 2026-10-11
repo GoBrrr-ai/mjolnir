@@ -81,7 +81,8 @@ SERIES_STYLE = {
     "fi-hnd": ("flashinfer", "d", False),
     "fa2": ("fa2", "^", True),
     # e2e configs
-    "NVFP4_MJOLNIR": ("mjolnir", "o", True),
+    "NVFP4_MJOLNIR": ("mjolnir", "s", False),  # fp8 KV: the hollow Mjolnir variant
+    "NVFP4_MJOLNIR_E2M3": ("mjolnir", "o", True),
     "NVFP4": ("flashinfer", "D", True),
     "NVFP4_FA2": ("fa2", "^", True),
 }

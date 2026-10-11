@@ -328,15 +328,15 @@ function profSection() {
   });
 }
 function e2eSection() {
-  const rows = D.e2e; const keys = ["NVFP4", "NVFP4_FA2", "NVFP4_MJOLNIR"].filter(k => rows[k]);
-  if (!rows.NVFP4_MJOLNIR || keys.length < 2) return;
-  const label = {"NVFP4_MJOLNIR": "Mjolnir", "NVFP4": "FlashInfer · official vLLM", "NVFP4_FA2": "FlashAttention 2 · official vLLM"};
-  const col = {"NVFP4_MJOLNIR": "mjolnir", "NVFP4": "fi", "NVFP4_FA2": "fa2"};
+  const rows = D.e2e; const keys = ["NVFP4", "NVFP4_FA2", "NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3"].filter(k => rows[k]);
+  if (!(rows.NVFP4_MJOLNIR || rows.NVFP4_MJOLNIR_E2M3) || keys.length < 2) return;
+  const label = {"NVFP4_MJOLNIR": "Mjolnir · fp8 KV", "NVFP4_MJOLNIR_E2M3": "Mjolnir · fp6 KV", "NVFP4": "FlashInfer · official vLLM", "NVFP4_FA2": "FlashAttention 2 · official vLLM"};
+  const col = {"NVFP4_MJOLNIR": "mjolnir", "NVFP4_MJOLNIR_E2M3": "mjolnir", "NVFP4": "fi", "NVFP4_FA2": "fa2"};
   section("e2e", "End-to-end decode throughput", "The official vLLM image (native backends) vs the Mjolnir image, same model and config (llama-benchy, gated clean windows).", id => {
     const c = C();
     Plotly.react(id, keys.map(k => { const cs = rows[k].cells.filter(x => x.tg != null);
       return {type: "bar", name: label[k] || k, x: cs.map(x => "c" + x.concurrency + " · " + (x.context ? LS_LABEL(x.context) + " ctx" : "no ctx")), y: cs.map(x => x.tg),
-              marker: {color: c[col[k]] || c.dim}, hovertemplate: "%{y:.1f} tok/s<extra>%{fullData.name}</extra>"}; }),
+              marker: {color: c[col[k]] || c.dim, opacity: k === "NVFP4_MJOLNIR" ? 0.55 : 1}, hovertemplate: "%{y:.1f} tok/s<extra>%{fullData.name}</extra>"}; }),
       layout({barmode: "group", yaxis: {title: "decode tokens/s", gridcolor: c.grid, color: c.dim}, xaxis: {color: c.dim}}), {responsive: true, displaylogo: false});
   });
 }

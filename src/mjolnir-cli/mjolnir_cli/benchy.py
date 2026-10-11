@@ -208,6 +208,7 @@ def run_perf(
     records = []
     sweep_cells: list[list[dict]] = []
     sweep_gates: list[dict | None] = []
+    sweep_spec: list[dict] = []
     for i in range(repeat):
         out_json = out_dir / f"benchy-r{i + 1}.json"
         cmd = build_command(benchy, s, runs, warmup_runs, exact_tg, depths, concurrency, pp, tg, out_json, api_key)
@@ -231,9 +232,22 @@ def run_perf(
                 )
                 continue
             gate_summary = {"clean": True, "confirm": confirm, "open_ts": open_ts}
+        from mjolnir_cli.gate import server_counters, spec_delta
+
+        before = server_counters(s.metrics_url)
         rc = subprocess.call(cmd)
         if rc != 0:
             raise BenchError(f"llama-benchy exited {rc} — see raw output")
+        spec_stats = spec_delta(before, server_counters(s.metrics_url))
+        if spec_stats:
+            sweep_spec.append(spec_stats)
+            if spec_stats.get("acceptance_length"):
+                print(
+                    f"[mjolnir] speculative decoding: {spec_stats['acceptance_length']:.2f} tokens per step "
+                    f"(acceptance {spec_stats['acceptance_rate']:.0%}, per position "
+                    f"{' '.join(f'{p:.2f}' for p in spec_stats['per_pos'])}), "
+                    f"{spec_stats['preemptions']} preemptions"
+                )
         if not out_json.exists():
             raise BenchError(f"llama-benchy produced no JSON at {out_json}")
 
@@ -270,6 +284,14 @@ def run_perf(
         str(out_dir.relative_to(layout.benchmarks_dir)),
     )
     rec["repeat"] = len(sweep_cells)
+    if sweep_spec:  # pooled over the sweeps: tokens per verify step, the decode-rate multiplier
+        tot = {k: sum(x.get(k, 0) for x in sweep_spec) for k in ("drafts", "draft_tokens", "accepted", "preemptions")}
+        rec["spec_stats"] = {
+            **tot,
+            "acceptance_length": round(1 + tot["accepted"] / tot["drafts"], 3) if tot["drafts"] else None,
+            "acceptance_rate": round(tot["accepted"] / tot["draft_tokens"], 4) if tot["draft_tokens"] else None,
+            "per_pos": sweep_spec[-1].get("per_pos", []),
+        }
     hist.append_record(layout.history_file, rec)
     records.append(rec)
     print_benchy_table(out_dir, rec)

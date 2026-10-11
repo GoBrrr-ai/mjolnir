@@ -1060,7 +1060,8 @@ def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool =
     t = Table(
         box=box.SIMPLE_HEAD,
         title="official vLLM image → Mjolnir image (gain: + = Mjolnir better)",
-        caption=f"official: {e2e.side_label(off)}\nmjolnir:  {e2e.side_label(mj)}\nboth: {e2e.spec_label(off, mj)}",
+        caption=f"official: {e2e.side_label(off)}\nmjolnir:  {e2e.side_label(mj)}\nboth: {e2e.spec_label(off, mj)}"
+        + e2e.acceptance_line(off, mj),
     )
     t.add_column("ctx", justify="right")
     t.add_column("c", justify="right")

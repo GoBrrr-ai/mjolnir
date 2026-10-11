@@ -17,6 +17,7 @@ serving port). We read ``vllm:num_requests_running`` and
 from __future__ import annotations
 
 import threading
+import re
 import time
 import urllib.request
 
@@ -48,6 +49,67 @@ def server_load(metrics_url: str) -> tuple[float, float] | None:
     if "num_requests_running" not in out or "num_requests_waiting" not in out:
         return None
     return (out["num_requests_running"], out["num_requests_waiting"])
+
+
+_SPEC = {
+    "vllm:spec_decode_num_drafts_total": "drafts",
+    "vllm:spec_decode_num_draft_tokens_total": "draft_tokens",
+    "vllm:spec_decode_num_accepted_tokens_total": "accepted",
+    "vllm:num_preemptions_total": "preemptions",
+    "vllm:generation_tokens_total": "generation_tokens",
+}
+_POS = "vllm:spec_decode_num_accepted_tokens_per_pos_total"
+
+
+def server_counters(metrics_url: str) -> dict | None:
+    """Speculative-decoding / scheduler counters (summed over label sets), for
+    before/after deltas around a bench. None if unreachable."""
+    try:
+        with urllib.request.urlopen(metrics_url, timeout=5) as r:
+            text = r.read().decode()
+    except Exception:  # noqa: BLE001
+        return None
+    out: dict = {"per_pos": {}}
+    for line in text.splitlines():
+        if not line or line[0] == "#":
+            continue
+        name = line.split("{", 1)[0].split(" ", 1)[0]
+        try:
+            val = float(line.rsplit(" ", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        if name in _SPEC:
+            out[_SPEC[name]] = out.get(_SPEC[name], 0.0) + val
+        elif name == _POS:
+            m = re.search(r'position="(\d+)"', line)
+            if m:
+                k = int(m.group(1))
+                out["per_pos"][k] = out["per_pos"].get(k, 0.0) + val
+    return out
+
+
+def spec_delta(before: dict | None, after: dict | None) -> dict | None:
+    """Acceptance stats between two :func:`server_counters` samples:
+    mean acceptance length (1 + accepted / drafts: tokens per verify step),
+    per-position acceptance rate, preemptions."""
+    if not before or not after:
+        return None
+    d = {k: after.get(k, 0.0) - before.get(k, 0.0) for k in set(_SPEC.values())}
+    if d.get("drafts", 0) <= 0:
+        return {"preemptions": int(d.get("preemptions", 0))} if "preemptions" in after else None
+    pos = {
+        k: (after["per_pos"].get(k, 0.0) - before.get("per_pos", {}).get(k, 0.0)) / d["drafts"]
+        for k in sorted(after.get("per_pos", {}))
+    }
+    return {
+        "drafts": int(d["drafts"]),
+        "draft_tokens": int(d.get("draft_tokens", 0)),
+        "accepted": int(d.get("accepted", 0)),
+        "acceptance_length": round(1 + d.get("accepted", 0) / d["drafts"], 3),
+        "acceptance_rate": round(d.get("accepted", 0) / d["draft_tokens"], 4) if d.get("draft_tokens") else None,
+        "per_pos": [round(v, 4) for v in pos.values()],
+        "preemptions": int(d.get("preemptions", 0)),
+    }
 
 
 def wait_for_idle(
