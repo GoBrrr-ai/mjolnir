@@ -61,22 +61,48 @@ def long_prompt(tokens: int, i: int) -> str:
     return body + "\nQuestion: summarize the argument above in three sentences and name its weakest step."
 
 
-def engine_kwargs_from_config(path: str) -> dict:
-    """A `vllm serve --config` YAML as LLM(...) kwargs: dashes to
-    underscores, only the keys that are EngineArgs fields."""
-    import yaml
+def _engine_parser():
     from vllm.engine.arg_utils import EngineArgs
 
+    try:
+        from vllm.utils.argparse_utils import FlexibleArgumentParser
+    except ImportError:  # older vLLM
+        from vllm.utils import FlexibleArgumentParser
+    return EngineArgs.add_cli_args(FlexibleArgumentParser()), EngineArgs
+
+
+def engine_kwargs_from_config(path: str) -> dict:
+    """A `vllm serve --config` YAML as LLM(...) kwargs, parsed by vLLM's own
+    argument parser — so every value gets the type `vllm serve` gives it
+    (``16K`` -> 16384, ``kv-cache-dtype-skip-layers: sliding_window`` -> a
+    list, nested dicts -> configs). Serve-only keys (port, served-model-name,
+    tool parsers, ...) are dropped; only values that differ from the engine
+    defaults are returned."""
+    import tempfile
+
+    import yaml
+
+    parser, engine_args = _engine_parser()
     data = yaml.safe_load(open(path)) or {}
-    fields = {f.name for f in dataclasses.fields(EngineArgs)}
+    known = {k: v for k, v in data.items() if "--" + str(k).replace("_", "-") in parser._option_string_actions}
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        yaml.safe_dump(known, f)
+    try:
+        ns = vars(parser.parse_args(["--config", f.name]))
+    finally:
+        os.unlink(f.name)
+    base = vars(parser.parse_args([]))
+    fields = {fld.name for fld in dataclasses.fields(engine_args)}
     kw = {}
-    for k, v in data.items():
-        key = str(k).replace("-", "_")
-        if key in fields:
-            kw[key] = v
-    if isinstance(kw.get("max_model_len"), str):  # "200K" -> 204800
-        s = kw["max_model_len"].strip().upper()
-        kw["max_model_len"] = int(float(s[:-1]) * 1024) if s.endswith("K") else int(s)
+    for k, v in ns.items():
+        if k not in fields:
+            continue
+        try:
+            same = v == base.get(k)
+        except Exception:  # noqa: BLE001 - uncomparable config objects: keep the value
+            same = False
+        if not same:
+            kw[k] = v
     return kw
 
 
