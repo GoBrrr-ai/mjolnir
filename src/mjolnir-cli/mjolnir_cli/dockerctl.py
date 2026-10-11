@@ -172,8 +172,8 @@ def build_run_args(
         "--privileged",
         "--user",
         "0:0",
-        "--memory-swappiness",
-        "0",
+        # no --memory-swappiness: cgroup v2 (JetPack 7) has no per-container
+        # swappiness, docker only warns and discards it
         "--ulimit",
         "memlock=-1",
         "--ulimit",
