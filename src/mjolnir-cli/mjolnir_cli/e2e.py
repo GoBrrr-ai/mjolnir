@@ -4,9 +4,13 @@ Everything here reads ``benchmarks/history.jsonl`` (written by ``mjolnir bench
 perf|ab|e2e``) — the comparison table, the README section and the opening
 infographic all come from the same pair of records:
 
-* **official** — the latest run on the upstream image (``vllm/vllm-openai:…``);
-* **mjolnir**  — the latest run on a Mjolnir image, preferring the Mjolnir
-  attention backend config (``NVFP4_MJOLNIR``) when one exists.
+* **official** — the latest run on the upstream image (``vllm/vllm-openai:…``)
+  with a stock config: native vLLM, native FlashInfer;
+* **mjolnir**  — the latest run of the Mjolnir backend config
+  (``NVFP4_MJOLNIR``) on a Mjolnir image.
+
+Stock backends (FlashInfer, FA2) measured *on the Mjolnir image* are never
+used: that image patches FlashInfer paths too, so it is not native vLLM.
 
 Metrics (per context × concurrency cell, mean over every measured run):
 
@@ -57,22 +61,19 @@ def is_mjolnir(rec: dict) -> bool:
 
 
 def latest_pair(history_file: Path, mjolnir_config: str | None = None) -> tuple[dict | None, dict | None]:
-    """(official, mjolnir) — the newest record of each side. The Mjolnir side
-    prefers ``mjolnir_config`` (default: the Mjolnir backend config), then any
-    config on a Mjolnir image."""
+    """(official, mjolnir) — the newest record of each side: a stock config on
+    the official image, and the Mjolnir backend config (default
+    ``NVFP4_MJOLNIR``) on a Mjolnir image. Nothing else qualifies."""
     want = mjolnir_config or DEFAULT_QUANT
-    off = mj = mj_any = None
+    off = mj = None
     for r in load_records(history_file):
         if not r.get("cells"):
             continue
-        if is_official(r):
+        if is_official(r) and r.get("config") != want:
             off = r if off is None or r.get("epoch", 0) >= off.get("epoch", 0) else off
-        elif is_mjolnir(r):
-            if r.get("config") == want and (mj is None or r.get("epoch", 0) >= mj.get("epoch", 0)):
-                mj = r
-            if mj_any is None or r.get("epoch", 0) >= mj_any.get("epoch", 0):
-                mj_any = r
-    return off, (mj or mj_any)
+        elif is_mjolnir(r) and r.get("config") == want:
+            mj = r if mj is None or r.get("epoch", 0) >= mj.get("epoch", 0) else mj
+    return off, mj
 
 
 def cell(rec: dict, conc: int, ctx: int) -> dict | None:

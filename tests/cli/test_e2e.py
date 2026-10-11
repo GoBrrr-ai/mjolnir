@@ -59,3 +59,16 @@ def test_benchy_cells_carry_ttft_and_itl():
     assert c["ttft_ms"]["mean"] == 900
     assert c["itl_ms"]["values"] == [50.0, 40.0]  # per request: 1000 / tg_req
     assert e2e.value(c, "itl_ms") == 45.0
+
+
+def test_native_backends_on_the_mjolnir_image_never_count(tmp_path):
+    """FlashInfer measured on the Mjolnir image is not native vLLM: it must
+    neither stand in for the official side nor for Mjolnir."""
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.30.0-ubuntu2404", "NVFP4", 1, [_cell(1, 8192, 20, 2000, 4000)]),
+        _rec("narandill/mjolnir-vllm:v14", "NVFP4", 2, [_cell(1, 8192, 25, 2900, 3500)]),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h)
+    assert off["image"].startswith("vllm/") and mj is None

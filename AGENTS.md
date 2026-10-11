@@ -25,6 +25,11 @@ the agents run on**. When doing anything on the GPU:
   claims; wall clock is only for **ratios measured in the same run**.
 - On this box a single result moves about **±7%** between runs (`NOISE_PCT`):
   compare legs measured in the same run, and require a win across L.
+- **Native vLLM baselines (FlashInfer, FA2) are measured only on the official
+  `vllm/vllm-openai` image**, never on ours — the Mjolnir image patches
+  FlashInfer paths too. `mjolnir verify` runs reference legs there
+  (`MJOLNIR_REF_IMAGE` overrides); e2e charts ignore native configs served
+  from a Mjolnir image.
 
 ### Every number ships with its raw artifact
 - Kernel results: `mjolnir verify <stage>` → one `mjolnir.verify/1` JSON per run
@@ -159,8 +164,8 @@ not hand-typed numbers.
 `mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
 TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
 `mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row);
-`mjolnir bench ab` (default legs `NVFP4_MJOLNIR,NVFP4,NVFP4_FA2`; legs are
-`<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
+`mjolnir bench ab` (default legs: `NVFP4` on the official image vs `NVFP4_MJOLNIR`; legs
+are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.
 
 ### Building the image
@@ -191,8 +196,8 @@ trusted publishing — and the image (vLLM version, on push to `main`).
 - [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,
       commit `benchmarks/raw/verify/**`, re-render (the README shows "pending"
       for stages without a default run).
-- [ ] **End-to-end A/B**: `mjolnir bench ab` (Mjolnir vs FlashInfer vs FA2) —
-      restarts the server per leg; schedule deliberately.
+- [ ] **End-to-end**: `mjolnir bench e2e` (native FlashInfer on the official
+      vLLM image vs Mjolnir) — restarts the server per leg; schedule deliberately.
 - [ ] **fp6 KV in vLLM**: a cache-write path for e2m3 so serving gets the
       harness's fp6 win (`docs/kernel/kvfmt.md`, `quant.md`).
 - [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).

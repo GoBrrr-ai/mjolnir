@@ -322,11 +322,11 @@ function profSection() {
   });
 }
 function e2eSection() {
-  const rows = D.e2e; const keys = Object.keys(rows).filter(k => !k.endsWith("@stock"));
-  if (!keys.length) return;
-  const label = {"NVFP4_MJOLNIR": "Mjolnir", "NVFP4": "FlashInfer", "NVFP4_FA2": "FlashAttention 2"};
+  const rows = D.e2e; const keys = ["NVFP4", "NVFP4_FA2", "NVFP4_MJOLNIR"].filter(k => rows[k]);
+  if (!rows.NVFP4_MJOLNIR || keys.length < 2) return;
+  const label = {"NVFP4_MJOLNIR": "Mjolnir", "NVFP4": "FlashInfer · official vLLM", "NVFP4_FA2": "FlashAttention 2 · official vLLM"};
   const col = {"NVFP4_MJOLNIR": "mjolnir", "NVFP4": "fi", "NVFP4_FA2": "fa2"};
-  section("e2e", "End-to-end decode throughput", "vLLM serving the same model with each attention backend (llama-benchy, gated clean windows).", id => {
+  section("e2e", "End-to-end decode throughput", "The official vLLM image (native backends) vs the Mjolnir image, same model and config (llama-benchy, gated clean windows).", id => {
     const c = C();
     Plotly.react(id, keys.map(k => { const cs = rows[k].cells.filter(x => x.tg != null);
       return {type: "bar", name: label[k] || k, x: cs.map(x => "c" + x.concurrency + " · " + (x.context ? LS_LABEL(x.context) + " ctx" : "no ctx")), y: cs.map(x => x.tg),

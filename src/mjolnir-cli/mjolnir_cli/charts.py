@@ -629,26 +629,35 @@ def chart_fp6prof(data: dict, mode: Mode):
 
 # ── e2e charts (history.jsonl, `mjolnir bench ab`) ──────────────────────────
 
-E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4", "NVFP4_FA2")
+# (series id, label): native vLLM backends come ONLY from the official image;
+# Mjolnir only from a Mjolnir image (see mjolnir_cli.e2e).
+E2E_SERIES = (
+    ("NVFP4", "FlashInfer · official vLLM"),
+    ("NVFP4_FA2", "FlashAttention 2 · official vLLM"),
+    ("NVFP4_MJOLNIR", "Mjolnir"),
+)
 
 
 def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
-    """Latest history record per config, Mjolnir-image runs preferred."""
+    """Latest history record per series: stock configs on the official vLLM
+    image, the Mjolnir config on a Mjolnir image. Stock backends measured on
+    the Mjolnir image are ignored (that image patches FlashInfer too)."""
+    from mjolnir_cli import e2e
+
     latest: dict[str, dict] = {}
     for r in load_records(layout.history_file):
         cfg = r.get("config")
-        if cfg not in E2E_CONFIGS or not r.get("cells"):
+        if not r.get("cells"):
             continue
-        stock = str(r.get("image", "")).startswith("vllm/")
-        key = cfg if not stock else cfg + "@stock"
-        if key not in latest or r.get("epoch", 0) >= latest[key].get("epoch", 0):
-            latest[key] = r
+        ok = (cfg == "NVFP4_MJOLNIR" and e2e.is_mjolnir(r)) or (cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r))
+        if ok and (cfg not in latest or r.get("epoch", 0) >= latest[cfg].get("epoch", 0)):
+            latest[cfg] = r
     return latest
 
 
 def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: str, sub: str):
-    rows = {k: v for k, v in e2e_rows(layout).items() if not k.endswith("@stock")}
-    if not rows:
+    rows = e2e_rows(layout)
+    if "NVFP4_MJOLNIR" not in rows or len(rows) < 2:
         return None
     plt = _plt()
     concs = [c for c in (1, 4) if any(cc.get("concurrency") == c for r in rows.values() for cc in r["cells"])]
@@ -657,14 +666,13 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     fig, axes = plt.subplots(1, len(concs), figsize=(12.5, 4.8), sharey=True, squeeze=False)
     axes = list(axes[0])
     theme.apply(fig, axes, mode)
-    labels = {"NVFP4_MJOLNIR": "Mjolnir", "NVFP4": "FlashInfer", "NVFP4_FA2": "FlashAttention 2"}
-    order = [c for c in E2E_CONFIGS if c in rows]
+    order = [(c, lbl) for c, lbl in E2E_SERIES if c in rows]
     for ax, conc in zip(axes, concs):
         ctxs = sorted(
             {c.get("context") or 0 for r in rows.values() for c in r["cells"] if c.get("concurrency") == conc}
         )
         w = 0.8 / len(order)
-        for i, cfg in enumerate(order):
+        for i, (cfg, lbl) in enumerate(order):
             vals = []
             for ctx in ctxs:
                 cell = next(
@@ -679,19 +687,19 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
                 width=w * 0.92,
                 color=theme.color(mode, cfg),
                 zorder=3,
-                label=labels[cfg] if ax is axes[0] else None,
+                label=lbl if ax is axes[0] else None,
             )
         ax.set_xticks(range(len(ctxs)))
         ax.set_xticklabels([f"{L_label(c)} ctx" if c else "no ctx" for c in ctxs])
-        ax.set_xlabel(f"concurrency {conc}")
+        ax.set_xlabel(f"{conc} concurrent request{'s' if conc > 1 else ''}")
     axes[0].set_ylabel(ylabel)
     theme.legend(axes[0], mode, loc="upper right")
     theme.title(axes[0], mode, ttl, sub)
-    r0 = rows[order[0]]
+    imgs = " vs ".join(dict.fromkeys(str(rows[c].get("image", "")) for c, _ in order))
     theme.footer(
         fig,
         mode,
-        f"mjolnir bench ab · {r0.get('model', '')} · image {r0.get('image', '')} · llama-benchy, gated clean windows",
+        f"mjolnir bench e2e · {rows['NVFP4_MJOLNIR'].get('model', '')} · {imgs} · llama-benchy, gated clean windows",
     )
     return fig
 
@@ -703,7 +711,7 @@ def chart_e2e_decode(layout: RepoLayout, mode: Mode):
         "tg_tps",
         "decode tokens/s (higher is better)",
         "End-to-end decode throughput",
-        "vLLM serving the same model with each attention backend",
+        "the official vLLM image (native backends) vs the Mjolnir image",
     )
 
 
@@ -714,7 +722,7 @@ def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
         "pp_tps",
         "prompt tokens/s (higher is better)",
         "End-to-end prompt processing",
-        "prefill runs on FlashInfer under the Mjolnir backend too",
+        "the official vLLM image (native backends) vs the Mjolnir image",
     )
 
 
@@ -728,24 +736,28 @@ def _display_family() -> str:
     sans available (variable fonts render thin in matplotlib)."""
     from matplotlib import font_manager
 
-    for fam in ("Noto Sans", "Nimbus Sans", "Liberation Sans", "DejaVu Sans"):
+    for fam in ("Inter Display", "Inter", "Noto Sans", "Nimbus Sans", "Liberation Sans", "DejaVu Sans"):
         try:
             path = font_manager.findfont(fam, fallback_to_default=False)
         except Exception:  # noqa: BLE001
             continue
-        if path and "dejavu" not in Path(path).name.lower():
+        if path and (fam == "DejaVu Sans" or "dejavu" not in Path(path).name.lower()):
             return fam
     return "DejaVu Sans"
 
 
 def render_infographic(layout: RepoLayout) -> Path | None:
-    """``assets/opening-infographic.png``: ``assets/background.jpeg`` full
-    bleed; a white card on the left with two small bar charts (decode and
-    prefill t/s, official vLLM image vs Mjolnir image); the big gains on the
-    right. Every number comes from the latest history pair
-    (:func:`mjolnir_cli.e2e.latest_pair`), one request (c=1) at the longest
-    context both sides measured."""
-    from matplotlib.patches import FancyBboxPatch
+    """``assets/opening-infographic.png`` — the README hero.
+
+    ``assets/background.jpeg`` (the Thor-as-Mjolnir art on the left) stays
+    untouched; everything sits on the dark right half: the claim, the
+    scenario, and two stat columns — decode and prefill — each with the gain
+    as the big number and the two measured throughputs as bars. Every number
+    comes from the latest history pair (:func:`mjolnir_cli.e2e.latest_pair`):
+    native FlashInfer on the official vLLM image vs the Mjolnir backend on the
+    Mjolnir image, one request at the longest context both measured."""
+    import numpy as np
+    from matplotlib.patches import FancyBboxPatch, Rectangle
 
     from mjolnir_cli import e2e
 
@@ -762,82 +774,94 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     bg = plt.imread(str(bg_path))
     H, W = bg.shape[:2]
     fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
-    ax_bg = fig.add_axes([0, 0, 1, 1])
-    ax_bg.set_axis_off()
-    ax_bg.imshow(bg, extent=(0, W, 0, H))
-
-    ink, dim = "#0d1117", "#57606a"
-    c_off, c_mj = theme.LIGHT.flashinfer, theme.LIGHT.mjolnir
-    card_l, card_r, card_t, card_b = 0.03 * W, 0.46 * W, 0.06 * H, 0.94 * H
-    ax_bg.add_patch(
-        FancyBboxPatch(
-            (card_l, H - card_b),
-            card_r - card_l,
-            card_b - card_t,
-            boxstyle=f"round,pad=0,rounding_size={0.025 * H:.0f}",
-            facecolor="white",
-            edgecolor="none",
-            zorder=2,
-        )
-    )
-    pad_x, pad_y, gap = 0.058 * W, 0.05 * H, 0.03 * H
-    x0, x1 = card_l + pad_x, card_r - 0.04 * W
-    top, bot = card_t + pad_y, card_b - pad_y - 0.05 * H  # room for the source line
-    panel_h = (bot - top - gap) / 2
-    ctx = e2e.ctx_label(h["ctx"])
-    for i, (key, name, fmt) in enumerate((("tg_tps", "decode", "{:.1f}"), ("pp_tps", "prefill", "{:,.0f}"))):
-        y_top = top + i * (panel_h + gap)
-        ax = fig.add_axes([x0 / W, (H - y_top - panel_h) / H, (x1 - x0) / W, panel_h / H])
-        ax.set_facecolor("white")
-        for sp in ax.spines.values():
-            sp.set_visible(False)
-        ax.set_xticks([])
-        va, vb, _ = h[key]
-        ys, vals = [1.05, 0.48], [va, vb]
-        ax.barh(ys, vals, height=0.5, color=[c_off, c_mj], zorder=3)
-        xmax = max(vals) * 1.25
-        ax.set_xlim(0, xmax)
-        ax.set_ylim(-0.05, 1.75)
-        ax.set_yticks(ys)
-        ax.set_yticklabels(["vLLM", "Mjolnir"], color=ink, fontsize=11)
-        ax.tick_params(axis="y", length=0, pad=6)
-        for y, v in zip(ys, vals):
-            ax.text(
-                v + xmax * 0.012,
-                y,
-                fmt.format(v).replace(",", " "),
-                va="center",
-                color=ink,
-                fontsize=12.5,
-                weight="bold",
-            )
-        ax.text(0, 1.0, f"{name} — tokens/s", transform=ax.transAxes, color=ink, fontsize=13, weight="bold", va="top")
-        ax.text(
-            0,
-            0.89,
-            f"1 request · {ctx} context · end to end",
-            transform=ax.transAxes,
-            color=dim,
-            fontsize=9.5,
-            va="top",
-        )
-    src = (
-        f"official {off.get('image', '')} vs {mj.get('image', '')} · {mj.get('model', '')} {mj.get('config', '')}"
-        " · llama-benchy, gated"
-    )
-    fig.text((card_l + pad_x * 0.35) / W, (H - card_b + 0.035 * H) / H, src, color=dim, fontsize=7.5, va="bottom")
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
+    ax.set_xlim(0, W)
+    ax.set_ylim(0, H)
+    ax.imshow(bg, extent=(0, W, 0, H), zorder=0)
+    # scrim only behind the text: transparent over the art, navy on the right
+    x = np.linspace(0, 1, 512)
+    alpha = np.clip((x - 0.40) / 0.25, 0, 1) ** 1.5 * 0.72
+    scrim = np.zeros((1, 512, 4))
+    scrim[..., :3] = np.array([3, 7, 16]) / 255
+    scrim[..., 3] = alpha
+    ax.imshow(scrim, extent=(0, W, 0, H), aspect="auto", zorder=1)
 
     disp = _display_family()
+    white, dim, faint = "#ffffff", "#b4bfcc", "#7f8a97"
+    c_off, c_mj = theme.DARK.flashinfer, theme.LIGHT.mjolnir
+    ver = str(off.get("image", "")).split(":")[-1].split("-")[0].lstrip("v")
+    model = str(mj.get("model", "")).split("/")[-1]
+    quant = str(mj.get("config", "")).split("_")[0]
 
-    def stat(y_num: float, y_lab: float, gain: float, noun: str) -> None:
-        fig.text(
-            0.90, y_num, e2e.pct(gain), ha="right", va="center", color="white", fontsize=90, weight="bold", family=disp
-        )
+    def T(xf, yf, text, size, color=white, weight="normal", ha="left", **kw):
+        ax.text(xf * W, yf * H, text, fontsize=size, color=color, weight=weight, ha=ha, family=disp, zorder=6, **kw)
+
+    L, R = 0.555, 0.955
+    T(L, 0.855, "JETSON AGX THOR   ·   END-TO-END SERVING", 10.5, dim, "semibold")
+    title = ax.text(L * W, 0.745 * H, "Mjolnir", fontsize=40, color=white, weight="bold", family=disp, zorder=6)
+    x_after = title.get_window_extent(renderer=fig.canvas.get_renderer()).x1  # pixels == data units here
+    ax.text(x_after + 16, 0.745 * H, f"vs vLLM {ver}", fontsize=40, color=dim, family=disp, zorder=6)
+    T(
+        L,
+        0.675,
+        f"official vLLM image, native FlashInfer  ·  1 request  ·  {e2e.ctx_label(h['ctx'])} context  ·  {model} {quant}",
+        11,
+        dim,
+    )
+    ax.add_patch(Rectangle((L * W, 0.625 * H), (R - L) * W, 1.0, color=(1, 1, 1, 0.18), lw=0, zorder=5))
+
+    cols = (("tg_tps", "decode", "{:.1f}", "tokens / s"), ("pp_tps", "prefill", "{:,.0f}", "prompt tokens / s"))
+    gap = 0.04
+    cw = (R - L - gap) / 2
+    for i, (key, name, fmt, unit) in enumerate(cols):
+        x0 = L + i * (cw + gap)
+        va, vb, gain = h[key]
+        T(x0, 0.415, e2e.pct(gain), 52, white, "bold")
         word = "faster" if gain >= 0 else "slower"
-        fig.text(0.90, y_lab, f"{word} {noun}", ha="right", va="center", color="white", fontsize=20, family=disp)
+        T(x0, 0.345, f"{word} {name}", 15, white)
+        T(x0 + cw, 0.345, unit, 11, faint, ha="right")
+        X, BW = x0 * W, cw * W
+        vmax = max(va, vb)
+        for j, (lbl, v, col) in enumerate((("vLLM", va, c_off), ("Mjolnir", vb, c_mj))):
+            y = (0.215 - j * 0.105) * H
+            ax.text(X, y + 12, lbl, fontsize=10.5, color=dim, family=disp, zorder=6)
+            ax.text(
+                X + BW,
+                y + 12,
+                fmt.format(v),
+                fontsize=12,
+                color=white,
+                weight="bold",
+                ha="right",
+                family=disp,
+                zorder=6,
+            )
+            bh = 0.016 * H
+            ax.add_patch(
+                FancyBboxPatch(
+                    (X, y - bh),
+                    BW,
+                    bh,
+                    boxstyle=f"round,pad=0,rounding_size={bh / 2:.1f}",
+                    facecolor=(1, 1, 1, 0.10),
+                    edgecolor="none",
+                    zorder=5,
+                )
+            )
+            ax.add_patch(
+                FancyBboxPatch(
+                    (X, y - bh),
+                    max(BW * v / vmax, bh),
+                    bh,
+                    boxstyle=f"round,pad=0,rounding_size={bh / 2:.1f}",
+                    facecolor=col,
+                    edgecolor="none",
+                    zorder=6,
+                )
+            )
+    T(L, 0.035, f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy, gated clean windows", 9, faint)
 
-    stat(0.68, 0.56, h["tg_tps"][2], "decode")
-    stat(0.30, 0.18, h["pp_tps"][2], "prompt prefill")
     out = layout.repo_root / "assets" / INFOGRAPHIC
     fig.savefig(out, dpi=100)
     plt.close(fig)
@@ -894,6 +918,13 @@ def render_all(layout: RepoLayout, data: dict | None = None) -> dict[str, dict]:
         if "light" in entry:
             manifest[name] = entry
     info = render_infographic(layout)
+    # stale renders (data no longer qualifies) must not linger next to the manifest
+    keep = {Path(v).name for e in manifest.values() for k, v in e.items() if k in ("light", "dark")}
+    for png in out_dir.glob("*.png"):
+        if png.name not in keep:
+            png.unlink()
+    if info is None and layout.repo_root is not None:
+        (layout.repo_root / "assets" / INFOGRAPHIC).unlink(missing_ok=True)
     if info is not None:
         manifest["opening-infographic"] = {
             "stage": "e2e",

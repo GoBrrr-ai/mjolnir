@@ -33,6 +33,16 @@ Defaults:
 
 `--dry-run` prints both `docker run` commands without touching the server.
 
+## Why the baseline runs on the official image
+
+The Mjolnir image carries a patch stack that also touches FlashInfer paths
+(CUDA-graph modes, spec-decode metadata, GDN prefill). FlashInfer served from
+*our* image is therefore not native vLLM — and it flatters the baseline. Native
+backends are only ever measured on the untouched `vllm/vllm-openai` image;
+`bench compare`, the README table, the e2e charts and the infographic ignore
+`NVFP4` / `NVFP4_FA2` runs served from a Mjolnir image (they stay in
+`history.jsonl`, unused).
+
 ## What is measured
 
 | metric | from llama-benchy | better |

@@ -44,7 +44,6 @@ from mjolnir_cli.config import (
     DEFAULT_QUANT,
     STOCK_IMAGE,
     VLLM_VERSION,
-    FA2_QUANT,
     Settings,
     ConfigEntry,
     load_layout,
@@ -892,7 +891,7 @@ def _ab_legs(
 @bench_app.command("ab")
 def bench_ab(
     backends: str = typer.Option(
-        f"{DEFAULT_QUANT},{BASELINE_QUANT},{FA2_QUANT}",
+        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT}",
         "--backends",
         help="comma-separated legs: each is "
         "'<config>' (the --model/state "
@@ -929,6 +928,15 @@ def bench_ab(
     except ValueError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4)
+    from mjolnir_cli import e2e
+
+    for m_, img, q in legs:
+        if q != DEFAULT_QUANT and e2e.is_mjolnir({"image": img}):
+            typer.secho(
+                f"note: {q} on {img} is not native vLLM (the Mjolnir image patches FlashInfer too) — it is kept in "
+                f"history but never charted; measure native backends on {STOCK_IMAGE}",
+                fg=typer.colors.YELLOW,
+            )
     _run_legs(s, layout, [(m, i, q, None) for m, i, q in legs], runs=runs, repeat=repeat, gate=gate)
     _rerender(layout)
 

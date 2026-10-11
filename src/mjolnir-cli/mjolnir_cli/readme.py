@@ -33,7 +33,7 @@ from pathlib import Path
 
 import jinja2
 
-from mjolnir_cli.config import BACKEND_LABELS, DEFAULT_MODEL, IMAGE_REPO, RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import ALL_LS, NOISE_PCT, STAGES
 
@@ -326,55 +326,6 @@ def ratio_pct(g: float | None) -> str:
     return f"{e2e.pct(g)} {mark}"
 
 
-def _e2e_table(layout: RepoLayout, metric: str, fmt: str) -> str | None:
-    from mjolnir_cli.charts import e2e_rows
-
-    rows = e2e_rows(layout)
-    if not rows:
-        return None
-    ordered = [k for k in ("NVFP4_MJOLNIR", "NVFP4", "NVFP4_FA2", "NVFP4@stock", "NVFP4_FA2@stock") if k in rows]
-    cells = sorted(
-        {
-            (c.get("concurrency"), c.get("context") or 0)
-            for r in rows.values()
-            for c in r["cells"]
-            if c.get("concurrency") in (1, 4) and (c.get(metric) or {}).get("mean") is not None
-        }
-    )
-    if not cells:
-        return None
-    base_key = "NVFP4" if "NVFP4" in rows else ordered[0]
-    header = ["backend (image)"] + [f"c{c} · {L_label(ctx) + ' ctx' if ctx else 'no ctx'}" for c, ctx in cells]
-    out = []
-    for k in ordered:
-        r = rows[k]
-        cfg = k.split("@")[0]
-        label = BACKEND_LABELS.get(cfg, cfg) + (" (stock vLLM image)" if k.endswith("@stock") else "")
-        line = [f"**{label}**"]
-        for c, ctx in cells:
-            cell = next((x for x in r["cells"] if x.get("concurrency") == c and (x.get("context") or 0) == ctx), None)
-            v = ((cell or {}).get(metric) or {}).get("mean")
-            if v is None:
-                line.append("—")
-                continue
-            txt = fmt.format(v)
-            if k != base_key:
-                bc = next(
-                    (
-                        x
-                        for x in rows[base_key]["cells"]
-                        if x.get("concurrency") == c and (x.get("context") or 0) == ctx
-                    ),
-                    None,
-                )
-                bv = ((bc or {}).get(metric) or {}).get("mean")
-                if bv:
-                    txt += " " + pct_md((v - bv) / bv * 100, lower_is_better=False)
-            line.append(txt)
-        out.append(line)
-    return _table(header, out)
-
-
 def _findings(stage: str, doc: dict) -> list[str]:
     """Data-driven one-liners for the docs (no hand-written numbers)."""
     out: list[str] = []
@@ -517,8 +468,6 @@ class ReadmeContext:
     findings: dict = field(default_factory=dict)
     runs: dict = field(default_factory=dict)  # stage -> run_id
     pending: list = field(default_factory=list)
-    e2e_tg: str | None = None
-    e2e_pp: str | None = None
     # official vLLM image vs the Mjolnir image (mjolnir_cli.e2e)
     vs_vllm: str | None = None  # the comparison table
     vs_vllm_hero: dict = field(default_factory=dict)  # c=1 headline gains, formatted
@@ -597,8 +546,6 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
     if corr:
         cs = corr.get("cases", [])
         ctx.correctness = f"{sum(1 for c in cs if c.get('passed'))} / {len(cs)}"
-    ctx.e2e_tg = _e2e_table(layout, "tg_tps", "{:.1f}")
-    ctx.e2e_pp = _e2e_table(layout, "pp_tps", "{:,.0f}")
     from mjolnir_cli import e2e
 
     off, mj = e2e.latest_pair(layout.history_file)
