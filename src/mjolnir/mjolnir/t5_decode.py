@@ -89,6 +89,16 @@ import cutlass.cute.testing as testing
 from cutlass.cute.runtime import from_dlpack
 from cutlass.cute.typing import *
 
+# Compile-time notes (stages, tmem use): printed by the standalone harness
+# (__main__), quiet inside vLLM unless MJOLNIR_ATTN_VERBOSE=1.
+VERBOSE = os.environ.get("MJOLNIR_ATTN_VERBOSE", os.environ.get("THOR_T5_VERBOSE", "")).strip() in ("1", "true", "yes")
+
+
+def _note(msg: str) -> None:
+    if VERBOSE:
+        print(msg)
+
+
 # Kernel invariants
 mma_modes = (0, 1, 2)
 mma_dice = (None, None, None)  # (MMA, #MMA_M, #MMA_K)
@@ -476,7 +486,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         # more than its share.
         assert self.tmem_alloc_cols <= tmem_capacity
 
-        print(f"\tcvt stages: {self.cvt_stages}")
+        _note(f"\tcvt stages: {self.cvt_stages}")
 
         # SMEM budget -> KV stages
         mbarrier_reserved_bytes = 768
@@ -505,8 +515,8 @@ class MixedInputFusedMultiHeadAttentionDecode:
             else self.kv_stages
         )
 
-        print(f"\tkv stages: {self.kv_stages}, kv format: {self.kv_format}, packed stages: {self.packed_stages}")
-        print(f"\tpdl: {self.pdl}, l2 prefetch: {self.l2_prefetch} tiles ahead, kv evict_first: {self.kv_evict_first}")
+        _note(f"\tkv stages: {self.kv_stages}, kv format: {self.kv_format}, packed stages: {self.packed_stages}")
+        _note(f"\tpdl: {self.pdl}, l2 prefetch: {self.l2_prefetch} tiles ahead, kv evict_first: {self.kv_evict_first}")
 
         ##############################
         # Global tensors
@@ -1123,7 +1133,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         tCtO = cute.make_tensor(cute.recast_ptr(tmem_ptr + tmem_offset, dtype=acc_dtype), tCtO.layout)
         tmem_offset += tcgen05.find_tmem_tensor_col_offset(tCtO)
 
-        print(f"\t{tmem_offset} tmem cols used, {self.tmem_alloc_cols} tmem cols allocated")
+        _note(f"\t{tmem_offset} tmem cols used, {self.tmem_alloc_cols} tmem cols allocated")
         assert tmem_offset <= self.tmem_alloc_cols
 
         ##############################
@@ -2844,6 +2854,7 @@ def run(
 
 
 if __name__ == "__main__":
+    VERBOSE = True  # the harness prints the kernel's compile-time notes
     parser = argparse.ArgumentParser(description="Paged fp8 decode attention (sm_110).")
     parser.add_argument("--batches", "--batch", "--b", "--num_seqs", type=int, default=1)
     parser.add_argument(

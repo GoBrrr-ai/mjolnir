@@ -106,6 +106,8 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_L2_PREFETCH` | `0` | TMA-prefetch K/V this many tiles ahead into L2 |
 | `MJOLNIR_ATTN_KV_EVICT_FIRST` | `1` for fp8 Q, `0` for bf16 Q | L2 evict-first policy on K/V loads |
 | `MJOLNIR_ATTN_PRECOMPILE` | `all` | compile every variant at start-up; `none` compiles on first use |
+| `MJOLNIR_ATTN_KERNEL_CACHE` | on | compiled variants are exported to `$VLLM_CACHE_ROOT/mjolnir/kernels` (else `~/.cache/mjolnir/kernels`) and loaded on the next start instead of recompiling; `0` = off, a path = that directory. Keyed by variant, kernel source, CuTe DSL version and GPU |
+| `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
 | `MJOLNIR_ATTN_KV_LAYOUT` | auto | force the KV view: `BHN2D BNH2D B2NHD B2HND 2BNHD 2BHND` |
 | `MJOLNIR_ATTN_FUSED_QPACK` | `1` | `0`: quantize fp8 Q with PyTorch ops (~10 launches) instead of one Triton kernel |
 | `MJOLNIR_ATTN_KV_SCALES` | – | `fp6_e2m3` KV: the per-(layer, KV head, channel) scales file from `python -m mjolnir.calibrate` |

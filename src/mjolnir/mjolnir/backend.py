@@ -440,8 +440,25 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         )
         pre = env_flag("MJOLNIR_ATTN_PRECOMPILE", "all").lower()
         if pre in ("all", "1", "true", "yes"):
-            logger.info("Mjolnir: compiling decode kernels (q_len 1..%d, %s Q)", self.t5.max_q_len, q_mode)
+            import time
+
+            from . import runner as _runner
+
+            before = dict(_runner.CACHE_STATS)
+            t0 = time.perf_counter()
             self.t5.precompile()
+            loaded = _runner.CACHE_STATS["loaded"] - before["loaded"]
+            compiled = _runner.CACHE_STATS["compiled"] - before["compiled"]
+            if loaded or compiled:
+                logger.info(
+                    "Mjolnir: decode kernels (q_len 1..%d, %s Q) ready in %.1f s: %d compiled, %d from %s",
+                    self.t5.max_q_len,
+                    q_mode,
+                    time.perf_counter() - t0,
+                    compiled,
+                    loaded,
+                    _runner.kernel_cache_dir() or "cache (off)",
+                )
         logger.info(
             "Mjolnir decode enabled: h_q=%d h_k=%d d=%d page=%d q_len<=%d Q=%s "
             "ctas/SM=%d slots(q1)=%d pdl=%s l2_prefetch=%d "

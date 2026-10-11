@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+from pathlib import Path
 
 import torch
 
@@ -607,6 +608,76 @@ def test_fp6_runner_vs_emulator():
     err = (o - ref).abs().max().item()
     tol = 2e-2 * max(1.0, ref.abs().max().item())
     assert math.isfinite(err) and err <= tol, f"e2m3 T5 vs emulator: max|err| {err:.4g} > {tol:.4g}"
+
+
+def test_kernel_disk_cache_roundtrip():
+    """A variant exported to the on-disk kernel cache and loaded back in a
+    fresh process state gives bit-identical output to the in-process compile."""
+    import tempfile
+
+    from mjolnir import runner as R
+
+    gen = torch.Generator().manual_seed(31)
+    h_q, h_k, d, PS, ql = 16, 2, 256, 16, 1
+    seq_lens = (300, 77)
+    b = len(seq_lens)
+    n_blocks = [math.ceil(L / PS) for L in seq_lens]
+    num_pages = sum(n_blocks) + 1
+    bt = torch.zeros(4, max(n_blocks) + 1, dtype=torch.int32)
+    i = 0
+    for r, nb in enumerate(n_blocks):
+        bt[r, :nb] = torch.arange(i, i + nb)
+        i += nb
+    sl = torch.zeros(4, dtype=torch.int32)
+    sl[:b] = torch.tensor(seq_lens)
+    kv = torch.randn(num_pages, h_k, PS, 2 * d, generator=gen).to(torch.float8_e4m3fn).to(DEV)
+    k_cache, v_cache = split_kv_cache(kv, "BHN2D", d)
+    query = (torch.randn(b * ql, h_q, d, generator=gen) * 0.5).to(torch.bfloat16).to(DEV)
+    one = torch.ones(1, device=DEV)
+
+    def run_once():
+        runner = T5DecodeRunner(
+            num_heads=h_q,
+            num_kv_heads=h_k,
+            head_size=d,
+            page_size=PS,
+            out_dtype=torch.bfloat16,
+            max_num_seqs=4,
+            max_q_len=ql,
+            q_mode="fp8",
+        )
+        out = torch.zeros(b * ql, h_q * d, dtype=torch.bfloat16, device=DEV)
+        plan = runner.plan(sl.tolist(), b, ql, bt.to(DEV), sl.to(DEV))
+        runner.ensure_compiled(ql, plan.with_reduction)
+        runner.run(plan, query, out, k_cache, v_cache, one, one, 1.0 / math.sqrt(d))
+        torch.cuda.synchronize()
+        return out.clone()
+
+    saved = (dict(R._COMPILED), os.environ.get("MJOLNIR_ATTN_KERNEL_CACHE"), R._disk_cache_ok)
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.environ["MJOLNIR_ATTN_KERNEL_CACHE"] = tmp
+            R._disk_cache_ok = True
+            R._COMPILED.clear()
+            c0 = dict(R.CACHE_STATS)
+            first = run_once()
+            assert R.CACHE_STATS["compiled"] > c0["compiled"], "expected a fresh compile"
+            files = list(Path(tmp).rglob("*.o"))
+            assert files, f"nothing exported to {tmp} (cache off: {not R._disk_cache_ok})"
+            R._COMPILED.clear()  # a new server start: only the disk cache is left
+            c1 = dict(R.CACHE_STATS)
+            second = run_once()
+            assert R.CACHE_STATS["loaded"] > c1["loaded"], f"not loaded from disk (cache off: {not R._disk_cache_ok})"
+            assert R.CACHE_STATS["compiled"] == c1["compiled"], "recompiled despite a cache entry"
+            assert torch.equal(first, second), "disk-cached kernel output differs"
+        finally:
+            R._COMPILED.clear()
+            R._COMPILED.update(saved[0])
+            R._disk_cache_ok = saved[2]
+            if saved[1] is None:
+                os.environ.pop("MJOLNIR_ATTN_KERNEL_CACHE", None)
+            else:
+                os.environ["MJOLNIR_ATTN_KERNEL_CACHE"] = saved[1]
 
 
 def test_cuda_graph_replay_with_new_plan():

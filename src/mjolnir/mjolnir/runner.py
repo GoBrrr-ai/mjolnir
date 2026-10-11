@@ -89,6 +89,111 @@ def tile_width(n_q: int, fp8_q: bool) -> int:
 _COMPILED: dict = {}
 _COMPILE_LOCK = threading.Lock()
 
+# ----------------------------------------------------------------------------
+# On-disk kernel cache: a compiled variant is exported as an object file
+# (CuTe DSL export_to_c) and loaded back on the next server start
+# (cute.runtime.load_module), skipping the ~2-3 s compile per variant.
+# MJOLNIR_ATTN_KERNEL_CACHE: unset/1 = on (under $VLLM_CACHE_ROOT/mjolnir or
+# ~/.cache/mjolnir), 0 = off, a path = that directory. The entry key covers
+# the variant, the kernel source, the CuTe DSL stack and the GPU, so a new
+# kernel, image or DSL never loads a stale object. Best effort: any failure
+# compiles in-process as before and turns the cache off for the process.
+# ----------------------------------------------------------------------------
+_DISK_MODULES: dict = {}  # keep loaded modules alive
+CACHE_STATS = {"loaded": 0, "compiled": 0}
+_disk_cache_ok = True
+
+
+def kernel_cache_dir():
+    from pathlib import Path
+
+    v = env_flag("MJOLNIR_ATTN_KERNEL_CACHE")
+    if v.lower() in ("0", "false", "no", "off"):
+        return None
+    if v and v.lower() not in ("1", "true", "yes", "on"):
+        return Path(v)
+    base = os.environ.get("VLLM_CACHE_ROOT") or os.path.join(os.path.expanduser("~"), ".cache")
+    return Path(base) / "mjolnir" / "kernels"
+
+
+_FINGERPRINT: str | None = None
+
+
+def _cache_fingerprint() -> str:
+    """Everything a compiled object depends on besides the variant key."""
+    global _FINGERPRINT
+    if _FINGERPRINT is None:
+        import hashlib
+        import importlib.metadata
+
+        from . import __version__
+
+        h = hashlib.sha256()
+        with open(t5.__file__, "rb") as f:
+            h.update(f.read())
+        dsl = sorted(
+            f"{d.metadata['Name']}=={d.version}"
+            for d in importlib.metadata.distributions()
+            if (d.metadata["Name"] or "").lower().startswith("nvidia-cutlass-dsl")
+        )
+        cap = torch.cuda.get_device_capability() if torch.cuda.is_available() else (0, 0)
+        h.update(f"{__version__}|{';'.join(dsl)}|sm{cap[0]}{cap[1]}".encode())
+        _FINGERPRINT = h.hexdigest()[:20]
+    return _FINGERPRINT
+
+
+def _cache_entry(key):
+    import hashlib
+
+    d = kernel_cache_dir()
+    if d is None:
+        return None
+    kh = hashlib.sha256(repr(key).encode()).hexdigest()[:20]
+    return d / _cache_fingerprint() / f"t5_{kh}.o", f"mjolnir_t5_{kh}"
+
+
+def _disk_load(key):
+    global _disk_cache_ok
+    if not _disk_cache_ok:
+        return None
+    try:
+        entry = _cache_entry(key)
+        if entry is None or not entry[0].exists():
+            return None
+        import cutlass.cute as cute
+
+        module = cute.runtime.load_module(str(entry[0]))
+        fn = getattr(module, entry[1])
+        _DISK_MODULES[key] = module
+        _log.debug("Mjolnir: loaded %s from %s", key, entry[0])
+        return fn
+    except Exception as e:  # noqa: BLE001 - any failure: compile instead
+        _disk_cache_ok = False
+        _log.warning("Mjolnir: kernel cache load failed (%r); compiling, cache off for this process", e)
+        return None
+
+
+def _disk_store(key, fn) -> None:
+    global _disk_cache_ok
+    if not _disk_cache_ok:
+        return
+    try:
+        entry = _cache_entry(key)
+        if entry is None:
+            return
+        path, symbol = entry
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".o.tmp.{os.getpid()}")
+        try:
+            fn.export_to_c(str(tmp), function_name=symbol)
+            os.replace(tmp, path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+    except Exception as e:  # noqa: BLE001 - persistence is best effort
+        _disk_cache_ok = False
+        _log.warning("Mjolnir: kernel cache store failed (%r); cache off for this process", e)
+
 
 @dataclass(frozen=True)
 class VariantKey:
@@ -349,10 +454,16 @@ class T5DecodeRunner:
                         f"T5 kernel variant {key} not compiled before CUDA-graph "
                         "capture; call precompile() (the vLLM backend does this)"
                     )
-                import cutlass.cute as cute
+                fn = _disk_load(key)
+                if fn is None:
+                    import cutlass.cute as cute
 
-                kernel = self._make_kernel(key)
-                fn = cute.compile(kernel, *args, options="--opt-level 2")
+                    kernel = self._make_kernel(key)
+                    fn = cute.compile(kernel, *args, options="--opt-level 2")
+                    CACHE_STATS["compiled"] += 1
+                    _disk_store(key, fn)
+                else:
+                    CACHE_STATS["loaded"] += 1
                 _COMPILED[key] = fn
         return fn
 
