@@ -27,7 +27,7 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 
 ## How to read it
 
-Depths that are not a multiple of a tile (K + V stages) rotate a tile's K/V across slots. Look for the depth that wins at most L by more than the noise band; a depth that only wins inside ±7% does not justify a change of default.
+Depths that are not a multiple of a tile (K + V stages) rotate a tile's K/V across slots. Look for the depth that wins at most L by more than the noise band; a depth that only wins inside ±{{ ctx.noise_pct }}% does not justify a change of default.
 
 ## Reproduce
 

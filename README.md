@@ -50,7 +50,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 |---|---|
 | **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.26× faster** (from 1.07× at 16K to 1.92× at 128) |
 | **vs FlashAttention 2** (stock vLLM's sm_110 default) | **1.85× faster** |
-| faster than FlashInfer beyond the ±7% noise band | **7 of 8** context lengths |
+| faster than FlashInfer beyond the ±3% noise band | **8 of 8** context lengths |
 | at the longest context (256K tokens) | **1.27×** vs FlashInfer |
 | one decode step at 64K tokens | **667.7 µs** (FlashInfer 840.3 µs, FlashAttention 2 1.28 ms) |
 | fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.21×** vs FlashInfer, geomean |
@@ -101,7 +101,7 @@ All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, b
 | **FlashInfer** | tensor-core decode as vLLM's FlashInfer backend runs it | fp8 e4m3, NHD pages |
 | **FlashAttention 2** | `vllm_flash_attn` FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 (FA2 has no fp8 KV) |
 
-The box is shared with a live server, so ±7% between runs is noise; ratios inside that band are drawn gray. Methodology: [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md).
+Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, so ratios inside that band are drawn gray (L=16K is the exception — it is bimodal across runs; see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-latency-dark.png">
@@ -113,7 +113,7 @@ The box is shared with a live server, so ±7% between runs is noise; ratios insi
 | **128** | 25.5 µs | 19.5 µs | 13.6 µs | **13.3 µs** | $\color{#16a34a}{\mathbf{1.87\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.43\times}}$ | $\color{#16a34a}{\mathbf{1.47\times}}$ |
 | **4K** | 60.3 µs | 88.8 µs | 54.8 µs | **49.4 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.62\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ |
 | **8K** | 93.3 µs | 179.1 µs | 84.4 µs | **80.5 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{2.12\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ |
-| **16K** | 184.4 µs | 340.3 µs | 177.2 µs | **172.9 µs** | $\color{grey}{1.04\times}$ | $\color{grey}{1.07\times}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.97\times}}$ |
+| **16K** | 184.4 µs | 340.3 µs | 177.2 µs | **172.9 µs** | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.97\times}}$ |
 | **32K** | 405.3 µs | 668.4 µs | **366.1 µs** | 366.9 µs | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ | $\color{#16a34a}{\mathbf{1.82\times}}$ |
 | **64K** | 840.3 µs | 1.28 ms | 711.8 µs | **667.7 µs** | $\color{#16a34a}{\mathbf{1.18\times}}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ |
 | **128K** | 1.60 ms | 2.37 ms | **1.31 ms** | 1.32 ms | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.82\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ |

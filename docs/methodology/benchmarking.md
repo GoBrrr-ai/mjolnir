@@ -119,8 +119,12 @@ Rules that keep the numbers honest:
   kernel — a split-KV kernel does not get to hide its second launch.
 - **Bandwidth:** effective GB/s = the leg's real KV bytes (format- and
   layout-aware: an fp6 cache is 0.75 B/element) ÷ total time.
-- **Noise:** on the shared Thor a single result moves about ±7% between runs;
-  tables mark |Δ| < 7% as within noise (`NOISE_PCT`), and a claimed win must
+- **Noise:** on a dedicated Thor the same FlashInfer/Mjolnir pair, repeated in
+  4–5 stage runs, gives a per-L ratio cv of 0.6–2.6% (median 1.25%), so tables
+  mark |Δ| < 3% as within noise (`NOISE_PCT`, ~2.3σ). Absolute times drift more
+  (~10% between runs at long L, both legs together), and L=16K is bimodal
+  (0.98× or 1.14× vs FlashInfer by run). End-to-end serving results use ±7%
+  (`E2E_NOISE_PCT`). A claimed win must
   hold across L and across two runs.
 - **Correctness first:** every format/layout the benchmarks use is in the
   `mjolnir verify correctness` matrix against the bit-faithful emulator.

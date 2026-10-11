@@ -15,7 +15,8 @@ Use this when changing the kernel or its defaults by hand (the autonomous loop i
 - Correctness first: `emulate_decode` in `t5_decode.py` is the bit-faithful
   reference; never change its math to make a test pass.
 - New code paths go behind a harness flag; flip a default only with data.
-- Differences under ±7% between two runs are noise (`NOISE_PCT`); compare legs
+- Same-run ratio differences under ±3% are noise (`NOISE_PCT`; L=16K is
+  bimodal — never decide on it alone); compare legs
   measured *in the same run*.
 
 ## The loop

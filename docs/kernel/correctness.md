@@ -26,7 +26,7 @@ Before any speed number counts, the kernel has to compute the same thing as atte
 | KV formats | ✅ 8/8 | fp8 |
 | default config | ✅ 10/10 | bf16, fp8 |
 
-<sub>Rendered from [`benchmarks/raw/verify/correctness/20261011-081738.json`](../../benchmarks/raw/verify/correctness/20261011-081738.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±7% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/correctness/20261011-081738.json`](../../benchmarks/raw/verify/correctness/20261011-081738.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

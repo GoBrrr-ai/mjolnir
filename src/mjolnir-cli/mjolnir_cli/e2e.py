@@ -51,6 +51,12 @@ METRICS: tuple[Metric, ...] = (
 )
 BY_KEY = {m.key: m for m in METRICS}
 
+# End-to-end numbers are wall-clock serving runs (two separate server launches,
+# llama-benchy means over runs): their noise is larger than the kernel's
+# same-run ncu ratios (verify.stages.NOISE_PCT). Per-run decode t/s spreads
+# ~10-15% in history.jsonl; the means of 6+ runs per side differ by up to ~7%.
+E2E_NOISE_PCT = 7.0
+
 
 def is_official(rec: dict) -> bool:
     return str(rec.get("image", "")).startswith("vllm/vllm-openai")

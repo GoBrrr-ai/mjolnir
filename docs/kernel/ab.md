@@ -19,7 +19,6 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 
 - Fastest variant at the most context lengths: **`pdl`** (4 of 8).
 - Best geomean vs FlashInfer: **`pdl`** (1.26×); worst: `base` (1.22×).
-- All variants sit within 3% of each other — inside the noise band.
 
 | variant | flags | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K | geomean |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
@@ -35,15 +34,15 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 |---|--:|--:|--:|--:|
 | **128** | 14.2 µs | 14.2 µs $\color{grey}{\text{0.0\%}}$ | 14.1 µs $\color{grey}{\text{−0.5\%}}$ | 14.0 µs $\color{grey}{\text{−1.4\%}}$ |
 | **4K** | 115.6 µs | 98.5 µs $\color{#16a34a}{\text{−14.8\%}}$ | 97.1 µs $\color{#16a34a}{\text{−16.0\%}}$ | 94.0 µs $\color{#16a34a}{\text{−18.7\%}}$ |
-| **8K** | 173.8 µs | 134.0 µs $\color{#16a34a}{\text{−22.9\%}}$ | 182.1 µs $\color{grey}{\text{+4.8\%}}$ | 131.9 µs $\color{#16a34a}{\text{−24.1\%}}$ |
+| **8K** | 173.8 µs | 134.0 µs $\color{#16a34a}{\text{−22.9\%}}$ | 182.1 µs $\color{#dc2626}{\text{+4.8\%}}$ | 131.9 µs $\color{#16a34a}{\text{−24.1\%}}$ |
 | **16K** | 260.8 µs | 204.7 µs $\color{#16a34a}{\text{−21.5\%}}$ | 255.8 µs $\color{grey}{\text{−1.9\%}}$ | 197.4 µs $\color{#16a34a}{\text{−24.3\%}}$ |
 | **32K** | 379.7 µs | 320.4 µs $\color{#16a34a}{\text{−15.6\%}}$ | 382.8 µs $\color{grey}{\text{+0.8\%}}$ | 317.2 µs $\color{#16a34a}{\text{−16.5\%}}$ |
-| **64K** | 624.5 µs | 591.7 µs $\color{grey}{\text{−5.2\%}}$ | 627.5 µs $\color{grey}{\text{+0.5\%}}$ | 565.1 µs $\color{#16a34a}{\text{−9.5\%}}$ |
-| **128K** | 1.12 ms | 1.06 ms $\color{grey}{\text{−5.5\%}}$ | 1.11 ms $\color{grey}{\text{−0.8\%}}$ | 1.06 ms $\color{grey}{\text{−5.4\%}}$ |
+| **64K** | 624.5 µs | 591.7 µs $\color{#16a34a}{\text{−5.2\%}}$ | 627.5 µs $\color{grey}{\text{+0.5\%}}$ | 565.1 µs $\color{#16a34a}{\text{−9.5\%}}$ |
+| **128K** | 1.12 ms | 1.06 ms $\color{#16a34a}{\text{−5.5\%}}$ | 1.11 ms $\color{grey}{\text{−0.8\%}}$ | 1.06 ms $\color{#16a34a}{\text{−5.4\%}}$ |
 | **256K** | 2.11 ms | 2.05 ms $\color{grey}{\text{−2.7\%}}$ | 2.12 ms $\color{grey}{\text{+0.7\%}}$ | 2.08 ms $\color{grey}{\text{−1.2\%}}$ |
 
 
-<sub>Rendered from [`benchmarks/raw/verify/ab/20261011-093214.json`](../../benchmarks/raw/verify/ab/20261011-093214.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±7% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/ab/20261011-093214.json`](../../benchmarks/raw/verify/ab/20261011-093214.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

@@ -57,7 +57,7 @@ def fmt_us(t: float | None) -> str:
 
 
 def ratio_md(r: float | None, bold_wins: bool = True) -> str:
-    """``1.25×`` colored: green = faster beyond the ±7% noise band, grey =
+    """``1.25×`` colored: green = faster beyond the ±NOISE_PCT noise band, grey =
     within noise, red = slower beyond noise (GitHub renders the LaTeX color)."""
     if r is None:
         return "—"
@@ -322,7 +322,7 @@ def ratio_pct(g: float | None) -> str:
         return "—"
     from mjolnir_cli import e2e
 
-    mark = "✅" if g > NOISE_PCT else ("🔻" if g < -NOISE_PCT else "🟰")
+    mark = "✅" if g > e2e.E2E_NOISE_PCT else ("🔻" if g < -e2e.E2E_NOISE_PCT else "🟰")
     return f"{e2e.pct(g)} {mark}"
 
 
@@ -447,6 +447,7 @@ class ReadmeContext:
     cli_version: str = ""
     ls: str = " ".join(L_label(L) for L in ALL_LS)
     noise_pct: str = f"{NOISE_PCT:.0f}"
+    e2e_noise_pct: str = field(default_factory=lambda: f"{__import__('mjolnir_cli.e2e').e2e.E2E_NOISE_PCT:.0f}")
     # headline (sweep)
     has_sweep: bool = False
     geo_vs_fi: str = ""

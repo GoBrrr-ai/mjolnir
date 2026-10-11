@@ -25,7 +25,15 @@ from mjolnir_cli.verify.docker import Runner
 
 ALL_LS: tuple[int, ...] = (128, 4096, 8192, 16384, 32768, 65536, 131072, 262144)
 DEFAULT_ITERS = 50
-NOISE_PCT = 7.0  # run-to-run noise on a shared Thor (ratios inside ±7% are "within noise")
+# Run-to-run noise of a SAME-RUN ratio (reference time ÷ variant time) on a
+# dedicated Thor (no live server, ncu base clocks, cold L2). Measured from the
+# 2026-10-11 bench: the same FlashInfer/Mjolnir pair repeated in 4-5 stage runs
+# gives a per-L ratio cv of 0.6-2.6% (median 1.25%), so ±3% is ~2.3σ of a
+# typical cell. Absolute µs drift more (~10% between runs at long L, both legs
+# together), so only ever compare legs measured in the same run. L=16K is
+# bimodal (FI/Mjolnir 0.98 or 1.14 depending on the run) — never judge a change
+# on 16K alone. Was 7% while the GPU was shared with a live vLLM server.
+NOISE_PCT = 3.0
 
 _MEDIAN = re.compile(r"^median ([0-9.]+) us(?:, ([0-9.e+]+) GB/s)?", re.M)
 

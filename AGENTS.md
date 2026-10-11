@@ -23,8 +23,12 @@ the agents run on**. When doing anything on the GPU:
   `mjolnir gate --once` shows the state.
 - **ncu** (base clocks, cold L2, kernel replay) is the instrument for kernel
   claims; wall clock is only for **ratios measured in the same run**.
-- On this box a single result moves about **±7%** between runs (`NOISE_PCT`):
-  compare legs measured in the same run, and require a win across L.
+- Noise on a dedicated Thor: a same-run ratio (reference ÷ variant) moves
+  **±3%** between runs (`NOISE_PCT`, cv 0.6–2.6%, median 1.25%), but absolute
+  µs drift ~10% between runs at long L — compare legs measured in the same run
+  and require a win across L. **L=16K is bimodal** (0.98× or 1.14× vs
+  FlashInfer depending on the run): never decide on 16K alone. End-to-end
+  serving numbers use a wider ±7% band (`E2E_NOISE_PCT`).
 - **Native vLLM baselines (FlashInfer, FA2) are measured only on the official
   `vllm/vllm-openai` image**, never on ours — the Mjolnir image patches
   FlashInfer paths too. `mjolnir verify` runs reference legs there

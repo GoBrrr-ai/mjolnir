@@ -76,8 +76,8 @@ a number in the README is always one you can trace to a raw file.
    mjolnir verify ab --variants "base:|new:--my_flag 1"
    ```
 
-4. Differences inside ±7% are noise on this box; a win shows up across L and
-   across two runs.
+4. Same-run ratio differences inside ±3% are noise on a dedicated Thor (16K
+   is bimodal — ignore it alone); a win shows up across L and across two runs.
 5. If it wins: flip the default, wire the env knob in `runner.py`/`backend.py`
    if vLLM should see it, run `mjolnir verify bench` + `mjolnir verify vllm`,
    re-render, and open a PR with the chapter in `docs/kernel/` updated.

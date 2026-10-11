@@ -47,7 +47,7 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 | **256K** | `e2m3-hnd` | 6 | 2.31 ms | 0.85 | 0.75 | 0.75 | 64 B | long_scoreboard 39.9 |
 | **256K** | `e2m1-hnd` | 4 | 1.28 ms | 0.47 | 0.50 | 0.50 | 64 B | long_scoreboard 20.1 |
 
-<sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261011-095706.json`](../../benchmarks/raw/verify/fp6prof/20261011-095706.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±7% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261011-095706.json`](../../benchmarks/raw/verify/fp6prof/20261011-095706.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

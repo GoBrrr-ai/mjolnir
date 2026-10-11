@@ -116,7 +116,7 @@ All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, b
 | **FlashInfer** | tensor-core decode as vLLM's FlashInfer backend runs it | fp8 e4m3, NHD pages |
 | **FlashAttention 2** | `vllm_flash_attn` FA2 — stock vLLM {{ ctx.vllm_version }}'s `sm_110` default | bf16 (FA2 has no fp8 KV) |
 
-The box is shared with a live server, so ±{{ ctx.noise_pct }}% between runs is noise; ratios inside that band are drawn gray. Methodology: [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md).
+Measured on a dedicated Thor: a same-run ratio repeats within ±{{ ctx.noise_pct }}% between runs, so ratios inside that band are drawn gray (L=16K is the exception — it is bimodal across runs; see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md)).
 
 {% if has("sweep") -%}
 {{ chart("kernel-latency", "Decode latency per step vs context length") }}
@@ -137,7 +137,7 @@ Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vll
 
 {{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir") }}
 
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond ±{{ ctx.noise_pct }}%).
+Each cell: official → **Mjolnir** (gain; positive = Mjolnir better, ✅ beyond the ±{{ ctx.e2e_noise_pct }}% end-to-end noise band — serving runs are noisier than the kernel's same-run ratios).
 
 {{ ctx.vs_vllm }}
 

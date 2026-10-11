@@ -58,7 +58,7 @@ Open, ranked by expected value (numbers from the 2026-10-11 `mjolnir verify benc
 1. **fp8 ring depth** — the serving path (vLLM writes fp8) still uses 4 stages; sweep 1–3 with `--kv_format fp8 --kv_layout hnd`.
 2. **Sub-tile split granularity** — at 4K only 32 of 40 CTAs get work (32 tiles, chunk 4 → 8 chunks per head); 64-row chunks would cut the critical path ~12% at 4K and ~7% at 8K.
 3. **Fuse the split-KV merge** into the last CTA per sequence — it is a ~7 µs second launch: 14% of the step at 4K, 9% at 8K.
-4. **The 16K dip** — Mjolnir is 0.98–1.07× FlashInfer at 16K in every run while 8K and 32K are better; find out whether it is a cliff (dense L sweep 12K–24K).
+4. **The 16K instability** — at 16K the FlashInfer/Mjolnir ratio is bimodal across runs (0.98× or 1.14×; every other L repeats within ±3%), for both fp8 and e2m3. Find what flips it (dense L sweep 12K–24K, repeated; chunk = 13 tiles there) — a stable 1.14× is a free win.
 5. **nvfp4 through block-scaled MMA** (`tcgen05 kind::mxf4nvf4`, one e4m3 scale per 16) instead of the convert warpgroup: today nvfp4 is 0.47–0.74× FlashInfer, while e2m1 at the same byte count is 2.2–2.5× faster than FlashInfer at ≥16K; nvfp4 error is 0.14 rel L2 vs 0.21 for e2m1.
 6. **fp4 accuracy** — e2m1 rel L2 0.21 (fp8 0.045, e2m3 0.052); finer scales: per-channel K folded into Q, per-token V folded into P.
 7. **fp6 request size** — e2m3 issues 1.5× the L2 requests of fp8 at 64 B each (fp6prof); a TMA box that yields 128 B requests may close the rest of the gap to the 0.75× byte ratio.

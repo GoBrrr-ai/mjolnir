@@ -23,9 +23,10 @@ from mjolnir_cli.config import RepoLayout
 from mjolnir_cli.history import load_records
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
+from mjolnir_cli.verify.stages import NOISE_PCT
 
 PEAK_GBS = 273.0  # Jetson AGX Thor LPDDR5X theoretical peak
-NOISE = 0.07  # run-to-run noise band on a shared Thor (±7%)
+NOISE = NOISE_PCT / 100  # same-run ratio noise band (see verify.stages.NOISE_PCT)
 DPI = 160
 
 
@@ -169,7 +170,7 @@ def chart_speedup(data: dict, mode: Mode):
         mode,
         "Mjolnir decode vs FlashInfer — every context length",
         "ncu kernel time (decode + split-KV merge), cold L2, base clocks · one sequence, 24 query / 4 KV heads, "
-        "d=256 · gray band = ±7% run-to-run noise",
+        f"d=256 · gray band = ±{NOISE_PCT:.0f}% run-to-run noise",
     )
     _footer_run(fig, mode, doc)
     return fig
@@ -319,7 +320,7 @@ def chart_hnd(data: dict, mode: Mode):
         ax,
         mode,
         "Head-major KV pages: a layout win for both, a bigger one for Mjolnir",
-        "same data, NHD (pages, 2, PS, h_k, d) vs HND (pages, 2, h_k, PS, d) · gray band = ±7% noise",
+        f"same data, NHD (pages, 2, PS, h_k, d) vs HND (pages, 2, h_k, PS, d) · gray band = ±{NOISE_PCT:.0f}% noise",
     )
     _footer_run(fig, mode, doc)
     return fig
@@ -552,7 +553,7 @@ def chart_pdl(data: dict, mode: Mode):
         axes[0],
         mode,
         "Programmatic dependent launch",
-        "harness median, cold L2 · orange = PDL faster, blue = slower · gray band = ±7% noise",
+        f"harness median, cold L2 · orange = PDL faster, blue = slower · gray band = ±{NOISE_PCT:.0f}% noise",
     )
     _footer_run(fig, mode, doc)
     return fig

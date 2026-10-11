@@ -27,7 +27,7 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 
 ## How to read it
 
-PDL removes launch gaps, so any win is largest where the step is short (small L). Bars inside the gray ±7% band are noise; PDL stays opt-in (`MJOLNIR_ATTN_PDL=1`) unless it wins consistently.
+PDL removes launch gaps, so any win is largest where the step is short (small L). Bars inside the gray ±{{ ctx.noise_pct }}% band are noise; PDL stays opt-in (`MJOLNIR_ATTN_PDL=1`) unless it wins consistently.
 
 ## Reproduce
 
