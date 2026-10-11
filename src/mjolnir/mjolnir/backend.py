@@ -272,6 +272,19 @@ def _fp6_scratch(pages: int, H: int, N: int, row: int, device) -> torch.Tensor:
     return buf
 
 
+def _set_scale(layer, name: str, value: torch.Tensor) -> None:
+    """Replace a layer's k/v scale with ``value`` (any shape), keeping its
+    kind: quantized checkpoints (e.g. ModelOpt NVFP4) register the scales as
+    nn.Parameters, which a plain tensor cannot be assigned over."""
+    cur = getattr(layer, name, None)
+    if isinstance(cur, torch.nn.Parameter):
+        setattr(layer, name, torch.nn.Parameter(value, requires_grad=False))
+    elif name in getattr(layer, "_buffers", {}):
+        layer._buffers[name] = value
+    else:
+        setattr(layer, name, value)
+
+
 def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
     """Per-(layer, KV head, channel) e2m3 scales from the calibration file.
 
@@ -311,8 +324,8 @@ def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
             state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()  # (h_q, d)
         state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
         layer._mjolnir_fp6 = state
-        layer._k_scale = state["k_head"]
-        layer._v_scale = state["v_head"]
+        _set_scale(layer, "_k_scale", state["k_head"])
+        _set_scale(layer, "_v_scale", state["v_head"])
     logger.info(
         "Mjolnir: fp6_e2m3 KV scales (%s) for %d layer(s) from %s",
         "per channel" if any(kvscales.per_channel(doc, n) for n in layers) else "per head",
