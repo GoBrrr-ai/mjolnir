@@ -116,6 +116,7 @@ def execute(
         f"[dim]   image {s.image}{'' if s.image == DEFAULT_IMAGE else f' (not the default {DEFAULT_IMAGE})'} · kernel {'checkout ' + str(kernel_src) if kernel_src else 'baked into the image'}"
         f" · L {' '.join(str(x) for x in ctx.ls)} · logs {logdir}[/dim]"
     )
+    console.print(f"[dim]   FlashInfer / FA2 references run on the official image {runner.ref_image}[/dim]")
     if not dry_run:
         from mjolnir_cli import cachectl
 
@@ -142,6 +143,7 @@ def execute(
         kernel=_kernel_info(layout),
         gate=ctx.gate_log,
     )
+    doc["ref_image"] = runner.ref_image  # where the FlashInfer / FA2 legs ran (stock vLLM)
     doc.update(body)
     doc["summary"] = stages.summarize(stage, doc)
     if dry_run:

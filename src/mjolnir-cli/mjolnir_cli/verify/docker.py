@@ -46,10 +46,20 @@ _IN_DRIVERS = "/opt/mjolnir-drivers"
 _IN_NCU = "/ncu"
 
 
+def default_ref_image() -> str:
+    """Where the FlashInfer / FA2 reference legs run: the OFFICIAL upstream
+    vLLM image, never ours — the Mjolnir image patches FlashInfer paths too,
+    so a reference measured there would not be stock vLLM."""
+    from mjolnir_cli.config import STOCK_IMAGE
+
+    return os.environ.get("MJOLNIR_REF_IMAGE", STOCK_IMAGE)
+
+
 @dataclass
 class Runner:
     image: str
     logdir: Path
+    ref_image: str = field(default_factory=default_ref_image)  # FlashInfer / FA2 legs
     kernel_src: Path | None = None  # checkout's src/mjolnir (mounted over the image copy)
     ncu_home: str = field(default_factory=lambda: os.environ.get("NCU_HOME", NCU_HOME_DEFAULT))
     timeout: float = 180.0
@@ -59,7 +69,26 @@ class Runner:
     d: int = 256
     page: int = 128
 
+    _ready: set = field(default_factory=set, repr=False)
+
     # ── low level ──────────────────────────────────────────────────────────
+    def image_for(self, leg: Leg) -> str:
+        """Mjolnir legs run on the Mjolnir image; FlashInfer / FA2 references
+        on the official vLLM image."""
+        return self.image if leg.kind == "t5" else self.ref_image
+
+    def _ensure(self, image: str, log: Path) -> bool:
+        if self.dry_run or image in self._ready:
+            return True
+        err = ensure_image(image)
+        if err:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text(err + "\n")
+            print(f"  ! {err}", file=sys.stderr)
+            return False
+        self._ready.add(image)
+        return True
+
     def _name(self, prefix: str) -> str:
         return f"{prefix}-{os.getpid()}-{random.randint(0, 1 << 30)}"
 
@@ -166,7 +195,8 @@ class Runner:
             "-e",
             "TMPDIR=/tmp/ncu-mjolnir",
         ]
-        argv += self._overlay()
+        if leg.kind == "t5":
+            argv += self._overlay()
         for e in env:
             argv += ["-e", e]
         flt = FILTERS[leg.kind]
@@ -175,7 +205,10 @@ class Runner:
             f"--clock-control {clock} --cache-control {cache} --kernel-name {shlex.quote(flt)} "
             f"--print-summary per-kernel --metrics {ncu.METRICS} {cmd}"
         )
-        argv += [self.image, "-c", inner]
+        image = self.image_for(leg)
+        if not self._ensure(image, log):
+            return 2, None
+        argv += [image, "-c", inner]
         rc = self._run(argv, log, name, timeout=max(self.timeout, 600.0))
         if rc != 0 or self.dry_run:
             return rc, None
@@ -230,7 +263,10 @@ class Runner:
                 "-e",
                 "TMPDIR=/tmp/ncu-mjolnir",
             ]
-            argv += self._overlay() + [self.image, "-c", inner]
+            image = self.image_for(leg)
+            if not self._ensure(image, outdir / f"{name}.log"):
+                return 2, {}
+            argv += (self._overlay() if leg.kind == "t5" else []) + [image, "-c", inner]
             rc = self._run(argv, outdir / f"{name}.log", cname, timeout=max(self.timeout, 900.0))
             if rc == 0:
                 break
