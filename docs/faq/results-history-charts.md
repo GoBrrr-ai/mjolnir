@@ -22,7 +22,7 @@ mjolnir history --json         # raw records for jq / scripts
 ```
 
 Each run is labeled `backend — image`, e.g.
-`Mjolnir — narandill/mjolnir-vllm:v0.30.0`. For a same-cell
+`Mjolnir — narandill/mjolnir-vllm:v0.31.0`. For a same-cell
 comparison (e.g. context 8K, c=1) pull the mean + std from the records or
 the raw JSONs; a single-run delta smaller than the cell's std is noise —
 the protocol (6 measured runs/cell in one clean window, `--repeat` adds

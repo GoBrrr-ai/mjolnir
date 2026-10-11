@@ -18,7 +18,7 @@ Exact commands, in order, on a Thor host:
 
 ```
 $ # e.g.
-$ mjolnir serve up --image narandill/mjolnir-vllm:v0.30.0
+$ mjolnir serve up --image narandill/mjolnir-vllm:v0.31.0
 $ mjolnir verify sweep
 ...
 ```
@@ -27,8 +27,8 @@ $ mjolnir verify sweep
 
 | Field | Value |
 |---|---|
-| Image tag | `mjolnir image` (e.g. `narandill/mjolnir-vllm:v0.30.0`) |
-| Base vLLM | (e.g. `vllm/vllm-openai:v0.30.0-ubuntu2404`) |
+| Image tag | `mjolnir image` (e.g. `narandill/mjolnir-vllm:v0.31.0`) |
+| Base vLLM | (e.g. `vllm/vllm-openai:v0.31.0-ubuntu2404`) |
 | Model + quant config | (e.g. `configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR.yaml`) |
 | `mjolnir` version | `mjolnir version` (+ git commit if from a checkout) |
 | `mjolnir-kernel` version | `python -c 'import mjolnir; print(mjolnir.__version__)'` in the container |

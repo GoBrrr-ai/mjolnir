@@ -29,8 +29,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Order: 55390 and 55519 both touch v1/core/kv_cache_utils.py; 55519's hunk
-# applies on top of 55390's changes, so it must come after. The gdn-prefill
+# Order: #55390 (MTP draft-group annotation) is upstream since vLLM 0.31.0, so
+# its patch is gone; 55519 is re-adapted onto the upstream code (it still
+# touches v1/core/kv_cache_utils.py + v1/core/sched/scheduler.py). The gdn-prefill
 # and fa4 sm_110 gate patches touch files disjoint from every other patch
 # (qwen_gdn_linear_attn.py; v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches
@@ -47,7 +48,6 @@ PATCH_ORDER = [
     "54165-mamba-spec-kv-restore.patch",
     "49652-draft-decode-capture.patch",
     "50885-flashinfer-full-cudagraph.patch",
-    "55390-mtp-draft-group-annotation.patch",
     "55519-no-warn-when-block-drop-off.patch",
     "thor-gdn-prefill-sm110.patch",
     "thor-fused-draft-decode-fi-native-update.patch",

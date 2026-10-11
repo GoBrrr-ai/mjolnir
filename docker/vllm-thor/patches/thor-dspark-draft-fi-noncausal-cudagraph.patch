@@ -1,7 +1,8 @@
 diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index 313db063a2fc42507bb869f63d8cd7f0b16ab934..53bb45650fc83fdf67930374a10b1f0e9e8d80cc 100644
 --- a/vllm/v1/attention/backends/flashinfer.py
 +++ b/vllm/v1/attention/backends/flashinfer.py
-@@ -743,6 +743,20 @@
+@@ -749,6 +749,20 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              self._decode_wrappers_cudagraph: dict[
                  tuple[int, int], BatchDecodeWithPagedKVCacheWrapper
              ] = {}
@@ -22,12 +23,10 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
              self._decode_cudagraph_max_bs = (1 + num_spec_tokens) * max_num_reqs
              if self.compilation_config.max_cudagraph_capture_size is not None:
                  self._decode_cudagraph_max_bs = min(
-@@ -1041,6 +1055,25 @@
-         if (
-             flashinfer_supports_uniform_multi_token_decode()
+@@ -1037,6 +1051,25 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              and not use_non_causal
-+        ):
-+            return AttentionCGSupport.UNIFORM_BATCH
+         ):
+             return AttentionCGSupport.UNIFORM_BATCH
 +        # Thor: a non-causal multi-token drafter (DSpark/DSpark draft) routes
 +        # through the FI *prefill* wrapper, which plans eagerly outside the
 +        # captured graph and is replay-safe (see
@@ -45,14 +44,15 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
 +            and vllm_config.parallel_config.decode_context_parallel_size == 1
 +            and vllm_config.speculative_config is not None
 +            and (vllm_config.speculative_config.num_speculative_tokens or 0) > 0
-         ):
-             return AttentionCGSupport.UNIFORM_BATCH
++        ):
++            return AttentionCGSupport.UNIFORM_BATCH
          return AttentionCGSupport.UNIFORM_SINGLE_TOKEN_DECODE
-@@ -1229,6 +1262,39 @@
-                     )
+ 
+     @override  # type: ignore[misc]
+@@ -1267,6 +1300,39 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          assert self._prefill_wrapper is not None
          return self._prefill_wrapper
-+
+ 
 +    def _get_noncausal_prefill_wrapper_cudagraph(
 +        self, batch_size: int
 +    ) -> BatchPrefillWithPagedKVCacheWrapper:
@@ -85,10 +85,11 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
 +            )
 +            self._noncausal_prefill_wrappers_cudagraph[batch_size] = wrapper
 +        return wrapper
- 
++
      def _get_decode_wrapper(
          self, batch_size: int, use_cudagraph: bool = False, q_len_per_req: int = 1
-@@ -1613,7 +1679,30 @@
+     ):
+@@ -1682,7 +1748,30 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                      max_seq_len=max_seq_len,
                  )
              else:

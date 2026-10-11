@@ -1,7 +1,8 @@
 diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index 17833d7368f57eac53e3f803c3ce57cf47252cc0..313db063a2fc42507bb869f63d8cd7f0b16ab934 100644
 --- a/vllm/v1/attention/backends/flashinfer.py
 +++ b/vllm/v1/attention/backends/flashinfer.py
-@@ -934,6 +934,24 @@
+@@ -928,6 +928,24 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          self.paged_kv_last_page_len = CpuGpuBuffer(
              max_num_reqs, dtype=torch.int32, device=self.device, pin_memory=False
          )
@@ -26,7 +27,7 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
  
      @property
      def kv_cache_layout(self) -> KVCacheLayout:
-@@ -1315,6 +1333,10 @@
+@@ -1352,6 +1370,10 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          num_reqs = common_attn_metadata.num_reqs
          num_actual_tokens = common_attn_metadata.num_actual_tokens
          causal = common_attn_metadata.causal
@@ -37,11 +38,10 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
          route_decode = causal or self.use_xqa
          if route_decode:
              num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
-@@ -1796,6 +1818,49 @@
-                 )
+@@ -1865,6 +1887,49 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                  attn_metadata.decode = FIDecode(wrapper=decode_wrapper)
          return attn_metadata
-+
+ 
 +    def update_draft_decode_metadata(self, metadata: FlashInferMetadata) -> None:
 +        # The trtllm-gen / XQA decode path reads its block table and seq lens
 +        # from the live persistent GPU buffers (advanced in place between
@@ -84,10 +84,11 @@ diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backen
 +            BLOCK_SIZE=1024,
 +            num_warps=4,
 +        )
- 
++
      def use_cascade_attention(self, *args, **kwargs) -> bool:
          if self.kv_cache_spec.dtype != self.vllm_config.model_config.dtype:
-@@ -2787,3 +2852,62 @@
+             # TODO: The cascade wrapper currently does not support setting
+@@ -2849,3 +2914,62 @@ def _copy_page_indices_kernel(
              block_ids,
              mask=i + offset < num_blocks,
          )

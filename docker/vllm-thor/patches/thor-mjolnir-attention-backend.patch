@@ -1,8 +1,8 @@
 diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
-index 571566d..5d20660 100644
+index 32e2fabeb5673a0f43326f23e8711ef50c77c0c7..2f5395f95f591aac670254945fa05aa12f37793a 100644
 --- a/vllm/v1/attention/backends/registry.py
 +++ b/vllm/v1/attention/backends/registry.py
-@@ -146,6 +146,12 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
+@@ -149,6 +149,12 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
      CPU_MLA = "vllm.v1.attention.backends.mla.cpu_mla.CPUMLABackend"
      AMX_MLA = "vllm.v1.attention.backends.mla.amx_mla.AMXMLABackend"
      TURBOQUANT = "vllm.v1.attention.backends.turboquant_attn.TurboQuantAttentionBackend"

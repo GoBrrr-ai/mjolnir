@@ -107,7 +107,7 @@ Rules that keep the numbers honest:
   any other L list is saved as non-default and never feeds a headline chart.
 - **Legs:** Mjolnir (its harness defaults, on the Mjolnir image), FlashInfer
   (vLLM's decode kernel on Thor; NHD and HND drivers) and FlashAttention 2
-  (`vllm_flash_attn`, bf16 KV — what stock vLLM 0.30.0 picks when FlashInfer is
+  (`vllm_flash_attn`, bf16 KV — what stock vLLM 0.31.0 picks when FlashInfer is
   off). **The references run on the official `vllm/vllm-openai` image** — the
   Mjolnir image patches FlashInfer paths, so a reference measured there would
   not be native vLLM (`MJOLNIR_REF_IMAGE` overrides, recorded as `ref_image`

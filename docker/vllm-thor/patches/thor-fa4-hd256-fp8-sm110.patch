@@ -1,231 +1,5 @@
-diff --git a/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py b/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py
-index 054a655..11413d0 100644
---- a/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py
-+++ b/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py
-@@ -27,7 +27,11 @@ from vllm.vllm_flash_attn.cute.mask import (
-     Sm100FusedMask as FusedMask,
- )
- from vllm.vllm_flash_attn.cute.cute_dsl_utils import assume_tensor_aligned
--from vllm.vllm_flash_attn.cute.flash_fwd_sm100 import DescaleTensors, _TUNING_CONFIG
-+from vllm.vllm_flash_attn.cute.flash_fwd_sm100 import (
-+    DescaleTensors,
-+    _LOG2_DTYPE_MAX,
-+    _TUNING_CONFIG,
-+)
- from vllm.vllm_flash_attn.cute.seqlen_info import SeqlenInfoQK
- from vllm.vllm_flash_attn.cute.utils import (
-     AuxData,
-@@ -208,8 +212,9 @@ class BlackwellFusedMultiHeadAttentionForward:
-             assert window_size_left is None and window_size_right is None, (
-                 "SM100 forward with head_dim=256 does not support runtime window sizes without seqused_q/seqused_k"
-             )
--        assert descale_tensors is None, (
--            "SM100 forward with head_dim=256 does not support descale_tensors"
-+
-+        assert cutlass.const_expr(mLSE is None or descale_tensors is None), (
-+            "hd256 FP8 descale path does not yet produce descale-correct LSE"
-         )
- 
-         q_tensor, k_tensor, v_tensor, o_tensor = mQ, mK, mV, assume_tensor_aligned(mO)
-@@ -644,6 +649,7 @@ class BlackwellFusedMultiHeadAttentionForward:
-             TileScheduler,
-             aux_data,
-             fastdiv_mods,
-+            descale_tensors,
-         ).launch(
-             grid=grid,
-             block=[self.threads_per_cta, 1, 1],
-@@ -688,6 +694,7 @@ class BlackwellFusedMultiHeadAttentionForward:
-         TileScheduler: cutlass.Constexpr,
-         aux_data: AuxData = AuxData(),
-         fastdiv_mods=(None, None),
-+        descale_tensors: Optional[DescaleTensors] = None,
-     ):
-         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
- 
-@@ -1434,6 +1441,15 @@ class BlackwellFusedMultiHeadAttentionForward:
-                         row_max = -Float32.inf
-                         row_max_prev = -Float32.inf
-                         row_sum = 0.0
-+                        # THOR_SM110_FA4_HD256_FP8: load the per-(batch, kv_head)
-+                        # qk descale once per work-tile (every K-tile below reuses it).
-+                        if cutlass.const_expr(descale_tensors is not None):
-+                            kv_head_idx = self._kv_head_idx(curr_block_coord[2][0])
-+                            qk_descale, _ = self._load_effective_descales(
-+                                descale_tensors, batch_coord, kv_head_idx
-+                            )
-+                        else:
-+                            qk_descale = Float32(1.0)
- 
-                         end_count = start_count + trip_count
-                         if cutlass.const_expr(self.use_semantic_trip_range):
-@@ -1490,12 +1506,14 @@ class BlackwellFusedMultiHeadAttentionForward:
-                                     seqlen_q,
-                                     seqlen_k,
-                                     scale_softmax_log2,
-+                                    qk_descale,
-                                 ),
-                                 (tStS, tScS_iter, qk_thr_mma),
-                                 (mma_s_consumer, p_mma_producer, s_corr_producer),
-                                 seqlen_info,
-                                 aux_data,
-                                 tile_fastdiv_mods,
-+                                descale_tensors,
-                             )
-                             row_max_prev = row_max
-                         sum_producer = self.store_sum_max(
-@@ -1581,17 +1599,32 @@ class BlackwellFusedMultiHeadAttentionForward:
-                     # Empty step as the first step is no need for correction
-                     stats_handle = s_corr_consumer.wait_and_advance()
-                     stats_handle.release()
-+                    # THOR_SM110_FA4_HD256_FP8: load the per-(batch, kv_head) qk + v
-+                    # descales once per work-tile. qk_descale is folded into the
-+                    # cross-n-block rescale scale below (it must equal the softmax-step
-+                    # scale that produced P / row_sum, otherwise O_acc and row_sum are
-+                    # rebased by different factors); v_descale folds into the final
-+                    # row-sum normalization in the epilogue.
-+                    if cutlass.const_expr(descale_tensors is not None):
-+                        kv_head_idx = self._kv_head_idx(curr_block_coord[2][0])
-+                        qk_descale, v_descale = self._load_effective_descales(
-+                            descale_tensors, batch_coord, kv_head_idx
-+                        )
-+                        descaled_scale_log2 = scale_softmax_log2 * qk_descale
-+                    else:
-+                        v_descale = Float32(1.0)
-+                        descaled_scale_log2 = scale_softmax_log2
-                     for step in cutlass.range(1, seqlen_kv_loop_steps, 1, unroll=1):
-                         # Oi-1 -> Oi
-                         mma_corr_consumer, s_corr_consumer = self.correction_rescale(
--                            scale_softmax_log2,
-+                            descaled_scale_log2,
-                             (s_corr_consumer, tStS, tScS),
-                             (mma_corr_consumer, tOtO_staged, cO_staged),
-                             self.epi_tile,
-                         )
-                     # O_partial -> O_final
-                     mma_corr_consumer, sum_consumer = self.correction_epilog(
--                        (seqlen_q, scale_output),
-+                        (seqlen_q, scale_output, v_descale),
-                         (sum_consumer, sSum),
-                         (
-                             mma_corr_consumer,
-@@ -1602,6 +1635,7 @@ class BlackwellFusedMultiHeadAttentionForward:
-                             gmem_tiled_copy_o,
-                         ),
-                         self.epi_tile,
-+                        descale_tensors,
-                     )
-                 if not continue_cond and seqlen_kv_loop_steps == 0:
-                     mO_qdl_eff = mO_qdl
-@@ -1677,6 +1711,38 @@ class BlackwellFusedMultiHeadAttentionForward:
-         tOtO_staged = cute.make_tensor(tOtO.iterator + self.tmem_o_offset, tOtO_layout)
-         return tStS, tOtO_staged
- 
-+    # THOR_SM110_FA4_HD256_FP8
-+    # FP8 descale plumbing transcribed from flash_fwd_sm100.py (_kv_head_idx /
-+    # _load_effective_descales, :2003-2027). Used only on the e4m3 path; on the
-+    # bf16/fp16 path (no descales) both helpers reduce to the identity.
-+
-+    @cute.jit
-+    def _kv_head_idx(self, head_idx: Int32) -> Int32:
-+        """Map query-head tile index -> KV-head index (FA3 descale semantics).
-+
-+        hd256 never uses pack_gqa (asserted in __init__), so this is always the
-+        plain ``head_idx // qhead_per_kvhead`` mapping."""
-+        return head_idx // self.qhead_per_kvhead
-+
-+    @cute.jit
-+    def _load_effective_descales(
-+        self,
-+        descale_tensors: Optional[DescaleTensors],
-+        batch_idx: Int32,
-+        kv_head_idx: Int32,
-+    ) -> Tuple[Float32, Float32]:
-+        """Load effective QK and V descales, defaulting unspecified tensors to identity."""
-+        qk_descale = Float32(1.0)
-+        v_descale = Float32(1.0)
-+        if cutlass.const_expr(descale_tensors is not None):
-+            if cutlass.const_expr(descale_tensors.q_descale is not None):
-+                qk_descale = qk_descale * Float32(descale_tensors.q_descale[batch_idx, kv_head_idx])
-+            if cutlass.const_expr(descale_tensors.k_descale is not None):
-+                qk_descale = qk_descale * Float32(descale_tensors.k_descale[batch_idx, kv_head_idx])
-+            if cutlass.const_expr(descale_tensors.v_descale is not None):
-+                v_descale = Float32(descale_tensors.v_descale[batch_idx, kv_head_idx])
-+        return qk_descale, v_descale
-+
-     @cute.jit
-     def softmax_step(
-         self,
-@@ -1687,6 +1753,7 @@ class BlackwellFusedMultiHeadAttentionForward:
-         seqlen_info: SeqlenInfoQK,
-         aux_data: AuxData = AuxData(),
-         fastdiv_mods=(None, None),
-+        descale_tensors: Optional[DescaleTensors] = None,
-     ) -> Tuple[Float32, Float32, pipeline.PipelineConsumer, pipeline.PipelineProducer]:
-         (
-             need_apply_mask,
-@@ -1699,7 +1766,7 @@ class BlackwellFusedMultiHeadAttentionForward:
-             head_idx,
-         ) = mask_args
-         n_block = step
--        row_max, row_sum, seqlen_q, seqlen_k, scale_softmax_log2 = value_args
-+        row_max, row_sum, seqlen_q, seqlen_k, scale_softmax_log2, qk_descale = value_args
-         tStS, tScS, qk_thr_mma = tensor_args
-         mma_s_consumer, p_mma_producer, s_corr_producer = pipeline_args
-         tidx, _, _ = cute.arch.thread_idx()
-@@ -1813,8 +1880,21 @@ class BlackwellFusedMultiHeadAttentionForward:
-         cute.arch.fence_view_async_tmem_store()
-         stats_handle.commit()
- 
--        scale = scale_softmax_log2
--        minus_row_max_scale = (0.0 - row_max_safe) * scale
-+        if cutlass.const_expr(descale_tensors is not None):
-+            # THOR_SM110_FA4_HD256_FP8: fold the per-(batch, kv_head) qk descale and
-+            # the 2**8 low-precision offset into the log2 softmax scale so the fp8 P
-+            # matrix spends its unused upper code points on the probability tail.
-+            # max_offset (8) must stay below log2(max q_dtype value) to avoid
-+            # saturating P (see Note [Low Precision Scaling] in flash_fwd_sm100).
-+            assert 8 < _LOG2_DTYPE_MAX[self.q_dtype], (
-+                "max_offset (8) must stay below log2(max q_dtype value) to avoid saturating P"
-+            )
-+            max_offset = Float32(8.0)
-+            scale = scale_softmax_log2 * qk_descale
-+            minus_row_max_scale = max_offset + (0.0 - row_max_safe) * scale
-+        else:
-+            scale = scale_softmax_log2
-+            minus_row_max_scale = (0.0 - row_max_safe) * scale
-         # Acquire P write slot early — overlaps any pipeline stall with exp2 compute
-         p_handle = p_mma_producer.acquire_and_advance()
-         # Fragment-based FMA + exp2 + bf16 conversion
-@@ -2019,8 +2099,9 @@ class BlackwellFusedMultiHeadAttentionForward:
-         sum_args: Tuple,
-         o_args: Tuple,
-         epi_tile: cute.Tile,
-+        descale_tensors: Optional[DescaleTensors] = None,
-     ) -> Tuple[pipeline.PipelineConsumer, pipeline.PipelineProducer]:
--        (seqlen_q, scale_output) = value_args
-+        (seqlen_q, scale_output, v_descale) = value_args
-         (sum_consumer, sSum) = sum_args
-         (
-             mma_o_consumer,
-@@ -2040,7 +2121,14 @@ class BlackwellFusedMultiHeadAttentionForward:
-             sO = sO_staged[None, None, 0]
-             row_sum = sSum[thread_idx]
-             row_sum_is_zero_or_nan = row_sum == 0.0 or row_sum != row_sum
--            scale = scale_output / row_sum if not row_sum_is_zero_or_nan else 0.0
-+            # THOR_SM110_FA4_HD256_FP8: fold the per-(batch, kv_head) v descale into the
-+            # final row-sum normalization. The 2**max_offset factor carried by O_acc
-+            # cancels against the identical factor in row_sum, so no max_offset_scale
-+            # division is needed here (hd256 has no sinks/LSE in this path).
-+            if cutlass.const_expr(descale_tensors is not None):
-+                scale = (scale_output * v_descale) / row_sum if not row_sum_is_zero_or_nan else 0.0
-+            else:
-+                scale = scale_output / row_sum if not row_sum_is_zero_or_nan else 0.0
-             tOtO = tOtO_staged[(None, None), 0, 0, iter]
-             tOtO_epi = cute.zipped_divide(tOtO, epi_tile)
-             sO_epi = cute.zipped_divide(sO, epi_tile)
 diff --git a/vllm/v1/attention/backends/fa_utils.py b/vllm/v1/attention/backends/fa_utils.py
-index 9a91b97..e45e9be 100644
+index bf3f1c8df75360e2dd60d09b1d3b142e40e6f574..3757b9843fe71056185b71a8b5a31f1176672a88 100644
 --- a/vllm/v1/attention/backends/fa_utils.py
 +++ b/vllm/v1/attention/backends/fa_utils.py
 @@ -249,7 +249,20 @@ def _fa4_hd256_fallback_reason(
@@ -456,8 +230,8 @@ index 9a91b97..e45e9be 100644
  def flash_attn_supports_kv_cache_dtype(
      kv_cache_dtype: str = "fp8_e4m3",
      *,
-@@ -464,14 +676,21 @@ def flash_attn_supports_kv_cache_dtype(
-     return (fa_version == 3 and current_platform.is_device_capability_family(90)) or (
+@@ -468,14 +680,21 @@ def flash_attn_supports_kv_cache_dtype(
+     return (sm90_fp8_kv_supported and is_sm90) or (
          fa_version == 4 and current_platform.is_device_capability_family(100)
      ) or (
 -        # THOR SM110: admit FA4 + FP8 KV on Jetson Thor only while the
@@ -481,3 +255,229 @@ index 9a91b97..e45e9be 100644
      )
  
  
+diff --git a/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py b/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py
+index 054a655314c8f51402e3a2f1d451165b5730e987..11413d0a334c16e0ee25a800f877ce03d3a3871a 100644
+--- a/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py
++++ b/vllm/vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py
+@@ -27,7 +27,11 @@ from vllm.vllm_flash_attn.cute.mask import (
+     Sm100FusedMask as FusedMask,
+ )
+ from vllm.vllm_flash_attn.cute.cute_dsl_utils import assume_tensor_aligned
+-from vllm.vllm_flash_attn.cute.flash_fwd_sm100 import DescaleTensors, _TUNING_CONFIG
++from vllm.vllm_flash_attn.cute.flash_fwd_sm100 import (
++    DescaleTensors,
++    _LOG2_DTYPE_MAX,
++    _TUNING_CONFIG,
++)
+ from vllm.vllm_flash_attn.cute.seqlen_info import SeqlenInfoQK
+ from vllm.vllm_flash_attn.cute.utils import (
+     AuxData,
+@@ -208,8 +212,9 @@ class BlackwellFusedMultiHeadAttentionForward:
+             assert window_size_left is None and window_size_right is None, (
+                 "SM100 forward with head_dim=256 does not support runtime window sizes without seqused_q/seqused_k"
+             )
+-        assert descale_tensors is None, (
+-            "SM100 forward with head_dim=256 does not support descale_tensors"
++
++        assert cutlass.const_expr(mLSE is None or descale_tensors is None), (
++            "hd256 FP8 descale path does not yet produce descale-correct LSE"
+         )
+ 
+         q_tensor, k_tensor, v_tensor, o_tensor = mQ, mK, mV, assume_tensor_aligned(mO)
+@@ -644,6 +649,7 @@ class BlackwellFusedMultiHeadAttentionForward:
+             TileScheduler,
+             aux_data,
+             fastdiv_mods,
++            descale_tensors,
+         ).launch(
+             grid=grid,
+             block=[self.threads_per_cta, 1, 1],
+@@ -688,6 +694,7 @@ class BlackwellFusedMultiHeadAttentionForward:
+         TileScheduler: cutlass.Constexpr,
+         aux_data: AuxData = AuxData(),
+         fastdiv_mods=(None, None),
++        descale_tensors: Optional[DescaleTensors] = None,
+     ):
+         warp_idx = cute.arch.make_warp_uniform(cute.arch.warp_idx())
+ 
+@@ -1434,6 +1441,15 @@ class BlackwellFusedMultiHeadAttentionForward:
+                         row_max = -Float32.inf
+                         row_max_prev = -Float32.inf
+                         row_sum = 0.0
++                        # THOR_SM110_FA4_HD256_FP8: load the per-(batch, kv_head)
++                        # qk descale once per work-tile (every K-tile below reuses it).
++                        if cutlass.const_expr(descale_tensors is not None):
++                            kv_head_idx = self._kv_head_idx(curr_block_coord[2][0])
++                            qk_descale, _ = self._load_effective_descales(
++                                descale_tensors, batch_coord, kv_head_idx
++                            )
++                        else:
++                            qk_descale = Float32(1.0)
+ 
+                         end_count = start_count + trip_count
+                         if cutlass.const_expr(self.use_semantic_trip_range):
+@@ -1490,12 +1506,14 @@ class BlackwellFusedMultiHeadAttentionForward:
+                                     seqlen_q,
+                                     seqlen_k,
+                                     scale_softmax_log2,
++                                    qk_descale,
+                                 ),
+                                 (tStS, tScS_iter, qk_thr_mma),
+                                 (mma_s_consumer, p_mma_producer, s_corr_producer),
+                                 seqlen_info,
+                                 aux_data,
+                                 tile_fastdiv_mods,
++                                descale_tensors,
+                             )
+                             row_max_prev = row_max
+                         sum_producer = self.store_sum_max(
+@@ -1581,17 +1599,32 @@ class BlackwellFusedMultiHeadAttentionForward:
+                     # Empty step as the first step is no need for correction
+                     stats_handle = s_corr_consumer.wait_and_advance()
+                     stats_handle.release()
++                    # THOR_SM110_FA4_HD256_FP8: load the per-(batch, kv_head) qk + v
++                    # descales once per work-tile. qk_descale is folded into the
++                    # cross-n-block rescale scale below (it must equal the softmax-step
++                    # scale that produced P / row_sum, otherwise O_acc and row_sum are
++                    # rebased by different factors); v_descale folds into the final
++                    # row-sum normalization in the epilogue.
++                    if cutlass.const_expr(descale_tensors is not None):
++                        kv_head_idx = self._kv_head_idx(curr_block_coord[2][0])
++                        qk_descale, v_descale = self._load_effective_descales(
++                            descale_tensors, batch_coord, kv_head_idx
++                        )
++                        descaled_scale_log2 = scale_softmax_log2 * qk_descale
++                    else:
++                        v_descale = Float32(1.0)
++                        descaled_scale_log2 = scale_softmax_log2
+                     for step in cutlass.range(1, seqlen_kv_loop_steps, 1, unroll=1):
+                         # Oi-1 -> Oi
+                         mma_corr_consumer, s_corr_consumer = self.correction_rescale(
+-                            scale_softmax_log2,
++                            descaled_scale_log2,
+                             (s_corr_consumer, tStS, tScS),
+                             (mma_corr_consumer, tOtO_staged, cO_staged),
+                             self.epi_tile,
+                         )
+                     # O_partial -> O_final
+                     mma_corr_consumer, sum_consumer = self.correction_epilog(
+-                        (seqlen_q, scale_output),
++                        (seqlen_q, scale_output, v_descale),
+                         (sum_consumer, sSum),
+                         (
+                             mma_corr_consumer,
+@@ -1602,6 +1635,7 @@ class BlackwellFusedMultiHeadAttentionForward:
+                             gmem_tiled_copy_o,
+                         ),
+                         self.epi_tile,
++                        descale_tensors,
+                     )
+                 if not continue_cond and seqlen_kv_loop_steps == 0:
+                     mO_qdl_eff = mO_qdl
+@@ -1677,6 +1711,38 @@ class BlackwellFusedMultiHeadAttentionForward:
+         tOtO_staged = cute.make_tensor(tOtO.iterator + self.tmem_o_offset, tOtO_layout)
+         return tStS, tOtO_staged
+ 
++    # THOR_SM110_FA4_HD256_FP8
++    # FP8 descale plumbing transcribed from flash_fwd_sm100.py (_kv_head_idx /
++    # _load_effective_descales, :2003-2027). Used only on the e4m3 path; on the
++    # bf16/fp16 path (no descales) both helpers reduce to the identity.
++
++    @cute.jit
++    def _kv_head_idx(self, head_idx: Int32) -> Int32:
++        """Map query-head tile index -> KV-head index (FA3 descale semantics).
++
++        hd256 never uses pack_gqa (asserted in __init__), so this is always the
++        plain ``head_idx // qhead_per_kvhead`` mapping."""
++        return head_idx // self.qhead_per_kvhead
++
++    @cute.jit
++    def _load_effective_descales(
++        self,
++        descale_tensors: Optional[DescaleTensors],
++        batch_idx: Int32,
++        kv_head_idx: Int32,
++    ) -> Tuple[Float32, Float32]:
++        """Load effective QK and V descales, defaulting unspecified tensors to identity."""
++        qk_descale = Float32(1.0)
++        v_descale = Float32(1.0)
++        if cutlass.const_expr(descale_tensors is not None):
++            if cutlass.const_expr(descale_tensors.q_descale is not None):
++                qk_descale = qk_descale * Float32(descale_tensors.q_descale[batch_idx, kv_head_idx])
++            if cutlass.const_expr(descale_tensors.k_descale is not None):
++                qk_descale = qk_descale * Float32(descale_tensors.k_descale[batch_idx, kv_head_idx])
++            if cutlass.const_expr(descale_tensors.v_descale is not None):
++                v_descale = Float32(descale_tensors.v_descale[batch_idx, kv_head_idx])
++        return qk_descale, v_descale
++
+     @cute.jit
+     def softmax_step(
+         self,
+@@ -1687,6 +1753,7 @@ class BlackwellFusedMultiHeadAttentionForward:
+         seqlen_info: SeqlenInfoQK,
+         aux_data: AuxData = AuxData(),
+         fastdiv_mods=(None, None),
++        descale_tensors: Optional[DescaleTensors] = None,
+     ) -> Tuple[Float32, Float32, pipeline.PipelineConsumer, pipeline.PipelineProducer]:
+         (
+             need_apply_mask,
+@@ -1699,7 +1766,7 @@ class BlackwellFusedMultiHeadAttentionForward:
+             head_idx,
+         ) = mask_args
+         n_block = step
+-        row_max, row_sum, seqlen_q, seqlen_k, scale_softmax_log2 = value_args
++        row_max, row_sum, seqlen_q, seqlen_k, scale_softmax_log2, qk_descale = value_args
+         tStS, tScS, qk_thr_mma = tensor_args
+         mma_s_consumer, p_mma_producer, s_corr_producer = pipeline_args
+         tidx, _, _ = cute.arch.thread_idx()
+@@ -1813,8 +1880,21 @@ class BlackwellFusedMultiHeadAttentionForward:
+         cute.arch.fence_view_async_tmem_store()
+         stats_handle.commit()
+ 
+-        scale = scale_softmax_log2
+-        minus_row_max_scale = (0.0 - row_max_safe) * scale
++        if cutlass.const_expr(descale_tensors is not None):
++            # THOR_SM110_FA4_HD256_FP8: fold the per-(batch, kv_head) qk descale and
++            # the 2**8 low-precision offset into the log2 softmax scale so the fp8 P
++            # matrix spends its unused upper code points on the probability tail.
++            # max_offset (8) must stay below log2(max q_dtype value) to avoid
++            # saturating P (see Note [Low Precision Scaling] in flash_fwd_sm100).
++            assert 8 < _LOG2_DTYPE_MAX[self.q_dtype], (
++                "max_offset (8) must stay below log2(max q_dtype value) to avoid saturating P"
++            )
++            max_offset = Float32(8.0)
++            scale = scale_softmax_log2 * qk_descale
++            minus_row_max_scale = max_offset + (0.0 - row_max_safe) * scale
++        else:
++            scale = scale_softmax_log2
++            minus_row_max_scale = (0.0 - row_max_safe) * scale
+         # Acquire P write slot early — overlaps any pipeline stall with exp2 compute
+         p_handle = p_mma_producer.acquire_and_advance()
+         # Fragment-based FMA + exp2 + bf16 conversion
+@@ -2019,8 +2099,9 @@ class BlackwellFusedMultiHeadAttentionForward:
+         sum_args: Tuple,
+         o_args: Tuple,
+         epi_tile: cute.Tile,
++        descale_tensors: Optional[DescaleTensors] = None,
+     ) -> Tuple[pipeline.PipelineConsumer, pipeline.PipelineProducer]:
+-        (seqlen_q, scale_output) = value_args
++        (seqlen_q, scale_output, v_descale) = value_args
+         (sum_consumer, sSum) = sum_args
+         (
+             mma_o_consumer,
+@@ -2040,7 +2121,14 @@ class BlackwellFusedMultiHeadAttentionForward:
+             sO = sO_staged[None, None, 0]
+             row_sum = sSum[thread_idx]
+             row_sum_is_zero_or_nan = row_sum == 0.0 or row_sum != row_sum
+-            scale = scale_output / row_sum if not row_sum_is_zero_or_nan else 0.0
++            # THOR_SM110_FA4_HD256_FP8: fold the per-(batch, kv_head) v descale into the
++            # final row-sum normalization. The 2**max_offset factor carried by O_acc
++            # cancels against the identical factor in row_sum, so no max_offset_scale
++            # division is needed here (hd256 has no sinks/LSE in this path).
++            if cutlass.const_expr(descale_tensors is not None):
++                scale = (scale_output * v_descale) / row_sum if not row_sum_is_zero_or_nan else 0.0
++            else:
++                scale = scale_output / row_sum if not row_sum_is_zero_or_nan else 0.0
+             tOtO = tOtO_staged[(None, None), 0, 0, iter]
+             tOtO_epi = cute.zipped_divide(tOtO, epi_tile)
+             sO_epi = cute.zipped_divide(sO, epi_tile)

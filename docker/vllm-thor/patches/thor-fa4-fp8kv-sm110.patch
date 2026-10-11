@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/attention/backends/fa_utils.py b/vllm/v1/attention/backends/fa_utils.py
-index 650fc1d..9a91b97 100644
+index 83348bb94a42d027ffae03078476ef809996b732..bf3f1c8df75360e2dd60d09b1d3b142e40e6f574 100644
 --- a/vllm/v1/attention/backends/fa_utils.py
 +++ b/vllm/v1/attention/backends/fa_utils.py
 @@ -279,6 +279,164 @@ def is_fa_version_supported(fa_version: int) -> bool:
@@ -167,9 +167,9 @@ index 650fc1d..9a91b97 100644
  def flash_attn_supports_kv_cache_dtype(
      kv_cache_dtype: str = "fp8_e4m3",
      *,
-@@ -305,6 +463,15 @@ def flash_attn_supports_kv_cache_dtype(
+@@ -309,6 +467,15 @@ def flash_attn_supports_kv_cache_dtype(
      )
-     return (fa_version == 3 and current_platform.is_device_capability_family(90)) or (
+     return (sm90_fp8_kv_supported and is_sm90) or (
          fa_version == 4 and current_platform.is_device_capability_family(100)
 +    ) or (
 +        # THOR SM110: admit FA4 + FP8 KV on Jetson Thor only while the
@@ -184,7 +184,7 @@ index 650fc1d..9a91b97 100644
  
  
 diff --git a/vllm/vllm_flash_attn/cute/interface.py b/vllm/vllm_flash_attn/cute/interface.py
-index 7c36660..91c1ffb 100644
+index 7c366605dd425ed432ea9d7bb51228d8249cc7d1..91c1ffbd0da27dfee3ee797bca48ca42e7258ab3 100644
 --- a/vllm/vllm_flash_attn/cute/interface.py
 +++ b/vllm/vllm_flash_attn/cute/interface.py
 @@ -907,7 +907,9 @@ def _flash_attn_fwd(

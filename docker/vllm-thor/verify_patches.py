@@ -50,6 +50,8 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "def use_eagle_preserves_target_kv_cache",
         ),
     ],
+    # Upstream since vLLM 0.31.0 (no patch any more): the sentinels stay as a
+    # base-image guard, so a base that loses the fix fails the build.
     "55390 MTP draft KV group positional annotation (hybrid path)": [
         (
             "v1/core/kv_cache_utils.py",

@@ -82,7 +82,7 @@ contribution: it tells everyone what not to try. Improvements to the agents
 - **The image build is the gate**: `mjolnir image build` applies and verifies
   the stack and fails if a patch stops applying.
 - Base bumps: [`.opencode/skills/update-base-image/SKILL.md`](../.opencode/skills/update-base-image/SKILL.md).
-  The image tag follows the vLLM version (`narandill/mjolnir-vllm:v0.30.0`).
+  The image tag follows the vLLM version (`narandill/mjolnir-vllm:v0.31.0`).
 
 ### 5. Docs, configs and the CLI
 
@@ -116,7 +116,7 @@ check, both package builds and the vLLM patch check on every PR.
 |---|---|---|
 | `mjolnir-kernel` on PyPI | tag `mjolnir-kernel-v<version>` | `src/mjolnir/mjolnir/__init__.py` |
 | `mjolnir-cli` on PyPI | tag `mjolnir-cli-v<version>` | `src/mjolnir-cli/mjolnir_cli/__init__.py` |
-| `narandill/mjolnir-vllm` on Docker Hub | push to `main` touching the image | the vLLM base (`v0.30.0`, `v0.30.0-<sha>`, `latest`) |
+| `narandill/mjolnir-vllm` on Docker Hub | push to `main` touching the image | the vLLM base (`v0.31.0`, `v0.31.0-<sha>`, `latest`) |
 
 The three are versioned independently.
 

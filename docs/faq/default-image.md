@@ -9,7 +9,7 @@ locally."
 ```bash
 mjolnir image             # arrow-key picker over every local docker image
 mjolnir image list        # list with ● on the active one
-mjolnir image use narandill/mjolnir-vllm:v0.30.0   # non-interactive
+mjolnir image use narandill/mjolnir-vllm:v0.31.0   # non-interactive
 ```
 
 The choice is written to the state file (`~/.mjolnir-state.json` by default;
@@ -21,7 +21,7 @@ no flags needed.
 
 ```bash
 mjolnir serve up --image my/mjolnir-vllm:dev
-MJOLNIR_IMAGE=narandill/mjolnir-vllm:v0.30.0-<sha> mjolnir verify sweep
+MJOLNIR_IMAGE=narandill/mjolnir-vllm:v0.31.0-<sha> mjolnir verify sweep
 ```
 
 Precedence is always: **CLI flag > state file > `$MJOLNIR_IMAGE` > baked-in
@@ -53,6 +53,6 @@ version** the image is built on — not the PyPI package versions:
 
 | tag | what |
 |---|---|
-| `v0.30.0` | latest build on vLLM 0.30.0 |
-| `v0.30.0-<sha>` | an immutable build from one commit |
+| `v0.31.0` | latest build on vLLM 0.31.0 |
+| `v0.31.0-<sha>` | an immutable build from one commit |
 | `latest` | the newest build from `main` |

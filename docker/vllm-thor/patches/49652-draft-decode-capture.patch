@@ -1,7 +1,8 @@
 diff --git a/vllm/v1/worker/gpu/cudagraph_utils.py b/vllm/v1/worker/gpu/cudagraph_utils.py
+index fa1dc4a04bc1a349de0b4c5ecd76b2a48ab644ee..15221dffef4e8640b2affb56beb70acf75bf0aa8 100644
 --- a/vllm/v1/worker/gpu/cudagraph_utils.py
 +++ b/vllm/v1/worker/gpu/cudagraph_utils.py
-@@ -265,10 +265,16 @@
+@@ -266,10 +266,16 @@ class CudaGraphManager:
          # When using Dynamic SD, num_speculative_tokens is the max number of
          # draft tokens. The scheduler might use a smaller number so we need
          # to capture graphs for all possible values during decode.

@@ -60,7 +60,7 @@ the read-only `dashboards/` folder. No `percli apply` step.
 `kv_cache_usage_perc`, `num_requests_running`, `num_requests_waiting`,
 `prompt_tokens_total`, `generation_tokens_total`, `request_success_total`)
 is part of the **default** vLLM `/metrics` export — verified against the
-live vLLM 0.30.0 server (the `mjolnir-vllm` container) in this repo.
+live vLLM 0.31.0 server (the `mjolnir-vllm` container) in this repo.
 Prometheus is on by default (the serve line never passes
 `--disable-metrics`), and the dashboards filter by the `model_name` label,
 which vLLM labels every request metric with (the served model name). The

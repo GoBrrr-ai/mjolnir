@@ -13,7 +13,7 @@ CLI flag  >  state file  >  $MJOLNIR_* env var  >  baked-in default (mjolnir_cli
 |---|---|---|---|
 | model | `--model` | `MJOLNIR_MODEL` | `Qwen/Qwen3.8-27B` (`DEFAULT_MODEL`) |
 | quant/config | `--config` | `MJOLNIR_QUANT` | `NVFP4_MJOLNIR` (`DEFAULT_QUANT`) |
-| image | `--image` | `MJOLNIR_IMAGE` | `narandill/mjolnir-vllm:v0.30.0` (`DEFAULT_IMAGE`) |
+| image | `--image` | `MJOLNIR_IMAGE` | `narandill/mjolnir-vllm:v0.31.0` (`DEFAULT_IMAGE`) |
 | port | `--port` | `MJOLNIR_PORT` | `6001` |
 | Mjolnir kernel knobs | — | `MJOLNIR_ATTN_*` (passed into the container) | see [`src/mjolnir/README.md`](../../src/mjolnir/README.md#configuration) |
 
@@ -25,7 +25,7 @@ a small JSON state file — **not** an env file:
 ```bash
 cat ~/.mjolnir-state.json
 # {"model": "Qwen/Qwen3.8-27B", "quant": "NVFP4_MJOLNIR",
-#  "image": "narandill/mjolnir-vllm:v0.30.0"}
+#  "image": "narandill/mjolnir-vllm:v0.31.0"}
 ```
 
 - Location: `$MJOLNIR_STATE`, default `~/.mjolnir-state.json`. Point it at

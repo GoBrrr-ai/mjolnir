@@ -1,9 +1,11 @@
+diff --git a/flashinfer/gdn_prefill.py b/flashinfer/gdn_prefill.py
+index de2bb7165691d10b06407de2e746660984e4d847..f3861fe60ed04dee48fc597b0ded0caf96acd615 100644
 --- a/flashinfer/gdn_prefill.py
 +++ b/flashinfer/gdn_prefill.py
-@@ -457,7 +457,7 @@
-             if output_final_state:
-                 return output, output_state
-             return output
+@@ -916,7 +916,7 @@ def chunk_gated_delta_rule(
+                 if backend == "cake_gdn":
+                     raise
+ 
 -    if _arch_major == 10:
 +    if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST
          if _cuda_major < 13:

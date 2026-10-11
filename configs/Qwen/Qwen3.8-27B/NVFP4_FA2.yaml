@@ -32,7 +32,7 @@ reasoning-parser: qwen3
 # GDN (linear-attention) layers are a separate backend and are untouched.
 attention-config:
   backend: FLASH_ATTN        # the 16 full-attn layers (hd256) -> vLLM's FlashAttention backend
-  flash_attn_version: 2      # FA2 = what stock vLLM 0.30.0 runs on sm_110 (FA2 has no fp8 KV,
+  flash_attn_version: 2      # FA2 = what stock vLLM 0.31.0 runs on sm_110 (FA2 has no fp8 KV,
                              # so the KV cache below stays bf16 — 2x the decode bytes)
 enable-flashinfer-autotune: true
 mm-encoder-attn-backend: TORCH_SDPA   # SM110 ViT PTX-crash workaround (vLLM issue #38411)

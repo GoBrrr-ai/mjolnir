@@ -1,6 +1,6 @@
 # vLLM Thor PR Patches
 
-Five vLLM PR fixes, **hand-adapted** onto the vLLM base (not a raw
+Four vLLM PR fixes, **hand-adapted** onto the vLLM base (not a raw
 `git apply` of the upstream PR diffs, because the base code has diverged
 from each PR's base), plus nine **Thor-authored** patches: the **Mjolnir
 attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see "The Mjolnir
@@ -11,7 +11,8 @@ gate" below), one **flashinfer-side** sm_110 enablement hunk (see "Thor sm_110
 GDN prefill enablement (flashinfer side)" below), one hd256 FP8-KV kernel +
 policy patch (probe-gated, T11 canary in `kernel_test_sm110_gates.py`) and one
 hd256 1CTA decode carve-out (see "Thor hd256 1CTA decode carve-out (v11,
-2026-09-24)" below). Fourteen patches in total, applied by `apply_patches.py`
+2026-09-24)" below). Thirteen patches in total (#55390 went upstream in vLLM
+0.31.0), applied by `apply_patches.py`
 onto the installed vllm package **and** the installed flashinfer package;
 verified by `verify_patches.py`.
 
@@ -19,15 +20,16 @@ The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
 and its kernel were removed when the Mjolnir kernel replaced them; the last
 snapshot is the git tag `gemv-archive`: [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
 
-Base this was verified against: **vllm 0.30.0**
-(`vllm/vllm-openai:v0.30.0-ubuntu2404`, 2026-09-26), FlashInfer 0.6.18.post1.
+Base this was verified against: **vllm 0.31.0**
+(`vllm/vllm-openai:v0.31.0-ubuntu2404`, released 2026-10-05), FlashInfer
+0.7.0.post1 — see "Bump to vLLM 0.31.0" below.
 
 | File | PR | What it fixes |
 |------|----|---------------|
 | `50885-flashinfer-full-cudagraph.patch` | [#50885](https://github.com/vllm-project/vllm/pull/50885) | Capture **FULL** decode cudagraphs for spec-decode on the FlashInfer **native** (non-trtllm) path — uniform multi-token verify batches. Previously only trtllm-gen (SM100) / dedicated-XQA (SM12x) could FULL-capture spec decode; elsewhere it fell back to PIECEWISE, hurting Thor (SM110) TTFT. |
 | `49652-draft-decode-capture.patch` | [#49652](https://github.com/vllm-project/vllm/pull/49652) | Autoregressive (MTP) **draft-decode** cudagraph capture under **Dynamic SD**. The draft decoder always processes 1 token/request, so its graphs must stay at fixed query length 1 instead of following the target's dynamic-SD verify schedule. |
 | `54165-mamba-spec-kv-restore.patch` | [#54165](https://github.com/vllm-project/vllm/pull/54165) | Restore **hybrid mamba-align cache hits under spec decode** with a KV connector. Gates the EAGLE last-block drop on drafters that actually *preserve* (pollute) the target KV cache — DFlash/DSpark don't, so they must not back off `last_cache_position`. |
-| `55390-mtp-draft-group-annotation.patch` | [#55390](https://github.com/vllm-project/vllm/pull/55390) | **Annotate the MTP draft KV group positionally on the hybrid path.** The draft-group detector (`_annotate_eagle_groups`) only recognized DSpark's `non_causal_multi_token_decode` marker, so for Qwen hybrid MTP (whose MTP layer is spec-identical to the target's) no group was flagged → the coordinator's fallback treated *every* group as a draft group → Mamba groups got a widened lookup window that align-mode never satisfies → the startup WARNING and crippled cross-request prefix-cache reuse. The fix generalizes the trailing-layer positional rule from DeepSeekV4-only to **any `method=="mtp"` model** (MTP blocks always register their layers last), guarded by an exact-layer-partition check. |
+| ~~`55390-mtp-draft-group-annotation.patch`~~ | [#55390](https://github.com/vllm-project/vllm/pull/55390) | **Upstream since vLLM 0.31.0 — patch removed.** Annotates the MTP draft KV group positionally on the hybrid path (any `method=="mtp"` model; upstream also covers DeepseekV4 + `dspark`). Its `verify_patches.py` sentinels and `functional_check_55390_55519.py` stay as a base-image guard. |
 | `55519-no-warn-when-block-drop-off.patch` | [#55519](https://github.com/vllm-project/vllm/pull/55519) | **Don't warn "prefix reuse is disabled" when `disable_eagle_block_drop` is set.** All flag-all fallbacks are gated on `use_eagle_block_drop()`, so with the drop disabled reuse is intact — the old `use_eagle()` gate made the warning a false positive. Also rewords the scheduler's "drop disabled" warning to document that reuse works in that mode. |
 | `thor-fused-draft-decode-fi-native-update.patch` | — (Thor-authored) | **Implement `update_draft_decode_metadata` for the FlashInfer backend** so the spec-decode loop can use the **fused multi-step draft decode** instead of the "rebuild attention metadata between draft steps" fallback. The upstream contract (backend.py `update_draft_decode_metadata`) is implemented for triton/triton_mla (a `pass`, they read live GPU buffers) and flash_attn (re-plan the scheduler), but the FlashInfer native decode wrapper plans from host buffers and had no in-place advance. Adds `_advance_fi_decode_plan_kernel`, which re-derives the FI decode plan (`paged_kv_indptr`/`last_page_len`/`page_indices`) **on the GPU** from the advancing `seq_lens` + block table — the same formula as `build()`, but capture-safe (no host sync, no D2D index copy) so it replays correctly inside the draft CUDA graph. Gated to full-cudagraph, single-rank, non-DCP, native-FI (non-trtllm) builders. Pays off only at **K ≥ 3** (MTP3 / DSpark K≥2); it is a deliberate no-op at K=2. |
 | `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly (removes the `speculator.py:124` "does not support full CUDA graphs; running the draft eagerly" warning). A non-causal drafter (DSpark/DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **last** in `PATCH_ORDER` (its `flashinfer.py` hunks sit on top of the fused-draft-decode patch's changes). Most bump-fragile patch — see below. |
@@ -601,6 +603,55 @@ the `mjolnir` `vllm.general_plugins` entry point is installed.
 **Bump fragility:** minimal — the hunk's context is the last three members
 before `CUSTOM`; a new upstream member there shifts the context and the patch
 is re-generated with one line moved.
+
+## Bump to vLLM 0.31.0 (2026-10-11) — 55390 absorbed, 55519 + the FlashInfer hunk re-adapted
+
+Base moved from the release `vllm 0.30.0` to the release **`vllm 0.31.0`**
+(`vllm/vllm-openai:v0.31.0-ubuntu2404`, manifest-list digest
+`sha256:3fb023cc987cc7c2bca7ca14c1e0aff5ae06bd9431bf07773731ce7e8a682460`;
+torch 2.13.0+cu130 unchanged, **FlashInfer 0.6.18.post1 → 0.7.0.post1**).
+1512 of 2771 vllm `.py` files differ between the two wheels.
+
+Checked against the aarch64 `vllm-0.31.0` wheel's sources and
+`flashinfer-python 0.7.0.post1` (the same code the image ships):
+
+- **#55390 merged upstream** (release notes: "MTP draft KV cache groups annotated
+  on the hybrid grouping path"). Its patch no longer applies (6 hunks fail on
+  the upstream version of the same code); the upstream
+  `_uses_trailing_mtp_layers` / `_groups_partition_layers_exactly` are a superset
+  (also DeepseekV4 with `dspark`). Patch removed; sentinels kept.
+- **55519** (not merged) re-adapted: same two edits — the
+  `_warn_if_unannotated_eagle_mamba` gate `use_eagle()` →
+  `use_eagle_block_drop()` (+ docstring) and the scheduler warning rewording —
+  onto the upstream 55390 code. Every flag-all fallback is still gated on
+  `use_eagle_block_drop()` in 0.31.0 (coordinator `use_eagle=` from the
+  scheduler, `SchedulerOffloadConfig.from_spec`, Mooncake), so the rationale holds.
+- **FlashInfer GDN allowlist** re-adapted: 0.7.0.post1 inserts the optional
+  Cake GDN backend before the SM100 branch, so the hunk's context moved
+  (`gdn_prefill.py:919`). vLLM still calls it with `backend="flashinfer"` and
+  without `state_indices` (the new arch check that would reject sm_110 only
+  fires with `state_indices`), and the vLLM-side probe still gates the grant at
+  runtime.
+- **Every other patch applied unchanged in content** (identical `+`/`-` lines);
+  three hunks had needed fuzz (50885 `get_cudagraph_support` tail, the two FA4
+  `fa_utils.py` terms after upstream reworded the fp8-KV support clause) and
+  many had offsets. All patches were **regenerated against 0.31.0**, so the stack
+  now applies with zero fuzz and zero offset; each fuzzed hunk was checked to land
+  in the same function with the same semantics.
+- The vendored FA4 CuTe tree (`vllm_flash_attn/cute/`) is byte-identical to
+  0.30.0 (still pre-#2916); FA2 remains stock vLLM's hd256 choice on sm_110.
+- Upstream changes worth re-measuring on Thor: FlashInfer 0.7.0 (the native
+  FlashInfer baseline in every benchmark), FULL decode graphs for one-token
+  prompt tails (#58400), mixed FULL prefill capture (#58275), DSpark non-causal
+  attention on FlashInfer (#57432, a different path from
+  `thor-dspark-draft-fi-noncausal-cudagraph`, which still applies and is still
+  needed for the cudagraph wrapper).
+
+Gates still to run on a Thor: `mjolnir image build` (patch + sentinel + import
+smoke + `functional_check_55390_55519.py`), `mjolnir image gates`,
+`mjolnir verify correctness`, `mjolnir verify vllm`, then `mjolnir verify bench`
+and `mjolnir bench e2e` for new headline numbers (both sides moved: our image and
+the official image's FlashInfer).
 
 ## Bump to vLLM 0.30.0 (2026-09-26) — two docstring-style hunks re-adapted
 

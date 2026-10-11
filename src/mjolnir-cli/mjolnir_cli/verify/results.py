@@ -12,7 +12,7 @@ Schema ``mjolnir.verify/1`` (all fields optional except the header):
       "run_id": "20261010-131259",         # UTC timestamp, sortable
       "ts": "2026-10-10T13:12:59+00:00",
       "default": true,                     # ran with the stage's default parameters
-      "host": "jetsonthor", "image": "narandill/mjolnir-vllm:v0.30.0",
+      "host": "jetsonthor", "image": "narandill/mjolnir-vllm:v0.31.0",
       "kernel": {"version": "0.1.0", "git": "68ef2b3", "dirty": false},
       "gate": {"gated": true, "clean": true, "server": "up"},
       "params": {...},                     # every knob the stage ran with

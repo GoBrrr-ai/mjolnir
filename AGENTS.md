@@ -59,12 +59,13 @@ skipped with a hint — nothing blocks on a password.
   vLLM fp6 cache-write path yet). Results: README + `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
-  CUSTOM` on stock vLLM 0.30.0 (the `vllm.general_plugins` entry point
+  CUSTOM` on stock vLLM 0.31.0 (the `vllm.general_plugins` entry point
   `mjolnir = "mjolnir:register"` fills both slots). Prefill / mixed steps run on
   the fallback (`MJOLNIR_ATTN_FALLBACK`, FlashInfer). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
-- **The image**: `narandill/mjolnir-vllm:v0.30.0` on
-  `vllm/vllm-openai:v0.30.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
+- **The image**: `narandill/mjolnir-vllm:v0.31.0` on
+  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 12 vLLM patches + 1 FlashInfer patch
+  (#55390 went upstream in 0.31.0),
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
@@ -250,7 +251,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
      `arch // 10 in [10, 11]` (sm_110 in scope) but auto-disables on the
      20-SM Thor for our decode shapes (48 clusters > 20 SMs → 0 splits) —
      corroborates our in-tree NO-WIN. NOT the FP8-descale work (still private
-     per #2456), and NOT in vLLM 0.30.0's vendored FA4 (pre-#2916), so the fa4
+     per #2456), and NOT in vLLM 0.30.0's or 0.31.0's vendored FA4 (pre-#2916), so the fa4
      patch group is unaffected. Depth:
      `docs/research/fa4-hd256-upstream-status.md` (2026-09-26 update).
    - Open: persistent-cluster scheduler (the 20-SM small-batch lever),
