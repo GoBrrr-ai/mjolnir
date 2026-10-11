@@ -1029,6 +1029,11 @@ def bench_e2e(
     tg: int = typer.Option(128, "--tg", help="generated tokens per request (decode)"),
     gate: bool = typer.Option(True, "--gate/--no-gate"),
     port: Optional[int] = typer.Option(None, "--port"),
+    only: Optional[str] = typer.Option(
+        None,
+        "--only",
+        help="run one leg: 'mjolnir' or 'official'; the comparison pairs it with the other side's latest record",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the two serve commands, run nothing"),
 ):
     """Official vLLM image vs the Mjolnir image, end to end: decode and prefill
@@ -1046,6 +1051,12 @@ def bench_e2e(
         (s.model, official_image, official_config, f"vLLM {VLLM_VERSION} (official image)"),
         (s.model, image, config, None),
     ]
+    if only:
+        side = only.strip().lower()
+        if side not in ("mjolnir", "official"):
+            typer.secho(f"--only must be 'mjolnir' or 'official', got {only!r}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        legs = [legs[1] if side == "mjolnir" else legs[0]]
     if dry_run:
         for m_, img, q, _ in legs:
             s.model, s.image, s.quant = m_, img, q

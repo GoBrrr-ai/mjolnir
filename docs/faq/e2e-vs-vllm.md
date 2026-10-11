@@ -33,6 +33,11 @@ Defaults:
 
 `--dry-run` prints both `docker run` commands without touching the server.
 
+`--only mjolnir` (or `--only official`) runs one leg — e.g. after rebuilding
+the Mjolnir image. The comparison, the README table and the infographic then
+pair it with the other side's latest record in `benchmarks/history.jsonl`, so
+run both legs again when the official image or the serving parameters change.
+
 ## Why the baseline runs on the official image
 
 The Mjolnir image carries a patch stack that also touches FlashInfer paths

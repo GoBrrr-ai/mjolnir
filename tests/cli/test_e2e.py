@@ -72,3 +72,22 @@ def test_native_backends_on_the_mjolnir_image_never_count(tmp_path):
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h)
     assert off["image"].startswith("vllm/") and mj is None
+
+
+def test_bench_e2e_only_runs_one_leg(monkeypatch):
+    from typer.testing import CliRunner
+
+    from mjolnir_cli import cli, dockerctl
+
+    served = []
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: served.append((s.image, s.quant)))
+    runner = CliRunner()
+    for side, want in (("mjolnir", "NVFP4_MJOLNIR"), ("official", "NVFP4")):
+        served.clear()
+        r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", side])
+        assert r.exit_code == 0, r.output
+        assert [q for _, q in served] == [want]
+    served.clear()
+    assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run"]).exit_code == 0
+    assert len(served) == 2
+    assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", "fi"]).exit_code == 2
