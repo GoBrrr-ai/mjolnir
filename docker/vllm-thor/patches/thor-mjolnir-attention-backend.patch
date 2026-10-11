@@ -1,16 +1,78 @@
+diff --git a/vllm/v1/attention/backends/fa_utils.py b/vllm/v1/attention/backends/fa_utils.py
+index 3757b9843fe71056185b71a8b5a31f1176672a88..5762ce6411297971f469f0cb3df6508ba26a2407 100644
+--- a/vllm/v1/attention/backends/fa_utils.py
++++ b/vllm/v1/attention/backends/fa_utils.py
+@@ -1,6 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
++import os
+ from typing import Any
+ 
+ import vllm.envs as envs
+@@ -13,6 +14,38 @@ logger = init_logger(__name__)
+ # The dedicated hd256 kernel requires one 128-token page per tile.
+ FA4_HD256_PAGE_SIZE = 128
+ 
++# THOR MJOLNIR: the Mjolnir backend (AttentionBackendEnum.MJOLNIR, or CUSTOM
++# mapped to it by the mjolnir-kernel plugin) runs decode steps itself and
++# every other step (prefill, mixed, cascade) on a stock "fallback" backend
++# it subclasses. On this image that fallback is FlashAttention 4 by default;
++# MJOLNIR_ATTN_FALLBACK overrides it (e.g. FLASHINFER).
++MJOLNIR_DEFAULT_FALLBACK = "FLASH_ATTN"
++_MJOLNIR_BACKEND_NAMES = ("MJOLNIR", "CUSTOM")
++
++
++def mjolnir_fallback_name() -> str:
++    """The stock backend the Mjolnir backend runs non-decode steps on."""
++    for name in ("MJOLNIR_ATTN_FALLBACK", "THOR_T5_ATTN_FALLBACK"):
++        value = os.environ.get(name, "").strip().upper()
++        if value:
++            return value
++    return MJOLNIR_DEFAULT_FALLBACK
++
++
++def _mjolnir_wants_fa4(vllm_config: Any) -> bool:
++    """True when the Mjolnir backend is selected on Jetson Thor (sm_110) with
++    FlashAttention as its fallback and no explicit flash_attn_version: sm_110
++    otherwise resolves to FA2, which cannot read the FP8 KV cache Mjolnir
++    needs. The FA4 FP8-KV probes below still decide whether FA4 may serve the
++    layer. An explicit flash_attn_version always wins."""
++    backend = getattr(vllm_config.attention_config, "backend", None)
++    return (
++        backend is not None
++        and getattr(backend, "name", None) in _MJOLNIR_BACKEND_NAMES
++        and mjolnir_fallback_name() == "FLASH_ATTN"
++        and current_platform.is_device_capability_family(110)
++    )
++
+ # Track whether upstream flash-attn is available on ROCm.
+ # Set during module initialization and never modified afterwards.
+ # This module-level flag avoids repeated import attempts and ensures
+@@ -115,6 +148,8 @@ def get_flash_attn_version(
+             and vllm_config.attention_config.flash_attn_version is not None
+         ):
+             fa_version = vllm_config.attention_config.flash_attn_version
++        elif vllm_config is not None and _mjolnir_wants_fa4(vllm_config):
++            fa_version = 4
+ 
+         # 3. fallback for unsupported combinations
+         if device_capability.major >= 10 and fa_version == 3:
 diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
-index 32e2fabeb5673a0f43326f23e8711ef50c77c0c7..2f5395f95f591aac670254945fa05aa12f37793a 100644
+index 32e2fabeb5673a0f43326f23e8711ef50c77c0c7..53b983dfb00df7d85d4ade9eb542e22fe22341b9 100644
 --- a/vllm/v1/attention/backends/registry.py
 +++ b/vllm/v1/attention/backends/registry.py
-@@ -149,6 +149,12 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
+@@ -149,6 +149,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
      CPU_MLA = "vllm.v1.attention.backends.mla.cpu_mla.CPUMLABackend"
      AMX_MLA = "vllm.v1.attention.backends.mla.amx_mla.AMXMLABackend"
      TURBOQUANT = "vllm.v1.attention.backends.turboquant_attn.TurboQuantAttentionBackend"
 +    # Mjolnir: the tcgen05/TMEM/TMA fp8 paged decode kernel for Jetson AGX
 +    # Thor (sm_110), packaged as `mjolnir-kernel` (https://github.com/thor-arena/mjolnir).
 +    # Decode steps run the Mjolnir kernel; prefill and mixed steps run on the
-+    # FlashInfer backend it subclasses. The plugin's register() also maps
-+    # CUSTOM to the same class, so this member only adds the name.
++    # stock backend it subclasses: FlashAttention 4 by default on this image
++    # (fa_utils.mjolnir_fallback_name; MJOLNIR_ATTN_FALLBACK overrides). The
++    # plugin's register() also maps CUSTOM to the same class, so this member
++    # only adds the name.
 +    MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"
      # Placeholder for third-party/custom backends - must be registered before use
      # set to None to avoid alias with other backend, whose value is an empty string

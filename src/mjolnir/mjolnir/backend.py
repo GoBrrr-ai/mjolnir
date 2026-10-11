@@ -2,10 +2,12 @@
 
 Design
 ------
-MjolnirAttentionBackend is a *subclass of a stock backend* (FlashInfer by
-default, MJOLNIR_ATTN_FALLBACK picks another). It inherits the KV-cache layout,
-the KV-cache write, prefill, validation and everything else. Only two
-things change:
+MjolnirAttentionBackend is a *subclass of a stock backend*, the "fallback":
+FlashAttention 4 on the Mjolnir image (its prefill is ~40% faster than
+FlashInfer's on Thor), FlashInfer on a stock vLLM (whose FA on sm_110 cannot
+read an fp8 KV cache); MJOLNIR_ATTN_FALLBACK picks another. It inherits the
+KV-cache layout, the KV-cache write, prefill, validation and everything else.
+Only two things change:
 
   * the metadata builder: a step whose batch is decode-only (uniform
     q_len <= 1 + num_speculative_tokens, causal, no cascade) gets a T5 plan
@@ -58,20 +60,76 @@ FP8_CACHE_DTYPES = ("fp8", "fp8_e4m3")
 STATS = {"t5_steps": 0, "fallback_steps": 0}
 
 
+def _default_fallback() -> tuple[str, bool]:
+    """(backend name, explicitly chosen?). The Mjolnir image's vLLM carries
+    the default (``fa_utils.mjolnir_fallback_name``: FLASH_ATTN, which the same
+    patch resolves to FA4 on sm_110); a stock vLLM gets FLASHINFER."""
+    explicit = (env_flag("MJOLNIR_ATTN_FALLBACK", "") or "").strip().upper()
+    if explicit:
+        return explicit, True
+    try:
+        from vllm.v1.attention.backends.fa_utils import mjolnir_fallback_name
+    except ImportError:  # stock vLLM: no Thor FA4 FP8-KV support
+        return "FLASHINFER", False
+    return mjolnir_fallback_name(), False
+
+
+def _fa4_serves_fp8_kv() -> bool | None:
+    """Can FlashAttention serve this model's (fp8) KV cache here? None when
+    there is no config to ask (import outside vLLM's model construction)."""
+    try:
+        from vllm.config import get_current_vllm_config_or_none
+        from vllm.v1.attention.backends.fa_utils import flash_attn_supports_kv_cache_dtype
+    except ImportError:
+        return None
+    cfg = get_current_vllm_config_or_none()
+    if cfg is None or cfg.model_config is None:
+        return None
+    cache_dtype = str(getattr(cfg.cache_config, "cache_dtype", "auto"))
+    if cache_dtype not in FP8_CACHE_DTYPES:
+        return True  # nothing to gate: FA reads bf16/fp16 KV on any version
+    head = cfg.model_config.get_head_size()
+    return bool(flash_attn_supports_kv_cache_dtype(cache_dtype, head_size=head, supports_fa4_hd256=True))
+
+
+def _resolve_fallback() -> str:
+    name, explicit = _default_fallback()
+    assert name not in ("CUSTOM", "MJOLNIR"), "MJOLNIR_ATTN_FALLBACK must name a stock backend"
+    if name == "FLASH_ATTN" and not explicit and _fa4_serves_fp8_kv() is False:
+        # The image default, but FA4's one-shot FP8-KV probe failed on this
+        # device (or the layer shape is not FA4's): keep serving on FlashInfer.
+        logger.warning(
+            "Mjolnir: FlashAttention 4 cannot serve this fp8 KV cache here "
+            "(see the 'THOR FA4 ... probe' log line); falling back to FLASHINFER"
+        )
+        return "FLASHINFER"
+    return name
+
+
+_FALLBACK = _resolve_fallback()
+
+
 def _fallback_name() -> str:
-    return env_flag("MJOLNIR_ATTN_FALLBACK", "FLASHINFER").upper() or "FLASHINFER"
+    return _FALLBACK
 
 
 def _base_backend():
-    name = _fallback_name()
-    assert name not in ("CUSTOM", "MJOLNIR"), "MJOLNIR_ATTN_FALLBACK must name a stock backend"
-    return AttentionBackendEnum[name].get_class()
+    return AttentionBackendEnum[_FALLBACK].get_class()
 
 
 _Base = _base_backend()
 _BaseBuilder = _Base.get_builder_cls()
 _BaseImpl = _Base.get_impl_cls()
 _BASE_WRITES_KV_IN_FORWARD = getattr(_Base, "forward_includes_kv_cache_update", True)
+
+
+def _block_size_ok(sizes, size: int) -> bool:
+    """Does a backend's supported-size list (ints and MultipleOf) take ``size``?"""
+    for s in sizes:
+        base = getattr(s, "base", None)
+        if (base is not None and size % base == 0) or s == size:
+            return True
+    return False
 
 
 def _max_q_len(vllm_config) -> int:
@@ -349,11 +407,32 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # T5 quantizes Q itself; a pre-quantized query (layer-level fusion)
-        # would change the input dtype of every step, so keep it bf16.
+        # T5 quantizes Q itself (dynamic, per (sequence, KV head)); the
+        # layer's static per-tensor quantization would change the input of
+        # every step, so the layer keeps handing us bf16 Q. A fallback that
+        # wants fp8 Q next to an fp8 KV cache (FlashAttention 4 on sm_110
+        # needs Q, K and V in one fp8 dtype) gets it quantized here, on the
+        # steps it runs — the same static quantization the layer would do.
+        fp8_kv = str(getattr(self, "kv_cache_dtype", "auto")) in FP8_CACHE_DTYPES
+        self._fallback_fp8_q = bool(self.supports_quant_query_input) and fp8_kv and _FALLBACK == "FLASH_ATTN"
         self.supports_quant_query_input = False
         self._kv_layout: str | None = None
         self._t5_reason = _layer_reason(self)
+
+    def _quantize_q(self, layer, query: torch.Tensor) -> torch.Tensor:
+        """Static fp8 Q for the fallback, as the attention layer would
+        quantize it: Q / q_scale, saturated to e4m3, per tensor or per KV head."""
+        scale = layer._q_scale
+        n = query.shape[0]
+        if scale.numel() == 1:
+            from vllm import _custom_ops as ops
+
+            q8, _ = ops.scaled_fp8_quant(query.reshape(n, -1), scale.reshape(1).float())
+            return q8.view(query.shape)
+        fp8 = torch.float8_e4m3fn
+        lim = torch.finfo(fp8).max
+        q = query.reshape(n, scale.numel(), -1).float() / scale.float().reshape(1, -1, 1)
+        return q.clamp_(-lim, lim).to(fp8).view(query.shape)
 
     def fused_output_quant_supported(self, quant_key) -> bool:
         return False  # T5 writes bf16/fp16 output
@@ -402,6 +481,27 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         **kwargs: Any,
     ):
         if not getattr(attn_metadata, "is_t5", False):
+            if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
+                query = self._quantize_q(layer, query)
+                # The base forward passes the layer's q scale as q_descale
+                # only when it believes the layer quantized Q.
+                self.supports_quant_query_input = True
+                try:
+                    return super().forward(
+                        layer,
+                        query,
+                        key,
+                        value,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        output_scale,
+                        output_block_scale,
+                        *args,
+                        **kwargs,
+                    )
+                finally:
+                    self.supports_quant_query_input = False
             return super().forward(
                 layer,
                 query,
@@ -459,13 +559,21 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
 
         return BACKEND_NAME if has_native_member() else "CUSTOM"
 
-    @staticmethod
-    def get_supported_kernel_block_sizes() -> list[int]:
-        # FlashInfer advertises 16/32/64 on sm_110; the Mjolnir kernel also
-        # runs 128-token pages (its benchmark default, and the best fit for
-        # head-major HND pages). The base backend's prefill/KV-write paths
-        # take any page size.
-        return list(SUPPORTED_PAGE_SIZES)
+    @classmethod
+    def get_supported_kernel_block_sizes(cls, kv_cache_spec=None) -> list:
+        """The Mjolnir kernel runs 16/32/64/128-token pages. On FlashInfer
+        (which advertises 16/32/64 on sm_110) it adds 128 — the kernel's
+        benchmark default and the best fit for head-major pages — since FI's
+        prefill and KV-write paths take any page size. Any other fallback's
+        constraint is kept: FA4's hd256 kernel needs exactly 128."""
+        if _FALLBACK == "FLASHINFER":
+            return list(SUPPORTED_PAGE_SIZES)
+        try:
+            base = _Base.get_supported_kernel_block_sizes(kv_cache_spec)
+        except TypeError:  # older vLLM: no kv_cache_spec argument
+            base = _Base.get_supported_kernel_block_sizes()
+        ours = [s for s in SUPPORTED_PAGE_SIZES if _block_size_ok(base, s)]
+        return ours or list(base)
 
     @staticmethod
     def get_impl_cls():

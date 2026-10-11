@@ -16,10 +16,18 @@ numbers there are rendered from the raw results, so they are never stale.
 
 ## What it does
 
-The backend subclasses a stock vLLM backend (FlashInfer by default,
-`MJOLNIR_ATTN_FALLBACK` picks another) and inherits its KV-cache allocation,
-cache write, prefill and validation. Steps that are **decode only** run on
-Mjolnir:
+The backend subclasses a stock vLLM backend — the *fallback* — and inherits
+its KV-cache allocation, cache write, prefill and validation:
+
+- **on the image**, FlashAttention 4 (`FLASH_ATTN`, resolved to FA4 on sm_110
+  by the image's patch — its prefill is ~40% faster than FlashInfer's on
+  Thor). If FA4's one-time fp8-KV probe fails on the device, the backend logs
+  it and uses FlashInfer instead;
+- **on a stock vLLM**, FlashInfer (stock FA on sm_110 is FA2, which cannot
+  read an fp8 KV cache);
+- `MJOLNIR_ATTN_FALLBACK` picks another either way.
+
+Steps that are **decode only** run on Mjolnir:
 
 - every request has the same `q_len ≤ 1 + num_speculative_tokens` (so MTP /
   n-gram speculative verification runs on Mjolnir too);
@@ -87,7 +95,7 @@ runs on the fallback backend.
 | variable | default | meaning |
 |---|---|---|
 | `MJOLNIR_ATTN_DISABLE` | – | `1`: the plugin does not register; everything runs on the fallback |
-| `MJOLNIR_ATTN_FALLBACK` | `FLASHINFER` | base backend (`FLASH_ATTN`, `TRITON_ATTN`, …) for prefill and mixed steps |
+| `MJOLNIR_ATTN_FALLBACK` | `FLASH_ATTN` (FA4) on the image, `FLASHINFER` on stock vLLM | base backend (`FLASHINFER`, `TRITON_ATTN`, …) for prefill and mixed steps |
 | `MJOLNIR_ATTN_Q_DTYPE` | `fp8` | `fp8` (dynamic per-(seq, KV head) quantization) or `bf16` |
 | `MJOLNIR_ATTN_MAX_QLEN` | `1 + num_speculative_tokens` | the largest q_len Mjolnir takes |
 | `MJOLNIR_ATTN_CTAS` | `2` | CTAs per SM (2 is fastest on Thor) |

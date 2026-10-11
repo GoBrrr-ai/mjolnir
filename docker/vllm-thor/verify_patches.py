@@ -180,6 +180,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "v1/attention/backends/registry.py",
             'MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"',
         ),
+        # The FA4 fallback default: the helper the backend reads its default
+        # fallback from, and the call that resolves FA4 for it on sm_110 (the
+        # "used, not just defined" sentinel).
+        (
+            "v1/attention/backends/fa_utils.py",
+            "def mjolnir_fallback_name() -> str:",
+        ),
+        (
+            "v1/attention/backends/fa_utils.py",
+            "elif vllm_config is not None and _mjolnir_wants_fa4(vllm_config):\n            fa_version = 4",
+        ),
     ],
     "thor sm110 draft-CG gate: shape-gated draft cudagraph replay (c1 fix)": [
         # The pure decision helper (THOR_DRAFT_CG_GATE sentinel lives in

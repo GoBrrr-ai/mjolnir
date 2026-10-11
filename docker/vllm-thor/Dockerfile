@@ -102,7 +102,8 @@ COPY docker/vllm-thor/apply_patches.py docker/vllm-thor/verify_patches.py \
 
 # The patch stack includes thor-mjolnir-attention-backend.patch: it adds the
 # MJOLNIR member to vLLM's AttentionBackendEnum, so
-# `vllm serve <model> --attention-backend MJOLNIR` parses and resolves.
+# `vllm serve <model> --attention-backend MJOLNIR` parses and resolves, and
+# makes FlashAttention 4 the backend's default fallback (prefill) on sm_110.
 RUN python3 apply_patches.py \
     && python3 verify_patches.py
 

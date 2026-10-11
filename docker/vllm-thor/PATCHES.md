@@ -33,7 +33,7 @@ Base this was verified against: **vllm 0.31.0**
 | `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly (removes the `speculator.py:124` "does not support full CUDA graphs; running the draft eagerly" warning). A non-causal drafter (DSpark/DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **last** in `PATCH_ORDER` (its `flashinfer.py` hunks sit on top of the fused-draft-decode patch's changes). Most bump-fragile patch — see below. |
 | `thor-draft-cg-gate-sm110.patch` | — (Thor-authored) | **Shape-gate the DSpark draft's FULL cudagraph replay on sm_110 (the c1 fix).** The forensics showed the graphed draft is 7–16% *slower* than the eager draft at N=1 (replay overhead eats the launch savings on a tiny 5-layer draft). The gate routes per-step draft batches below `VLLM_THOR_DRAFT_CG_MIN_BATCH` requests (default **2**; min 1, where 1 = today's behavior) through the **existing eager fallback** via the dispatch's `need_eager` channel — no new eager path, no capture-logic changes. sm_110 only: off sm_110 the decision helper is a structural no-op (always CG). One-shot `THOR draft-CG gate: …` log lines; any gate evaluation error degrades to the CG behavior (logged once). Probe-gated, inert on non-sm_110, default N=1→eager. |
 | `thor-fa4-hd256-1cta-decode-sm110.patch` | — (Thor-authored) | **The 1CTA decode carve-out for the FA4 hd256 kernel (the v11 "N-2 decode" workstream).** Decode-shaped hd256 calls — `max_seqlen_q <= 8` (decode M 1..8, incl. MTP verify; prefill is 1024+), non-local, dense or paged-128 TMA (the kernel's only legal paged mode) — now OR into the `hd256_use_2cta` carve-out in `vllm_flash_attn/cute/interface.py` (one hunk), so the kernel drops its 2CTA cluster to a single CTA (`cluster (1,1)`, `CtaGroup.ONE`): a **1.56× decode win** at L=8192 M=1 (clean micro-bench 2CTA 323 µs → 1CTA 207 µs), with 1CTA == 2CTA == fp32-ref within fp8 tolerance; the kernel file is untouched and the 2CTA prefill path is unchanged (separate compile keys coexist in one process). The in-tree hd256 SplitKV machinery was investigated and is a no-win on **both** the 2CTA and 1CTA paths — kept inert (see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below). |
-| `thor-mjolnir-attention-backend.patch` | — (Thor-authored) | **The `MJOLNIR` attention-backend name.** Adds `MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"` to `AttentionBackendEnum` (`v1/attention/backends/registry.py`), so `vllm serve <model> --attention-backend MJOLNIR` parses (the CLI resolves the name through the enum *before* plugins could add one — an `Enum` cannot grow at runtime) and `Attention.__init__`'s `AttentionBackendEnum[backend.get_name()]` round-trip works. The class itself comes from the `mjolnir-kernel` package, installed by the `Dockerfile`; its `vllm.general_plugins` entry point also maps `CUSTOM` to the same class, so a stock vLLM can use `--attention-backend CUSTOM`. One 6-line hunk in a file no other patch touches. |
+| `thor-mjolnir-attention-backend.patch` | — (Thor-authored) | **The `MJOLNIR` attention-backend name.** Adds `MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"` to `AttentionBackendEnum` (`v1/attention/backends/registry.py`), so `vllm serve <model> --attention-backend MJOLNIR` parses (the CLI resolves the name through the enum *before* plugins could add one — an `Enum` cannot grow at runtime) and `Attention.__init__`'s `AttentionBackendEnum[backend.get_name()]` round-trip works. The class itself comes from the `mjolnir-kernel` package, installed by the `Dockerfile`; its `vllm.general_plugins` entry point also maps `CUSTOM` to the same class, so a stock vLLM can use `--attention-backend CUSTOM`. Also makes **FlashAttention 4 the Mjolnir backend's default fallback** (its prefill/mixed-step backend) on sm_110: a `fa_utils.py` hunk resolves `flash_attn_version` to 4 when the selected backend is `MJOLNIR`/`CUSTOM`, `MJOLNIR_ATTN_FALLBACK` is unset or `FLASH_ATTN`, and none is configured — see "The Mjolnir attention backend" below. |
 | `thor-gdn-prefill-sm110.patch` | — (Thor-authored) | GDN **prefill** grant in `_resolve_gdn_prefill_backend()` (the fast FlashInfer kernel for the model's GDN layers) — probe-gated at import; see "Thor sm_110 gate probes". |
 | `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
 | `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
@@ -587,16 +587,36 @@ patch adds `MJOLNIR`, whose value is the class path in the `mjolnir-kernel`
 package; `MjolnirAttentionBackend.get_name()` returns `"MJOLNIR"` when the
 member exists and `"CUSTOM"` otherwise.
 
-**Apply to a vLLM 0.30.0 checkout:** `git apply docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch`
+**And the FA4 fallback default** (`v1/attention/backends/fa_utils.py`). The
+backend runs prefill, mixed and cascade steps on a stock backend it subclasses.
+FlashInfer's prefill on Thor is ~40% slower than FlashAttention 4's (the GEMV
+image ran FA4 prefill: 3,557 vs 2,559 t/s at 8K), but on sm_110
+`get_flash_attn_version()` resolves to FA2 unless the config says
+`flash_attn_version: 4`, and FA2 cannot read an fp8 KV cache. The hunk adds
+`mjolnir_fallback_name()` (`MJOLNIR_ATTN_FALLBACK`, default `FLASH_ATTN`) — the
+backend reads its default from it — and one `elif` in step 2 of
+`get_flash_attn_version()`: no explicit `flash_attn_version`, the selected
+backend is `MJOLNIR` (or `CUSTOM`, the plugin's slot), the fallback is
+`FLASH_ATTN`, and the device is sm_110 → FA4. Decided from the config and the
+environment, so the API server, engine core and every worker agree. The FA4
+FP8-KV probes (`thor-fa4-fp8kv-sm110`, `thor-fa4-hd256-fp8-sm110`) still gate
+the layer; if they fail, the backend logs it and falls back to FlashInfer.
+An explicit `flash_attn_version` always wins; nothing changes off sm_110 or
+for any other backend.
+
+**Apply to a vLLM 0.31.0 checkout** (after the FA4 patches, which also touch
+`fa_utils.py`): `git apply docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch`
 (paths are `vllm/...`; `apply_patches.py` applies it to the installed package
 with `patch -p1 --forward`). **Sentinel:** `verify_patches.py` checks the
-member line. **Build smoke:** the `Dockerfile` asserts
+member line, `mjolnir_fallback_name` and the `elif` call site. **Build smoke:** the `Dockerfile` asserts
 `AttentionBackendEnum["MJOLNIR"].get_path() == mjolnir.BACKEND_PATH` and that
 the `mjolnir` `vllm.general_plugins` entry point is installed.
 
-**Bump fragility:** minimal — the hunk's context is the last three members
-before `CUSTOM`; a new upstream member there shifts the context and the patch
-is re-generated with one line moved.
+**Bump fragility:** low — the registry hunk's context is the last three
+members before `CUSTOM` (a new upstream member there moves one line); the
+`fa_utils.py` hunk sits on the FA4 patches' version of that file, next to the
+`flash_attn_version` override in `get_flash_attn_version()`, so it is
+re-generated whenever those patches are.
 
 ## Bump to vLLM 0.31.0 (2026-10-11) — 55390 absorbed, 55519 + the FlashInfer hunk re-adapted
 

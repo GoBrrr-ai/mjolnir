@@ -47,7 +47,7 @@ flowchart LR
 - **Warp specialization.** A TMA warp walks the block table and streams K/V boxes into a shared-memory ring; an MMA warp issues `tcgen05` UMMAs whose accumulators live in **TMEM**, not registers; softmax warpgroups read scores from TMEM, keep the running max and sum, and write P back as e4m3 for the PV product. Producers and consumers synchronize with mbarrier pipelines, so loads, matrix math and softmax overlap.
 - **Occupancy-pinned split-KV.** The planner always launches exactly one wave — 2 CTAs on each of the 20 SMs — and cuts long sequences into chunks so every CTA streams about the same number of KV tiles. A separate reduction kernel merges the partial outputs with their log-sum-exp. The grid is padded to a fixed size, so the whole step replays under full CUDA graphs.
 - **fp8 end to end.** Q is quantized per (sequence, KV head) when the step starts, KV is e4m3, P is e4m3: one MMA kind, no conversion warps. The KV format can drop further to fp6/fp4, which `tcgen05 kind::f8f6f4` multiplies directly (TMA unpacks sub-byte data into byte containers).
-- **The vLLM backend** subclasses FlashInfer: prefill, KV writes and mixed batches run there unchanged; decode-only steps (including speculative-decode verify, q_len ≤ 1 + num_speculative_tokens) run Mjolnir.
+- **The vLLM backend** subclasses a stock backend — FlashAttention 4 on the image (FlashInfer on a stock vLLM): prefill, KV writes and mixed batches run there unchanged; decode-only steps (including speculative-decode verify, q_len ≤ 1 + num_speculative_tokens) run Mjolnir.
 
 ## The chapters
 

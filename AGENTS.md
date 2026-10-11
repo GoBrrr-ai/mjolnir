@@ -65,7 +65,8 @@ skipped with a hint — nothing blocks on a password.
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
   CUSTOM` on stock vLLM 0.31.0 (the `vllm.general_plugins` entry point
   `mjolnir = "mjolnir:register"` fills both slots). Prefill / mixed steps run on
-  the fallback (`MJOLNIR_ATTN_FALLBACK`, FlashInfer). Knobs: `MJOLNIR_ATTN_*`
+  the fallback (`MJOLNIR_ATTN_FALLBACK`: FA4 on the image, FlashInfer on stock
+  vLLM; the FA4 default lives in the enum patch's `fa_utils` hunk). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
 - **The image**: `narandill/mjolnir-vllm:v0.31.0` on
   `vllm/vllm-openai:v0.31.0-ubuntu2404`; 12 vLLM patches + 1 FlashInfer patch,

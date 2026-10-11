@@ -102,8 +102,9 @@ def container_running(name: str = CONTAINER_NAME) -> bool:
 
 # Mjolnir reads K/V fastest from head-major pages (each KV head's page is one
 # contiguous block): +11-17% decode at long context in `mjolnir verify
-# hndsweep`. vLLM's FlashInfer-based backends allocate that layout with
-# VLLM_KV_CACHE_LAYOUT=HND, so MJOLNIR configs get it by default.
+# hndsweep`. vLLM allocates that layout (LBHNC) with VLLM_KV_CACHE_LAYOUT=HND;
+# both fallbacks (FlashAttention 4, FlashInfer) read it through strides, so
+# MJOLNIR configs get it by default.
 MJOLNIR_ENV_DEFAULTS = {"VLLM_KV_CACHE_LAYOUT": "HND"}
 
 

@@ -73,5 +73,6 @@ docker run --gpus all --ipc host -e VLLM_KV_CACHE_LAYOUT=HND -p 8000:8000 \
 On a stock vLLM 0.31.0 (no image patch), `pip install mjolnir-kernel[dsl]` and
 use `--attention-backend CUSTOM`: the plugin registers itself in the `CUSTOM`
 slot through the `vllm.general_plugins` entry point. Prefill and mixed batches
-run on the fallback backend (`MJOLNIR_ATTN_FALLBACK`, FlashInfer by default);
+run on the fallback backend (`MJOLNIR_ATTN_FALLBACK`): FlashAttention 4 on the
+image, FlashInfer on a stock vLLM (whose FA on sm_110 cannot read fp8 KV);
 Mjolnir takes the decode steps.

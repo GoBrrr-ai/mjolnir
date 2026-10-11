@@ -28,7 +28,10 @@ reasoning-parser: qwen3
 
 # ── Attention / linear backends ─────────────────────────────────────────────
 # The 16 full-attention (head_dim=256) layers run the Mjolnir decode kernel
-# (decode steps) on top of FlashInfer (prefill, KV writes, mixed steps).
+# (decode steps) on top of FlashAttention 4 (prefill, KV writes, mixed steps):
+# the image resolves FLASH_ATTN to FA4 for MJOLNIR on sm_110 — no
+# flash_attn_version needed here — and FA4's hd256 kernel pins the KV page to
+# 128 tokens. MJOLNIR_ATTN_FALLBACK=FLASHINFER restores the FlashInfer prefill.
 # `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs: the
 # kernel reads head-major pages 11-17% faster at long context.
 # Kernel knobs: MJOLNIR_ATTN_* env vars (see src/mjolnir/README.md).
