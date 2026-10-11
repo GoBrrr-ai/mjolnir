@@ -743,7 +743,29 @@ HERO_PILLS = (
 )
 
 
+FONT_DIR = Path(__file__).parent / "fonts"  # Inter Display (SIL OFL 1.1, fonts/OFL.txt)
+_BUNDLED_WEIGHTS = {"normal": "Regular", "medium": "Medium", "semibold": "SemiBold", "bold": "Bold"}
+_FONTS_REGISTERED = False
+
+
+def _register_fonts() -> None:
+    """Make the bundled Inter Display weights known to matplotlib, so the
+    hero and infographic render the same on every host (Thor ships Noto Sans
+    without its medium / semibold weights)."""
+    global _FONTS_REGISTERED
+    if _FONTS_REGISTERED:
+        return
+    from matplotlib import font_manager
+
+    for f in sorted(FONT_DIR.glob("*.ttf")):
+        font_manager.fontManager.addfont(str(f))
+    _FONTS_REGISTERED = True
+
+
 def _font_file(family: str, weight: str) -> str:
+    bundled = FONT_DIR / f"InterDisplay-{_BUNDLED_WEIGHTS.get(weight, 'Regular')}.ttf"
+    if family == "Inter Display" and bundled.exists():
+        return str(bundled)
     from matplotlib import font_manager
 
     return font_manager.findfont(font_manager.FontProperties(family=family, weight=weight))
@@ -849,6 +871,7 @@ def _display_family() -> str:
     sans available (variable fonts render thin in matplotlib)."""
     from matplotlib import font_manager
 
+    _register_fonts()
     for fam in ("Inter Display", "Inter", "Noto Sans", "Nimbus Sans", "Liberation Sans", "DejaVu Sans"):
         try:
             path = font_manager.findfont(fam, fallback_to_default=False)
