@@ -22,7 +22,7 @@ import yaml
 
 # ── Model / config ───────────────────────────────────────────────────────────
 DEFAULT_MODEL = "Qwen/Qwen3.8-27B"
-DEFAULT_QUANT = "NVFP4_MJOLNIR"  # --attention-backend MJOLNIR (this repo's kernel)
+DEFAULT_QUANT = "NVFP4_MJOLNIR_E2M3"  # --attention-backend MJOLNIR (this repo's kernel)
 BASELINE_QUANT = "NVFP4"  # FlashInfer — the fastest stock backend on Thor
 FA2_QUANT = "NVFP4_FA2"  # FlashAttention 2 — vLLM 0.31.0's sm_110 default (bf16 KV)
 SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
