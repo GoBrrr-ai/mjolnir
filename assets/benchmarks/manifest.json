@@ -44,6 +44,11 @@
   "light": "assets/benchmarks/kernel-speedup.png",
   "stage": "sweep"
  },
+ "kv-cache-capacity": {
+  "dark": "assets/benchmarks/kv-cache-capacity-dark.png",
+  "light": "assets/benchmarks/kv-cache-capacity.png",
+  "stage": "kv-cache-size"
+ },
  "kvfmt-heatmap": {
   "dark": "assets/benchmarks/kvfmt-heatmap-dark.png",
   "light": "assets/benchmarks/kvfmt-heatmap.png",
