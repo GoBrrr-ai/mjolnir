@@ -55,13 +55,13 @@ flowchart LR
 | 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261011-081738` |
 | 2 | [Headline L-sweep](sweep.md) | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L | ✅ run `20261011-082714` |
 | 3 | [Head-major pages](hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261011-084025` |
-| 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ⏳ pending |
-| 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ⏳ pending |
-| 6 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ⏳ pending |
-| 7 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ⏳ pending |
-| 8 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ⏳ pending |
-| 9 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ⏳ pending |
-| 10 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ⏳ pending |
+| 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261011-084420` |
+| 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261011-090233` |
+| 6 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261011-095706` |
+| 7 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261011-091005` |
+| 8 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261011-091935` |
+| 9 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261011-092546` |
+| 10 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261011-093214` |
 
 
 ## Reproducing everything

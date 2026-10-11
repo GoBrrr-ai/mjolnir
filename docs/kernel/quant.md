@@ -1,6 +1,6 @@
 # KV format accuracy
 
-> relative L2 error of each KV format vs unquantized KV, at every L · `mjolnir verify quant` · **no run yet**
+> relative L2 error of each KV format vs unquantized KV, at every L · `mjolnir verify quant` · run `20261011-090233`
 
 ## The question
 
@@ -12,8 +12,26 @@ The harness generates float K/V, quantizes them to each format (per-KV-head desc
 
 ## Result
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/quant-accuracy-dark.png">
+  <img src="../../assets/benchmarks/quant-accuracy.png" alt="KV format accuracy" width="100%">
+</picture>
 
-> Pending — run `mjolnir verify quant` on a Thor, then `mjolnir plot --readme`.
+- `fp8`: mean relative L2 error **0.045** (1.0× fp8's 0.045).
+- `e2m3`: mean relative L2 error **0.052** (1.1× fp8's 0.045).
+- `e3m2`: mean relative L2 error **0.079** (1.8× fp8's 0.045).
+- `nvfp4`: mean relative L2 error **0.141** (3.1× fp8's 0.045).
+- `e2m1`: mean relative L2 error **0.203** (4.5× fp8's 0.045).
+
+| format | bits | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K | mean |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `fp8` | 8 | 0.0434 | 0.0447 | 0.0448 | 0.0456 | 0.0461 | 0.0461 | 0.0455 | 0.0457 | **0.0452** |
+| `e2m3` | 6 | 0.0456 | 0.0510 | 0.0512 | 0.0514 | 0.0521 | 0.0538 | 0.0541 | 0.0530 | **0.0515** |
+| `e3m2` | 6 | 0.0756 | 0.0802 | 0.0792 | 0.0805 | 0.0797 | 0.0808 | 0.0804 | 0.0790 | **0.0794** |
+| `nvfp4` | 4.5 | 0.1356 | 0.1407 | 0.1409 | 0.1402 | 0.1440 | 0.1412 | 0.1421 | 0.1400 | **0.1406** |
+| `e2m1` | 4 | 0.1891 | 0.1967 | 0.2010 | 0.2045 | 0.2070 | 0.2105 | 0.2086 | 0.2068 | **0.2030** |
+
+<sub>Rendered from [`benchmarks/raw/verify/quant/20261011-090233.json`](../../benchmarks/raw/verify/quant/20261011-090233.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±7% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

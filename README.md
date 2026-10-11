@@ -151,13 +151,13 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [Correctness matrix](docs/kernel/correctness.md)  | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype |
 | [Headline L-sweep](docs/kernel/sweep.md)  | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L |
 | [Head-major pages](docs/kernel/hndsweep.md)  | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? |
-| [KV layouts and formats](docs/kernel/kvfmt.md) *(pending)* | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
-| [KV format accuracy](docs/kernel/quant.md) *(pending)* | relative L2 error of each KV format vs unquantized KV, at every L |
-| [Full profiles per KV format](docs/kernel/fp6prof.md) *(pending)* | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format |
-| [KV ring depth](docs/kernel/ring.md) *(pending)* | TMA→MMA ring depth (--kv_stages) sweep at every L |
-| [L2 prefetch](docs/kernel/prefetch.md) *(pending)* | TMA L2 prefetch distance (--l2_prefetch) sweep |
-| [Programmatic dependent launch](docs/kernel/pdl.md) *(pending)* | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) |
-| [Flag A/B](docs/kernel/ab.md) *(pending)* | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
+| [KV layouts and formats](docs/kernel/kvfmt.md)  | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
+| [KV format accuracy](docs/kernel/quant.md)  | relative L2 error of each KV format vs unquantized KV, at every L |
+| [Full profiles per KV format](docs/kernel/fp6prof.md)  | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format |
+| [KV ring depth](docs/kernel/ring.md)  | TMA→MMA ring depth (--kv_stages) sweep at every L |
+| [L2 prefetch](docs/kernel/prefetch.md)  | TMA L2 prefetch distance (--l2_prefetch) sweep |
+| [Programmatic dependent launch](docs/kernel/pdl.md)  | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) |
+| [Flag A/B](docs/kernel/ab.md)  | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
 
 
 ## What's in the image
@@ -185,7 +185,7 @@ mjolnir model | image                   # pick the model config / image
 mjolnir verify <stage>                  # correctness + ncu benchmarks -> benchmarks/raw/verify
 mjolnir verify bench | all              # every benchmark stage (all = + correctness)
 mjolnir verify show | list              # re-print saved results
-mjolnir bench e2e | compare            # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
+mjolnir bench e2e | compare             # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
 mjolnir bench perf | ab                 # end-to-end serving benchmarks -> history.jsonl
 mjolnir plot --readme [--site DIR]      # charts + README + docs (+ interactive site) from raw data
 mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop

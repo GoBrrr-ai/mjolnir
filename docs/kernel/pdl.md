@@ -1,6 +1,6 @@
 # Programmatic dependent launch
 
-> PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) · `mjolnir verify pdl` · **no run yet**
+> PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) · `mjolnir verify pdl` · run `20261011-092546`
 
 ## The question
 
@@ -12,8 +12,19 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 
 ## Result
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/pdl-delta-dark.png">
+  <img src="../../assets/benchmarks/pdl-delta.png" alt="Programmatic dependent launch" width="100%">
+</picture>
 
-> Pending — run `mjolnir verify pdl` on a Thor, then `mjolnir plot --readme`.
+- 15 of 16 measurements move by less than the ±7% noise band (range -4.1% … +15.1%).
+
+| Q | batch | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| fp8 | 1 | $\color{#dc2626}{\text{+15.1\%}}$ | $\color{grey}{\text{+1.7\%}}$ | $\color{grey}{\text{+4.0\%}}$ | $\color{grey}{\text{+0.9\%}}$ | $\color{grey}{\text{+1.4\%}}$ | $\color{grey}{\text{−2.7\%}}$ | $\color{grey}{\text{−4.1\%}}$ | $\color{grey}{\text{−0.5\%}}$ |
+| fp8 | 8 | $\color{grey}{\text{+1.2\%}}$ | $\color{grey}{\text{−1.0\%}}$ | $\color{grey}{\text{−0.8\%}}$ | $\color{grey}{\text{+4.2\%}}$ | $\color{grey}{\text{−1.5\%}}$ | $\color{grey}{\text{+0.7\%}}$ | $\color{grey}{\text{+2.3\%}}$ | $\color{grey}{\text{−4.1\%}}$ |
+
+<sub>Rendered from [`benchmarks/raw/verify/pdl/20261011-092546.json`](../../benchmarks/raw/verify/pdl/20261011-092546.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±7% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
