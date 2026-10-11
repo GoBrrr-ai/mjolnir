@@ -83,5 +83,10 @@
   "dark": "assets/benchmarks/ring-heatmap-dark.png",
   "light": "assets/benchmarks/ring-heatmap.png",
   "stage": "ring"
+ },
+ "spec-drafts": {
+  "dark": "assets/benchmarks/spec-drafts-dark.png",
+  "light": "assets/benchmarks/spec-drafts.png",
+  "stage": "spec"
  }
 }
