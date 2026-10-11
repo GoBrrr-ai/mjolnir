@@ -2,7 +2,7 @@
 
 One JSON document per `mjolnir verify <stage>` run:
 
-```
+```bash
 benchmarks/raw/verify/<stage>/<run_id>.json      # schema "mjolnir.verify/1"
 ```
 

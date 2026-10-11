@@ -1,1 +1,22 @@
-{}
+{
+ "hnd-layout": {
+  "dark": "assets/benchmarks/hnd-layout-dark.png",
+  "light": "assets/benchmarks/hnd-layout.png",
+  "stage": "hndsweep"
+ },
+ "kernel-bandwidth": {
+  "dark": "assets/benchmarks/kernel-bandwidth-dark.png",
+  "light": "assets/benchmarks/kernel-bandwidth.png",
+  "stage": "sweep"
+ },
+ "kernel-latency": {
+  "dark": "assets/benchmarks/kernel-latency-dark.png",
+  "light": "assets/benchmarks/kernel-latency.png",
+  "stage": "sweep"
+ },
+ "kernel-speedup": {
+  "dark": "assets/benchmarks/kernel-speedup-dark.png",
+  "light": "assets/benchmarks/kernel-speedup.png",
+  "stage": "sweep"
+ }
+}

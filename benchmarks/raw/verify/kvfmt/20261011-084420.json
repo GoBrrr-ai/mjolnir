@@ -1,0 +1,2207 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "kvfmt",
+ "run_id": "20261011-084420",
+ "ts": "2026-10-11T09:02:33+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.30.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "75f11d8",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "variants": [
+   [
+    "t5:fp8-nhd",
+    "--kv_format fp8 --kv_layout nhd"
+   ],
+   [
+    "t5:fp8-interleaved",
+    "--kv_format fp8 --kv_layout interleaved"
+   ],
+   [
+    "t5:fp8-hnd",
+    "--kv_format fp8 --kv_layout hnd"
+   ],
+   [
+    "t5:e2m3-hnd",
+    "--kv_format e2m3 --kv_layout hnd"
+   ],
+   [
+    "t5:e3m2-hnd",
+    "--kv_format e3m2 --kv_layout hnd"
+   ],
+   [
+    "t5:e2m1-hnd",
+    "--kv_format e2m1 --kv_layout hnd"
+   ],
+   [
+    "t5:nvfp4-hnd",
+    "--kv_format nvfp4 --kv_layout hnd"
+   ]
+  ],
+  "refs": "fi,fi-hnd",
+  "wall_iters": 200,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.30.0-ubuntu2404",
+ "series": [
+  {
+   "id": "fi",
+   "label": "FlashInfer (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "NHD"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 25.9,
+     "main_us": 25.9,
+     "merge_us": 0,
+     "min_us": 22.4,
+     "l2_sectors": 17092.4,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 10.12,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 25.9,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 59.83,
+     "main_us": 53.75,
+     "merge_us": 6.08,
+     "min_us": 55.81,
+     "l2_sectors": 283842.56000000006,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 140.21,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 53.75,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.08,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 92.9,
+     "main_us": 86.47,
+     "merge_us": 6.43,
+     "min_us": 88.99,
+     "l2_sectors": 548635.4600000001,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 180.59,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 86.47,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.43,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 199.36,
+     "main_us": 192.37,
+     "merge_us": 6.99,
+     "min_us": 162.2,
+     "l2_sectors": 1073158.8399999999,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 168.31,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 192.37,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.99,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 407.01,
+     "main_us": 400.47,
+     "merge_us": 6.54,
+     "min_us": 330.01,
+     "l2_sectors": 2123143.98,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 164.88,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 400.47,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.54,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 845.39,
+     "main_us": 838.76,
+     "merge_us": 6.63,
+     "min_us": 721.89,
+     "l2_sectors": 4222734.84,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 158.76,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 838.76,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.63,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1586.69,
+     "main_us": 1580.0,
+     "merge_us": 6.69,
+     "min_us": 1405.7,
+     "l2_sectors": 8419424.24,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 169.18,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 1580.0,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.69,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 3086.99,
+     "main_us": 3080.0,
+     "merge_us": 6.99,
+     "min_us": 2665.79,
+     "l2_sectors": 16810177.4,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 173.91,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 3080.0,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.99,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fi-hnd",
+   "label": "FlashInfer (fp8 KV, HND)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "HND"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 25.63,
+     "main_us": 25.63,
+     "merge_us": 0,
+     "min_us": 22.4,
+     "l2_sectors": 17087.2,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 10.23,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 25.63,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 60.03,
+     "main_us": 53.61,
+     "merge_us": 6.42,
+     "min_us": 55.36,
+     "l2_sectors": 283945.77999999997,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 139.74,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 53.61,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.42,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 92.95,
+     "main_us": 86.45,
+     "merge_us": 6.5,
+     "min_us": 88.19,
+     "l2_sectors": 548340.96,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 180.5,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 86.45,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.5,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 174.97,
+     "main_us": 168.11,
+     "merge_us": 6.86,
+     "min_us": 162.21,
+     "l2_sectors": 1073574.3399999999,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 191.77,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 168.11,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.86,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 360.29,
+     "main_us": 353.7,
+     "merge_us": 6.59,
+     "min_us": 340.26,
+     "l2_sectors": 2122999.0599999996,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 186.26,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 353.7,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.59,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 738.17,
+     "main_us": 731.56,
+     "merge_us": 6.61,
+     "min_us": 670.15,
+     "l2_sectors": 4222722.5200000005,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 181.82,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 731.56,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.61,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1336.61,
+     "main_us": 1330.0,
+     "merge_us": 6.61,
+     "min_us": 1235.73,
+     "l2_sectors": 8418601.76,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 200.83,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 1330.0,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.61,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 2576.93,
+     "main_us": 2570.0,
+     "merge_us": 6.93,
+     "min_us": 2315.63,
+     "l2_sectors": 16809904.86,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 208.34,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv_bf",
+       "avg_us": 2570.0,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.93,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:fp8-nhd",
+   "label": "fp8-nhd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format fp8 --kv_layout nhd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 13.41,
+     "main_us": 13.41,
+     "merge_us": 0,
+     "min_us": 11.58,
+     "l2_sectors": 16192.5,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 19.55,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 13.41,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 59.66,
+     "main_us": 52.42,
+     "merge_us": 7.24,
+     "min_us": 51.56,
+     "l2_sectors": 289884.75999999995,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 140.61,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 52.42,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.24,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 93.97,
+     "main_us": 86.85,
+     "merge_us": 7.12,
+     "min_us": 85.67,
+     "l2_sectors": 556506.04,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 178.54,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 86.85,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.12,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 217.83,
+     "main_us": 210.36,
+     "merge_us": 7.47,
+     "min_us": 171.61,
+     "l2_sectors": 1081465.8399999999,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 154.04,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 210.36,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.47,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 477.15,
+     "main_us": 469.78,
+     "merge_us": 7.37,
+     "min_us": 427.07,
+     "l2_sectors": 2130534.42,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 140.65,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 469.78,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.37,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 938.7,
+     "main_us": 931.17,
+     "merge_us": 7.53,
+     "min_us": 863.2,
+     "l2_sectors": 4230745.5200000005,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 142.98,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 931.17,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.53,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1726.73,
+     "main_us": 1720.0,
+     "merge_us": 6.73,
+     "min_us": 1465.73,
+     "l2_sectors": 8427160.94,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 155.46,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1720.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.73,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 3537.14,
+     "main_us": 3530.0,
+     "merge_us": 7.14,
+     "min_us": 2925.86,
+     "l2_sectors": 16818907.759999998,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 151.78,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 3530.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.14,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:fp8-interleaved",
+   "label": "fp8-interleaved",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format fp8 --kv_layout interleaved",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "interleaved",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 13.83,
+     "main_us": 13.83,
+     "merge_us": 0,
+     "min_us": 11.74,
+     "l2_sectors": 16222.92,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 18.95,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 13.83,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 63.58,
+     "main_us": 56.13,
+     "merge_us": 7.45,
+     "min_us": 53.82,
+     "l2_sectors": 289951.68,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 131.94,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 56.13,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.45,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 111.3,
+     "main_us": 104.4,
+     "merge_us": 6.9,
+     "min_us": 99.71,
+     "l2_sectors": 555931.04,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 150.74,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 104.4,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.9,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 221.26,
+     "main_us": 214.34,
+     "merge_us": 6.92,
+     "min_us": 200.57,
+     "l2_sectors": 1080707.4600000002,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 151.65,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 214.34,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.92,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 455.54,
+     "main_us": 448.0,
+     "merge_us": 7.54,
+     "min_us": 390.88,
+     "l2_sectors": 2130590.12,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 147.32,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 448.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.54,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 928.15,
+     "main_us": 920.81,
+     "merge_us": 7.34,
+     "min_us": 833.34,
+     "l2_sectors": 4230518.34,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 144.61,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 920.81,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.34,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1846.59,
+     "main_us": 1840.0,
+     "merge_us": 6.59,
+     "min_us": 1655.54,
+     "l2_sectors": 8426510.88,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 145.37,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1840.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.59,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 3647.52,
+     "main_us": 3640.0,
+     "merge_us": 7.52,
+     "min_us": 3235.79,
+     "l2_sectors": 16819658.26,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 147.19,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 3640.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.52,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:fp8-hnd",
+   "label": "fp8-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format fp8 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 13.36,
+     "main_us": 13.36,
+     "merge_us": 0,
+     "min_us": 11.49,
+     "l2_sectors": 16253.82,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 19.62,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 13.36,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 55.93,
+     "main_us": 48.35,
+     "merge_us": 7.58,
+     "min_us": 48.83,
+     "l2_sectors": 289862.37999999995,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 149.98,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 48.35,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.58,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 86.79,
+     "main_us": 79.08,
+     "merge_us": 7.71,
+     "min_us": 80.06,
+     "l2_sectors": 556475.18,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 193.31,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 79.08,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.71,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 170.96,
+     "main_us": 163.7,
+     "merge_us": 7.26,
+     "min_us": 148.99,
+     "l2_sectors": 1080843.12,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 196.27,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 163.7,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.26,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 365.14,
+     "main_us": 357.64,
+     "merge_us": 7.5,
+     "min_us": 317.18,
+     "l2_sectors": 2130924.88,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 183.79,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 357.64,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.5,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 715.84,
+     "main_us": 708.33,
+     "merge_us": 7.51,
+     "min_us": 650.98,
+     "l2_sectors": 4230408.34,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 187.5,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 708.33,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.51,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1297.75,
+     "main_us": 1290.0,
+     "merge_us": 7.75,
+     "min_us": 1195.76,
+     "l2_sectors": 8427133.64,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 206.85,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1290.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.75,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 2467.02,
+     "main_us": 2460.0,
+     "merge_us": 7.02,
+     "min_us": 2205.6,
+     "l2_sectors": 16818876.06,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 217.62,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 2460.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.02,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:e2m3-hnd",
+   "label": "e2m3-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format e2m3 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "e2m3",
+   "kv_layout": "hnd",
+   "kv_bits": 6.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 13.17,
+     "main_us": 13.17,
+     "merge_us": 0,
+     "min_us": 11.26,
+     "l2_sectors": 14205.48,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 14.93,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 13.17,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 50.92,
+     "main_us": 44.0,
+     "merge_us": 6.92,
+     "min_us": 45.08,
+     "l2_sectors": 224252.12,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 123.56,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 44.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.92,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 81.06,
+     "main_us": 73.54,
+     "merge_us": 7.52,
+     "min_us": 73.73,
+     "l2_sectors": 424897.7,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 155.23,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 73.54,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.52,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 174.85,
+     "main_us": 167.29,
+     "merge_us": 7.56,
+     "min_us": 136.67,
+     "l2_sectors": 818815.32,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 143.93,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 167.29,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.56,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 362.52,
+     "main_us": 355.62,
+     "merge_us": 6.9,
+     "min_us": 310.75,
+     "l2_sectors": 1607440.1800000002,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 138.84,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 355.62,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.9,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 685.66,
+     "main_us": 678.24,
+     "merge_us": 7.42,
+     "min_us": 621.83,
+     "l2_sectors": 3182213.84,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 146.81,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 678.24,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.42,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1317.49,
+     "main_us": 1310.0,
+     "merge_us": 7.49,
+     "min_us": 1095.73,
+     "l2_sectors": 6331492.64,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 152.81,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1310.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.49,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 2427.15,
+     "main_us": 2420.0,
+     "merge_us": 7.15,
+     "min_us": 2135.66,
+     "l2_sectors": 12625394.64,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 165.9,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 2420.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.15,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:e3m2-hnd",
+   "label": "e3m2-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format e3m2 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "e3m2",
+   "kv_layout": "hnd",
+   "kv_bits": 6.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 13.6,
+     "main_us": 13.6,
+     "merge_us": 0,
+     "min_us": 11.46,
+     "l2_sectors": 14160.72,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 14.46,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 13.6,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 48.81,
+     "main_us": 42.27,
+     "merge_us": 6.54,
+     "min_us": 44.93,
+     "l2_sectors": 223668.1,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 128.9,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 42.27,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.54,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 79.9,
+     "main_us": 72.67,
+     "merge_us": 7.23,
+     "min_us": 73.76,
+     "l2_sectors": 425341.12,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 157.48,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 72.67,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.23,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 178.17,
+     "main_us": 170.96,
+     "merge_us": 7.21,
+     "min_us": 138.88,
+     "l2_sectors": 818952.74,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 141.25,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 170.96,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.21,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 364.04,
+     "main_us": 356.43,
+     "merge_us": 7.61,
+     "min_us": 314.94,
+     "l2_sectors": 1607717.36,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 138.26,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 356.43,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.61,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 663.51,
+     "main_us": 656.5,
+     "merge_us": 7.01,
+     "min_us": 608.28,
+     "l2_sectors": 3182924.2800000003,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 151.71,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 656.5,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.01,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1317.63,
+     "main_us": 1310.0,
+     "merge_us": 7.63,
+     "min_us": 1195.6,
+     "l2_sectors": 6331135.44,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 152.79,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1310.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.63,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 2427.91,
+     "main_us": 2420.0,
+     "merge_us": 7.91,
+     "min_us": 2115.76,
+     "l2_sectors": 12624974.82,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 165.84,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 2420.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.91,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:e2m1-hnd",
+   "label": "e2m1-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format e2m1 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "e2m1",
+   "kv_layout": "hnd",
+   "kv_bits": 4.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 12.88,
+     "main_us": 12.88,
+     "merge_us": 0,
+     "min_us": 11.01,
+     "l2_sectors": 12107.06,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 10.18,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 12.88,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 38.63,
+     "main_us": 31.85,
+     "merge_us": 6.78,
+     "min_us": 33.56,
+     "l2_sectors": 158249.2,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 108.58,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 31.85,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.78,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 54.46,
+     "main_us": 47.25,
+     "merge_us": 7.21,
+     "min_us": 48.8,
+     "l2_sectors": 293811.98,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 154.03,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 47.25,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.21,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 92.78,
+     "main_us": 85.14,
+     "merge_us": 7.64,
+     "min_us": 82.82,
+     "l2_sectors": 556325.5,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 180.83,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 85.14,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.64,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 185.39,
+     "main_us": 178.34,
+     "merge_us": 7.05,
+     "min_us": 162.43,
+     "l2_sectors": 1081813.98,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 180.99,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 178.34,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.05,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 367.95,
+     "main_us": 361.49,
+     "merge_us": 6.46,
+     "min_us": 337.31,
+     "l2_sectors": 2133296.34,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 182.39,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 361.49,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.46,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 637.51,
+     "main_us": 630.4,
+     "merge_us": 7.11,
+     "min_us": 609.7,
+     "l2_sectors": 4231665.54,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 210.53,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 630.4,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.11,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 1216.81,
+     "main_us": 1210.0,
+     "merge_us": 6.81,
+     "min_us": 1105.79,
+     "l2_sectors": 8429045.1,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 220.61,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1210.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.81,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:nvfp4-hnd",
+   "label": "nvfp4-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format nvfp4 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "nvfp4",
+   "kv_layout": "hnd",
+   "kv_bits": 4.5,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 35.09,
+     "main_us": 35.09,
+     "merge_us": 0,
+     "min_us": 31.94,
+     "l2_sectors": 20391.06,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 4.2,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 35.09,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 124.29,
+     "main_us": 117.08,
+     "merge_us": 7.21,
+     "min_us": 117.85,
+     "l2_sectors": 276208.7,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 37.96,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 117.08,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.21,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 196.06,
+     "main_us": 188.73,
+     "merge_us": 7.33,
+     "min_us": 185.66,
+     "l2_sectors": 524298.1,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 48.13,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 188.73,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.33,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 333.36,
+     "main_us": 326.48,
+     "merge_us": 6.88,
+     "min_us": 318.08,
+     "l2_sectors": 1007671.9400000001,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 56.62,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 326.48,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.88,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 620.87,
+     "main_us": 613.41,
+     "merge_us": 7.46,
+     "min_us": 610.34,
+     "l2_sectors": 1974126.82,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 60.8,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 613.41,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.46,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 1187.23,
+     "main_us": 1180.0,
+     "merge_us": 7.23,
+     "min_us": 1175.7,
+     "l2_sectors": 3904558.92,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 63.59,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 1180.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 7.23,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 2316.91,
+     "main_us": 2310.0,
+     "merge_us": 6.91,
+     "min_us": 2275.57,
+     "l2_sectors": 7781103.74,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 65.17,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 2310.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.91,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 4536.71,
+     "main_us": 4530.0,
+     "merge_us": 6.71,
+     "min_us": 4495.6,
+     "l2_sectors": 15520357.08,
+     "ctas": 40,
+     "invocations": 50,
+     "gbps": 66.57,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_decode___main__MixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_TiledMMA_ThrLayou",
+       "avg_us": 4530.0,
+       "inv": 50
+      },
+      {
+       "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
+       "avg_us": 6.71,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "rows": [
+  {
+   "L": 128,
+   "series": "t5:fp8-nhd",
+   "median_us": 14.18,
+   "gbps": 19.8,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:fp8-interleaved",
+   "median_us": 14.14,
+   "gbps": 19.8,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:fp8-hnd",
+   "median_us": 14.14,
+   "gbps": 19.8,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:e2m3-hnd",
+   "median_us": 14.14,
+   "gbps": 19.8,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:e3m2-hnd",
+   "median_us": 14.18,
+   "gbps": 19.8,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:e2m1-hnd",
+   "median_us": 12.26,
+   "gbps": 22.9,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 22.4,
+   "gbps": 12.5,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:fp8-nhd",
+   "median_us": 138.08,
+   "gbps": 60.9,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:fp8-interleaved",
+   "median_us": 145.09,
+   "gbps": 57.9,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:fp8-hnd",
+   "median_us": 129.89,
+   "gbps": 64.7,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:e2m3-hnd",
+   "median_us": 117.5,
+   "gbps": 71.5,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:e3m2-hnd",
+   "median_us": 117.57,
+   "gbps": 71.5,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:e2m1-hnd",
+   "median_us": 92.99,
+   "gbps": 90.4,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 134.85,
+   "gbps": 62.3,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:fp8-nhd",
+   "median_us": 196.67,
+   "gbps": 85.4,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:fp8-interleaved",
+   "median_us": 207.62,
+   "gbps": 80.9,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:fp8-hnd",
+   "median_us": 185.06,
+   "gbps": 90.8,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:e2m3-hnd",
+   "median_us": 163.58,
+   "gbps": 103.0,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:e3m2-hnd",
+   "median_us": 161.44,
+   "gbps": 104.0,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:e2m1-hnd",
+   "median_us": 122.66,
+   "gbps": 137.0,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 207.68,
+   "gbps": 80.9,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:fp8-nhd",
+   "median_us": 304.06,
+   "gbps": 110.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:fp8-interleaved",
+   "median_us": 320.35,
+   "gbps": 105.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:fp8-hnd",
+   "median_us": 275.52,
+   "gbps": 122.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:e2m3-hnd",
+   "median_us": 236.19,
+   "gbps": 142.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:e3m2-hnd",
+   "median_us": 238.08,
+   "gbps": 141.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:e2m1-hnd",
+   "median_us": 168.8,
+   "gbps": 199.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 343.9,
+   "gbps": 97.6,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:fp8-nhd",
+   "median_us": 502.46,
+   "gbps": 134.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:fp8-interleaved",
+   "median_us": 532.32,
+   "gbps": 126.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:fp8-hnd",
+   "median_us": 420.7,
+   "gbps": 160.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:e2m3-hnd",
+   "median_us": 362.08,
+   "gbps": 185.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:e3m2-hnd",
+   "median_us": 361.09,
+   "gbps": 186.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:e2m1-hnd",
+   "median_us": 235.39,
+   "gbps": 285.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 631.62,
+   "gbps": 106.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:fp8-nhd",
+   "median_us": 901.57,
+   "gbps": 149.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:fp8-interleaved",
+   "median_us": 965.86,
+   "gbps": 139.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:fp8-hnd",
+   "median_us": 748.29,
+   "gbps": 179.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:e2m3-hnd",
+   "median_us": 609.12,
+   "gbps": 220.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:e3m2-hnd",
+   "median_us": 615.26,
+   "gbps": 218.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:e2m1-hnd",
+   "median_us": 373.6,
+   "gbps": 359.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 1202.27,
+   "gbps": 112.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:fp8-nhd",
+   "median_us": 1822.56,
+   "gbps": 147.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:fp8-interleaved",
+   "median_us": 1908.86,
+   "gbps": 141.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:fp8-hnd",
+   "median_us": 1338.66,
+   "gbps": 201.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:e2m3-hnd",
+   "median_us": 1150.75,
+   "gbps": 233.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:e3m2-hnd",
+   "median_us": 1101.66,
+   "gbps": 244.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:e2m1-hnd",
+   "median_us": 634.72,
+   "gbps": 423.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 2323.3,
+   "gbps": 116.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:fp8-nhd",
+   "median_us": 3707.23,
+   "gbps": 145.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:fp8-interleaved",
+   "median_us": 3649.18,
+   "gbps": 147.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:fp8-hnd",
+   "median_us": 2623.23,
+   "gbps": 205.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:e2m3-hnd",
+   "median_us": 2320.22,
+   "gbps": 231.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:e3m2-hnd",
+   "median_us": 2269.86,
+   "gbps": 237.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:e2m1-hnd",
+   "median_us": 1151.81,
+   "gbps": 466.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:nvfp4-hnd",
+   "median_us": 4583.81,
+   "gbps": 117.0,
+   "ok": true
+  }
+ ],
+ "summary": {}
+}

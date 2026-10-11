@@ -1,0 +1,402 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "quant",
+ "run_id": "20261011-090233",
+ "ts": "2026-10-11T09:10:05+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.30.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "75f11d8",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "formats": "fp8 e2m3 e3m2 e2m1 nvfp4",
+  "batches": 2,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.30.0-ubuntu2404",
+ "rows": [
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 128,
+   "rel_l2": 0.04337,
+   "max_abs": 0.03221,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 4096,
+   "rel_l2": 0.04466,
+   "max_abs": 0.005213,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 8192,
+   "rel_l2": 0.04481,
+   "max_abs": 0.003971,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 16384,
+   "rel_l2": 0.04556,
+   "max_abs": 0.002696,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 32768,
+   "rel_l2": 0.04615,
+   "max_abs": 0.00164,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 65536,
+   "rel_l2": 0.04615,
+   "max_abs": 0.001219,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 131072,
+   "rel_l2": 0.04551,
+   "max_abs": 0.0008056,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 262144,
+   "rel_l2": 0.04565,
+   "max_abs": 0.0005942,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 128,
+   "rel_l2": 0.04559,
+   "max_abs": 0.03892,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 4096,
+   "rel_l2": 0.05095,
+   "max_abs": 0.00499,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 8192,
+   "rel_l2": 0.05116,
+   "max_abs": 0.003585,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 16384,
+   "rel_l2": 0.05137,
+   "max_abs": 0.003062,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 32768,
+   "rel_l2": 0.05206,
+   "max_abs": 0.001935,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 65536,
+   "rel_l2": 0.05376,
+   "max_abs": 0.001396,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 131072,
+   "rel_l2": 0.05414,
+   "max_abs": 0.0009995,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 262144,
+   "rel_l2": 0.05301,
+   "max_abs": 0.000756,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 128,
+   "rel_l2": 0.07558,
+   "max_abs": 0.06181,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 4096,
+   "rel_l2": 0.0802,
+   "max_abs": 0.008567,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 8192,
+   "rel_l2": 0.07918,
+   "max_abs": 0.00652,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 16384,
+   "rel_l2": 0.08053,
+   "max_abs": 0.004351,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 32768,
+   "rel_l2": 0.07974,
+   "max_abs": 0.003018,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 65536,
+   "rel_l2": 0.08079,
+   "max_abs": 0.002129,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 131072,
+   "rel_l2": 0.08038,
+   "max_abs": 0.00165,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e3m2",
+   "bits": 6.0,
+   "L": 262144,
+   "rel_l2": 0.07896,
+   "max_abs": 0.001049,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 128,
+   "rel_l2": 0.1891,
+   "max_abs": 0.211,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 4096,
+   "rel_l2": 0.1967,
+   "max_abs": 0.02118,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 8192,
+   "rel_l2": 0.201,
+   "max_abs": 0.01572,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 16384,
+   "rel_l2": 0.2045,
+   "max_abs": 0.01053,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 32768,
+   "rel_l2": 0.207,
+   "max_abs": 0.007888,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 65536,
+   "rel_l2": 0.2105,
+   "max_abs": 0.005487,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 131072,
+   "rel_l2": 0.2086,
+   "max_abs": 0.004236,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "e2m1",
+   "bits": 4.0,
+   "L": 262144,
+   "rel_l2": 0.2068,
+   "max_abs": 0.00267,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 128,
+   "rel_l2": 0.1356,
+   "max_abs": 0.1142,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 4096,
+   "rel_l2": 0.1407,
+   "max_abs": 0.01595,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 8192,
+   "rel_l2": 0.1409,
+   "max_abs": 0.01122,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 16384,
+   "rel_l2": 0.1402,
+   "max_abs": 0.009323,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 32768,
+   "rel_l2": 0.144,
+   "max_abs": 0.005332,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 65536,
+   "rel_l2": 0.1412,
+   "max_abs": 0.003956,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 131072,
+   "rel_l2": 0.1421,
+   "max_abs": 0.00279,
+   "emulator_pass": true,
+   "ok": true
+  },
+  {
+   "format": "nvfp4",
+   "bits": 4.5,
+   "L": 262144,
+   "rel_l2": 0.14,
+   "max_abs": 0.001884,
+   "emulator_pass": true,
+   "ok": true
+  }
+ ],
+ "summary": {}
+}

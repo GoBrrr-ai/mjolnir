@@ -39,9 +39,25 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-speedup-dark.png">
+  <img src="assets/benchmarks/kernel-speedup.png" alt="Mjolnir decode speedup over FlashInfer at every context length" width="100%">
+</picture>
+</p>
 
-> [!NOTE]
-> The headline benchmark has not been recorded in this checkout yet. Run `mjolnir verify bench` on a Thor and `mjolnir plot --readme` to render the charts and numbers from the raw results.
+| decode kernel, one step (ncu, cold L2) | result |
+|---|---|
+| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.26× faster** (from 1.07× at 16K to 1.92× at 128) |
+| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **1.85× faster** |
+| faster than FlashInfer beyond the ±7% noise band | **7 of 8** context lengths |
+| at the longest context (256K tokens) | **1.27×** vs FlashInfer |
+| one decode step at 64K tokens | **667.7 µs** (FlashInfer 840.3 µs, FlashAttention 2 1.28 ms) |
+| fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.21×** vs FlashInfer, geomean |
+| correctness vs a bit-faithful emulator | **86 / 86** checks pass |
+
+
+<sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261011-082714`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
 
 ## Quickstart
 
@@ -87,7 +103,29 @@ All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, b
 
 The box is shared with a live server, so ±7% between runs is noise; ratios inside that band are drawn gray. Methodology: [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md).
 
-> Pending: `mjolnir verify sweep`.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-latency-dark.png">
+  <img src="assets/benchmarks/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
+</picture>
+
+| L | FlashInfer | FA2 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA2 | e2m3 vs FA2 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| **128** | 25.5 µs | 19.5 µs | 13.6 µs | **13.3 µs** | $\color{#16a34a}{\mathbf{1.87\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.43\times}}$ | $\color{#16a34a}{\mathbf{1.47\times}}$ |
+| **4K** | 60.3 µs | 88.8 µs | 54.8 µs | **49.4 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.62\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ |
+| **8K** | 93.3 µs | 179.1 µs | 84.4 µs | **80.5 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{2.12\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ |
+| **16K** | 184.4 µs | 340.3 µs | 177.2 µs | **172.9 µs** | $\color{grey}{1.04\times}$ | $\color{grey}{1.07\times}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{1.97\times}}$ |
+| **32K** | 405.3 µs | 668.4 µs | **366.1 µs** | 366.9 µs | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ | $\color{#16a34a}{\mathbf{1.82\times}}$ |
+| **64K** | 840.3 µs | 1.28 ms | 711.8 µs | **667.7 µs** | $\color{#16a34a}{\mathbf{1.18\times}}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ |
+| **128K** | 1.60 ms | 2.37 ms | **1.31 ms** | 1.32 ms | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.82\times}}$ | $\color{#16a34a}{\mathbf{1.80\times}}$ |
+| **256K** | 3.05 ms | 4.51 ms | 2.44 ms | **2.40 ms** | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{1.85\times}}$ | $\color{#16a34a}{\mathbf{1.88\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.85\times}}$ |
+
+<sub>Bold = fastest at that L. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-bandwidth-dark.png">
+  <img src="assets/benchmarks/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
+</picture>
 
 ### Official vLLM image vs Mjolnir
 
@@ -110,9 +148,9 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 | chapter | question it answers |
 |---|---|
-| [Correctness matrix](docs/kernel/correctness.md) *(pending)* | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype |
-| [Headline L-sweep](docs/kernel/sweep.md) *(pending)* | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L |
-| [Head-major pages](docs/kernel/hndsweep.md) *(pending)* | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? |
+| [Correctness matrix](docs/kernel/correctness.md)  | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype |
+| [Headline L-sweep](docs/kernel/sweep.md)  | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L |
+| [Head-major pages](docs/kernel/hndsweep.md)  | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? |
 | [KV layouts and formats](docs/kernel/kvfmt.md) *(pending)* | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
 | [KV format accuracy](docs/kernel/quant.md) *(pending)* | relative L2 error of each KV format vs unquantized KV, at every L |
 | [Full profiles per KV format](docs/kernel/fp6prof.md) *(pending)* | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format |
@@ -190,4 +228,5 @@ The served API is unauthenticated; expose it deliberately. See [SECURITY.md](.gi
 
 [MIT](LICENSE)
 
-<p align="center"><sub>⚡ Mjölnir — built on and for the edge. Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>; edit the template, not this file.</sub></p>
+<p align="center"><sub>⚡ Mjölnir — built on and for the edge.</sub></p>
+<p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>

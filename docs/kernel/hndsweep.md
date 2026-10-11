@@ -1,6 +1,6 @@
 # Head-major pages
 
-> FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? · `mjolnir verify hndsweep` · **no run yet**
+> FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? · `mjolnir verify hndsweep` · run `20261011-084025`
 
 ## The question
 
@@ -12,8 +12,27 @@ Same data in both layouts: the FlashInfer driver generates the cache once in NHD
 
 ## Result
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/hnd-layout-dark.png">
+  <img src="../../assets/benchmarks/hnd-layout.png" alt="Head-major KV pages" width="100%">
+</picture>
 
-> Pending — run `mjolnir verify hndsweep` on a Thor, then `mjolnir plot --readme`.
+- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.22×**, from 1.06× (L=16K) to 1.93× (L=128); faster beyond the ±7% noise band at 7 of 8 context lengths.
+- **FlashInfer (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.09×**, from 0.98× (L=128) to 1.20× (L=256K); faster beyond the ±7% noise band at 4 of 8 context lengths.
+
+| L | FlashInfer | FlashInfer HND | Mjolnir fp8 | fp8 vs FI | fp8 vs FI-HND |
+|---|--:|--:|--:|--:|--:|
+| **128** | 25.6 µs | 26.2 µs | **13.3 µs** | $\color{#16a34a}{\mathbf{1.93\times}}$ | $\color{#16a34a}{\mathbf{1.97\times}}$ |
+| **4K** | 60.1 µs | 59.5 µs | **54.4 µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.09\times}}$ |
+| **8K** | 94.0 µs | 92.8 µs | **86.5 µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.07\times}}$ |
+| **16K** | 181.2 µs | 173.1 µs | **171.2 µs** | $\color{grey}{1.06\times}$ | $\color{grey}{1.01\times}$ |
+| **32K** | 402.0 µs | **361.8 µs** | 364.5 µs | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{grey}{0.99\times}$ |
+| **64K** | 859.7 µs | 727.4 µs | **719.5 µs** | $\color{#16a34a}{\mathbf{1.19\times}}$ | $\color{grey}{1.01\times}$ |
+| **128K** | 1.57 ms | 1.35 ms | **1.30 ms** | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{grey}{1.04\times}$ |
+| **256K** | 3.09 ms | 2.57 ms | **2.44 ms** | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{grey}{1.05\times}$ |
+| geomean |  |  |  | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.12\times}}$ |
+
+<sub>Rendered from [`benchmarks/raw/verify/hndsweep/20261011-084025.json`](../../benchmarks/raw/verify/hndsweep/20261011-084025.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±7% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
