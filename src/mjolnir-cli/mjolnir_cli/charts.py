@@ -706,7 +706,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
                     ax.text(
                         x,
                         top * 0.02,
-                        "not measured",
+                        "n/a",
                         rotation=90,
                         ha="center",
                         va="bottom",

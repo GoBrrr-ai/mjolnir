@@ -310,8 +310,8 @@ def _vs_vllm_table(off: dict, mj: dict) -> str | None:
                 line.append("—")
                 continue
             if a is None or b is None:
-                av = m.fmt.format(a) if a is not None else "*not measured*"
-                bv = f"**{m.fmt.format(b)}**" if b is not None else "*not measured*"
+                av = m.fmt.format(a) if a is not None else "*n/a*"
+                bv = f"**{m.fmt.format(b)}**" if b is not None else "*n/a*"
                 line.append(f"{av} → {bv}")
                 continue
             line.append(f"{m.fmt.format(a)} → **{m.fmt.format(b)}** {ratio_pct(g)}")
