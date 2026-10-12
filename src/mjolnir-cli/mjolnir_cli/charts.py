@@ -661,59 +661,96 @@ def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
     return latest
 
 
+def _e2e_series(rec: dict) -> tuple[str, str]:
+    """(theme series id, legend label) for one side of the e2e pair."""
+    from mjolnir_cli.config import BACKEND_LABELS
+
+    cfg = str(rec.get("config", ""))
+    label = dict(E2E_SERIES).get(cfg) or BACKEND_LABELS.get(cfg, cfg)
+    if cfg in theme.SERIES_STYLE:
+        return cfg, label
+    return ("NVFP4_MJOLNIR_E2M3" if "MJOLNIR" in cfg else "NVFP4"), label
+
+
 def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: str, sub: str):
+    """The README table as bars: the same pair (official vLLM vs the Mjolnir
+    config, :func:`mjolnir_cli.e2e.latest_pair` — each side's runs merged cell
+    by cell), every (requests, context) cell either side measured, one panel
+    per request count; a cell one side lacks is marked "not measured" instead
+    of being dropped."""
     from mjolnir_cli import e2e
 
-    rows = e2e_rows(layout)
-    mj_cfgs = [c for c in MJOLNIR_E2E_CONFIGS if c in rows]
-    if not mj_cfgs or len(rows) < 2:
+    off, mj = e2e.latest_pair(layout.history_file)
+    if not off or not mj:
         return None
-    plt = _plt()
-    concs = [c for c in (1, 4) if any(cc.get("concurrency") == c for r in rows.values() for cc in r["cells"])]
+    cells = e2e.all_cells(off, mj)
+    concs = sorted({c for c, _ in cells})
     if not concs:
         return None
-    fig, axes = plt.subplots(1, len(concs), figsize=(12.5, 4.8), sharey=True, squeeze=False)
+    plt = _plt()
+    fig, axes = plt.subplots(1, len(concs), figsize=(4.6 * len(concs) + 1.2, 4.8), sharey=True, squeeze=False)
     axes = list(axes[0])
     theme.apply(fig, axes, mode)
-    order = [(c, lbl) for c, lbl in E2E_SERIES if c in rows]
+    sides = [(rec, *_e2e_series(rec)) for rec in (off, mj)]
+    top = max((e2e.value(e2e.cell(rec, c, x), metric) or 0) for rec in (off, mj) for c, x in cells)
     for ax, conc in zip(axes, concs):
-        ctxs = sorted(
-            {c.get("context") or 0 for r in rows.values() for c in r["cells"] if c.get("concurrency") == conc}
-        )
-        w = 0.8 / len(order)
-        for i, (cfg, lbl) in enumerate(order):
-            vals = []
-            for ctx in ctxs:
-                cell = next(
-                    (c for c in rows[cfg]["cells"] if c.get("concurrency") == conc and (c.get("context") or 0) == ctx),
-                    None,
+        ctxs = sorted({x for c, x in cells if c == conc})
+        w = 0.8 / len(sides)
+        for i, (rec, sid, lbl) in enumerate(sides):
+            hollow = not theme.filled(sid)
+            col = theme.color(mode, sid)
+            for j, ctx in enumerate(ctxs):
+                x = j + (i - (len(sides) - 1) / 2) * w
+                v = e2e.value(e2e.cell(rec, conc, ctx), metric)
+                if v is None:
+                    ax.text(
+                        x,
+                        top * 0.02,
+                        "not measured",
+                        rotation=90,
+                        ha="center",
+                        va="bottom",
+                        fontsize=7.5,
+                        color=mode.text_dim,
+                        zorder=4,
+                    )
+                    continue
+                ax.bar(
+                    x,
+                    v,
+                    width=w * 0.92,
+                    color=mode.panel if hollow else col,
+                    edgecolor=col if hollow or not theme.hatch(sid) else mode.panel,
+                    linewidth=1.6 if hollow else 0,
+                    hatch=theme.hatch(sid),
+                    zorder=3,
+                    label=lbl if ax is axes[0] and j == 0 else None,
                 )
-                vals.append(((cell or {}).get(metric) or {}).get("mean") or 0)
-            xs = [j + (i - (len(order) - 1) / 2) * w for j in range(len(ctxs))]
-            hollow = not theme.filled(cfg)
-            ax.bar(
-                xs,
-                vals,
-                width=w * 0.92,
-                color=mode.panel if hollow else theme.color(mode, cfg),
-                edgecolor=theme.color(mode, cfg) if hollow or not theme.hatch(cfg) else mode.panel,
-                linewidth=1.6 if hollow else 0,
-                hatch=theme.hatch(cfg),
-                zorder=3,
-                label=lbl if ax is axes[0] else None,
-            )
         ax.set_xticks(range(len(ctxs)))
-        ax.set_xticklabels([f"{L_label(c)} ctx" if c else "no ctx" for c in ctxs])
-        ax.set_xlabel(f"{conc} concurrent request{'s' if conc > 1 else ''}")
+        ax.set_xticklabels([f"{L_label(c)}" if c else "0" for c in ctxs])
+        ax.set_xlabel(f"context · {conc} concurrent request{'s' if conc > 1 else ''}")
     axes[0].set_ylabel(ylabel)
-    theme.legend(axes[0], mode, loc="upper right")
+    axes[0].set_ylim(0, top * 1.08)
+    # the legend sits in the title row, right-aligned: no panel is wide enough for it
+    h, lbl = axes[0].get_legend_handles_labels()
+    fig.legend(
+        h,
+        lbl,
+        loc="lower right",
+        bbox_to_anchor=(axes[-1].get_position().x1, axes[-1].get_position().y1 + 0.01),
+        ncol=len(lbl),
+        facecolor=mode.panel,
+        edgecolor=mode.grid,
+        labelcolor=mode.text,
+        framealpha=1.0,
+        fontsize=9,
+    )
     theme.title(axes[0], mode, ttl, sub)
-    imgs = " vs ".join(dict.fromkeys(str(rows[c].get("image", "")) for c, _ in order))
     theme.footer(
         fig,
         mode,
-        f"mjolnir bench e2e · {rows[mj_cfgs[-1]].get('model', '')} · "
-        f"{e2e.spec_short(*(rows[c] for c, _ in order))} · {imgs} · llama-benchy",
+        f"mjolnir bench e2e · {mj.get('model', '')} · {e2e.spec_short(off, mj)} · "
+        f"{off.get('image', '')} vs {mj.get('image', '')} · llama-benchy",
     )
     return fig
 
@@ -725,7 +762,7 @@ def chart_e2e_decode(layout: RepoLayout, mode: Mode):
         "tg_tps",
         "decode tokens/s (higher is better)",
         "End-to-end decode throughput",
-        "the official vLLM image (native backends) vs the Mjolnir image",
+        "official image (native FlashInfer) vs the Mjolnir image · the README table's cells",
     )
 
 
@@ -736,7 +773,7 @@ def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
         "pp_tps",
         "prompt tokens/s (higher is better)",
         "End-to-end prompt processing",
-        "the official vLLM image (native backends) vs the Mjolnir image",
+        "official image (native FlashInfer) vs the Mjolnir image · the README table's cells",
     )
 
 
