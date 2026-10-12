@@ -76,6 +76,42 @@ mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3
 mjolnir bench ab --backends NVFP4_MJOLNIR_E2M3_LMH8,NVFP4_MJOLNIR_E2M3_LMH8_VT32K,NVFP4_MJOLNIR_E2M3_LMH8_VT64K --repeat 2
 ```
 
+## Results (2026-10-12, third round: padded draft vocab)
+
+Re-calibrated `draft_vocab.json`: 216 completions, 149,875 generated tokens,
+9,473 distinct (padded to the requested size by id). **Held-out coverage:**
+top 4K 70.2% · 8K 77.6% · 16K 84.7% · 32K 90.5% · 64K 94.5%.
+
+`verify spec` run `20261012-161120` (decode t/s per request · tokens/step):
+
+| config | k=3, 1 req | k=3, 4 req | k=4, 1 req | k=4, 4 req |
+|---|--:|--:|--:|--:|
+| `NVFP4_MJOLNIR_E2M3` | 26.6 · 3.12 | 23.7 · 3.06 | 25.7 · 3.40 | 23.7 · 3.37 |
+| `…_LMH8` | 32.5 · 3.09 | 28.5 · 3.08 | 32.8 · 3.45 | 29.2 · 3.40 |
+| `…_LMH8_VT32K` | 37.3 · 3.02 | 32.6 · 3.06 | **39.1** · 3.35 | **34.6** · 3.39 |
+| `…_LMH8_VT64K` | 37.4 · **3.09** | 31.3 · 3.00 | 39.0 · 3.42 | 33.6 · 3.37 |
+
+- The 64K draft vocab keeps acceptance at the fp8-head level (3.09 vs 3.09 at
+  k=3), the 32K one costs ~2%; both are **+40% decode vs the fp6 baseline** at
+  1 request, and the step is cheap enough that **k=4 now wins** (+4–6%).
+
+`bench ab` (llama-benchy tg128, 2 sweeps × 6 runs, MTP k=3), t/s:
+
+| cell | `…_LMH8` | `…_LMH8_VT32K` | `…_LMH8_VT64K` |
+|---|--:|--:|--:|
+| c1 | 30.4 | 35.1 | **35.2** |
+| c2 (total) | 49.3 | 60.5 | **63.3** |
+| c4 (total) | 94.8 | 99.8 | **104.5** |
+| @ d4096, c1 | 29.9 | 33.1 | **33.6** |
+| @ d8192, c1 | 30.0 | 34.1 | **34.3** |
+| tokens/step | 2.98 | 2.71 | 2.88 |
+
+- On llama-benchy's text VT64K loses 3% acceptance (VT32K 9%) and is the
+  fastest everywhere: **+16% c1, +28% c2, +10% c4 over the fp8 head alone**.
+  Candidate default: `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`, next with
+  `num_speculative_tokens: 4`, after `mjolnir bench accuracy` shows the fp8
+  head keeps the model's answers (the draft vocab cannot change them).
+
 ## Diagnosing the draft step (experiment 1)
 
 Facts so far (2026-10-12):

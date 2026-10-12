@@ -49,7 +49,10 @@ the agents run on**. When doing anything on the GPU:
 
 ### The page-cache clear
 `mjolnir_cli/cachectl.py` clears the host page cache (`sysctl -w
-vm.drop_caches=3`) before `serve up` and after `serve down`, gated on a
+vm.drop_caches=3`) before `serve up` and after `serve down` — and around every
+one-shot container (`dockerctl.run_once`: calibrate, image gates; after each
+verify stage), since on Thor the cache a container filled stays resident after
+it is removed — gated on a
 *targeted* NOPASSWD grant (`mjolnir grant-permissions` installs only that
 rule; `mjolnir drop-caches` clears on demand). Without the grant the clear is
 skipped with a hint — nothing blocks on a password.
@@ -179,6 +182,11 @@ TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
 incl. `spec_stats`: MTP tokens per verify step and per-position acceptance from
 the server's counters — decode t/s = tokens/step ÷ step time, so compare it
 before blaming the kernel);
+`mjolnir bench accuracy` (model quality per serving config with
+tool-eval-bench, pinned commit via `uvx`: the standard 69 tool-call scenarios +
+28 Hard Mode by default; anything after `--` is forwarded, e.g. `-- --gsm8k
+--mmlu --ifeval --skip-tool-eval`; legs as in `bench ab`, restarts per leg;
+`benchmarks/raw/accuracy/<run>/accuracy.json` → `docs/kernel/accuracy.md`);
 `mjolnir bench ab` (default legs: `NVFP4` on the official image vs `NVFP4_MJOLNIR`; legs
 are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.
@@ -228,7 +236,7 @@ trusted publishing — and the image (vLLM version, on push to `main`).
       commands is `docs/research/decode-experiments.md` (draft-step overhead,
       fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
       Opt-in experiment configs carry their switches in a `<config>.env`
-      sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`;
+      sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
 - [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
 - [ ] Fuse the split-KV merge into the last CTA per sequence.
@@ -320,6 +328,9 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - **Bench discipline:** gate via `gate.py`, raw JSON first, charts second; no
   prose-only results.
 - **Lint:** `uvx ruff@0.14.14 check src/ tests/` + `format` (pre-commit runs it).
+- **Container output:** containers run as root; a file one writes into a host
+  mount (the checkout) is handed back with `build_run_args(..., chown=...)` /
+  `dockerctl.owner_suffix` — root-owned files break the pre-commit hooks.
 - **Licensing:** Apache-2.0 (root `LICENSE`, no per-file headers in our files).
   `src/mjolnir/mjolnir/t5_decode.py` is NVIDIA-CUTLASS-derived and stays
   BSD-3-Clause — never remove NVIDIA's header. New third-party code → `NOTICE`.
