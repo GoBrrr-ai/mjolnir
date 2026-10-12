@@ -107,11 +107,11 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_KV_EVICT_FIRST` | `1` for fp8 Q, `0` for bf16 Q | L2 evict-first policy on K/V loads |
 | `MJOLNIR_ATTN_PRECOMPILE` | `all` | compile every variant at start-up; `none` compiles on first use |
 | `MJOLNIR_ATTN_KERNEL_CACHE` | on | compiled variants are exported to `$VLLM_CACHE_ROOT/mjolnir/kernels` (else `~/.cache/mjolnir/kernels`) and loaded on the next start instead of recompiling; `0` = off, a path = that directory. Keyed by variant, kernel source, CuTe DSL version and GPU |
-| `MJOLNIR_ATTN_DRAFT_T5` | `1` | `0`: the drafter's layers (MTP / EAGLE) run on the fallback — isolates the draft-step cost (`mjolnir verify profile`) |
+| `MJOLNIR_ATTN_DRAFT_T5` | `1` | `0`: the drafter's layers (MTP / EAGLE) run on the fallback — isolates the draft-step cost (`mjolnir verify profile`). fp8 KV only: refused on fp6 KV, whose fallback cannot be CUDA-graphed |
 | `MJOLNIR_ATTN_FUSED_DRAFT` | `1` | `0`: tell vLLM the backend cannot advance draft metadata in place → one graph replay per draft step instead of the fused draft loop |
 | `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8`) |
 | `MJOLNIR_LM_HEAD_DROP_BF16` | – | `1`: with `MJOLNIR_LM_HEAD=fp8`, free the bf16 head (untied heads only; +2.5 GB KV) |
-| `MJOLNIR_DRAFT_VOCAB` | – | path to a `draft_vocab.json` (`mjolnir calibrate --draft-vocab`): the drafter's logits only over those tokens (VocabTrim); `MJOLNIR_DRAFT_VOCAB_SIZE` keeps the first N |
+| `MJOLNIR_DRAFT_VOCAB` | – | path to a `draft_vocab.json` (`mjolnir calibrate --draft-vocab`): the drafter's logits only over those tokens (VocabTrim); `MJOLNIR_DRAFT_VOCAB_SIZE` keeps the first N (a shorter file is padded with the lowest unused ids, with a warning) |
 | `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
 | `MJOLNIR_ATTN_KV_LAYOUT` | auto | force the KV view: `BHN2D BNH2D B2NHD B2HND 2BNHD 2BHND` |
 | `MJOLNIR_ATTN_FUSED_QPACK` | `1` | `0`: quantize fp8 Q with PyTorch ops (~10 launches) instead of one Triton kernel |

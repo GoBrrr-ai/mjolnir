@@ -396,6 +396,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         self._force_fallback = self._is_draft and env_flag("MJOLNIR_ATTN_DRAFT_T5", "1") in ("0", "false", "no")
         if env_flag("MJOLNIR_ATTN_FUSED_DRAFT", "1") in ("0", "false", "no"):
             self.supports_draft_decode_metadata_update = False
+        if self._force_fallback and self._fp6:
+            # the drafter's steps replay as FULL CUDA graphs, and an fp6 fallback
+            # step (page expansion from a per-step page map) cannot be captured
+            raise ValueError(
+                "MJOLNIR_ATTN_DRAFT_T5=0 needs fp8 KV (e.g. NVFP4_MJOLNIR): on fp6 the drafter's "
+                "fallback steps would be captured into CUDA graphs with a stale page map"
+            )
         if self._force_fallback:
             logger.info("Mjolnir: drafter layers %s on the fallback (MJOLNIR_ATTN_DRAFT_T5=0)", layer_names[:1])
         if self._fp6:
@@ -660,6 +667,11 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         metadata at the scratch, and run the base forward on it."""
         from . import kvfp6
 
+        if torch.cuda.is_current_stream_capturing():
+            raise RuntimeError(
+                "Mjolnir: an fp6 fallback step inside CUDA-graph capture — its page expansion "
+                "depends on per-step host data and would replay stale. Serve fp8 KV or report this shape."
+            )
         pages = attn_metadata.mjolnir_fp6_pages
         _, H, N, _ = kv_cache.shape
         scratch = _fp6_scratch(pages["total"], H, N, 2 * self.head_size, kv_cache.device)
