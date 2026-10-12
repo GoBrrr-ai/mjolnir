@@ -143,3 +143,22 @@ def test_each_leg_stops_its_server(monkeypatch):
     with pytest.raises(typer.Exit):
         cli._run_legs(s, None, [(s.model, "a", "NVFP4", None)])
     assert calls[-1] == ("down", "NVFP4")  # stopped even when the bench fails
+
+
+def test_runs_merge_cell_by_cell(tmp_path):
+    """A later run at extra depths adds rows; the newest run wins shared cells."""
+    h = tmp_path / "history.jsonl"
+    off = "vllm/vllm-openai:v0.31.0-ubuntu2404"
+    mjim = "narandill/mjolnir-vllm:v0.31.0"
+    rows = [
+        _rec(off, "NVFP4", 1, [_cell(1, 8192, 20, 2000, 4000), _cell(1, 32768, 18, 1700, 9000)]),
+        _rec(mjim, "NVFP4_MJOLNIR", 2, [_cell(1, 8192, 22, 4000, 3000), _cell(1, 32768, 19, 3400, 5000)]),
+        _rec(off, "NVFP4", 3, [_cell(1, 131072, 12, 900, 90000)]),
+        _rec(mjim, "NVFP4_MJOLNIR", 4, [_cell(1, 131072, 14, 1800, 50000), _cell(1, 8192, 23, 4100, 2900)]),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    o, m = e2e.latest_pair(h, "NVFP4_MJOLNIR")
+    assert sorted(c["context"] for c in o["cells"]) == [8192, 32768, 131072]
+    assert e2e.cell(m, 1, 8192)["tg_tps"]["mean"] == 23  # newest run wins
+    assert e2e.cell(m, 1, 32768)["tg_tps"]["mean"] == 19  # kept from the older run
+    assert e2e.hero(o, m)["ctx"] == 131072

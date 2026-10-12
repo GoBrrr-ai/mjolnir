@@ -68,20 +68,54 @@ def is_mjolnir(rec: dict) -> bool:
     return str(rec.get("image", "")).startswith(_MJOLNIR_IMAGE_PREFIXES)
 
 
+def _merge(recs: list[dict]) -> dict | None:
+    """One side's records → the newest record, with every (concurrency,
+    context) cell taken from the newest run that measured it. A run at extra
+    depths (``bench e2e --depths 65536,131072``) adds cells instead of
+    replacing the table; runs with a different speculative setup than the
+    newest one are left out. ``merged_runs`` lists the raw dirs used."""
+    if not recs:
+        return None
+    recs = sorted(recs, key=lambda r: r.get("epoch", 0), reverse=True)
+    head = recs[0]
+    sp = spec_of(head)
+    cells: dict = {}
+    used: list[str] = []
+    for r in recs:
+        if spec_of(r) != sp:
+            continue
+        took = False
+        for c in r.get("cells", []):
+            k = (c.get("concurrency"), c.get("context") or 0, bool(c.get("prefill_phase")))
+            if k not in cells:
+                cells[k] = c
+                took = True
+        if took:
+            used.append(str(r.get("raw", "")))
+    out = dict(head)
+    out["cells"] = sorted(cells.values(), key=lambda c: (c.get("concurrency") or 0, c.get("context") or 0))
+    out["merged_runs"] = used
+    return out
+
+
 def latest_pair(history_file: Path, mjolnir_config: str | None = None) -> tuple[dict | None, dict | None]:
-    """(official, mjolnir) — the newest record of each side: a stock config on
-    the official image, and the Mjolnir backend config (default
-    ``NVFP4_MJOLNIR``) on a Mjolnir image. Nothing else qualifies."""
+    """(official, mjolnir): each side's runs merged cell by cell, newest run
+    first (:func:`_merge`) — a stock config on the official image, and the
+    Mjolnir backend config (default ``DEFAULT_QUANT``) on a Mjolnir image.
+    Nothing else qualifies; the official side follows its newest config."""
     want = mjolnir_config or DEFAULT_QUANT
-    off = mj = None
+    offs, mjs = [], []
     for r in load_records(history_file):
         if not r.get("cells"):
             continue
         if is_official(r) and r.get("config") != want:
-            off = r if off is None or r.get("epoch", 0) >= off.get("epoch", 0) else off
+            offs.append(r)
         elif is_mjolnir(r) and r.get("config") == want:
-            mj = r if mj is None or r.get("epoch", 0) >= mj.get("epoch", 0) else mj
-    return off, mj
+            mjs.append(r)
+    if offs:  # one official config: the newest run's
+        newest = max(offs, key=lambda r: r.get("epoch", 0)).get("config")
+        offs = [r for r in offs if r.get("config") == newest]
+    return _merge(offs), _merge(mjs)
 
 
 def cell(rec: dict, conc: int, ctx: int) -> dict | None:

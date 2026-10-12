@@ -185,6 +185,9 @@ def run_block(s, prompts: list[str], conc: int, max_tokens: int) -> dict:
         "decode_tps": round(sum(tps) / len(tps), 3) if tps else None,  # per request, mean
         "agg_tps": round(tokens / wall, 3) if wall > 0 else None,  # all requests, incl. prefill time
         "ttft_ms": round(sum(ttft) / len(ttft), 1) if ttft else None,
+        # per request, in completion order: the mean hides a few slow first steps
+        "ttft_p50_ms": round(sorted(ttft)[len(ttft) // 2], 1) if ttft else None,
+        "ttft_list_ms": [round(x, 1) for x in ttft],
         **{k: stats.get(k) for k in ("acceptance_length", "acceptance_rate", "per_pos", "drafts", "preemptions")},
     }
 

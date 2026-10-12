@@ -223,6 +223,9 @@ trusted publishing — and the image (vLLM version, on push to `main`).
 - [ ] **e2e at the shapes that matter**: decode gains need long contexts
       (64K+) and concurrency; `mjolnir verify sweep --batch 4 --q-len 4`
       measures the MTP=3 verify shape in ncu.
+- [ ] **Decode beyond attention**: the ranked experiment list with A/B
+      commands is `docs/research/decode-experiments.md` (draft-step overhead,
+      fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
 - [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
 - [ ] Fuse the split-KV merge into the last CTA per sequence.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
