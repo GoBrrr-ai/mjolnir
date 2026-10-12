@@ -117,14 +117,18 @@ def execute(
         f" · L {' '.join(str(x) for x in ctx.ls)} · logs {logdir}[/dim]"
     )
     console.print(f"[dim]   FlashInfer / FA2 references run on the official image {runner.ref_image}[/dim]")
-    if not dry_run:
-        from mjolnir_cli import cachectl
+    from mjolnir_cli import cachectl
 
+    if not dry_run:
         cachectl.prepare_bench()  # clean page cache before measuring (no-op without the grant)
     kwargs = dict(params)
     if stage == "vllm":
         kwargs["repo"] = layout.require_repo("verify vllm")
-    body = st.fn(ctx, **kwargs)
+    try:
+        body = st.fn(ctx, **kwargs)
+    finally:
+        if not dry_run:  # Thor keeps the page cache the stage's containers filled
+            cachectl.prepare_bench()
     is_default = params == defaults and ctx.ls == stages.ALL_LS and iters == stages.DEFAULT_ITERS and page == 128
     doc = results.header(
         stage,

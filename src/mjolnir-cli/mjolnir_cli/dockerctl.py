@@ -231,12 +231,15 @@ def build_run_args(
     extra_env: tuple[str, ...] = (),
     extra_mounts: tuple[tuple[str, str], ...] = (),
     serve_args: tuple[str, ...] = (),
+    chown: tuple[str, ...] = (),
 ) -> list[str]:
     """Assemble the full ``docker run`` argv for the vLLM container (the
     server by default; ``command`` runs something else with the same mounts,
     env and GPU access — ``mjolnir calibrate``). ``serve_args`` are appended
     to ``vllm serve`` and override the config (e.g. ``--speculative-config``
-    for ``mjolnir verify spec``)."""
+    for ``mjolnir verify spec``). ``chown`` lists container paths a
+    ``command`` writes into host mounts: they are handed to the invoking
+    user when it ends (the container runs as root)."""
     image = image or s.image
     cmd = [
         _docker(),
@@ -305,7 +308,7 @@ def build_run_args(
             continue  # optional host files (e.g. /etc/nv_tegra_release)
         cmd += ["-v", f"{host}:{container}"]
     if command is not None:
-        return [*cmd, image, "-lc", command]
+        return [*cmd, image, "-lc", command + owner_suffix(chown)]
     cmd += ["-p", f"{s.port}:8000"]
 
     serve = (
@@ -325,6 +328,51 @@ def build_run_args(
         serve += " " + " ".join(shlex.quote(a) for a in serve_args)
     cmd += [image, "-lc", serve]
     return cmd
+
+
+def host_owner() -> str | None:
+    """``uid:gid`` of the user running the CLI (the sudo caller under sudo);
+    ``None`` off POSIX."""
+    if not hasattr(os, "getuid"):
+        return None
+    uid, gid = os.getuid(), os.getgid()
+    if uid == 0 and os.environ.get("SUDO_UID"):
+        uid, gid = int(os.environ["SUDO_UID"]), int(os.environ.get("SUDO_GID", gid))
+    return f"{uid}:{gid}"
+
+
+def owner_suffix(paths: tuple[str, ...] | list[str]) -> str:
+    """Shell tail for a root container command: hand ``paths`` (container
+    paths in host mounts) to the host user, keep the command's exit code.
+    Without it a file the container writes into the checkout is root-owned
+    and git hooks (end-of-file-fixer) cannot rewrite it."""
+    owner = host_owner()
+    if not paths or owner is None:
+        return ""
+    import shlex
+
+    quoted = " ".join(shlex.quote(p) for p in paths)
+    return f"; rc=$?; chown -R {owner} {quoted} 2>/dev/null; exit $rc"
+
+
+def run_once(argv: list[str], name: str) -> int:
+    """Run a one-shot container in the foreground (``docker run --rm``) and
+    always clean up after it: remove the container even when the CLI is
+    interrupted (stopping the docker client leaves the container running,
+    holding the GPU), then clear the host page cache — on Thor the cache the
+    container filled stays resident after it exits."""
+    cachectl.prepare_bench()
+    try:
+        return subprocess.run(argv).returncode
+    except KeyboardInterrupt:
+        print(f"\ninterrupted — removing container {name}", file=sys.stderr)
+        return 130
+    finally:
+        try:
+            _run_quiet([_docker(), "rm", "-f", name])
+        except DockerError:
+            pass
+        cachectl.prepare_bench()
 
 
 def serve_up(

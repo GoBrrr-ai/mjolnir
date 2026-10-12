@@ -109,6 +109,10 @@ class Runner:
             try:
                 p = subprocess.run(argv, stdout=fh, stderr=subprocess.STDOUT, timeout=timeout or self.timeout)
                 return p.returncode
+            except KeyboardInterrupt:
+                # the docker client dies with the CLI; the container would keep the GPU
+                subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+                raise
             except subprocess.TimeoutExpired:
                 # stopping only the docker CLI leaves the container — and the GPU — stuck
                 subprocess.run(["docker", "kill", name], capture_output=True)
@@ -246,6 +250,9 @@ class Runner:
                 f"{_IN_NCU}/ncu --import /out/{name}.ncu-rep --page details --csv > /out/{name}.details.csv && "
                 f"chmod a+rw /out/{name}.*"
             )
+            from mjolnir_cli.dockerctl import owner_suffix
+
+            inner += owner_suffix([f"/out/{name}.ncu-rep", f"/out/{name}.raw.csv", f"/out/{name}.details.csv"])
             argv = [
                 "docker",
                 "run",

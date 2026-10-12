@@ -10,8 +10,8 @@ benchmarks live in ``mjolnir verify``.
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
-import subprocess
 import sys
 from dataclasses import dataclass
 
@@ -54,9 +54,13 @@ TASKS: list[Task] = [
 BY_NAME = {t.name: t for t in TASKS}
 
 
+def task_container(task: Task) -> str:
+    return f"mjolnir-task-{task.name}-{os.getpid()}"
+
+
 def build_docker(task: Task, s: Settings) -> list[str]:
     script = find_repo_root() / task.script
-    cmd = [_docker(), "run", "--rm"]
+    cmd = [_docker(), "run", "--rm", "--name", task_container(task)]
     if task.gpu:
         cmd += ["--gpus", "all"]
     cmd += ["--entrypoint", "python3", "-v", f"{script}:/tmp/{script.name}:ro"]
@@ -82,7 +86,9 @@ def run_task(s: Settings, name: str, script_args: list[str], dry_run: bool = Fal
         print(" ".join(shlex.quote(c) for c in cmd))
         return 0
     print(f"[mjolnir] running: {' '.join(cmd)}", file=sys.stderr)
-    return subprocess.call(cmd)
+    from mjolnir_cli.dockerctl import run_once
+
+    return run_once(cmd, task_container(task))
 
 
 def _run_gate(s: Settings, script_args: list[str], dry_run: bool) -> int:
