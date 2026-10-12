@@ -1005,7 +1005,9 @@ def render_infographic(layout: RepoLayout) -> Path | None:
             continue
         x0 = L + (i % 2) * (cw + gap)
         y0 = tops[i // 2]
-        T(x0, y0 - 0.115, e2e.pct(gain), 40, white, "bold")
+        # a doubling or more reads as a multiple (+200% is "3.0x", not "+200%")
+        big = f"{1 + gain / 100:.1f}×" if gain >= 100 else e2e.pct(gain)
+        T(x0, y0 - 0.115, big, 40, white, "bold")
         T(x0, y0 - 0.175, better if gain >= 0 else worse, 13.5, white)
         T(x0 + cw, y0 - 0.175, unit, 9.5, faint, ha="right")
         X, BW = x0 * W, cw * W
