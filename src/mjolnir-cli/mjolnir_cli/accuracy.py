@@ -42,7 +42,7 @@ DEFAULT_LEGS = (
     "{stock}:NVFP4",
     "NVFP4_MJOLNIR",
     "NVFP4_MJOLNIR_E2M3",
-    "NVFP4_MJOLNIR_E2M3_LMH8_VT32K",
+    # "NVFP4_MJOLNIR_E2M3_LMH8_VT32K",
     "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
 )
 HARD_CATEGORY = "P"  # tool-eval-bench's Hard Mode category

@@ -44,7 +44,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </picture>
 </p>
 
-> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens), one request at 128K context: decode <b>+6.1%</b>, prefill <b>+200.2%</b>, time to first token <b>168.46 s → 57.08 s</b>, inter-token latency <b>49.2 ms → 46.4 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens), one request at 8K context: decode <b>+50.8%</b>, prefill <b>+67.1%</b>, time to first token <b>4.13 s → 3.02 s</b>, inter-token latency <b>44.4 ms → 29.4 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <p align="center">
 <picture>
@@ -61,7 +61,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 | at the longest context (256K tokens) | **1.37×** vs FlashInfer |
 | one decode step at 64K tokens | **602.3 µs** (FlashInfer 814.9 µs, FlashAttention 2 1.28 ms) |
 | fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.17×** vs FlashInfer, geomean |
-| correctness vs a bit-faithful emulator | **89 / 89** checks pass |
+| correctness vs a bit-faithful emulator | **90 / 90** checks pass |
 
 
 > [!NOTE]
@@ -148,25 +148,17 @@ Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = be
 
 | context | requests | decode (t/s, ↑) | prefill (t/s, ↑) | TTFT (ms, ↓) | ITL (ms, ↓) |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 22.5 → **25.4** $\color{#16a34a}{\text{+12.9\\%}}$ | 2,929 → **3,725** $\color{#16a34a}{\text{+27.2\\%}}$ | 833 → **685** $\color{#16a34a}{\text{+21.6\\%}}$ | 45.0 → **39.8** $\color{#16a34a}{\text{+12.9\\%}}$ |
-| 4K | 1 | 23.1 → **24.9** $\color{#16a34a}{\text{+7.7\\%}}$ | 2,820 → **6,087** $\color{#16a34a}{\text{+115.9\\%}}$ | 2,314 → **1,759** $\color{#16a34a}{\text{+31.5\\%}}$ | 43.5 → **40.5** $\color{#16a34a}{\text{+7.5\\%}}$ |
-| 8K | 1 | 22.8 → **24.1** $\color{#16a34a}{\text{+6.1\\%}}$ | 2,562 → **4,177** $\color{#16a34a}{\text{+63.0\\%}}$ | 4,132 → **3,105** $\color{#16a34a}{\text{+33.1\\%}}$ | 44.4 → **41.6** $\color{#16a34a}{\text{+6.8\\%}}$ |
-| 16K | 1 | 23.2 → **25.4** $\color{#16a34a}{\text{+9.1\\%}}$ | 2,205 → **3,987** $\color{#16a34a}{\text{+80.8\\%}}$ | 8,493 → **5,625** $\color{#16a34a}{\text{+51.0\\%}}$ | 43.3 → **39.5** $\color{#16a34a}{\text{+9.4\\%}}$ |
-| 32K | 1 | 23.2 → **24.3** $\color{#16a34a}{\text{+4.7\\%}}$ | 1,762 → **3,414** $\color{#16a34a}{\text{+93.7\\%}}$ | 19,894 → **11,201** $\color{#16a34a}{\text{+77.6\\%}}$ | 43.2 → **41.3** $\color{#16a34a}{\text{+4.7\\%}}$ |
-| 64K | 1 | 22.6 → **24.3** $\color{#16a34a}{\text{+7.4\\%}}$ | 1,255 → **2,953** $\color{#16a34a}{\text{+135.4\\%}}$ | 54,008 → **23,887** $\color{#16a34a}{\text{+126.1\\%}}$ | 44.3 → **41.6** $\color{#16a34a}{\text{+6.7\\%}}$ |
-| 128K | 1 | 20.5 → **21.7** $\color{#16a34a}{\text{+6.1\\%}}$ | 791 → **2,374** $\color{#16a34a}{\text{+200.2\\%}}$ | 168,458 → **57,078** $\color{#16a34a}{\text{+195.1\\%}}$ | 49.2 → **46.4** $\color{#16a34a}{\text{+6.1\\%}}$ |
-| no ctx | 2 | 46.5 → **45.9** $\color{grey}{\text{−1.3\\%}}$ | 2,744 → **3,294** $\color{#16a34a}{\text{+20.0\\%}}$ | 1,433 → **1,144** $\color{#16a34a}{\text{+25.3\\%}}$ | 40.5 → **40.9** $\color{grey}{\text{−0.9\\%}}$ |
-| 4K | 2 | 43.6 → **47.3** $\color{#16a34a}{\text{+8.7\\%}}$ | 2,728 → **3,500** $\color{#16a34a}{\text{+28.3\\%}}$ | 4,444 → **3,451** $\color{#16a34a}{\text{+28.8\\%}}$ | 43.1 → **40.9** $\color{#16a34a}{\text{+5.4\\%}}$ |
-| 8K | 2 | 45.6 → **45.6** $\color{grey}{\text{−0.1\\%}}$ | 2,515 → **3,384** $\color{#16a34a}{\text{+34.6\\%}}$ | 8,081 → **5,922** $\color{#16a34a}{\text{+36.5\\%}}$ | 42.1 → **41.4** $\color{grey}{\text{+1.6\\%}}$ |
-| 16K | 2 | 45.6 → **43.8** $\color{#dc2626}{\text{−3.8\\%}}$ | 2,195 → **3,332** $\color{#16a34a}{\text{+51.8\\%}}$ | 16,734 → **10,923** $\color{#16a34a}{\text{+53.2\\%}}$ | 42.3 → **43.1** $\color{grey}{\text{−2.0\\%}}$ |
-| 32K | 2 | 36.7 → **36.7** $\color{grey}{\text{−0.1\\%}}$ | 1,752 → **3,110** $\color{#16a34a}{\text{+77.5\\%}}$ | 39,043 → **21,744** $\color{#16a34a}{\text{+79.6\\%}}$ | 47.3 → **47.1** $\color{grey}{\text{+0.6\\%}}$ |
-| no ctx | 4 | 85.0 → **77.4** $\color{#dc2626}{\text{−8.9\\%}}$ | 2,912 → **3,357** $\color{#16a34a}{\text{+15.3\\%}}$ | 2,781 → **2,280** $\color{#16a34a}{\text{+21.9\\%}}$ | 44.1 → **43.7** $\color{grey}{\text{+0.8\\%}}$ |
-| 4K | 4 | 78.5 → **80.3** $\color{grey}{\text{+2.4\\%}}$ | 2,722 → **3,463** $\color{#16a34a}{\text{+27.2\\%}}$ | 8,993 → **6,927** $\color{#16a34a}{\text{+29.8\\%}}$ | 46.8 → **44.0** $\color{#16a34a}{\text{+6.5\\%}}$ |
-| 8K | 4 | 68.1 → **60.6** $\color{#dc2626}{\text{−11.0\\%}}$ | 2,491 → **3,355** $\color{#16a34a}{\text{+34.7\\%}}$ | 16,121 → **11,293** $\color{#16a34a}{\text{+42.8\\%}}$ | 49.1 → **50.0** $\color{grey}{\text{−1.8\\%}}$ |
-| 16K | 4 | 42.0 → **45.1** $\color{#16a34a}{\text{+7.3\\%}}$ | 2,172 → **3,260** $\color{#16a34a}{\text{+50.1\\%}}$ | 32,309 → **20,794** $\color{#16a34a}{\text{+55.4\\%}}$ | 60.0 → **57.8** $\color{#16a34a}{\text{+3.8\\%}}$ |
-| 32K | 4 | 11.6 → **17.4** $\color{#16a34a}{\text{+50.1\\%}}$ | 1,738 → **3,033** $\color{#16a34a}{\text{+74.5\\%}}$ | 65,787 → **36,523** $\color{#16a34a}{\text{+80.1\\%}}$ | 161.8 → **118.5** $\color{#16a34a}{\text{+36.5\\%}}$ |
+| no ctx | 1 | 22.5 → **35.2** $\color{#16a34a}{\text{+56.7\\%}}$ | 2,929 → **3,983** $\color{#16a34a}{\text{+36.0\\%}}$ | 833 → **606** $\color{#16a34a}{\text{+37.6\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{+57.3\\%}}$ |
+| 4K | 1 | 23.1 → **33.6** $\color{#16a34a}{\text{+45.7\\%}}$ | 2,820 → **6,570** $\color{#16a34a}{\text{+133.0\\%}}$ | 2,314 → **1,666** $\color{#16a34a}{\text{+38.9\\%}}$ | 43.5 → **30.1** $\color{#16a34a}{\text{+44.6\\%}}$ |
+| 8K | 1 | 22.8 → **34.3** $\color{#16a34a}{\text{+50.8\\%}}$ | 2,562 → **4,281** $\color{#16a34a}{\text{+67.1\\%}}$ | 4,132 → **3,023** $\color{#16a34a}{\text{+36.7\\%}}$ | 44.4 → **29.4** $\color{#16a34a}{\text{+51.1\\%}}$ |
+| no ctx | 2 | 46.5 → **63.3** $\color{#16a34a}{\text{+36.2\\%}}$ | 2,744 → **3,588** $\color{#16a34a}{\text{+30.8\\%}}$ | 1,433 → **1,000** $\color{#16a34a}{\text{+43.2\\%}}$ | 40.5 → **29.6** $\color{#16a34a}{\text{+36.7\\%}}$ |
+| 4K | 2 | 43.6 → **63.5** $\color{#16a34a}{\text{+45.7\\%}}$ | 2,728 → **3,590** $\color{#16a34a}{\text{+31.6\\%}}$ | 4,444 → **3,334** $\color{#16a34a}{\text{+33.3\\%}}$ | 43.1 → **29.7** $\color{#16a34a}{\text{+44.9\\%}}$ |
+| 8K | 2 | 45.6 → **57.6** $\color{#16a34a}{\text{+26.4\\%}}$ | 2,515 → **3,461** $\color{#16a34a}{\text{+37.6\\%}}$ | 8,081 → **5,758** $\color{#16a34a}{\text{+40.3\\%}}$ | 42.1 → **32.1** $\color{#16a34a}{\text{+31.2\\%}}$ |
+| no ctx | 4 | 85.0 → **104.5** $\color{#16a34a}{\text{+22.9\\%}}$ | 2,912 → **3,423** $\color{#16a34a}{\text{+17.6\\%}}$ | 2,781 → **2,225** $\color{#16a34a}{\text{+25.0\\%}}$ | 44.1 → **31.6** $\color{#16a34a}{\text{+39.7\\%}}$ |
+| 4K | 4 | 78.5 → **104.2** $\color{#16a34a}{\text{+32.8\\%}}$ | 2,722 → **3,458** $\color{#16a34a}{\text{+27.0\\%}}$ | 8,993 → **6,937** $\color{#16a34a}{\text{+29.6\\%}}$ | 46.8 → **32.9** $\color{#16a34a}{\text{+42.1\\%}}$ |
+| 8K | 4 | 68.1 → **68.0** $\color{grey}{\text{−0.1\\%}}$ | 2,491 → **3,375** $\color{#16a34a}{\text{+35.5\\%}}$ | 16,121 → **11,218** $\color{#16a34a}{\text{+43.7\\%}}$ | 49.1 → **39.2** $\color{#16a34a}{\text{+25.2\\%}}$ |
 
-> <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3 (Mjolnir fp6 KV)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+> <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
 ## How the kernel works
 

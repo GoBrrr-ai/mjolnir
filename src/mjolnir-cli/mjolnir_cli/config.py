@@ -22,13 +22,13 @@ import yaml
 
 # ── Model / config ───────────────────────────────────────────────────────────
 DEFAULT_MODEL = "Qwen/Qwen3.8-27B"
-DEFAULT_QUANT = "NVFP4_MJOLNIR_E2M3"  # --attention-backend MJOLNIR (this repo's kernel)
 # context depths every end-to-end bench (perf / ab / e2e) measures by default:
 # up to 128K (the ncu kernel stages keep their 256K top: verify ALL_LS)
 E2E_DEPTHS: tuple[int, ...] = (0, 4096, 8192, 16384, 32768, 65536, 131072)
 # the fastest Mjolnir config so far (fp8 lm_head + 64K draft vocab, opt-in via its .env):
 # measured next to the default everywhere (verify spec / kv-cache-size / profile, bench ab / accuracy)
 FAST_QUANT = "NVFP4_MJOLNIR_E2M3_LMH8_VT64K"
+DEFAULT_QUANT = "NVFP4_MJOLNIR_E2M3_LMH8_VT64K"  # --attention-backend MJOLNIR (this repo's kernel)
 BASELINE_QUANT = "NVFP4"  # FlashInfer — the fastest stock backend on Thor
 FA2_QUANT = "NVFP4_FA2"  # FlashAttention 2 — vLLM 0.31.0's sm_110 default (bf16 KV)
 SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
