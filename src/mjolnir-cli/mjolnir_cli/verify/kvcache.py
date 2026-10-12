@@ -20,11 +20,10 @@ import time
 from pathlib import Path
 
 from mjolnir_cli import dockerctl
-from mjolnir_cli.config import DEFAULT_IMAGE, FAST_QUANT, STOCK_IMAGE, config_field, resolve
+from mjolnir_cli.config import DEFAULT_IMAGE, STOCK_IMAGE, config_field, resolve
+from mjolnir_cli.legs import verify_legs
 
-# official image + stock backend, the Mjolnir image on fp8 KV, on fp6 KV, and the fast config
-# (its fp8 lm_head copy costs KV memory)
-DEFAULT_LEGS = f"official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:{FAST_QUANT}"
+DEFAULT_LEGS = verify_legs("verify.kv-cache-size")  # mjolnir_cli.legs
 
 _AVAIL = re.compile(r"Available KV cache memory:\s*([0-9.]+)\s*GiB")
 _TOKENS = re.compile(r"GPU KV cache size:\s*([0-9,]+)\s*tokens")

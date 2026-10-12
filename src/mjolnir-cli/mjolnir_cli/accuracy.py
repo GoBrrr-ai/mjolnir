@@ -37,14 +37,6 @@ TOOL_REPO = "https://github.com/SeraphimSerapis/tool-eval-bench"
 TOOL_COMMIT = "b60e2f00f6c44352a3680356e7c7948f777c5280"
 TOOL_SPEC = f"tool-eval-bench[hf] @ git+{TOOL_REPO}.git@{TOOL_COMMIT}"
 DEFAULT_ARGS = ("run", "--hardmode", "--seed", "42", "--timeout", "600")
-# the default A/B: native FlashInfer on the official image vs the Mjolnir configs
-DEFAULT_LEGS = (
-    "{stock}:NVFP4",
-    "NVFP4_MJOLNIR",
-    "NVFP4_MJOLNIR_E2M3",
-    # "NVFP4_MJOLNIR_E2M3_LMH8_VT32K",
-    "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
-)
 HARD_CATEGORY = "P"  # tool-eval-bench's Hard Mode category
 
 # suite -> (label, unit note); order = table / chart order

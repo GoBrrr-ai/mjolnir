@@ -76,20 +76,21 @@ def test_native_backends_on_the_mjolnir_image_never_count(tmp_path):
 
 def test_bench_e2e_only_runs_one_leg(monkeypatch):
     from mjolnir_cli import cli, dockerctl
-    from mjolnir_cli.config import DEFAULT_QUANT, FAST_QUANT
+    from mjolnir_cli import legs
     from typer.testing import CliRunner
 
     served = []
     monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: served.append((s.image, s.quant)))
     runner = CliRunner()
-    for side, want in (("mjolnir", [DEFAULT_QUANT, FAST_QUANT]), ("official", ["NVFP4"])):
+    mj, off = legs.side_configs("bench.e2e", legs.MJOLNIR), legs.side_configs("bench.e2e", legs.OFFICIAL)
+    for side, want in (("mjolnir", mj), ("official", off[:1])):
         served.clear()
         r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", side])
         assert r.exit_code == 0, r.output
         assert [q for _, q in served] == want
     served.clear()
     assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run"]).exit_code == 0
-    assert [q for _, q in served] == ["NVFP4", DEFAULT_QUANT, FAST_QUANT]  # the pair, then --also
+    assert [q for _, q in served] == [off[0], *mj]  # the pair, then --also
     served.clear()
     assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--also", ""]).exit_code == 0
     assert len(served) == 2

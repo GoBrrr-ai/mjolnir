@@ -43,6 +43,7 @@ from rich.console import Console
 from rich.table import Table
 
 from mjolnir_cli.config import load_layout
+from mjolnir_cli.legs import KERNEL
 from mjolnir_cli.verify import results
 
 console = Console()
@@ -203,7 +204,7 @@ def _evaluate(
     if correct:
         rc, doc = execute(
             "sweep",
-            {"legs": "fi,mjolnir"},
+            {"legs": KERNEL["autoresearch.evaluate"]},
             {},  # never a headline run
             image=image,
             ls=ls,

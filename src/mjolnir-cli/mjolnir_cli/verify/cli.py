@@ -24,6 +24,7 @@ from typing import Optional
 import typer
 
 from mjolnir_cli.config import DEFAULT_IMAGE, load_layout, resolve
+from mjolnir_cli.legs import KERNEL, SMOKE_MODES
 from mjolnir_cli.verify import results, stages
 from mjolnir_cli.verify.kvcache import DEFAULT_LEGS as KV_LEGS
 from mjolnir_cli.verify.profile import DEFAULT_LEGS as PROFILE_LEGS
@@ -231,9 +232,7 @@ def correctness(
 
 @app.command()
 def sweep(
-    legs: str = typer.Option(
-        "fi,fa2,mjolnir-fp8,mjolnir", "--legs", help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"
-    ),
+    legs: str = typer.Option(KERNEL["verify.sweep"], "--legs", help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"),
     image: Optional[str] = IMAGE,
     ls: Optional[str] = LS,
     iters: int = ITERS,
@@ -253,7 +252,7 @@ def sweep(
     _run(
         "sweep",
         {"legs": legs, "batch": batch, "q_len": q_len},
-        {"legs": "fi,fa2,mjolnir-fp8,mjolnir", "batch": 1, "q_len": 1},
+        {"legs": KERNEL["verify.sweep"], "batch": 1, "q_len": 1},
         image,
         ls,
         iters,
@@ -268,7 +267,7 @@ def sweep(
 
 @app.command()
 def hndsweep(
-    legs: str = typer.Option("fi,fi-hnd,mjolnir-fp8", "--legs"),
+    legs: str = typer.Option(KERNEL["verify.hndsweep"], "--legs"),
     image: Optional[str] = IMAGE,
     ls: Optional[str] = LS,
     iters: int = ITERS,
@@ -283,7 +282,7 @@ def hndsweep(
     _run(
         "hndsweep",
         {"legs": legs},
-        {"legs": "fi,fi-hnd,mjolnir-fp8"},
+        {"legs": KERNEL["verify.hndsweep"]},
         image,
         ls,
         iters,
@@ -299,7 +298,7 @@ def hndsweep(
 @app.command()
 def kvfmt(
     variants: str = typer.Option(stages.KVFMT_DEFAULT, "--variants", help="name:flags|name:flags"),
-    refs: str = typer.Option("fi,fi-hnd", "--refs", help="baseline legs"),
+    refs: str = typer.Option(KERNEL["verify.kvfmt.refs"], "--refs", help="baseline legs"),
     wall_iters: int = typer.Option(200, "--wall-iters", help="harness wall-clock iterations (0 = skip)"),
     image: Optional[str] = IMAGE,
     ls: Optional[str] = LS,
@@ -314,7 +313,7 @@ def kvfmt(
     _run(
         "kvfmt",
         {"variants": variants, "refs": refs, "wall_iters": wall_iters},
-        {"variants": stages.KVFMT_DEFAULT, "refs": "fi,fi-hnd", "wall_iters": 200},
+        {"variants": stages.KVFMT_DEFAULT, "refs": KERNEL["verify.kvfmt.refs"], "wall_iters": 200},
         image,
         ls,
         iters,
@@ -672,7 +671,7 @@ def kv_cache_size(
 @app.command()
 def vllm(
     smoke_modes: str = typer.Option(
-        "graph eager e2m3 lmh8",
+        SMOKE_MODES,
         "--smoke-modes",
         help="graph | eager | e2m3 (fp6 KV) | lmh8 (fp8 lm_head) | spec<N>; '' = none",
     ),
@@ -687,7 +686,7 @@ def vllm(
     _run(
         "vllm",
         {"smoke_modes": smoke_modes, "model": model, "tokens": tokens, "timeout": timeout},
-        {"smoke_modes": "graph eager e2m3 lmh8", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
+        {"smoke_modes": SMOKE_MODES, "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
         image,
         None,
         stages.DEFAULT_ITERS,
@@ -740,9 +739,9 @@ def _sequence(names: list[str], image, gate, dry_run, plot) -> int:
 
 _DEFAULTS: dict[str, dict] = {
     "correctness": {"dtypes": "fp8 bf16", "match": "", "fail_fast": False, "timeout": 180.0, "quick": False},
-    "sweep": {"legs": "fi,fa2,mjolnir-fp8,mjolnir"},
-    "hndsweep": {"legs": "fi,fi-hnd,mjolnir-fp8"},
-    "kvfmt": {"variants": stages.KVFMT_DEFAULT, "refs": "fi,fi-hnd", "wall_iters": 200},
+    "sweep": {"legs": KERNEL["verify.sweep"]},
+    "hndsweep": {"legs": KERNEL["verify.hndsweep"]},
+    "kvfmt": {"variants": stages.KVFMT_DEFAULT, "refs": KERNEL["verify.kvfmt.refs"], "wall_iters": 200},
     "quant": {"formats": stages.QUANT_FORMATS, "batches": 2},
     "ring": {"stages": stages.RING_DEFAULT, "base": "", "refs": "fi"},
     "prefetch": {"distances": "0 1 2 4", "base": "--kv_format fp8", "refs": "fi"},

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 from mjolnir_cli.verify import legs as L_
+from mjolnir_cli.legs import KERNEL, SMOKE_MODES
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.docker import Runner
 
@@ -145,7 +146,7 @@ def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.=-]+", "_", s).strip("_")
 
 
-SWEEP_LEGS = "fi,fa2,mjolnir-fp8,mjolnir"
+SWEEP_LEGS = KERNEL["verify.sweep"]  # mjolnir_cli.legs
 
 
 def stage_sweep(ctx: Ctx, legs: str = SWEEP_LEGS, page: int | None = None, batch: int = 1, q_len: int = 1) -> dict:
@@ -166,7 +167,7 @@ def stage_sweep(ctx: Ctx, legs: str = SWEEP_LEGS, page: int | None = None, batch
     return {"series": run_series(ctx, sel, "sweep"), "params": params}
 
 
-def stage_hndsweep(ctx: Ctx, legs: str = "fi,fi-hnd,mjolnir-fp8") -> dict:
+def stage_hndsweep(ctx: Ctx, legs: str = KERNEL["verify.hndsweep"]) -> dict:
     sel = L_.legs_from_ids(legs)
     return {"series": run_series(ctx, sel, "hndsweep"), "params": {"legs": [x.id for x in sel]}}
 
@@ -220,7 +221,9 @@ KVFMT_DEFAULT = (
 )
 
 
-def stage_kvfmt(ctx: Ctx, variants: str = KVFMT_DEFAULT, refs: str = "fi,fi-hnd", wall_iters: int = 200) -> dict:
+def stage_kvfmt(
+    ctx: Ctx, variants: str = KVFMT_DEFAULT, refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200
+) -> dict:
     """KV cache layouts × formats (fp8 / fp6 / fp4 / nvfp4; NHD / interleaved / HND)."""
     return _variant_stage(ctx, "kvfmt", L_.parse_variants(variants), refs, wall_iters)
 
@@ -599,7 +602,7 @@ def smoke_summary(c: dict) -> str:
 def stage_vllm(
     ctx: Ctx,
     repo: Path,
-    smoke_modes: str = "graph eager e2m3 lmh8",
+    smoke_modes: str = SMOKE_MODES,
     model: str = "Qwen/Qwen3-0.6B",
     tokens: int = 128,
     timeout: float = 1800.0,

@@ -110,6 +110,8 @@ skipped with a hint — nothing blocks on a password.
   `mjolnir`; typer):
   - `cli.py` (commands), `config.py` (defaults: `DEFAULT_QUANT`, `IMAGE_REPO`,
     `VLLM_VERSION`, `BACKEND_LABELS`; `RepoLayout`; bundled resources),
+    `legs.py` (the default legs of every bench and verify stage — the one
+    place to change what is measured),
     `dockerctl.py` (serve), `gate.py`, `cachectl.py`, `benchy.py` +
     `history.py` (e2e), `tasks.py` (canary tasks for `image gates`),
     `stack.py` / `litellm.py` / `perses.py`, `thor.py` (hw), `picker.py`.
@@ -236,9 +238,10 @@ trusted publishing — and the image (vLLM version, on push to `main`).
 - [ ] **Decode beyond attention**: the ranked experiment list with A/B
       commands is `docs/research/decode-experiments.md` (draft-step overhead,
       fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
-      `config.FAST_QUANT` (`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`, the fastest so far) is
-      a default leg of `verify spec|kv-cache-size|profile`, `bench ab|e2e
-      (--also)|accuracy`, and `verify vllm` smoke-tests its fp8 head (`lmh8`).
+      What every bench measures by default — serving legs of `verify
+      spec|kv-cache-size|profile` and `bench ab|e2e|accuracy`, kernel legs of
+      the ncu stages, the `verify vllm` smoke modes — is set in ONE place:
+      `src/mjolnir-cli/mjolnir_cli/legs.py`.
       Opt-in experiment configs carry their switches in a `<config>.env`
       sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).

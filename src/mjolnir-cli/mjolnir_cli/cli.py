@@ -38,14 +38,12 @@ from rich.style import Style
 from rich.table import Table
 
 from mjolnir_cli import __version__
-from mjolnir_cli.accuracy import DEFAULT_LEGS as _ACCURACY_LEGS
+from mjolnir_cli import legs as legs_
 from mjolnir_cli.config import (
     BACKEND_LABELS,
-    BASELINE_QUANT,
     DEFAULT_IMAGE,
     DEFAULT_QUANT,
     E2E_DEPTHS,
-    FAST_QUANT,
     STOCK_IMAGE,
     VLLM_VERSION,
     Settings,
@@ -981,7 +979,7 @@ def _ab_legs(
 @bench_app.command("ab")
 def bench_ab(
     backends: str = typer.Option(
-        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT},{FAST_QUANT}",
+        legs_.bench_legs("bench.ab"),
         "--backends",
         help="comma-separated legs: each is "
         "'<config>' (the --model/state "
@@ -1049,10 +1047,10 @@ def bench_ab(
 def bench_accuracy(
     ctx: typer.Context,
     backends: str = typer.Option(
-        ",".join(leg.format(stock=STOCK_IMAGE) for leg in _ACCURACY_LEGS),
+        legs_.bench_legs("bench.accuracy"),
         "--backends",
         help="comma-separated legs, as in 'bench ab': '<config>', '<image>:<config>', '<model>/<config>' or "
-        "'<image>:<model>/<config>' (default: FlashInfer on the official image + 4 Mjolnir configs)",
+        "'<image>:<model>/<config>' (default: mjolnir_cli.legs)",
     ),
     restart: bool = typer.Option(
         True,
@@ -1228,10 +1226,14 @@ def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool =
 def bench_e2e(
     official_image: str = typer.Option(STOCK_IMAGE, "--official-image", help="the upstream vLLM image (baseline)"),
     official_config: str = typer.Option(
-        BASELINE_QUANT, "--official-config", help="config served on the official image (stock backends only)"
+        legs_.side_configs("bench.e2e", legs_.OFFICIAL)[0],
+        "--official-config",
+        help="config served on the official image (stock backends only)",
     ),
     image: str = typer.Option(DEFAULT_IMAGE, "--image", help="the Mjolnir image"),
-    config: str = typer.Option(DEFAULT_QUANT, "--config", help="config served on the Mjolnir image"),
+    config: str = typer.Option(
+        legs_.side_configs("bench.e2e", legs_.MJOLNIR)[0], "--config", help="config served on the Mjolnir image"
+    ),
     model: Optional[str] = typer.Option(None, "--model"),
     runs: int = typer.Option(6, "--runs", help="measured runs per cell"),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps per leg"),
@@ -1249,7 +1251,7 @@ def bench_e2e(
         help="run one leg: 'mjolnir' or 'official'; the comparison pairs it with the other side's latest record",
     ),
     also: str = typer.Option(
-        FAST_QUANT,
+        ",".join(legs_.side_configs("bench.e2e", legs_.MJOLNIR)[1:]),
         "--also",
         help="more Mjolnir-image configs to measure after the pair (comma-separated; '' = none) — they join the "
         "e2e charts; the comparison and infographic stay on --config",
