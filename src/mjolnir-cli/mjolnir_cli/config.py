@@ -44,6 +44,7 @@ BACKEND_LABELS = {
     "NVFP4_MJOLNIR_E2M3_LMH8": "Mjolnir fp6 KV + fp8 lm_head",
     "NVFP4_MJOLNIR_E2M3_VT32K": "Mjolnir fp6 KV + 32K draft vocab",
     "NVFP4_MJOLNIR_E2M3_LMH8_VT32K": "Mjolnir fp6 KV + fp8 lm_head + 32K draft vocab",
+    "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": "Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab",
     "NVFP4": "FlashInfer",
     "NVFP4_FA2": "FlashAttention 2",
     "NVFP4_FA4hd256": "FlashAttention 4 hd256",

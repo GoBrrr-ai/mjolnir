@@ -214,7 +214,29 @@ def load_vocab(path: str, size: int | None = None) -> list[int]:
     return ids[:size] if size else ids
 
 
-def install_draft_vocab(draft_model, ids: list[int]) -> bool:
+def pad_vocab(ids: list[int], size: int | None, vocab: int) -> list[int]:
+    """Fill a short id list up to ``size`` with the lowest unused ids.
+
+    A calibration that saw fewer distinct tokens than the requested size
+    (6K distinct from ~50K generated tokens is typical) would otherwise trim
+    the drafter far below the size the config names. Low ids come first
+    because BPE vocabularies are ordered by merge rank, a fair frequency
+    prior for tokens the calibration never generated."""
+    seen = {i for i in ids if 0 <= i < vocab}
+    out = [i for i in dict.fromkeys(ids) if 0 <= i < vocab]
+    if size is None or len(out) >= size:
+        return out[:size] if size else out
+    need = min(size, vocab) - len(out)
+    for i in range(vocab):
+        if need <= 0:
+            break
+        if i not in seen:
+            out.append(i)
+            need -= 1
+    return out
+
+
+def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) -> bool:
     lm_head = getattr(draft_model, "lm_head", None)
     lp = getattr(draft_model, "logits_processor", None)
     if lm_head is None or lp is None or lm_head.weight.numel() == 0:
@@ -225,7 +247,16 @@ def install_draft_vocab(draft_model, ids: list[int]) -> bool:
         return False
     w = lm_head.weight.data
     vocab = int(getattr(lp, "org_vocab_size", w.shape[0]))
-    idx = torch.tensor(sorted(set(i for i in ids if 0 <= i < vocab)), dtype=torch.long, device=w.device)
+    calibrated = len({i for i in ids if 0 <= i < vocab})
+    ids = pad_vocab(ids, size, vocab)
+    if size and calibrated < size:
+        _log.warning(
+            "Mjolnir draft vocab: the file has %d tokens, padded to %d with the lowest unused ids "
+            "(re-run `mjolnir calibrate --draft-vocab` with more prompts for a measured ranking)",
+            calibrated,
+            len(ids),
+        )
+    idx = torch.tensor(sorted(set(ids)), dtype=torch.long, device=w.device)
     fp8 = getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8"
     sub = w.index_select(0, idx).contiguous()
     if fp8:
@@ -282,7 +313,7 @@ def after_load(runner) -> None:
     if vocab_path and draft is not None:  # before fp8 may free the bf16 weight
         try:
             size = int(os.environ.get(ENV_DRAFT_VOCAB_SIZE, "0") or 0) or None
-            install_draft_vocab(draft, load_vocab(vocab_path, size))
+            install_draft_vocab(draft, load_vocab(vocab_path), size)
         except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
             _log.warning("Mjolnir draft vocab: not installed (%r)", e)
     elif vocab_path:

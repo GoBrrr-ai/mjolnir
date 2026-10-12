@@ -48,7 +48,12 @@ def test_calibrate_refuses_while_the_server_runs(monkeypatch, tmp_path):
 
 def test_experiment_configs_are_e2m3_plus_env_sidecars():
     base = _s("NVFP4_MJOLNIR_E2M3")
-    for name in ("NVFP4_MJOLNIR_E2M3_LMH8", "NVFP4_MJOLNIR_E2M3_VT32K", "NVFP4_MJOLNIR_E2M3_LMH8_VT32K"):
+    for name in (
+        "NVFP4_MJOLNIR_E2M3_LMH8",
+        "NVFP4_MJOLNIR_E2M3_VT32K",
+        "NVFP4_MJOLNIR_E2M3_LMH8_VT32K",
+        "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+    ):
         s = _s(name)
         for key in ("model", "attention-backend", "kv-cache-dtype", "max-model-len", "max-num-seqs"):
             assert config_field(s.config_path, key) == config_field(base.config_path, key), (name, key)

@@ -4,8 +4,12 @@ for VocabTrim (``MJOLNIR_DRAFT_VOCAB``, see ``mjolnir.lmhead``).
 Runs the serving config in-process (vLLM ``LLM``), samples a varied prompt
 set (several completions per prompt, temperature 0.7), counts the generated
 token ids and writes them most frequent first, with the coverage — the share
-of generated tokens inside the top-K — for a few K. VocabTrim found the
-target's own generations the best source (arXiv 2506.22694).
+of generated tokens inside the top-K — for a few K. Coverage is measured
+held out (ranking from half the prompts, scored on the other half), since the
+in-sample number is 100% as soon as K passes the distinct-token count. Ids the
+run never generated follow in id order (BPE merge rank), so a top-K always has
+K tokens. VocabTrim found the target's own generations the best source
+(arXiv 2506.22694).
 
     python -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3.yaml \\
         --out /out/draft_vocab.json --download-dir /data/models/huggingface
@@ -43,6 +47,26 @@ EXTRA_TOPICS = [
 ]
 
 
+def rank(counts: Counter, special: set, vocab: int) -> list[int]:
+    """Special tokens, then generated ids by count, then the rest in id order."""
+    out = [t for t in sorted(special) if t not in counts] + [t for t, _ in counts.most_common()]
+    seen = set(out)
+    return out + [t for t in range(vocab) if t not in seen]
+
+
+def held_out_coverage(train: Counter, test: Counter, special: set, vocab: int) -> dict[str, float]:
+    """Share of ``test``'s tokens inside the top-K of a ranking built from ``train``."""
+    total = sum(test.values())
+    if not total:
+        return {str(k): 0.0 for k in COVERAGE_K}
+    order = rank(train, special, vocab)
+    pos = {t: i for i, t in enumerate(order)}
+    out = {}
+    for k in COVERAGE_K:
+        out[str(k)] = round(sum(c for t, c in test.items() if pos.get(t, vocab) < k) / total, 5)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
@@ -51,9 +75,9 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--download-dir", default=None)
     ap.add_argument("--max-model-len", type=int, default=16384)
-    ap.add_argument("--prompts", type=int, default=96)
-    ap.add_argument("--samples", type=int, default=2, help="completions per prompt")
-    ap.add_argument("--max-tokens", type=int, default=512)
+    ap.add_argument("--prompts", type=int, default=192)
+    ap.add_argument("--samples", type=int, default=4, help="completions per prompt")
+    ap.add_argument("--max-tokens", type=int, default=768)
     ap.add_argument("--long", type=int, default=4, help="long-context prompts")
     args = ap.parse_args(argv)
 
@@ -81,9 +105,11 @@ def main(argv=None) -> int:
     t0 = time.time()
     outs = llm.chat(msgs, sp)
     counts: Counter = Counter()
-    for o in outs:
+    halves: tuple[Counter, Counter] = (Counter(), Counter())
+    for i, o in enumerate(outs):
         for c in o.outputs:
             counts.update(c.token_ids)
+            halves[i % 2].update(c.token_ids)
     total = sum(counts.values())
     if not total:
         print("draftvocab: nothing generated", file=sys.stderr)
@@ -94,22 +120,17 @@ def main(argv=None) -> int:
         special |= set(tok.get_added_vocab().values())
     except Exception:  # noqa: BLE001
         pass
-    ranked = [t for t in sorted(special) if t not in counts] + [t for t, _ in counts.most_common()]
-    ranked_counts = [counts.get(t, 0) for t in ranked]
-    coverage, acc = {}, 0
-    for i, c in enumerate(ranked_counts, 1):
-        acc += c
-        for k in COVERAGE_K:
-            if i == k:
-                coverage[str(k)] = round(acc / total, 5)
-    for k in COVERAGE_K:
-        coverage.setdefault(str(k), 1.0)
+    vocab = len(tok)
+    ranked = rank(counts, special, vocab)
+    coverage = held_out_coverage(halves[0], halves[1], special, vocab)
     doc = {
         "format": FORMAT,
         "model": str(kw.get("model", "")),
         "generated_tokens": total,
         "distinct_tokens": len(counts),
         "coverage": coverage,
+        "coverage_kind": "held-out",
+        "measured_tokens": len(counts),
         "tokens": ranked,
     }
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -120,7 +141,7 @@ def main(argv=None) -> int:
         f"{len(counts)} distinct"
     )
     for k in COVERAGE_K:
-        print(f"  top {k:>6}: {coverage[str(k)] * 100:6.2f}% of generated tokens")
+        print(f"  top {k:>6}: {coverage[str(k)] * 100:6.2f}% of held-out generated tokens")
     print(f"wrote {args.out}")
     return 0
 

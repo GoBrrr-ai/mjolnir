@@ -766,6 +766,8 @@ def test_draft_vocab_trim():
     drop[k] = False
     assert torch.isinf(trimmed[:, drop]).all() and (trimmed[:, drop] < 0).all()
     assert torch.equal(d.get_top_tokens(h), trimmed.argmax(-1)), "top tokens must index the full vocabulary"
+    assert lmhead.pad_vocab([5, 3, 5, 2000], 6, 10) == [5, 3, 0, 1, 2, 4], "pad with the lowest unused ids"
+    assert lmhead.pad_vocab([5, 3, 1], 2, 10) == [5, 3]
 
 
 def test_cuda_graph_replay_with_new_plan():
