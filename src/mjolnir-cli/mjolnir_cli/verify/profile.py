@@ -34,10 +34,10 @@ from mjolnir_cli.config import DEFAULT_IMAGE, STOCK_IMAGE, resolve
 
 DEFAULT_LEGS = "official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3"
 
-CATEGORIES = (  # first match wins
-    ("attention", r"mjolnir|t5_|fmha|flash|attn|attention|BatchDecode|BatchPrefill|paged|merge_attn|_merge|xqa"),
-    ("linear-attn", r"gated_delta|delta_rule|fused_recurrent|chunk_|gdn|mamba|conv1d|causal_conv"),
-    ("gemm", r"gemm|gemv|cutlass|nvjet|xmma|sm\d+_|matmul|mm_|cublas|splitK|fp4|nvfp4|scaled_mm"),
+CATEGORIES = (  # first match wins: GEMMs before attention (FlashInfer's NVFP4 GEMMs are "flashinfer…gemm")
+    ("gemm", r"gemm|gemv|nvjet|xmma|matmul|cublas|splitK|scaled_mm|_fp8_head"),
+    ("linear-attn", r"gated_delta|delta_rule|fused_recurrent|gdn|mamba|conv1d|causal_conv"),
+    ("attention", r"mjolnir|t5_decode|fmha|flash_attn|flash_fwd|attention|BatchDecode|BatchPrefill|merge_attn|xqa"),
     ("sampling", r"sample|topk|top_k|argmax|gumbel|softmax|rejection|logits|penalt|exponential"),
     ("norm/act", r"norm|rms|silu|gelu|swiglu|act_and_mul|rotary|rope"),
     ("copy", r"copy|memcpy|memset|cat_|index|gather|scatter|fill|Memcpy|Memset"),
@@ -164,6 +164,8 @@ def parse_trace(path: Path, tokens: int | None = None, top: int = 15) -> dict:
         "eager_kernels": len(eager),
         "eager_ms": round(eager_ms, 3),
         "eager_kernels_per_step": round(len(eager) / n_steps, 1),
+        "eager_kernels_per_token": round(len(eager) / tokens, 1) if tokens else None,
+        "graph_replays_per_token": round(len(replays) / tokens, 2) if tokens else None,
         "top_kernels": tops(by_name),  # [name, count, total ms, mean µs]
         "top_eager": tops(eager_names),
     }
@@ -299,7 +301,7 @@ def stage_profile(
         ctx.out(
             f"     {summary['tokens']} tokens · {summary['ms_per_token']} ms/token · GPU idle "
             f"{summary['idle_pct']}% · {summary['graph_replays']} graph replays · "
-            f"{summary['eager_kernels_per_step']} eager kernels/step"
+            f"{summary['eager_kernels_per_token']} eager kernels/token"
         )
         for g in summary["graphs"][:4]:
             ctx.out(
