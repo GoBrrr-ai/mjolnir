@@ -162,10 +162,25 @@ def shared_cells(off: dict, mj: dict) -> list[tuple[int, int]]:
     return sorted(a & b, key=lambda k: (k[0], k[1]))
 
 
-def compare(off: dict, mj: dict) -> list[dict]:
-    """One row per shared cell: {conc, ctx, <key>: (official, mjolnir, gain%)}."""
+def all_cells(off: dict, mj: dict) -> list[tuple[int, int]]:
+    """(concurrency, context) cells either record measured, sorted."""
+    a = {(c.get("concurrency"), c.get("context") or 0) for c in off.get("cells", []) if not c.get("prefill_phase")}
+    b = {(c.get("concurrency"), c.get("context") or 0) for c in mj.get("cells", []) if not c.get("prefill_phase")}
+    return sorted(a | b, key=lambda k: (k[0], k[1]))
+
+
+def missing_contexts(off: dict, mj: dict) -> dict[str, list[int]]:
+    """Contexts only one side measured: {"official": [...], "mjolnir": [...]}."""
+    a = {c.get("context") or 0 for c in off.get("cells", []) if not c.get("prefill_phase")}
+    b = {c.get("context") or 0 for c in mj.get("cells", []) if not c.get("prefill_phase")}
+    return {"official": sorted(b - a), "mjolnir": sorted(a - b)}
+
+
+def compare(off: dict, mj: dict, every: bool = False) -> list[dict]:
+    """One row per shared cell (``every``: per cell either side measured, the
+    other side None): {conc, ctx, <key>: (official, mjolnir, gain%)}."""
     rows = []
-    for conc, ctx in shared_cells(off, mj):
+    for conc, ctx in all_cells(off, mj) if every else shared_cells(off, mj):
         a, b = cell(off, conc, ctx), cell(mj, conc, ctx)
         row: dict = {"conc": conc, "ctx": ctx}
         for m in METRICS:

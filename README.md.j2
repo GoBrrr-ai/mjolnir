@@ -141,7 +141,10 @@ Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vll
 Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = better beyond the ±{{ ctx.e2e_noise_pct }}% noise band, grey = within it, red = worse beyond it). With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
 
 {{ ctx.vs_vllm }}
-
+{% if ctx.vs_vllm_missing %}
+> [!NOTE]
+> Incomplete: {{ ctx.vs_vllm_missing }}.
+{% endif %}
 > <sub>official: `{{ ctx.vs_vllm_official }}` · Mjolnir: `{{ ctx.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 {%- else -%}
 > Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).

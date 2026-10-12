@@ -151,12 +151,23 @@ Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = be
 | no ctx | 1 | 22.5 → **35.2** $\color{#16a34a}{\text{+56.7\\%}}$ | 2,929 → **3,983** $\color{#16a34a}{\text{+36.0\\%}}$ | 833 → **606** $\color{#16a34a}{\text{+37.6\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{+57.3\\%}}$ |
 | 4K | 1 | 23.1 → **33.6** $\color{#16a34a}{\text{+45.7\\%}}$ | 2,820 → **6,570** $\color{#16a34a}{\text{+133.0\\%}}$ | 2,314 → **1,666** $\color{#16a34a}{\text{+38.9\\%}}$ | 43.5 → **30.1** $\color{#16a34a}{\text{+44.6\\%}}$ |
 | 8K | 1 | 22.8 → **34.3** $\color{#16a34a}{\text{+50.8\\%}}$ | 2,562 → **4,281** $\color{#16a34a}{\text{+67.1\\%}}$ | 4,132 → **3,023** $\color{#16a34a}{\text{+36.7\\%}}$ | 44.4 → **29.4** $\color{#16a34a}{\text{+51.1\\%}}$ |
+| 16K | 1 | 23.2 → *not measured* | 2,205 → *not measured* | 8,493 → *not measured* | 43.3 → *not measured* |
+| 32K | 1 | 23.2 → *not measured* | 1,762 → *not measured* | 19,894 → *not measured* | 43.2 → *not measured* |
+| 64K | 1 | 22.6 → *not measured* | 1,255 → *not measured* | 54,008 → *not measured* | 44.3 → *not measured* |
+| 128K | 1 | 20.5 → *not measured* | 791 → *not measured* | 168,458 → *not measured* | 49.2 → *not measured* |
 | no ctx | 2 | 46.5 → **63.3** $\color{#16a34a}{\text{+36.2\\%}}$ | 2,744 → **3,588** $\color{#16a34a}{\text{+30.8\\%}}$ | 1,433 → **1,000** $\color{#16a34a}{\text{+43.2\\%}}$ | 40.5 → **29.6** $\color{#16a34a}{\text{+36.7\\%}}$ |
 | 4K | 2 | 43.6 → **63.5** $\color{#16a34a}{\text{+45.7\\%}}$ | 2,728 → **3,590** $\color{#16a34a}{\text{+31.6\\%}}$ | 4,444 → **3,334** $\color{#16a34a}{\text{+33.3\\%}}$ | 43.1 → **29.7** $\color{#16a34a}{\text{+44.9\\%}}$ |
 | 8K | 2 | 45.6 → **57.6** $\color{#16a34a}{\text{+26.4\\%}}$ | 2,515 → **3,461** $\color{#16a34a}{\text{+37.6\\%}}$ | 8,081 → **5,758** $\color{#16a34a}{\text{+40.3\\%}}$ | 42.1 → **32.1** $\color{#16a34a}{\text{+31.2\\%}}$ |
+| 16K | 2 | 45.6 → *not measured* | 2,195 → *not measured* | 16,734 → *not measured* | 42.3 → *not measured* |
+| 32K | 2 | 36.7 → *not measured* | 1,752 → *not measured* | 39,043 → *not measured* | 47.3 → *not measured* |
 | no ctx | 4 | 85.0 → **104.5** $\color{#16a34a}{\text{+22.9\\%}}$ | 2,912 → **3,423** $\color{#16a34a}{\text{+17.6\\%}}$ | 2,781 → **2,225** $\color{#16a34a}{\text{+25.0\\%}}$ | 44.1 → **31.6** $\color{#16a34a}{\text{+39.7\\%}}$ |
 | 4K | 4 | 78.5 → **104.2** $\color{#16a34a}{\text{+32.8\\%}}$ | 2,722 → **3,458** $\color{#16a34a}{\text{+27.0\\%}}$ | 8,993 → **6,937** $\color{#16a34a}{\text{+29.6\\%}}$ | 46.8 → **32.9** $\color{#16a34a}{\text{+42.1\\%}}$ |
 | 8K | 4 | 68.1 → **68.0** $\color{grey}{\text{−0.1\\%}}$ | 2,491 → **3,375** $\color{#16a34a}{\text{+35.5\\%}}$ | 16,121 → **11,218** $\color{#16a34a}{\text{+43.7\\%}}$ | 49.1 → **39.2** $\color{#16a34a}{\text{+25.2\\%}}$ |
+| 16K | 4 | 42.0 → *not measured* | 2,172 → *not measured* | 32,309 → *not measured* | 60.0 → *not measured* |
+| 32K | 4 | 11.6 → *not measured* | 1,738 → *not measured* | 65,787 → *not measured* | 161.8 → *not measured* |
+
+> [!NOTE]
+> Incomplete: the Mjolnir side has no run at 16K, 32K, 64K, 128K context yet (`mjolnir bench e2e --only mjolnir --depths 16384,32768,65536,131072`).
 
 > <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 

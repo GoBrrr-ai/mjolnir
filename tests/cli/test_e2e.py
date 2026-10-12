@@ -166,3 +166,14 @@ def test_runs_merge_cell_by_cell(tmp_path):
     assert e2e.cell(m, 1, 8192)["tg_tps"]["mean"] == 23  # newest run wins
     assert e2e.cell(m, 1, 32768)["tg_tps"]["mean"] == 19  # kept from the older run
     assert e2e.hero(o, m)["ctx"] == 131072
+
+
+def test_cells_only_one_side_measured_are_kept_and_flagged():
+    def rec(ctxs):
+        return {"cells": [{"concurrency": 1, "context": c, "tg_tps": {"mean": 20.0}} for c in ctxs]}
+
+    off, mj = rec([0, 8192, 131072]), rec([0, 8192])
+    assert [r["ctx"] for r in e2e.compare(off, mj)] == [0, 8192]  # the comparison: shared cells only
+    full = e2e.compare(off, mj, every=True)
+    assert [r["ctx"] for r in full] == [0, 8192, 131072] and full[-1]["tg_tps"][1] is None
+    assert e2e.missing_contexts(off, mj) == {"official": [], "mjolnir": [131072]}

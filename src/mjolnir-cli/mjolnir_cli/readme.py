@@ -302,12 +302,17 @@ def _vs_vllm_table(off: dict, mj: dict) -> str | None:
     from mjolnir_cli import e2e
 
     rows = []
-    for r in e2e.compare(off, mj):
+    for r in e2e.compare(off, mj, every=True):  # a cell one side lacks shows as "not measured", not dropped
         line = [f"{e2e.ctx_label(r['ctx'])}", str(r["conc"])]
         for m in e2e.METRICS:
             a, b, g = r[m.key]
-            if a is None or b is None:
+            if a is None and b is None:
                 line.append("—")
+                continue
+            if a is None or b is None:
+                av = m.fmt.format(a) if a is not None else "*not measured*"
+                bv = f"**{m.fmt.format(b)}**" if b is not None else "*not measured*"
+                line.append(f"{av} → {bv}")
                 continue
             line.append(f"{m.fmt.format(a)} → **{m.fmt.format(b)}** {ratio_pct(g)}")
         rows.append(line)
@@ -602,6 +607,7 @@ class ReadmeContext:
     vs_vllm_official: str = ""
     vs_vllm_mjolnir: str = ""
     vs_vllm_spec: str = ""  # speculative decoding both sides ran with, e.g. "MTP, 3 speculative tokens"
+    vs_vllm_missing: str = ""  # contexts only one side measured (the command that completes the table)
     # model quality per serving config (mjolnir bench accuracy)
     accuracy_table: str = ""
     accuracy_categories: str = ""
@@ -689,6 +695,15 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
         ctx.vs_vllm = _vs_vllm_table(off, mj)
         ctx.vs_vllm_official, ctx.vs_vllm_mjolnir = e2e.side_label(off), e2e.side_label(mj)
         ctx.vs_vllm_spec = e2e.spec_label(off, mj)
+        gaps = e2e.missing_contexts(off, mj)
+        notes = [
+            f"the {'Mjolnir' if side == 'mjolnir' else 'official'} side has no run at "
+            f"{', '.join(e2e.ctx_label(c) for c in ctxs)} context yet (`mjolnir bench e2e --only {side} --depths "
+            f"{','.join(str(c) for c in ctxs)}`)"
+            for side, ctxs in gaps.items()
+            if ctxs
+        ]
+        ctx.vs_vllm_missing = "; ".join(notes)
         h = e2e.hero(off, mj)
         if h:
             ctx.vs_vllm_hero = {
