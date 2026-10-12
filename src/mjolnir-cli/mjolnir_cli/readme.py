@@ -77,7 +77,8 @@ def pct_md(p: float | None, lower_is_better: bool = True) -> str:
     good = -p if lower_is_better else p
     color = _GREEN if good >= NOISE_PCT else (_RED if good <= -NOISE_PCT else _GREY)
     sign = "+" if p > 0 else (_MINUS if p < 0 else "")
-    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(p):.1f}\\%}}}}$"
+    # We need to double-escape the `\\\%` as Github refuses to render the `%` symbol otherwise
+    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(p):.1f}\\\%}}}}$"
 
 
 def _table(header: list[str], rows: list[list[str]], align: list[str] | None = None) -> str:
@@ -308,7 +309,7 @@ def _vs_vllm_table(off: dict, mj: dict) -> str | None:
             if a is None or b is None:
                 line.append("—")
                 continue
-            line.append(f"{m.fmt.format(a)} → **{m.fmt.format(b)}** ({ratio_pct(g)})")
+            line.append(f"{m.fmt.format(a)} → **{m.fmt.format(b)}** {ratio_pct(g)}")
         rows.append(line)
     if not rows:
         return None
@@ -326,7 +327,8 @@ def ratio_pct(g: float | None) -> str:
     noise = e2e.E2E_NOISE_PCT
     color = _GREEN if g >= noise else (_RED if g <= -noise else _GREY)
     sign = "+" if g > 0 else (_MINUS if g < 0 else "")
-    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(g):.1f}\\%}}}}$"
+    # We need to double-escape the `\\\%` as Github refuses to render the `%` symbol otherwise
+    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(g):.1f}\\\%}}}}$"
 
 
 def _findings(stage: str, doc: dict) -> list[str]:

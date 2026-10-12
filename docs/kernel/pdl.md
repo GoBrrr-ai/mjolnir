@@ -21,8 +21,8 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 
 | Q | batch | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| fp8 | 1 | $\color{grey}{\text{−0.2\%}}$ | $\color{#dc2626}{\text{+20.5\%}}$ | $\color{grey}{\text{+2.5\%}}$ | $\color{grey}{\text{+2.1\%}}$ | $\color{grey}{\text{+2.4\%}}$ | $\color{grey}{\text{−2.1\%}}$ | $\color{grey}{\text{−2.3\%}}$ | $\color{grey}{\text{+0.9\%}}$ |
-| fp8 | 8 | $\color{#dc2626}{\text{+13.7\%}}$ | $\color{grey}{\text{−3.0\%}}$ | $\color{grey}{\text{−0.3\%}}$ | $\color{grey}{\text{−1.8\%}}$ | $\color{#16a34a}{\text{−3.0\%}}$ | $\color{grey}{\text{−1.4\%}}$ | $\color{#dc2626}{\text{+3.3\%}}$ | $\color{grey}{\text{−1.8\%}}$ |
+| fp8 | 1 | $\color{grey}{\text{−0.2\\%}}$ | $\color{#dc2626}{\text{+20.5\\%}}$ | $\color{grey}{\text{+2.5\\%}}$ | $\color{grey}{\text{+2.1\\%}}$ | $\color{grey}{\text{+2.4\\%}}$ | $\color{grey}{\text{−2.1\\%}}$ | $\color{grey}{\text{−2.3\\%}}$ | $\color{grey}{\text{+0.9\\%}}$ |
+| fp8 | 8 | $\color{#dc2626}{\text{+13.7\\%}}$ | $\color{grey}{\text{−3.0\\%}}$ | $\color{grey}{\text{−0.3\\%}}$ | $\color{grey}{\text{−1.8\\%}}$ | $\color{#16a34a}{\text{−3.0\\%}}$ | $\color{grey}{\text{−1.4\\%}}$ | $\color{#dc2626}{\text{+3.3\\%}}$ | $\color{grey}{\text{−1.8\\%}}$ |
 
 <sub>Rendered from [`benchmarks/raw/verify/pdl/20261011-123457.json`](../../benchmarks/raw/verify/pdl/20261011-123457.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
