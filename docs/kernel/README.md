@@ -64,7 +64,7 @@ flowchart LR
 | 10 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261011-122836` |
 | 11 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261011-123457` |
 | 12 | [Flag A/B](ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261011-124125` |
-
+| 13 | [Accuracy](accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | ⏳ pending |
 
 ## Reproducing everything
 

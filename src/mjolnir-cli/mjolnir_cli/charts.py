@@ -891,6 +891,12 @@ def _display_family() -> str:
     return "DejaVu Sans"
 
 
+def multiple(gain_pct: float) -> str:
+    """A gain of 100% or more as a multiple: +200% -> "3×", +150% -> "2.5×"."""
+    m = f"{1 + gain_pct / 100:.1f}"
+    return f"{m[:-2] if m.endswith('.0') else m}×"
+
+
 def render_infographic(layout: RepoLayout) -> Path | None:
     """``assets/opening-infographic.png`` — the README hero.
 
@@ -1006,10 +1012,10 @@ def render_infographic(layout: RepoLayout) -> Path | None:
         x0 = L + (i % 2) * (cw + gap)
         y0 = tops[i // 2]
         # a doubling or more reads as a multiple (+200% is "3.0x", not "+200%")
-        big = f"{1 + gain / 100:.1f}×" if gain >= 100 else e2e.pct(gain)
-        T(x0, y0 - 0.115, big, 40, white, "bold")
-        T(x0, y0 - 0.175, better if gain >= 0 else worse, 13.5, white)
-        T(x0 + cw, y0 - 0.175, unit, 9.5, faint, ha="right")
+        big = multiple(gain) if gain >= 100 else e2e.pct(gain)
+        T(x0, y0 - 0.115, big, 50, white, "bold")
+        T(x0, y0 - 0.178, better if gain >= 0 else worse, 16.5, white)
+        T(x0 + cw, y0 - 0.178, unit, 10.5, faint, ha="right")
         X, BW = x0 * W, cw * W
         vmax = max(va, vb)
         for j, (lbl, v, col) in enumerate((("vLLM", va, c_off), ("Mjolnir", vb, c_mj))):
@@ -1195,6 +1201,157 @@ def chart_spec(data: dict, mode: Mode):
     return fig
 
 
+def _accuracy_series(r: dict) -> str:
+    """Theme series for an accuracy row: official FlashInfer blue, FlashInfer
+    on the Mjolnir image hollow blue, Mjolnir fp8 KV hollow orange, the fp6
+    Mjolnir configs (and their experiments) filled orange."""
+    from mjolnir_cli import e2e
+
+    cfg = str(r.get("config", ""))
+    if "MJOLNIR" not in cfg:
+        return "NVFP4" if not e2e.is_mjolnir({"image": r.get("image", "")}) else "fi-hnd"
+    return "NVFP4_MJOLNIR" if cfg == "NVFP4_MJOLNIR" else "NVFP4_MJOLNIR_E2M3"
+
+
+def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], dict | None, list[str]]:
+    from mjolnir_cli import accuracy
+
+    rows = accuracy.latest_legs(accuracy.load_runs(layout))
+    return rows, accuracy.baseline(rows), accuracy.suites_in(rows)
+
+
+def _accuracy_footer(fig, mode: Mode, rows: list[dict]) -> None:
+    from mjolnir_cli import accuracy
+
+    runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
+    theme.footer(
+        fig,
+        mode,
+        f"mjolnir bench accuracy · tool-eval-bench {accuracy.TOOL_COMMIT[:7]} · run{'s' if len(runs) > 1 else ''} "
+        f"{', '.join(runs)}",
+    )
+
+
+def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
+    """One panel per suite: each config's score as a dot, the baseline as a
+    dashed line, the difference printed next to the dot."""
+    from mjolnir_cli import accuracy
+
+    rows, base, names = _accuracy_rows(layout)
+    if not rows:
+        return None
+    plt = _plt()
+    n = len(names)
+    fig, axes = plt.subplots(1, n, figsize=(max(7.5, 3.4 * n + 3.2), 1.9 + 0.55 * len(rows)), sharey=True)
+    axes = list(axes) if n > 1 else [axes]
+    theme.apply(fig, axes, mode)
+    ys = list(range(len(rows)))[::-1]
+    for ax, name in zip(axes, names):
+        vals = [(y, r, (r["suites"].get(name) or {}).get("score")) for y, r in zip(ys, rows)]
+        got = [v for _, _, v in vals if v is not None]
+        if not got:
+            ax.set_visible(False)
+            continue
+        b = (base["suites"].get(name) or {}).get("score") if base else None
+        lo, hi = min(got + ([b] if b is not None else [])), max(got + ([b] if b is not None else []))
+        pad = max(4.0, (hi - lo) * 0.35)
+        ax.set_xlim(max(0, lo - pad), min(100, hi + pad) + pad * 0.6)
+        if b is not None:
+            ax.axvline(b, color=mode.text_dim, lw=1.2, ls=(0, (4, 3)), zorder=2)
+        for y, r, v in vals:
+            if v is None:
+                continue
+            sid = _accuracy_series(r)
+            kw = theme.line_kw(mode, sid)
+            if b is not None and r is not base:
+                ax.plot([b, v], [y, y], color=kw["color"], lw=2, zorder=3, solid_capstyle="round")
+            ax.plot(
+                [v], [y], ls="none", **{k: kw[k] for k in ("color", "marker", "mfc", "mec", "mew")}, ms=10, zorder=5
+            )
+            txt = f"{v:.1f}" if r is base or b is None else f"{v:.1f} ({v - b:+.1f})"
+            ax.annotate(
+                txt,
+                (v if b is None else max(v, b), y),
+                textcoords="offset points",
+                xytext=(9, 0),
+                va="center",
+                fontsize=9.5,
+                color=mode.text,
+            )
+        ax.set_xlabel(f"{accuracy.suite_label(name)} score, %")
+        ax.grid(axis="y", visible=False)
+    axes[0].set_yticks(ys)
+    axes[0].set_yticklabels([r["label"] for r in rows], color=mode.text, fontsize=10)
+    axes[0].set_ylim(-0.7, len(rows) - 0.3)
+    theme.title(
+        axes[0],
+        mode,
+        "Model quality per serving config",
+        "tool-eval-bench over each config's OpenAI endpoint · dashed = "
+        + (base["label"] if base else "baseline")
+        + " · (±) = points vs it",
+    )
+    _accuracy_footer(fig, mode, rows)
+    return fig
+
+
+def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
+    """Tool-call categories × configs: the share of points per cell, colored
+    by the difference to the baseline (orange = more, blue = fewer)."""
+    rows, base, _ = _accuracy_rows(layout)
+    rows = [r for r in rows if r.get("categories")]
+    if not rows:
+        return None
+    import numpy as np
+    from matplotlib.colors import TwoSlopeNorm
+
+    cats = sorted({c for r in rows for c in r["categories"]})
+    pct = np.array([[r["categories"].get(c, {}).get("percent", np.nan) for c in cats] for r in rows], dtype=float)
+    ref = (
+        np.array([base["categories"].get(c, {}).get("percent", np.nan) for c in cats], dtype=float)
+        if base and base.get("categories")
+        else np.full(len(cats), np.nan)
+    )
+    delta = pct - ref[None, :]
+    finite = delta[np.isfinite(delta)]
+    span = max(10.0, float(np.nanmax(np.abs(finite))) if finite.size else 10.0)
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(max(9.0, 0.78 * len(cats) + 4.5), 1.8 + 0.55 * len(rows)))
+    theme.apply(fig, ax, mode)
+    ax.grid(False)
+    shown = np.where(np.isfinite(delta), delta, 0.0)
+    ax.imshow(
+        shown,
+        cmap=theme.diverging_cmap(mode),
+        norm=TwoSlopeNorm(vmin=-span, vcenter=0.0, vmax=span),
+        aspect="auto",
+        interpolation="nearest",
+    )
+    for i in range(len(rows) + 1):
+        ax.axhline(i - 0.5, color=mode.panel, lw=2)
+    for j in range(len(cats) + 1):
+        ax.axvline(j - 0.5, color=mode.panel, lw=2)
+    for i in range(len(rows)):
+        for j in range(len(cats)):
+            if np.isfinite(pct[i, j]):
+                ax.text(j, i, f"{pct[i, j]:.0f}", ha="center", va="center", fontsize=9.5, color=mode.text)
+    ax.set_xticks(range(len(cats)))
+    ax.set_xticklabels(cats, color=mode.text)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([r["label"] for r in rows], color=mode.text)
+    ax.set_xlabel("tool-call category (names: the table below)")
+    theme.title(
+        ax,
+        mode,
+        "Tool calls by category",
+        "cell = share of points, % · color = difference to "
+        + (base["label"] if base else "the first row")
+        + " (orange more, blue fewer, gray equal)",
+    )
+    _accuracy_footer(fig, mode, rows)
+    return fig
+
+
 KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
     # name -> (stage it documents, builder)
     "kernel-speedup": ("sweep", chart_speedup),
@@ -1213,6 +1370,10 @@ KERNEL_CHARTS: dict[str, tuple[str, Callable]] = {
     "spec-drafts": ("spec", chart_spec),
 }
 E2E_CHARTS: dict[str, Callable] = {"e2e-decode": chart_e2e_decode, "e2e-prefill": chart_e2e_prefill}
+ACCURACY_CHARTS: dict[str, Callable] = {
+    "accuracy-suites": chart_accuracy_suites,
+    "accuracy-categories": chart_accuracy_categories,
+}
 
 
 def _save(fig, path: Path) -> Path:
@@ -1232,6 +1393,7 @@ def render_all(layout: RepoLayout, data: dict | None = None) -> dict[str, dict]:
         (n, st, (lambda f: lambda m: f(data, m))(fn)) for n, (st, fn) in KERNEL_CHARTS.items()
     ]
     jobs += [(n, "e2e", (lambda f: lambda m: f(layout, m))(fn)) for n, fn in E2E_CHARTS.items()]
+    jobs += [(n, "accuracy", (lambda f: lambda m: f(layout, m))(fn)) for n, fn in ACCURACY_CHARTS.items()]
     for name, stage, build in jobs:
         entry = {"stage": stage}
         for mode in theme.MODES:

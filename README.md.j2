@@ -166,7 +166,9 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 |---|---|
 {% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
 | [{{ stages[name].title }}](docs/kernel/{{ name }}.md) {% if not has(name) %}*(pending)*{% endif %} | {{ stages[name].summary }} |
-{% endfor %}
+{% endfor -%}
+| [Accuracy](docs/kernel/accuracy.md) {% if not ctx.accuracy_runs %}*(pending)*{% endif %} | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
+
 
 ## What's in the image
 

@@ -596,6 +596,13 @@ class ReadmeContext:
     vs_vllm_official: str = ""
     vs_vllm_mjolnir: str = ""
     vs_vllm_spec: str = ""  # speculative decoding both sides ran with, e.g. "MTP, 3 speculative tokens"
+    # model quality per serving config (mjolnir bench accuracy)
+    accuracy_table: str = ""
+    accuracy_categories: str = ""
+    accuracy_findings: list = field(default_factory=list)
+    accuracy_runs: list = field(default_factory=list)  # run ids the table draws on
+    accuracy_args: list = field(default_factory=list)  # (suite label, tool-eval-bench args)
+    accuracy_baseline: str = ""
 
 
 def _vllm_base_version(layout: RepoLayout) -> str:
@@ -687,7 +694,80 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
                 else "—",
                 "itl_ms": f"{h['itl_ms'][0]:.1f} ms → {h['itl_ms'][1]:.1f} ms" if h["itl_ms"][2] else "—",
             }
+    _accuracy_context(ctx, layout)
     return ctx
+
+
+def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
+    from mjolnir_cli import accuracy
+
+    rows = accuracy.latest_legs(accuracy.load_runs(layout))
+    if not rows:
+        return
+    base = accuracy.baseline(rows)
+    names = accuracy.suites_in(rows)
+    ctx.accuracy_baseline = base["label"] if base else ""
+    ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
+    args = {}
+    for r in rows:
+        for n, v in r["runs"].items():
+            args.setdefault(n, " ".join(v.get("args") or []))
+    ctx.accuracy_args = [(accuracy.suite_label(n), args[n]) for n in names if n in args]
+
+    def cell(r: dict, n: str) -> str:
+        v = (r["suites"].get(n) or {}).get("score")
+        if v is None:
+            return "—"
+        b = ((base or {})["suites"].get(n) or {}).get("score") if base else None
+        out = f"{v:.1f}"
+        if (r.get("suites", {}).get(n) or {}).get("n", 1) > 1:
+            out += f" <sub>n={r['suites'][n]['n']}</sub>"
+        if r is not base and b is not None:
+            out += f" ({v - b:+.1f})"
+        return out
+
+    head = ["config", "KV", *[f"{accuracy.suite_label(n)} %" for n in names], "completion"]
+    body = []
+    for r in rows:
+        comp = [x.get("completion_rate") for x in r["suites"].values() if x.get("completion_rate") is not None]
+        label = f"**{r['label']}**" if r is base else r["label"]
+        kv = str(r.get("kv_cache_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3").replace("auto", "bf16")
+        body.append([label, kv, *[cell(r, n) for n in names], f"{min(comp):.0f}%" if comp else "—"])
+    ctx.accuracy_table = _table(head, body, ["---", "---"] + ["--:"] * (len(head) - 2))
+
+    cats = sorted({c for r in rows for c in r.get("categories", {})})
+    if cats:
+        labels = {c: next(r["categories"][c]["label"] for r in rows if c in r.get("categories", {})) for c in cats}
+        chead = ["category", *[r["label"] for r in rows]]
+        cbody = []
+        for c in cats:
+            cbody.append(
+                [f"{c} · {labels[c]}"]
+                + [f"{r['categories'][c]['percent']:.0f}" if c in r.get("categories", {}) else "—" for r in rows]
+            )
+        ctx.accuracy_categories = _table(chead, cbody)
+
+    if base:
+        for r in rows:
+            if r is base:
+                continue
+            deltas = []
+            for n in names:
+                v, b = (r["suites"].get(n) or {}).get("score"), (base["suites"].get(n) or {}).get("score")
+                if v is not None and b is not None:
+                    deltas.append(f"{accuracy.suite_label(n)} {v - b:+.1f}")
+            if deltas:
+                changed = []
+                if r.get("scenarios") and base.get("scenarios"):
+                    common = r["scenarios"].keys() & base["scenarios"].keys()
+                    worse = sum(1 for k in common if r["scenarios"][k] < base["scenarios"][k])
+                    better = sum(1 for k in common if r["scenarios"][k] > base["scenarios"][k])
+                    changed = [f"{worse} scenarios scored lower, {better} higher of {len(common)}"]
+                ctx.accuracy_findings.append(
+                    f"**{r['label']}** vs {base['label']}: {', '.join(deltas)} points"
+                    + (f" ({changed[0]})" if changed else "")
+                    + "."
+                )
 
 
 # ── rendering ───────────────────────────────────────────────────────────────

@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -809,13 +810,19 @@ def calibrate(
         f"--prompts {prompts} --long {long}"
     )
     argv = dockerctl.build_run_args(
-        s, name="mjolnir-calibrate", detach=False, command=cmd, extra_env=tuple(env), extra_mounts=tuple(mounts)
+        s,
+        name="mjolnir-calibrate",
+        detach=False,
+        command=cmd,
+        extra_env=tuple(env),
+        extra_mounts=tuple(mounts),
+        chown=(f"/out/{target.name}",),
     )
     if dry_run:
         typer.echo(" ".join(argv))
         return
     typer.secho(f"calibrating {s.model}/{s.quant} on {s.image} -> {target}", fg=typer.colors.CYAN)
-    rc = subprocess.run(argv).returncode
+    rc = dockerctl.run_once(argv, "mjolnir-calibrate")
     if rc == 0:
         typer.secho(f"wrote {target}", fg=typer.colors.GREEN)
     raise typer.Exit(rc)
@@ -1019,6 +1026,111 @@ def bench_ab(
             )
     _run_legs(s, layout, [(m, i, q, None) for m, i, q in legs], runs=runs, repeat=repeat, gate=gate)
     _rerender(layout)
+
+
+@bench_app.command(
+    "accuracy",
+    context_settings={**_HELP_CTX, "allow_extra_args": True, "ignore_unknown_options": True},
+)
+def bench_accuracy(
+    ctx: typer.Context,
+    backends: str = typer.Option(
+        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT}",
+        "--backends",
+        help="comma-separated legs, as in 'bench ab': '<config>', '<image>:<config>', '<model>/<config>' or "
+        "'<image>:<model>/<config>'",
+    ),
+    restart: bool = typer.Option(
+        True,
+        "--restart/--no-restart",
+        help="serve each leg (restarts the server; the GPU must be yours) — --no-restart measures the running "
+        "server as one leg (pass its config with --backends)",
+    ),
+    model: Optional[str] = typer.Option(None, "--model"),
+    image: Optional[str] = typer.Option(None, "--image", help="image for bare-config legs"),
+    port: Optional[int] = typer.Option(None, "--port"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="print the legs and the tool-eval-bench command"),
+    plot: bool = typer.Option(True, "--plot/--no-plot"),
+):
+    """Model quality per serving config with tool-eval-bench: does fp6 KV /
+    the fp8 lm_head keep the model's answers?
+
+    Default per leg: the 69 standard tool-calling scenarios + the 28 Hard Mode
+    ones (`tool-eval-bench run --hardmode --seed 42 --timeout 600`). Anything
+    after `--` replaces that and is forwarded verbatim (the leg's --base-url is
+    added), e.g. `-- run --hardmode --no-think --trials 3` or
+    `-- --gsm8k --mmlu --ifeval --skip-tool-eval --gsm8k-limit 200`.
+    Results: benchmarks/raw/accuracy/<run>/accuracy.json (committed; the
+    tool's SQLite, reports and the server log stay next to it, untracked);
+    docs/kernel/accuracy.md is rendered from the newest result per config and
+    suite."""
+    from mjolnir_cli import accuracy
+
+    s = _settings(model, None, image, port)
+    layout = load_layout()
+    entries = scan_all_configs(layout)
+    try:
+        legs = _ab_legs(backends, s.model, s.image, entries)
+    except ValueError as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(4)
+    passthrough = list(ctx.args)
+    if not restart and len(legs) != 1:
+        typer.secho("--no-restart measures the running server: give exactly one leg", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if dry_run:
+        try:
+            tool = accuracy.find_tool()
+        except accuracy.AccuracyError as e:
+            tool = [f"<{e}>"]
+        for m_, img, q in legs:
+            typer.echo(f"{m_}/{q} on {img}:")
+            typer.echo("  " + shlex.join(tool + accuracy.tool_args(passthrough, s.base_url)))
+        return
+    if restart:
+        typer.secho(
+            "bench accuracy restarts the vLLM server for each leg — the GPU must be yours for the whole run.",
+            fg=typer.colors.YELLOW,
+        )
+    elif not dockerctl.container_running():
+        typer.secho("--no-restart: no vLLM server is running (mjolnir serve up)", fg=typer.colors.RED, err=True)
+        raise typer.Exit(3)
+    try:
+        out = accuracy.run_accuracy(s, layout, legs, passthrough, restart=restart)
+    except accuracy.AccuracyError as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    _print_accuracy(json.loads(out.read_text()))
+    typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
+    if plot:
+        _rerender(layout)
+
+
+def _print_accuracy(doc: dict) -> None:
+    from mjolnir_cli import accuracy
+
+    rows = doc.get("legs", [])
+    suites = accuracy.suites_in([{"suites": r.get("suites", {})} for r in rows])
+    base = accuracy.baseline(rows)
+    t = Table(box=box.SIMPLE_HEAD, title=f"accuracy · run {doc['run_id']} · tool-eval-bench {' '.join(doc['args'])}")
+    t.add_column("config")
+    for n in suites:
+        t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
+    t.add_column("completion", justify="right")
+    for r in rows:
+        cells = []
+        for n in suites:
+            v = (r.get("suites", {}).get(n) or {}).get("score")
+            b = ((base or {}).get("suites", {}).get(n) or {}).get("score")
+            if v is None:
+                cells.append("—")
+            elif r is base or b is None:
+                cells.append(f"{v:.1f}")
+            else:
+                cells.append(f"{v:.1f} ({v - b:+.1f})")
+        comp = [x.get("completion_rate") for x in r.get("suites", {}).values() if x.get("completion_rate") is not None]
+        t.add_row(r.get("label", r.get("id", "")), *cells, f"{min(comp):.0f}%" if comp else "—")
+    Console().print(t)
 
 
 def _rerender(layout) -> None:

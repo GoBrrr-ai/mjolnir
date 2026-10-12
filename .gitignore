@@ -13,6 +13,10 @@ runs/
 # README and docs are rendered from them); logs and e2e raw dirs are not
 benchmarks/raw/*
 !benchmarks/raw/verify/
+# accuracy: accuracy.json per run is committed; each leg's tool-eval-bench
+# workdir (SQLite, trace reports, server log) is not
+!benchmarks/raw/accuracy/
+benchmarks/raw/accuracy/*/*/
 benchmarks/logs/
 task/
 

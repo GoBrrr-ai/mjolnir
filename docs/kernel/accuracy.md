@@ -1,0 +1,45 @@
+# Accuracy
+
+> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · **no run yet**
+
+## The question
+
+Every speed-up on the Mjolnir image changes numbers the model computes with: the KV cache is stored in 6 bits (fp6 e2m3, calibrated per-channel scales) instead of 8, the query enters the attention MMA in fp8, and the opt-in `…_LMH8` configs read the 248K-row lm_head in fp8 instead of bf16. Logprob smoke tests bound the per-token error; they do not say whether the model still picks the right tool, passes the right arguments, follows a multi-step plan or solves the problem. That is what this chapter measures, per serving config, against native FlashInfer on the official vLLM image.
+
+Speculative decoding (MTP) does not enter here: the draft only proposes tokens and the full model accepts or rejects them, so the output distribution is the target model's either way — a trimmed draft vocabulary (`…_VT32K`, `…_VT64K`) changes speed, never answers.
+
+## How it is measured
+
+`mjolnir bench accuracy` serves each config in turn (the server restarts per leg) and runs [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) (pinned commit) against its OpenAI endpoint:
+
+- **Tool calls** — the standard 69 scenarios, categories A–O: tool selection, parameter precision, multi-step chains, refusal, error recovery, localization, instruction following, safety and prompt injection, 52-tool namespaces, planning, structured output. Each scenario scores 2 (pass), 1 (partial) or 0; the score is points ÷ maximum.
+- **Hard Mode** — the 28 adversarial, stateful and transactional scenarios (category P), scored the same way.
+- **GSM8K, MMLU, IFEval** — the same adapter's accuracy plugins, when the run forwards them (accuracy in %, IFEval at prompt level).
+
+Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors) are dropped from the score instead of counted as zero — the **completion** column; compare rows only at equal completion.
+
+## Result
+
+
+> Pending — run `mjolnir bench accuracy` on a Thor (it restarts the vLLM server per leg: ~1–2 h per config for the 97 scenarios with thinking on), then `mjolnir plot --readme`.
+
+## How to read it
+
+A quantization that hurts the model shows up as lower scores across categories, not as one cell: tool-call scenarios are deterministic at temperature 0, but a single changed token early in a long chain can flip a scenario either way, so a few points of difference between two configs is within what one different token can do. Before reading a gap as damage, repeat both legs (`-- run --hardmode --trials 3`, scores averaged) and look at which scenarios moved: changes spread over many categories in one direction point at the numerics; a handful of flips in both directions is noise.
+
+## Reproduce
+
+```bash
+mjolnir serve down                                           # restarts per leg — the GPU must be yours
+mjolnir bench accuracy                                       # official FlashInfer vs Mjolnir fp6 KV: standard + Hard Mode
+mjolnir bench accuracy --backends vllm/vllm-openai:v0.31.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8
+mjolnir bench accuracy -- run --hardmode --no-think --trials 3          # anything after -- goes to tool-eval-bench
+mjolnir bench accuracy -- --gsm8k --mmlu --ifeval --skip-tool-eval      # the accuracy plugins, same adapter
+mjolnir bench accuracy --no-restart --backends NVFP4_MJOLNIR_E2M3       # the running server, as one leg
+```
+
+A bare config runs on the Mjolnir image; `<image>:<config>` pins the image (as in `bench ab`). tool-eval-bench runs from the pinned commit through `uvx` (`$MJOLNIR_TOOL_EVAL_BENCH` overrides the command); its SQLite database, Markdown reports with full traces and the server log stay next to `accuracy.json`, untracked.
+
+---
+
+[← case study](README.md) · [Speculative decoding](spec.md)

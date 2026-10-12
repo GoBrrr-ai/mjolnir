@@ -197,6 +197,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [L2 prefetch](docs/kernel/prefetch.md)  | TMA L2 prefetch distance (--l2_prefetch) sweep |
 | [Programmatic dependent launch](docs/kernel/pdl.md)  | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) |
 | [Flag A/B](docs/kernel/ab.md)  | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
+| [Accuracy](docs/kernel/accuracy.md) *(pending)* | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
 
 
 ## What's in the image
