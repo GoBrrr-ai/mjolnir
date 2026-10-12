@@ -178,7 +178,8 @@ not hand-typed numbers.
 ### End to end
 `mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
 TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
-`mjolnir bench perf` (gated llama-benchy, raw JSON + server log + a history row,
+`mjolnir bench perf` (gated llama-benchy; `perf`, `ab` and `e2e` default to
+context depths 0–128K, `config.E2E_DEPTHS`, raw JSON + server log + a history row,
 incl. `spec_stats`: MTP tokens per verify step and per-position acceptance from
 the server's counters — decode t/s = tokens/step ÷ step time, so compare it
 before blaming the kernel);

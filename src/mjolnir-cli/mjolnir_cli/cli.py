@@ -44,6 +44,7 @@ from mjolnir_cli.config import (
     BASELINE_QUANT,
     DEFAULT_IMAGE,
     DEFAULT_QUANT,
+    E2E_DEPTHS,
     STOCK_IMAGE,
     VLLM_VERSION,
     Settings,
@@ -873,7 +874,7 @@ def bench_perf(
     runs: int = typer.Option(6, "--runs", help="measured runs per cell (llama-benchy --runs)"),
     warmup_runs: int = typer.Option(2, "--warmup-runs"),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps (default: one sweep, 6 runs per cell)"),
-    depths: str = typer.Option("0,4096,8192", "--depths"),
+    depths: str = typer.Option(",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths"),
     concurrency: str = typer.Option("1,2,4", "--concurrency"),
     pp: int = typer.Option(2048, "--pp"),
     tg: int = typer.Option(128, "--tg"),
@@ -989,6 +990,9 @@ def bench_ab(
         "'<image>:<model>/<config>' — "
         "available: mjolnir model list",
     ),
+    depths: str = typer.Option(
+        ",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths (tokens already in the KV)"
+    ),
     runs: int = typer.Option(6, "--runs"),
     repeat: int = typer.Option(1, "--repeat"),
     gate: bool = typer.Option(True, "--gate/--no-gate"),
@@ -1025,7 +1029,15 @@ def bench_ab(
                 f"history but never charted; measure native backends on {STOCK_IMAGE}",
                 fg=typer.colors.YELLOW,
             )
-    _run_legs(s, layout, [(m, i, q, None) for m, i, q in legs], runs=runs, repeat=repeat, gate=gate)
+    _run_legs(
+        s,
+        layout,
+        [(m, i, q, None) for m, i, q in legs],
+        runs=runs,
+        repeat=repeat,
+        gate=gate,
+        depths=[int(x) for x in depths.replace(" ", ",").split(",") if x.strip()],
+    )
     _rerender(layout)
 
 
@@ -1222,7 +1234,9 @@ def bench_e2e(
     model: Optional[str] = typer.Option(None, "--model"),
     runs: int = typer.Option(6, "--runs", help="measured runs per cell"),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps per leg"),
-    depths: str = typer.Option("0,4096,8192,16384,32768", "--depths", help="context depths (tokens already in the KV)"),
+    depths: str = typer.Option(
+        ",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths (tokens already in the KV)"
+    ),
     concurrency: str = typer.Option("1,2,4", "--concurrency"),
     pp: int = typer.Option(2048, "--pp", help="prompt tokens per request (prefill)"),
     tg: int = typer.Option(128, "--tg", help="generated tokens per request (decode)"),

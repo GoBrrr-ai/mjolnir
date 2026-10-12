@@ -190,7 +190,9 @@ def run_perf(
     """Run ``repeat`` gated perf sweeps (default: one, 6 measured runs/cell);
     persist raw + the vLLM server log + history; print llama-benchy's
     terminal table; return the records."""
-    depths = depths or [0, 4096, 8192]
+    from mjolnir_cli.config import E2E_DEPTHS
+
+    depths = depths or list(E2E_DEPTHS)
     concurrency = concurrency or [1, 2, 4]
     benchy = find_benchy()
     if label:
