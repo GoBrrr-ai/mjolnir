@@ -756,9 +756,15 @@ def calibrate(
     prompts: int = typer.Option(48, "--prompts", help="short prompts"),
     long: int = typer.Option(6, "--long", help="long-context prompts"),
     max_model_len: int = typer.Option(32768, "--max-model-len"),
+    draft_vocab: bool = typer.Option(
+        False,
+        "--draft-vocab",
+        help="instead: count the target's generated tokens -> draft_vocab.json (VocabTrim, MJOLNIR_DRAFT_VOCAB)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the docker command, run nothing"),
 ):
-    """Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache.
+    """Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache
+    (or, with --draft-vocab, the drafter's vocabulary for VocabTrim).
 
     Runs the config's model on fp8 KV in the Mjolnir image, records the
     per-channel amax of every K/V written to the cache over a varied prompt set,
@@ -775,11 +781,15 @@ def calibrate(
             err=True,
         )
         raise typer.Exit(3)
-    target = out or dockerctl.kv_scales_host_path(s)
+    target = out or (
+        dockerctl.kv_scales_host_path(s).with_name("draft_vocab.json")
+        if draft_vocab
+        else dockerctl.kv_scales_host_path(s)
+    )
     if not os.access(target.parent if target.parent.exists() else Path.home(), os.W_OK):
         from mjolnir_cli.config import user_configs_dir
 
-        target = user_configs_dir() / s.model / dockerctl.KV_SCALES_FILE
+        target = user_configs_dir() / s.model / target.name
     target.parent.mkdir(parents=True, exist_ok=True)
     mounts = [(str(target.parent.resolve()), "/out")]
     env = []
@@ -787,13 +797,14 @@ def calibrate(
         from mjolnir_cli.config import find_repo_root
 
         src = find_repo_root() / "src" / "mjolnir"
-        if (src / "mjolnir" / "calibrate.py").exists():
+        if (src / "mjolnir" / ("draftvocab.py" if draft_vocab else "calibrate.py")).exists():
             mounts.append((str(src), "/opt/mjolnir-src:ro"))
             env.append("PYTHONPATH=/opt/mjolnir-src")
     except FileNotFoundError:
         pass
     cmd = (
-        f"python3 -m mjolnir.calibrate --config /configs/{s.model}/{s.quant}.yaml --out /out/{target.name} "
+        f"python3 -m mjolnir.{'draftvocab' if draft_vocab else 'calibrate'} "
+        f"--config /configs/{s.model}/{s.quant}.yaml --out /out/{target.name} "
         f"--download-dir /data/models/huggingface --max-model-len {max_model_len} "
         f"--prompts {prompts} --long {long}"
     )

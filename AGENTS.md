@@ -151,6 +151,7 @@ mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing
 mjolnir verify vllm                       # the backend inside vLLM
 mjolnir verify kv-cache-size              # KV tokens per config (restarts the server per leg; refuses while one runs)
 mjolnir verify spec                       # MTP acceptance per position + decode t/s for 1-4 drafts per config (same)
+mjolnir verify profile                    # torch-profiler trace per config: graph replays, eager kernels, GPU idle (same)
 mjolnir verify bench | all                # every stage once (+ correctness)
 mjolnir verify <stage> --dry-run          # the docker commands, nothing run
 mjolnir verify show <stage>               # the latest saved run
@@ -226,6 +227,9 @@ trusted publishing — and the image (vLLM version, on push to `main`).
 - [ ] **Decode beyond attention**: the ranked experiment list with A/B
       commands is `docs/research/decode-experiments.md` (draft-step overhead,
       fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
+      Opt-in experiment configs carry their switches in a `<config>.env`
+      sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`;
+      `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
 - [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
 - [ ] Fuse the split-KV merge into the last CTA per sequence.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).

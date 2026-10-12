@@ -1,0 +1,98 @@
+# NVFP4_MJOLNIR_E2M3_LMH8 — EXPERIMENT (opt-in): NVFP4_MJOLNIR_E2M3 plus an fp8 lm_head (MJOLNIR_LM_HEAD=fp8, NVFP4_MJOLNIR_E2M3_LMH8.env).
+# The YAML is identical to NVFP4_MJOLNIR_E2M3; the switches are env vars in NVFP4_MJOLNIR_E2M3_LMH8.env,
+# which `mjolnir serve` / `bench` / `verify` pass to the container. Check it before using:
+#   mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8 --drafts "3 4"
+#   mjolnir bench ab --backends NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8 --repeat 2
+model: QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4
+served-model-name: Qwen/Qwen3.8-27B
+
+dtype: bfloat16
+
+performance-mode: throughput
+optimization-level: 3
+compilation-config:
+  cudagraph_num_of_warmups: 5
+  custom_ops:
+    - +rotary_embedding
+  pass_config:
+    eliminate_noops: true
+    fuse_allreduce_rms: false
+
+disable-custom-all-reduce: true
+trust-remote-code: true
+enforce-eager: false
+
+max-num-seqs: 8
+max-model-len: 200K
+max-num-batched-tokens: 16K
+gpu-memory-utilization: 0.80
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention / linear backends ─────────────────────────────────────────────
+# The 16 full-attention (head_dim=256) layers run the Mjolnir decode kernel
+# (decode steps) on top of FlashAttention 4 (prefill, KV writes, mixed steps):
+# the image resolves FLASH_ATTN to FA4 for MJOLNIR on sm_110 — no
+# flash_attn_version needed here — and FA4's hd256 kernel pins the KV page to
+# 128 tokens. MJOLNIR_ATTN_FALLBACK=FLASHINFER restores the FlashInfer prefill.
+# `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs: the
+# kernel reads head-major pages 11-17% faster at long context.
+# Kernel knobs: MJOLNIR_ATTN_* env vars (see src/mjolnir/README.md).
+# KV format: fp6 e2m3 (see the KV Cache section).
+attention-backend: MJOLNIR
+enable-flashinfer-autotune: true
+mm-encoder-attn-backend: TORCH_SDPA   # SM110 ViT PTX-crash workaround (vLLM issue #38411)
+linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — that's the RTX5090/SM120 GEMM path, not SM110
+
+# ── KV Cache ─────────────────────────────────────────────────────────────
+# NVFP4_MJOLNIR_E2M3 — the ONLY change vs NVFP4_MJOLNIR: a 6-bit e2m3 KV cache
+# (4 values in 3 bytes, 25% fewer KV bytes than fp8, +33% tokens in the same
+# memory). Mjolnir's decode kernel reads it directly (tcgen05 kind::f8f6f4);
+# prefill / mixed steps expand the pages they read to fp8 for FlashAttention 4.
+# Needs per-(layer, KV head) scales: `mjolnir calibrate` writes kv_scales.json
+# next to this file, and `mjolnir serve` points MJOLNIR_ATTN_KV_SCALES at it.
+kv-cache-dtype: fp6_e2m3
+kv-cache-dtype-skip-layers: sliding_window
+mamba-cache-mode: align
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+# ── Multimodal ─────────────────────────────────────────────────────────────
+language-model-only: true
+mm-encoder-tp-mode: data
+mm-processor-cache-type: shm
+limit-mm-per-prompt:
+  image: 4
+  video: 0
+
+# ── Caching & Scheduling ─────────────────────────────────────────────────
+enable-prefix-caching: true
+enable-chunked-prefill: true
+async-scheduling: true
+
+# ── Speculative Decoding — MTP (built-in head), K=3 ─────────────────────
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
+
+# ── Generation defaults (Qwen3.8 card's documented Thinking-mode preset) ────
+# NOTE: the verified Thor launch args do not set this server-side (sampling is
+# left to the client/proxy). Included here as the model card's recommendation
+# if you want it pinned at the server instead.
+override-generation-config:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# ── Chat Template ──────────────────────────────────────────────────────────
+default-chat-template-kwargs:
+  reasoning_effort: medium
+  preserve_thinking: true
+  enable_thinking: true
+
+chat-template: /configs/Qwen/Qwen3.8_chat_template.jinja

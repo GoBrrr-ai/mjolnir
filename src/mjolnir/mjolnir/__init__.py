@@ -64,3 +64,13 @@ def register() -> None:
     if BACKEND_NAME in enum.__members__:
         register_backend(enum[BACKEND_NAME], BACKEND_PATH)
     register_backend(enum.CUSTOM, BACKEND_PATH)
+    # opt-in lm_head experiments (fp8 head, trimmed draft vocabulary)
+    if os.environ.get("MJOLNIR_LM_HEAD", "").strip() or os.environ.get("MJOLNIR_DRAFT_VOCAB", "").strip():
+        try:
+            from .lmhead import install_hooks
+
+            install_hooks()
+        except Exception as e:  # noqa: BLE001 - never break vLLM startup
+            import logging
+
+            logging.getLogger("vllm.mjolnir").warning("Mjolnir lm_head hooks not installed: %r", e)

@@ -188,9 +188,28 @@ def backend_env(s: Settings) -> list[str]:
             "MJOLNIR_ATTN_KV_SCALES"
         ):
             out.append(f"MJOLNIR_ATTN_KV_SCALES={_container_path(s, kv_scales_host_path(s))}")
+    out += config_env(s)
     for k, v in sorted(os.environ.items()):
         if k.startswith(("MJOLNIR_ATTN_", "THOR_T5_")):
             out.append(f"{k}={v}")
+    return out
+
+
+def config_env(s: Settings) -> list[str]:
+    """``KEY=VALUE`` lines from the config's ``<config>.env`` sidecar — how an
+    opt-in experiment config sets env vars vLLM's YAML cannot carry (e.g.
+    ``MJOLNIR_LM_HEAD=fp8``). ``{configs}`` expands to the model's config dir
+    as the container sees it; ``#`` starts a comment."""
+    side = Path(s.config_path).with_suffix(".env")
+    if not side.exists():
+        return []
+    cdir = _container_path(s, Path(s.config_path)).rsplit("/", 1)[0]
+    out = []
+    for line in side.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if "=" in line:
+            k, v = line.split("=", 1)
+            out.append(f"{k.strip()}={v.strip().replace('{configs}', cdir)}")
     return out
 
 

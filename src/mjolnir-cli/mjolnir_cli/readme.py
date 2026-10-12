@@ -636,7 +636,7 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
             w = _wall_table(doc)
             if w:
                 ctx.tables[f"{stage}_wall"] = w
-    ctx.pending = [s for s in STAGES if s not in data and s not in ("timing", "vllm")]
+    ctx.pending = [s for s in STAGES if s not in data and s not in ("timing", "vllm", "profile")]
 
     sweep = data.get("sweep")
     if sweep:

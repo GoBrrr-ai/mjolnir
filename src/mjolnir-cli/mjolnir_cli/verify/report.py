@@ -79,7 +79,17 @@ def rows_table(doc: dict) -> Table | None:
     rows = doc.get("rows") or []
     if not rows:
         return None
-    keys = [k for k in rows[0] if k not in ("ok",)]
+
+    # scalar columns (and short lists like per-position acceptance); nested
+    # summaries (profile graphs, kernel tables) and paths stay in the JSON
+    def shown(k, v) -> bool:
+        if k in ("ok", "log", "trace", "image", "ttft_list_ms"):
+            return False
+        if isinstance(v, dict):
+            return False
+        return not (isinstance(v, list) and (len(v) > 8 or any(isinstance(x, (list, dict)) for x in v)))
+
+    keys = [k for k in rows[0] if shown(k, rows[0][k])]
     t = Table(box=box.SIMPLE_HEAD, pad_edge=False, title=f"{doc['stage']} rows", title_justify="left")
     for k in keys:
         t.add_column(k, justify="right" if isinstance(rows[0][k], (int, float)) else "left")

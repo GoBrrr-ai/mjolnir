@@ -388,6 +388,16 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         self._fp6 = self._kv_format == "e2m3"
         self._page = kv_cache_spec.block_size
         self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
+        # Diagnosis knobs for the draft path (MTP / EAGLE drafter layers):
+        # MJOLNIR_ATTN_DRAFT_T5=0 runs every drafter step on the fallback;
+        # MJOLNIR_ATTN_FUSED_DRAFT=0 makes vLLM rebuild the draft metadata
+        # between draft steps instead of fusing them into one graph.
+        self._is_draft = any("mtp" in n or "draft" in n for n in layer_names)
+        self._force_fallback = self._is_draft and env_flag("MJOLNIR_ATTN_DRAFT_T5", "1") in ("0", "false", "no")
+        if env_flag("MJOLNIR_ATTN_FUSED_DRAFT", "1") in ("0", "false", "no"):
+            self.supports_draft_decode_metadata_update = False
+        if self._force_fallback:
+            logger.info("Mjolnir: drafter layers %s on the fallback (MJOLNIR_ATTN_DRAFT_T5=0)", layer_names[:1])
         if self._fp6:
             _check_fp6(self._t5_reason, layer_names)
             _install_fp6_scales(vllm_config, layer_names, kv_cache_spec.num_kv_heads, kv_cache_spec.head_size)
@@ -535,7 +545,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     def build(self, common_prefix_len: int, common_attn_metadata, fast_build: bool = False):
         cam = common_attn_metadata
-        q_len = self._t5_q_len(cam) if common_prefix_len == 0 else None
+        q_len = self._t5_q_len(cam) if common_prefix_len == 0 and not self._force_fallback else None
         if q_len is None:
             STATS["fallback_steps"] += 1
             md = super().build(common_prefix_len, cam, fast_build)

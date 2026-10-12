@@ -294,8 +294,12 @@ def run_child(args, backend, out):
     ] + (["--eager"] if args.eager else [])
     if backend in ("MJOLNIR", "CUSTOM"):
         cmd += ["--kv", args.kv]
+    env = dict(os.environ)
+    env.pop("MJOLNIR_LM_HEAD", None)
+    if backend in ("MJOLNIR", "CUSTOM") and args.lm_head != "bf16":  # the reference keeps the bf16 head
+        env["MJOLNIR_LM_HEAD"] = args.lm_head
     print(f"\n=== {backend}{'' if backend not in ('MJOLNIR', 'CUSTOM') else ' (' + args.kv + ' KV)'} ===", flush=True)
-    r = subprocess.run(cmd, check=False)
+    r = subprocess.run(cmd, check=False, env=env)
     if r.returncode != 0:
         sys.exit(f"{backend} run failed (exit {r.returncode})")
     with open(out) as f:
@@ -312,6 +316,9 @@ def main():
     ap.add_argument("--eager", action="store_true")
     ap.add_argument("--spec", type=int, default=0, help="ngram speculative tokens (0 = off)")
     ap.add_argument("--kv", default="fp8", help="Mjolnir's KV cache dtype: fp8 | fp6_e2m3 (the reference stays fp8)")
+    ap.add_argument(
+        "--lm-head", dest="lm_head", default="bf16", help="Mjolnir side's lm_head: bf16 | fp8 (MJOLNIR_LM_HEAD)"
+    )
     ap.add_argument("--topk", type=int, default=5, help="logprobs returned per step")
     ap.add_argument(
         "--tie_nats", type=float, default=None, help="a divergence passes if the chosen tokens differ by <= this"
@@ -330,7 +337,8 @@ def main():
     args = ap.parse_args()
     if args.child:
         return child(args)
-    limits = LIMITS["fp6" if args.kv.startswith("fp6") else "fp8"]
+    # an fp8 lm_head rounds every logit: the fp6 room until runs say better
+    limits = LIMITS["fp6" if args.kv.startswith("fp6") or args.lm_head == "fp8" else "fp8"]
     for k, v in limits.items():
         if getattr(args, k) is None:
             setattr(args, k, v)

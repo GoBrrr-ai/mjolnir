@@ -522,6 +522,52 @@ def timing(
     )
 
 
+@app.command("profile")
+def profile(
+    legs: str = typer.Option(
+        "official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3",
+        "--legs",
+        help="side:config, comma-separated (mjolnir:NVFP4 = FlashInfer on the Mjolnir image)",
+    ),
+    drafts: int = typer.Option(3, "--drafts", help="num_speculative_tokens (0 = the config's own)"),
+    context_words: int = typer.Option(6000, "--context-words", help="prompt size (~1.3 tokens/word; 0 = short)"),
+    concurrency: int = typer.Option(1, "--concurrency"),
+    requests: int = typer.Option(2, "--requests", help="request rounds inside the profiled window"),
+    max_tokens: int = typer.Option(128, "--max-tokens"),
+    model: Optional[str] = typer.Option(None, "--model"),
+    restart: bool = typer.Option(False, "--restart", help="stop a running vLLM server first"),
+    image: Optional[str] = IMAGE,
+    dry_run: bool = DRY,
+    timeout: float = typer.Option(1800.0, "--timeout"),
+    save: bool = SAVE,
+):
+    """Profile a decode workload per config (torch profiler): graph replays, eager kernels, GPU idle, top kernels."""
+    p = {
+        "legs": legs,
+        "drafts": drafts,
+        "context_words": context_words,
+        "concurrency": concurrency,
+        "requests": requests,
+        "max_tokens": max_tokens,
+        "model": model,
+        "restart": restart,
+        "timeout": timeout,
+    }
+    _run(
+        "profile",
+        p,
+        {**p, "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3"},
+        image,
+        None,
+        stages.DEFAULT_ITERS,
+        False,
+        dry_run,
+        timeout,
+        save,
+        False,
+    )
+
+
 @app.command("spec")
 def spec(
     legs: str = typer.Option(
@@ -619,7 +665,9 @@ def kv_cache_size(
 @app.command()
 def vllm(
     smoke_modes: str = typer.Option(
-        "graph eager e2m3", "--smoke-modes", help="graph | eager | e2m3 (fp6 KV) | spec<N>; '' = none"
+        "graph eager e2m3",
+        "--smoke-modes",
+        help="graph | eager | e2m3 (fp6 KV) | lmh8 (fp8 lm_head) | spec<N>; '' = none",
     ),
     model: str = typer.Option("Qwen/Qwen3-0.6B", "--model"),
     tokens: int = typer.Option(128, "--tokens"),

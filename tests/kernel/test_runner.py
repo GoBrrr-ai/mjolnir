@@ -680,6 +680,94 @@ def test_kernel_disk_cache_roundtrip():
                 os.environ["MJOLNIR_ATTN_KERNEL_CACHE"] = saved[1]
 
 
+# ---- opt-in lm_head experiments (mjolnir.lmhead) ----
+def test_lmhead_fp8_matches_reference():
+    from mjolnir import lmhead
+
+    gen = torch.Generator().manual_seed(41)
+    N, K = 4160, 512  # N not a multiple of the 64-row tile
+    w = (torch.randn(N, K, generator=gen) * 0.02).to(torch.bfloat16).to(DEV)
+    w8, scale = lmhead.quantize_rows(w)
+    for M in (1, 4, 16, 40, 100):  # 100 > SMALL_M: the dequantized-slab path
+        x = torch.randn(M, K, generator=gen).to(torch.bfloat16).to(DEV)
+        got = lmhead.fp8_linear(x, w8, scale).float()
+        ref = lmhead.fp8_linear_reference(x, w8, scale).float()
+        exact = x.float() @ w.float().t()
+        e_ref = ((got - ref).norm() / ref.norm()).item()
+        e_bf16 = ((got - exact).norm() / exact.norm()).item()
+        assert e_ref < 1e-2, f"M={M}: fp8 head vs its reference {e_ref:.4f}"
+        assert e_bf16 < 0.05, f"M={M}: fp8 head vs bf16 {e_bf16:.4f}"
+        top = (got.argmax(-1) == exact.argmax(-1)).float().mean().item()
+        assert top >= 0.75, f"M={M}: argmax agreement {top:.2f}"
+
+
+def test_lmhead_fp8_is_faster_than_bf16():
+    """The point of the experiment, at the real shape (Qwen3.8 lm_head)."""
+    from mjolnir import lmhead
+
+    N, K = 248320, 5120
+    w = torch.randn(N, K, device=DEV, dtype=torch.bfloat16) * 0.02
+    w8, scale = lmhead.quantize_rows(w)
+    out = []
+    for M in (1, 4, 16):
+        x = torch.randn(M, K, device=DEV, dtype=torch.bfloat16)
+
+        def t(fn, it=20):
+            fn()
+            torch.cuda.synchronize()
+            a, b = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+            a.record()
+            for _ in range(it):
+                fn()
+            b.record()
+            torch.cuda.synchronize()
+            return a.elapsed_time(b) / it
+
+        bf = t(lambda: torch.nn.functional.linear(x, w))
+        f8 = t(lambda: lmhead.fp8_linear(x, w8, scale))
+        out.append((M, bf, f8))
+        print(f"   lm_head M={M}: bf16 {bf:.2f} ms ({N * K * 2 / bf / 1e6:.0f} GB/s) · fp8 {f8:.2f} ms "
+              f"({N * K / f8 / 1e6:.0f} GB/s) · {bf / f8:.2f}x")  # fmt: skip
+    assert all(f8 < bf for _, bf, f8 in out), f"the fp8 head is not faster: {out}"
+
+
+def test_draft_vocab_trim():
+    from mjolnir import lmhead
+
+    class _LP:
+        org_vocab_size, scale, soft_cap = 1000, 1.0, None
+
+    class _Head(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter((torch.randn(1024, 64) * 0.1).to(torch.bfloat16).to(DEV), False)
+
+    class _Draft(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.lm_head, self.logits_processor = _Head(), _LP()
+
+        def compute_logits(self, h):
+            return (h @ self.lm_head.weight.t())[..., :1000]
+
+        def get_top_tokens(self, h):
+            return self.compute_logits(h).argmax(-1)
+
+    d = _Draft()
+    keep = list(range(0, 1000, 3))
+    h = torch.randn(5, 64, device=DEV, dtype=torch.bfloat16)
+    full = d.compute_logits(h)
+    assert lmhead.install_draft_vocab(d, keep)
+    trimmed = d.compute_logits(h)
+    k = torch.tensor(keep, device=DEV)
+    # same rows of the same weight (different GEMM shapes may round differently)
+    assert torch.allclose(trimmed[:, k].float(), full[:, k].float(), rtol=2e-2, atol=2e-2), "kept logits differ"
+    drop = torch.ones(1000, dtype=torch.bool, device=DEV)
+    drop[k] = False
+    assert torch.isinf(trimmed[:, drop]).all() and (trimmed[:, drop] < 0).all()
+    assert torch.equal(d.get_top_tokens(h), trimmed.argmax(-1)), "top tokens must index the full vocabulary"
+
+
 def test_cuda_graph_replay_with_new_plan():
     _graph_replay(pdl=False, kv_evict_first=False)
 

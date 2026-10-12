@@ -44,3 +44,34 @@ def test_calibrate_refuses_while_the_server_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(dockerctl, "container_running", lambda: True)
     r = CliRunner().invoke(cli.app, ["calibrate", "--out", str(tmp_path / "x.json")])
     assert r.exit_code == 3 and "server is running" in r.output
+
+
+def test_experiment_configs_are_e2m3_plus_env_sidecars():
+    base = _s("NVFP4_MJOLNIR_E2M3")
+    for name in ("NVFP4_MJOLNIR_E2M3_LMH8", "NVFP4_MJOLNIR_E2M3_VT32K", "NVFP4_MJOLNIR_E2M3_LMH8_VT32K"):
+        s = _s(name)
+        for key in ("model", "attention-backend", "kv-cache-dtype", "max-model-len", "max-num-seqs"):
+            assert config_field(s.config_path, key) == config_field(base.config_path, key), (name, key)
+    env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3_LMH8"))
+    assert "MJOLNIR_LM_HEAD=fp8" in env
+    assert not any(e.startswith("MJOLNIR_LM_HEAD") for e in dockerctl.backend_env(base))
+    env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3_VT32K"))
+    assert "MJOLNIR_DRAFT_VOCAB=/configs/Qwen/Qwen3.8-27B/draft_vocab.json" in env
+    assert "MJOLNIR_DRAFT_VOCAB_SIZE=32768" in env
+
+
+def test_calibrate_draft_vocab_dry_run(tmp_path):
+    r = CliRunner().invoke(
+        cli.app,
+        [
+            "calibrate",
+            "--config",
+            "NVFP4_MJOLNIR_E2M3",
+            "--draft-vocab",
+            "--out",
+            str(tmp_path / "v.json"),
+            "--dry-run",
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert "python3 -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3.yaml" in r.output

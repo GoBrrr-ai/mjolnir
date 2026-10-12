@@ -627,6 +627,8 @@ def stage_vllm(
             args += " --eager"
         elif mode == "e2m3":  # Mjolnir on a 6-bit e2m3 KV cache (calibrates its own scales)
             args += " --kv fp6_e2m3"
+        elif mode == "lmh8":  # Mjolnir with the opt-in fp8 lm_head (MJOLNIR_LM_HEAD=fp8)
+            args += " --lm-head fp8"
         elif mode.startswith("spec"):
             args += f" --spec {mode[4:] or 2}"
         elif mode != "graph":
@@ -641,6 +643,12 @@ def stage_vllm(
             for line in re.findall(r"^  ❌ (.*)$", text, re.M)[:3]:
                 ctx.out(f"      │ {line}")
     return {"cases": cases, "params": {"smoke_modes": smoke_modes, "model": model, "tokens": tokens}}
+
+
+def _profile_stage(ctx: Ctx, **kw) -> dict:
+    from mjolnir_cli.verify.profile import stage_profile
+
+    return stage_profile(ctx, **kw)
 
 
 def _spec_stage(ctx: Ctx, **kw) -> dict:
@@ -730,6 +738,13 @@ STAGES: dict[str, Stage] = {
             "serving",
             "MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count",
             _spec_stage,
+        ),
+        Stage(
+            "profile",
+            "Decode step profile",
+            "serving",
+            "torch-profiler trace of a decode workload per config: CUDA-graph replays, eager kernels, GPU idle",
+            _profile_stage,
         ),
         Stage(
             "vllm",
