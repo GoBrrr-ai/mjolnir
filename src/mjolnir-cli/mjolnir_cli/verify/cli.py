@@ -25,6 +25,9 @@ import typer
 
 from mjolnir_cli.config import DEFAULT_IMAGE, load_layout, resolve
 from mjolnir_cli.verify import results, stages
+from mjolnir_cli.verify.kvcache import DEFAULT_LEGS as KV_LEGS
+from mjolnir_cli.verify.profile import DEFAULT_LEGS as PROFILE_LEGS
+from mjolnir_cli.verify.spec import DEFAULT_LEGS as SPEC_LEGS
 from mjolnir_cli.verify.docker import Runner, ensure_image
 from mjolnir_cli.verify.report import console, show
 
@@ -529,7 +532,7 @@ def timing(
 @app.command("profile")
 def profile(
     legs: str = typer.Option(
-        "official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3",
+        PROFILE_LEGS,
         "--legs",
         help="side:config, comma-separated (mjolnir:NVFP4 = FlashInfer on the Mjolnir image)",
     ),
@@ -560,7 +563,7 @@ def profile(
     _run(
         "profile",
         p,
-        {**p, "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3"},
+        {**p, "legs": PROFILE_LEGS},
         image,
         None,
         stages.DEFAULT_ITERS,
@@ -575,7 +578,7 @@ def profile(
 @app.command("spec")
 def spec(
     legs: str = typer.Option(
-        "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+        SPEC_LEGS,
         "--legs",
         help="side:config, comma-separated; official = the stock vLLM image, mjolnir = --image",
     ),
@@ -595,7 +598,7 @@ def spec(
 ):
     """MTP per config and draft count: tokens/step, per-position acceptance, decode t/s (restarts the server per point)."""
     defaults = {
-        "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+        "legs": SPEC_LEGS,
         "drafts": "1 2 3 4",
         "concurrency": "1 4",
         "max_tokens": 256,
@@ -631,7 +634,7 @@ def spec(
 @app.command("kv-cache-size")
 def kv_cache_size(
     legs: str = typer.Option(
-        "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+        KV_LEGS,
         "--legs",
         help="side:config, comma-separated; official = the stock vLLM image, mjolnir = --image",
     ),
@@ -650,7 +653,7 @@ def kv_cache_size(
         "kv-cache-size",
         {"legs": legs, "model": model, "restart": restart, "timeout": timeout},
         {
-            "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3",
+            "legs": KV_LEGS,
             "model": None,
             "restart": restart,
             "timeout": 1800.0,
@@ -669,7 +672,7 @@ def kv_cache_size(
 @app.command()
 def vllm(
     smoke_modes: str = typer.Option(
-        "graph eager e2m3",
+        "graph eager e2m3 lmh8",
         "--smoke-modes",
         help="graph | eager | e2m3 (fp6 KV) | lmh8 (fp8 lm_head) | spec<N>; '' = none",
     ),
@@ -684,7 +687,7 @@ def vllm(
     _run(
         "vllm",
         {"smoke_modes": smoke_modes, "model": model, "tokens": tokens, "timeout": timeout},
-        {"smoke_modes": "graph eager e2m3", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
+        {"smoke_modes": "graph eager e2m3 lmh8", "model": "Qwen/Qwen3-0.6B", "tokens": 128, "timeout": 1800.0},
         image,
         None,
         stages.DEFAULT_ITERS,

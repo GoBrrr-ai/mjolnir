@@ -85,7 +85,12 @@ SERIES_STYLE = {
     "NVFP4_MJOLNIR_E2M3": ("mjolnir", "o", True),
     "NVFP4": ("flashinfer", "D", True),
     "NVFP4_FA2": ("fa2", "^", True),
+    # the fast experiment config: Mjolnir orange, plus marker, dotted fill in bars
+    "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": ("mjolnir", "P", True),
 }
+# bar fill pattern per series (identity is never color-only: hollow = fp8 KV,
+# dotted = the fp8 lm_head + draft-vocab experiment)
+SERIES_HATCH = {"NVFP4_MJOLNIR_E2M3_LMH8_VT64K": ".."}
 
 
 def color(mode: Mode, series_id: str) -> str:
@@ -99,6 +104,12 @@ def marker(series_id: str) -> str:
 
 def filled(series_id: str) -> bool:
     return SERIES_STYLE.get(series_id, ("text_dim", "o", True))[2]
+
+
+def hatch(series_id: str) -> str | None:
+    if not filled(series_id):
+        return "//"
+    return SERIES_HATCH.get(series_id)
 
 
 def line_kw(mode: Mode, series_id: str) -> dict:
@@ -173,8 +184,7 @@ def legend(ax, mode: Mode, **kw):
         facecolor=mode.panel,
         edgecolor=mode.grid,
         labelcolor=mode.text,
-        fontsize=10,
         framealpha=1.0,
-        **kw,
+        **{"fontsize": 10, **kw},
     )
     return leg

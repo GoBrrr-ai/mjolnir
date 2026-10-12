@@ -26,7 +26,7 @@ For every config and every draft count k the server is started with `--speculati
 
 <sub>Rendered from [`benchmarks/raw/verify/spec/{{ ctx.runs["spec"] }}.json`]({{ root }}benchmarks/raw/verify/spec/{{ ctx.runs["spec"] }}.json). ★ = the draft count with the highest decode t/s per request for that config and concurrency.</sub>
 {%- else %}
-> Pending — run `mjolnir verify spec` on a Thor (it restarts the vLLM server per point: ~1 h for 3 configs × 4 draft counts), then `mjolnir plot --readme`.
+> Pending — run `mjolnir verify spec` on a Thor (it restarts the vLLM server per point: ~1.5 h for 4 configs × 4 draft counts), then `mjolnir plot --readme`.
 {%- endif %}
 
 ## How to read it
@@ -37,7 +37,7 @@ Tokens per step rises with k but flattens as later positions are accepted less; 
 
 ```bash
 mjolnir serve down                                         # restarts per point — the GPU must be yours
-mjolnir verify spec                                        # 3 configs × k = 1..4, 1 and 4 requests
+mjolnir verify spec                                        # 4 configs × k = 1..4, 1 and 4 requests
 mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3 --drafts "2 3"
 ```
 

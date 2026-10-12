@@ -637,8 +637,9 @@ E2E_SERIES = (
     ("NVFP4_FA2", "FlashAttention 2 · official vLLM"),
     ("NVFP4_MJOLNIR", "Mjolnir · fp8 KV"),
     ("NVFP4_MJOLNIR_E2M3", "Mjolnir · fp6 KV"),
+    ("NVFP4_MJOLNIR_E2M3_LMH8_VT64K", "Mjolnir · fp6 KV + fp8 lm_head + 64K draft vocab"),
 )
-MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3")
+MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
 
 
 def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
@@ -695,9 +696,9 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
                 vals,
                 width=w * 0.92,
                 color=mode.panel if hollow else theme.color(mode, cfg),
-                edgecolor=theme.color(mode, cfg),
+                edgecolor=theme.color(mode, cfg) if hollow or not theme.hatch(cfg) else mode.panel,
                 linewidth=1.6 if hollow else 0,
-                hatch="//" if hollow else None,
+                hatch=theme.hatch(cfg),
                 zorder=3,
                 label=lbl if ax is axes[0] else None,
             )
@@ -1059,6 +1060,8 @@ def render_infographic(layout: RepoLayout) -> Path | None:
 def _kvcache_series(r: dict) -> str:
     if r.get("side") == "official":
         return "NVFP4"
+    if r.get("config") in theme.SERIES_HATCH:
+        return r["config"]
     return "mjolnir" if str(r.get("kv_dtype", "")).startswith("fp6") else "mjolnir-fp8"
 
 
@@ -1085,9 +1088,9 @@ def chart_kvcache(data: dict, mode: Mode):
             r["kv_tokens"] / 1e6,
             height=0.6,
             color=mode.panel if hollow else c,
-            edgecolor=c,
-            linewidth=2,
-            hatch="//" if hollow else None,
+            edgecolor=c if hollow or not theme.hatch(sid) else mode.panel,
+            linewidth=2 if hollow else 0,
+            hatch=theme.hatch(sid),
             zorder=3,
         )
         ax0.text(
@@ -1154,14 +1157,19 @@ def chart_spec(data: dict, mode: Mode):
             pts = sorted((r["k"], r["decode_tps"]) for r in rows if r["config"] == cfg and r["concurrency"] == conc)
             if not pts:
                 continue
-            ax.plot([k for k, _ in pts], [v for _, v in pts], label=spec_label(cfg), **theme.line_kw(mode, cfg))
+            ax.plot(
+                [k for k, _ in pts],
+                [v for _, v in pts],
+                label=spec_label(cfg).replace(" + ", "\n+ ", 1),
+                **theme.line_kw(mode, cfg),
+            )
             kb, vb = max(pts, key=lambda p: p[1])
             ax.annotate("★", (kb, vb), textcoords="offset points", xytext=(0, 9), ha="center", color=mode.text)
         ks = sorted({r["k"] for r in rows})
         ax.set_xticks(ks)
         ax.set_xlabel(f"draft tokens · {conc} request{'s' if conc > 1 else ''} in flight")
     axes[0].set_ylabel("decode tokens/s per request")
-    theme.legend(axes[0], mode, loc="lower right")
+
     # per-position acceptance at the largest k, first concurrency
     axp = axes[-1]
     kmax = max(r["k"] for r in rows)
@@ -1179,16 +1187,20 @@ def chart_spec(data: dict, mode: Mode):
             pp,
             width=w * 0.92,
             color=mode.panel if hollow else c,
-            edgecolor=c,
+            edgecolor=c if hollow or not theme.hatch(cfg) else mode.panel,
             linewidth=1.6 if hollow else 0,
-            hatch="//" if hollow else None,
+            hatch=theme.hatch(cfg),
             zorder=3,
         )
     axp.set_xticks(range(kmax))
     axp.set_xticklabels([f"#{j + 1}" for j in range(kmax)])
-    axp.set_ylim(0, 1)
+    axp.set_ylim(0, 1.5)  # headroom for the legend
+    axp.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
     axp.set_xlabel(f"draft position · {kmax} drafts, {concs[0]} request")
     axp.set_ylabel("accepted (share of steps)")
+    # the legend sits over the short late-position bars, clear of every line
+    h, lbl = axes[0].get_legend_handles_labels()
+    theme.legend(axp, mode, handles=h, labels=lbl, loc="upper right", fontsize=8.5)
     theme.title(
         axes[0],
         mode,
@@ -1210,7 +1222,9 @@ def _accuracy_series(r: dict) -> str:
     cfg = str(r.get("config", ""))
     if "MJOLNIR" not in cfg:
         return "NVFP4" if not e2e.is_mjolnir({"image": r.get("image", "")}) else "fi-hnd"
-    return "NVFP4_MJOLNIR" if cfg == "NVFP4_MJOLNIR" else "NVFP4_MJOLNIR_E2M3"
+    if cfg in theme.SERIES_STYLE:
+        return cfg
+    return "NVFP4_MJOLNIR_E2M3"
 
 
 def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], dict | None, list[str]]:

@@ -45,6 +45,7 @@ from mjolnir_cli.config import (
     DEFAULT_IMAGE,
     DEFAULT_QUANT,
     E2E_DEPTHS,
+    FAST_QUANT,
     STOCK_IMAGE,
     VLLM_VERSION,
     Settings,
@@ -980,7 +981,7 @@ def _ab_legs(
 @bench_app.command("ab")
 def bench_ab(
     backends: str = typer.Option(
-        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT}",
+        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT},{FAST_QUANT}",
         "--backends",
         help="comma-separated legs: each is "
         "'<config>' (the --model/state "
@@ -1247,7 +1248,13 @@ def bench_e2e(
         "--only",
         help="run one leg: 'mjolnir' or 'official'; the comparison pairs it with the other side's latest record",
     ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="print the two serve commands, run nothing"),
+    also: str = typer.Option(
+        FAST_QUANT,
+        "--also",
+        help="more Mjolnir-image configs to measure after the pair (comma-separated; '' = none) — they join the "
+        "e2e charts; the comparison and infographic stay on --config",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="print the serve commands, run nothing"),
     allow_stale_image: bool = typer.Option(
         False, "--allow-stale-image", help="benchmark a Mjolnir image older than the checkout's kernel"
     ),
@@ -1273,6 +1280,8 @@ def bench_e2e(
             typer.secho(f"--only must be 'mjolnir' or 'official', got {only!r}", fg=typer.colors.RED, err=True)
             raise typer.Exit(2)
         legs = [legs[1] if side == "mjolnir" else legs[0]]
+    if only is None or only.strip().lower() == "mjolnir":
+        legs += [(s.model, image, q.strip(), None) for q in also.split(",") if q.strip() and q.strip() != config]
     stale = dockerctl.stale_image(image) if any(leg[1] == image for leg in legs) else None
     if stale and not dry_run:
         if not allow_stale_image:

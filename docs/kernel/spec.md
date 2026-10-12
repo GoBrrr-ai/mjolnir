@@ -67,7 +67,7 @@ Tokens per step rises with k but flattens as later positions are accepted less; 
 
 ```bash
 mjolnir serve down                                         # restarts per point — the GPU must be yours
-mjolnir verify spec                                        # 3 configs × k = 1..4, 1 and 4 requests
+mjolnir verify spec                                        # 4 configs × k = 1..4, 1 and 4 requests
 mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3 --drafts "2 3"
 ```
 

@@ -236,6 +236,9 @@ trusted publishing — and the image (vLLM version, on push to `main`).
 - [ ] **Decode beyond attention**: the ranked experiment list with A/B
       commands is `docs/research/decode-experiments.md` (draft-step overhead,
       fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
+      `config.FAST_QUANT` (`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`, the fastest so far) is
+      a default leg of `verify spec|kv-cache-size|profile`, `bench ab|e2e
+      (--also)|accuracy`, and `verify vllm` smoke-tests its fp8 head (`lmh8`).
       Opt-in experiment configs carry their switches in a `<config>.env`
       sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).

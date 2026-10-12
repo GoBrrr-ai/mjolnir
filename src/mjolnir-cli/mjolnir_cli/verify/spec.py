@@ -27,10 +27,10 @@ from pathlib import Path
 import yaml
 
 from mjolnir_cli import dockerctl
-from mjolnir_cli.config import DEFAULT_IMAGE, STOCK_IMAGE, resolve
+from mjolnir_cli.config import DEFAULT_IMAGE, FAST_QUANT, STOCK_IMAGE, resolve
 from mjolnir_cli.gate import server_counters, spec_delta
 
-DEFAULT_LEGS = "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3"
+DEFAULT_LEGS = f"official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:{FAST_QUANT}"
 DEFAULT_DRAFTS = "1 2 3 4"
 DEFAULT_CONCURRENCY = "1 4"
 DEFAULT_MAX_TOKENS = 256

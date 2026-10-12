@@ -30,9 +30,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from mjolnir_cli import dockerctl
-from mjolnir_cli.config import DEFAULT_IMAGE, STOCK_IMAGE, resolve
+from mjolnir_cli.config import DEFAULT_IMAGE, FAST_QUANT, STOCK_IMAGE, resolve
 
-DEFAULT_LEGS = "official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3"
+DEFAULT_LEGS = f"official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:{FAST_QUANT}"
 
 CATEGORIES = (  # first match wins: GEMMs before attention (FlashInfer's NVFP4 GEMMs are "flashinfer…gemm")
     ("gemm", r"gemm|gemv|nvjet|xmma|matmul|cublas|splitK|scaled_mm|_fp8_head"),

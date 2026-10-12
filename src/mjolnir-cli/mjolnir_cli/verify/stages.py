@@ -599,7 +599,7 @@ def smoke_summary(c: dict) -> str:
 def stage_vllm(
     ctx: Ctx,
     repo: Path,
-    smoke_modes: str = "graph eager e2m3",
+    smoke_modes: str = "graph eager e2m3 lmh8",
     model: str = "Qwen/Qwen3-0.6B",
     tokens: int = 128,
     timeout: float = 1800.0,
