@@ -1,6 +1,6 @@
 # Decode-path experiments — ranked by expected decode impact
 
-Status: plan, 2026-10-12. Inputs: `mjolnir verify spec` run `20261011-220331`,
+Status: in progress, 2026-10-12 (results below). Inputs: `mjolnir verify spec` run `20261011-220331`,
 `verify sweep --batch 4 --q-len 4` run `20261011-211511`, `verify kv-cache-size`
 run `20261011-213435`, e2e records of 2026-10-12 (`benchmarks/history.jsonl`).
 
@@ -26,6 +26,55 @@ over k gives the verify forward and the cost of each draft forward:
 - From the checkpoint config: the bf16 `lm_head` (248,320 × 5,120, 2.54 GB)
   is read by the verify and by every draft (4× per step ≈ 10 GB of ~26 GB);
   the bf16 MTP layer (~0.7 GB) 3×. Attention at ≤32K is 1–4% of the step.
+
+## Results (2026-10-12, second round)
+
+**No draft penalty.** `verify spec --legs official:NVFP4,mjolnir:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3`
+(1 request): decode 25.7 / 26.5 / 26.7 t/s at k=3 and 20.4 / 21.5 / 19.3 at
+k=1; per-draft slopes 14.0 / 15.4 / 9.8 ms. The slope moves ±5 ms between
+runs (decode CV ~10% with MTP), so the earlier "+2.3 ms per draft" was noise.
+`MJOLNIR_ATTN_FUSED_DRAFT=0` changes nothing measurable.
+`MJOLNIR_ATTN_DRAFT_T5=0` is **fp8 KV only**: on fp6 the drafter's fallback
+steps (page expansion from a per-step page map) were captured into FULL graphs
+and replayed stale (acceptance 0, HTTP 500) — the backend now refuses that
+combination at startup and any fp6 fallback inside a capture.
+
+**Where the step goes** (`verify profile`, k=3, 1 request): 42.8 ms/token
+official vs 43.4 Mjolnir (k=1: 53.8 vs 49.1). Official: PIECEWISE graphs
+(~5.4K replays) + ~26.6K eager kernels, GPU idle 3.9%; Mjolnir: FULL graphs —
+verify 61.7 ms, draft prefill 30.6 ms, fused draft decode 14.9 ms per replay —
+idle 0.6%. The bf16 **lm_head is ~11.2 ms per call × 4 calls per step ≈ 36%
+of the step** on both images; the NVFP4 body GEMMs ~57 ms per verify
+(~243 GB/s). Attention is a few %.
+
+**lm_head experiments** (`verify spec`, k=3, 1 request, same run):
+
+| config | decode t/s | vs base | tokens/step |
+|---|--:|--:|--:|
+| `NVFP4_MJOLNIR_E2M3` | 26.6 | — | 3.12 |
+| `…_LMH8` | 32.7 | +23% | 3.09 |
+| `…_VT32K` | 34.0 | +28% | 2.86 |
+| `…_LMH8_VT32K` | 36.8 | +38% | — |
+| `…_LMH8_VT32K`, k=4 | 37.0 | +39% | — |
+
+4 requests: 73.1 → 100.4 t/s aggregate. Smoke `lmh8` passes (|Δ logprob|
+0.042 mean, 0.330 max). `bench ab` (llama-benchy) `LMH8_VT32K` vs base: +20%
+c1, +22.5% c2, +13% c4; +24% / +18% c1 at depth 4K / 8K — but e2e acceptance
+fell 2.97 → 2.38 tokens/step (per position 0.65 / 0.44 / 0.29).
+
+**Why acceptance fell:** the calibrated `draft_vocab.json` had only **6,037
+tokens** (52,768 generated, 6,006 distinct) — "VT32K" was really a ~6K vocab,
+and its in-sample coverage (100% from 8K) hid it. Fixed: a short file is now
+padded to the requested size with the lowest unused ids (BPE merge rank) with a
+warning in the server log, and `calibrate --draft-vocab` samples more
+(192 prompts × 4 × 768 tokens), writes the full ranking and reports
+**held-out** coverage. Re-run the calibration, then:
+
+```bash
+mjolnir calibrate --config NVFP4_MJOLNIR_E2M3 --draft-vocab
+mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT32K,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K --drafts "3 4"
+mjolnir bench ab --backends NVFP4_MJOLNIR_E2M3_LMH8,NVFP4_MJOLNIR_E2M3_LMH8_VT32K,NVFP4_MJOLNIR_E2M3_LMH8_VT64K --repeat 2
+```
 
 ## Diagnosing the draft step (experiment 1)
 
@@ -88,6 +137,7 @@ Opt-in configs (YAML identical to `NVFP4_MJOLNIR_E2M3`; the switch is the
 | `NVFP4_MJOLNIR_E2M3_LMH8` | `MJOLNIR_LM_HEAD=fp8` | lm_head e4m3 per row + Triton fp8-weight GEMM (verify + drafts) |
 | `NVFP4_MJOLNIR_E2M3_VT32K` | `MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json`, `…_SIZE=32768` | drafter logits over the 32K most frequent target tokens |
 | `NVFP4_MJOLNIR_E2M3_LMH8_VT32K` | both | both |
+| `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | both, `…_SIZE=65536` | fp8 head + 64K draft vocab |
 
 ```bash
 mjolnir image build                                        # the image needs mjolnir.lmhead
@@ -107,9 +157,9 @@ draft vocab: drafter logits over 32768 of 248320 tokens`.
 
 | # | experiment | expected decode gain | effort | how to A/B |
 |---|---|---|---|---|
-| 1 | **Find the draft-step overhead** (+2.3 ms per draft vs official): is the drafter's attention CUDA-graphed on MJOLNIR, does the first draft step (variable accepted length) fall back to FA4 + fp6 page expansion, Python plan cost per draft | +5–6% at k=3, closes the c=4 gap | low (diagnosis) | `mjolnir serve logs \| grep -iE "cudagraph\|Capturing\|draft"`; nsys on one decode window; then `mjolnir verify spec --legs official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3 --drafts "1 3" --concurrency "1 4"` (the per-draft slope must drop to ≤12.7 ms) |
-| 2 | **fp8 lm_head** (per-row scales, quantized at load; shared by verify and drafts) — Thor patch, opt-in config | ~+20% (−5 GB/step) | medium | after the patch, config `NVFP4_MJOLNIR_E2M3_LMH8`: `mjolnir verify vllm` (smoke) → `mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8 --drafts "3 4"` (acceptance must hold) → `mjolnir bench ab --backends NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8 --repeat 2` |
-| 3 | **VocabTrim for the MTP draft head**: draft logits over the ~32K most frequent target tokens (counted on the target's own generations — the `mjolnir calibrate` prompt set), mapped back for verification | ~+15–20% (−6.6 GB/step bf16; −3.3 GB on top of #2); paper: 2–5% acceptance drop | medium-high | config `…_VT32K`: `mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_VT32K --drafts "2 3 4"` (cheaper drafts may move the best k to 4) → `mjolnir bench ab --backends …` |
+| 1 | ~~Find the draft-step overhead~~ — **done**: no robust per-draft penalty (run-to-run noise); FULL graphs, fused draft decode, 0.6% GPU idle (see Results) | — | — | `mjolnir verify profile --legs official:NVFP4,mjolnir:NVFP4_MJOLNIR_E2M3 --drafts "1 3"` |
+| 2 | **fp8 lm_head** (per-row scales, quantized at load; shared by verify and drafts) — Thor patch, opt-in config | **measured +23%** at k=3 (acceptance −1%) | medium | after the patch, config `NVFP4_MJOLNIR_E2M3_LMH8`: `mjolnir verify vllm` (smoke) → `mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8 --drafts "3 4"` (acceptance must hold) → `mjolnir bench ab --backends NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8 --repeat 2` |
+| 3 | **VocabTrim for the MTP draft head**: draft logits over the ~32K most frequent target tokens (counted on the target's own generations — the `mjolnir calibrate` prompt set), mapped back for verification | **measured +28%** alone, +38% with #2 (with a 6K vocab; re-measure with the padded 32K/64K) | medium-high | config `…_VT32K`: `mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_VT32K --drafts "2 3 4"` (cheaper drafts may move the best k to 4) → `mjolnir bench ab --backends …` |
 | 4 | **fp8 MTP layer** (the drafter's transformer layer is bf16 in the checkpoint) | ~+3–4% (−1 GB/step) | low on top of #2 | same as #2, config `…_MTP8` |
 | 5 | **Re-tune / adapt the draft length**: after #2–#4 drafts get cheap, so re-run the sweep; then adaptive length (stop drafting when the draft's top-1 probability drops — SpecDec++ / PACER style) | +3–5% | low (re-tune) / medium (adaptive) | `mjolnir verify spec --drafts "2 3 4 5"`; adaptive behind a flag, same command |
 | 6 | **Long-context decode** — measure where the kernel matters: at 128K, attention is ~25% of a 1-request step and the kernel is 1.3–1.5× FlashInfer | +5–10% at 64K–128K (estimate) | none (bench) | `mjolnir bench e2e --depths 65536,131072 --concurrency 1 --runs 3` (cells merge into the table) |
