@@ -31,7 +31,7 @@ A quantization that hurts the model shows up as lower scores across categories, 
 
 ```bash
 mjolnir serve down                                           # restarts per leg — the GPU must be yours
-mjolnir bench accuracy                                       # official FlashInfer vs Mjolnir fp6 KV: standard + Hard Mode
+mjolnir bench accuracy                                       # official FlashInfer vs NVFP4_MJOLNIR, …_E2M3, …_E2M3_LMH8_VT32K, …_E2M3_LMH8_VT64K: standard + Hard Mode
 mjolnir bench accuracy --backends vllm/vllm-openai:v0.31.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8
 mjolnir bench accuracy -- run --hardmode --no-think --trials 3          # anything after -- goes to tool-eval-bench
 mjolnir bench accuracy -- --gsm8k --mmlu --ifeval --skip-tool-eval      # the accuracy plugins, same adapter

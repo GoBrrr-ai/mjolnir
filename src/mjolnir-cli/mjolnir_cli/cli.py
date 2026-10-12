@@ -38,6 +38,7 @@ from rich.style import Style
 from rich.table import Table
 
 from mjolnir_cli import __version__
+from mjolnir_cli.accuracy import DEFAULT_LEGS as _ACCURACY_LEGS
 from mjolnir_cli.config import (
     BACKEND_LABELS,
     BASELINE_QUANT,
@@ -1035,10 +1036,10 @@ def bench_ab(
 def bench_accuracy(
     ctx: typer.Context,
     backends: str = typer.Option(
-        f"{STOCK_IMAGE}:{BASELINE_QUANT},{DEFAULT_QUANT}",
+        ",".join(leg.format(stock=STOCK_IMAGE) for leg in _ACCURACY_LEGS),
         "--backends",
         help="comma-separated legs, as in 'bench ab': '<config>', '<image>:<config>', '<model>/<config>' or "
-        "'<image>:<model>/<config>'",
+        "'<image>:<model>/<config>' (default: FlashInfer on the official image + 4 Mjolnir configs)",
     ),
     restart: bool = typer.Option(
         True,
