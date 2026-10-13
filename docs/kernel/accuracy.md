@@ -25,16 +25,16 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
   <img src="../../assets/benchmarks/accuracy-suites.png" alt="Score per suite and serving config" width="100%">
 </picture>
 
-- **Mjolnir** vs official vLLM · FlashInfer: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
-- **Mjolnir fp6 KV** vs official vLLM · FlashInfer: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
-- **Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab** vs official vLLM · FlashInfer: Tool calls +0.0, Hard Mode +0.0 points (1 scenarios scored lower, 1 higher of 97).
+- **Mjolnir · fp8 KV** vs official vLLM · FlashInfer · fp8 KV: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
+- **Mjolnir · fp6 e2m3 KV** vs official vLLM · FlashInfer · fp8 KV: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
+- **Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs official vLLM · FlashInfer · fp8 KV: Tool calls +0.0, Hard Mode +0.0 points (1 scenarios scored lower, 1 higher of 97).
 
 | config | KV | Tool calls % | Hard Mode % | completion |
 |---|---|--:|--:|--:|
-| **official vLLM · FlashInfer** | fp8 | 97.1 | 82.1 | 100% |
-| Mjolnir | fp8 | 95.7 (-1.4) | 78.6 (-3.6) | 100% |
-| Mjolnir fp6 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
-| Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 97.1 (+0.0) | 82.1 (+0.0) | 100% |
+| **official vLLM · FlashInfer · fp8 KV** | fp8 | 97.1 | 82.1 | 100% |
+| Mjolnir · fp8 KV | fp8 | 95.7 (-1.4) | 78.6 (-3.6) | 100% |
+| Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
+| Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 97.1 (+0.0) | 82.1 (+0.0) | 100% |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -45,7 +45,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 </details>
 
-<sub>Score in %, (±) = points vs **official vLLM · FlashInfer**; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json).</sub>
+<sub>Score in %, (±) = points vs **official vLLM · FlashInfer · fp8 KV**; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json).</sub>
 
 ### By tool-call category
 
@@ -54,7 +54,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
   <img src="../../assets/benchmarks/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
 </picture>
 
-| category | official vLLM · FlashInfer | Mjolnir | Mjolnir fp6 KV | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab |
+| category | official vLLM · FlashInfer · fp8 KV | Mjolnir · fp8 KV | Mjolnir · fp6 e2m3 KV | Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab |
 |---|--:|--:|--:|--:|
 | A · Tool Selection | 100 | 100 | 100 | 100 |
 | B · Parameter Precision | 100 | 100 | 100 | 100 |

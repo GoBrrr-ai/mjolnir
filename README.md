@@ -17,10 +17,11 @@
 </p>
 
 <p align="center">
-  <b><em>Mjölnir</em></b> — <em>a decode-attention kernel built for exactly one GPU: the <b>Jetson AGX Thor</b>.</em>
+  <b><em>Mjölnir</em></b> — <em>faster, bigger-context LLM serving on the <b>Jetson AGX Thor</b>: a dedicated decode kernel, a tuned vLLM image and a CLI that serves, benchmarks and documents it.</em>
 </p>
 
 <p align="center">
+  <a href="#-key-features">Features</a> •
   <a href="#quickstart">Quickstart</a> •
   <a href="#benchmarks">Benchmarks</a> •
   <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
@@ -33,13 +34,98 @@
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir is a paged fp8 decode-attention kernel for the NVIDIA Jetson AGX Thor (`sm_110`)**, written in CuTe DSL on Blackwell's `tcgen05` tensor cores, `TMEM` and `TMA`, and shipped as a vLLM attention backend:
+**Mjolnir makes LLM serving on the NVIDIA Jetson AGX Thor faster and roomier**: a decode-attention kernel written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), a 6-bit KV cache format for vLLM, a patched vLLM image that runs it, and a CLI that serves models from YAML configs and benchmarks every claim:
 
 ```bash
-vllm serve <model> --attention-backend MJOLNIR
+mjolnir serve up        # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+
+## ⚡ Key Features
+
+<table width="100%">
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🚀&nbsp;Faster decode</h3>
+      <p><b>+64% tokens/s</b> per request vs the official vLLM image <sub>(1 request, 4K context)</sub>.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>⏱️&nbsp;Faster prompts</h3>
+      <p><b>+210%</b> prefill throughput, <b>−26%</b> time to first token.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🧠&nbsp;More context per GB</h3>
+      <p>The 6-bit <code>e2m3</code> KV cache holds <b>+31% tokens</b> in the same memory: longer documents, more users.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🎯&nbsp;Same answers</h3>
+      <p>Tool calling within <b>±3.6 points</b> of the stock FlashInfer fp8 baseline on 97 agentic scenarios (<a href="docs/kernel/accuracy.md">accuracy</a>).</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔮&nbsp;4-token speculation</h3>
+      <p>MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary make each draft cheap enough to pay off.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔩&nbsp;A kernel for this chip</h3>
+      <p><b>1.24×</b> FlashInfer per decode step (geomean, 128 to 256K tokens), checked against a bit-faithful emulator.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🐳&nbsp;One image</h3>
+      <p>Official vLLM 0.31.0 + Mjolnir + Thor patches. Drop-in: <code>--attention-backend MJOLNIR</code>.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>📄&nbsp;Models as YAML</h3>
+      <p>Each model is a YAML file of serve flags plus an optional <code>.env</code>. <code>mjolnir serve up</code> does the rest (<a href="#model-configs-yaml--env">how</a>).</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🧪&nbsp;Calibrated per model</h3>
+      <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>📊&nbsp;Benchmarks you can rerun</h3>
+      <p>Kernel, serving and accuracy benches in one CLI: gated clean windows, raw JSON for every number.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🤖&nbsp;A self-writing README</h3>
+      <p>Every table, chart and number on this page is rendered from the raw results. No hand-typed claims.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔬&nbsp;Autoresearch</h3>
+      <p>An agent loop proposes, tests and logs kernel experiments; every try leaves data behind.</p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
 <picture>
@@ -48,14 +134,14 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </picture>
 </p>
 
-> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens vs MTP, 4 speculative tokens), one request at 128K context: decode <b>+41.7%</b>, prefill <b>+193.5%</b>, time to first token <b>168.46 s → 58.36 s (−65.4%)</b>, inter-token latency <b>49.2 ms → 36.0 ms (−26.9%)</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens vs MTP, 4 speculative tokens), one request at 4K context $\color{grey}{(the\ 1-request\ cell\ up\ to\ 32K\ with\ the\ highest\ decode\ gain)}$: decode <b>+64.2%</b>, prefill <b>+210.0%</b>, time to first token <b>2.31 s → 1.70 s (−26.5%)</b>, inter-token latency <b>43.5 ms → 26.6 ms (−38.9%)</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (128K context, 1 request): TTFT 168,458 → 58,360 ms: (58,360 − 168,458) ÷ 168,458 × 100 = **−65.4%** (a latency reduction of 65.4%). The reciprocal speedup would be 168,458 ÷ 58,360 = 2.89× (+188.7%) — the same measurement, a different convention.
+- **Worked example** (4K context, 1 request): TTFT 2,314 → 1,701 ms: (1,701 − 2,314) ÷ 2,314 × 100 = **−26.5%** (a latency reduction of 26.5%). The reciprocal speedup would be 2,314 ÷ 1,701 = 1.36× (+36.0%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
@@ -123,6 +209,30 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
 
 **Or bring your own vLLM 0.31.0**: `pip install mjolnir-kernel` registers the backend as `CUSTOM` through vLLM's plugin system (`--attention-backend CUSTOM`); [`thor-mjolnir-attention-backend.patch`](docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch) adds the `MJOLNIR` name.
 
+## Model configs (YAML + .env)
+
+A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — under `configs/<vendor>/<model>/<config>.yaml`. What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into an optional `<config>.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit in the same directory:
+
+```text
+configs/Qwen/Qwen3.8-27B/
+├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K.yaml   attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
+├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K.env    MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
+├── NVFP4.yaml                    the stock FlashInfer baseline, same model and limits
+├── kv_scales.json                per-channel KV scales (mjolnir calibrate)
+└── draft_vocab.json              the drafter's vocabulary (mjolnir calibrate --draft-vocab)
+```
+
+```bash
+mjolnir model use                       # pick the model and config (interactive)
+mjolnir serve up --config NVFP4_MJOLNIR_E2M3   # or serve one explicitly
+```
+
+- **One file per variant** — an A/B is two configs, not two shell histories: `mjolnir bench ab --backends NVFP4,NVFP4_MJOLNIR_E2M3_LMH8_VT64K`.
+- **The same config everywhere** — `serve`, `bench`, `verify` and `calibrate` read the same YAML and `.env`, so a benchmark measures exactly what you serve.
+- **Yours without forking** — drop configs into `~/.local/share/mjolnir/configs/` (same layout); they appear next to the repo's.
+
+More: [adding a model config](docs/faq/new-model-config.md) · [the default model and config](docs/faq/default-model-quant.md) · [serving](docs/faq/serve-server.md) · [which setting wins](docs/faq/settings-precedence.md) · [fp6 KV and calibration](docs/faq/fp6-kv.md).
+
 ## Benchmarks
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**. Legs:
@@ -179,31 +289,30 @@ Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image,
   <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 </picture>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-prefill-dark.png">
+  <img src="assets/benchmarks/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
+</picture>
+
 Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill (+ = more tokens/s), **latency change** for TTFT and ITL (− = fewer milliseconds, a latency reduction, not a reciprocal speedup). Green = better beyond the ±3% noise band, grey = within it, red = worse beyond it. With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
 
-| context | requests | decode (t/s, ↑) · throughput change | prefill (t/s, ↑) · throughput change | TTFT (ms, ↓) · latency change | ITL (ms, ↓) · latency change |
+| context | requests | decode (t/s, ↑) $\color{grey}{throughput\ change}$ | prefill (t/s, ↑) $\color{grey}{throughput\ change}$ | TTFT (ms, ↓) $\color{grey}{latency\ change}$ | ITL (ms, ↓) $\color{grey}{latency\ change}$ |
 |--:|--:|--:|--:|--:|--:|
 | no ctx | 1 | 22.5 → **35.4** $\color{#16a34a}{\text{+57.3\\%}}$ | 2,929 → *n/a* | 833 → **590** $\color{#16a34a}{\text{−29.1\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{−36.4\\%}}$ |
 | 4K | 1 | 23.1 → **37.9** $\color{#16a34a}{\text{+64.2\\%}}$ | 2,820 → **8,740** $\color{#16a34a}{\text{+210.0\\%}}$ | 2,314 → **1,701** $\color{#16a34a}{\text{−26.5\\%}}$ | 43.5 → **26.6** $\color{#16a34a}{\text{−38.9\\%}}$ |
 | 8K | 1 | 22.8 → **35.2** $\color{#16a34a}{\text{+54.9\\%}}$ | 2,562 → **5,077** $\color{#16a34a}{\text{+98.2\\%}}$ | 4,132 → **3,015** $\color{#16a34a}{\text{−27.0\\%}}$ | 44.4 → **28.6** $\color{#16a34a}{\text{−35.5\\%}}$ |
 | 16K | 1 | 23.2 → **33.8** $\color{#16a34a}{\text{+45.3\\%}}$ | 2,205 → **3,978** $\color{#16a34a}{\text{+80.4\\%}}$ | 8,493 → **5,631** $\color{#16a34a}{\text{−33.7\\%}}$ | 43.3 → **30.0** $\color{#16a34a}{\text{−30.6\\%}}$ |
 | 32K | 1 | 23.2 → **33.0** $\color{#16a34a}{\text{+42.1\\%}}$ | 1,762 → **3,383** $\color{#16a34a}{\text{+92.0\\%}}$ | 19,894 → **11,289** $\color{#16a34a}{\text{−43.3\\%}}$ | 43.2 → **31.0** $\color{#16a34a}{\text{−28.3\\%}}$ |
-| 64K | 1 | 22.6 → **32.9** $\color{#16a34a}{\text{+45.8\\%}}$ | 1,255 → **2,877** $\color{#16a34a}{\text{+129.4\\%}}$ | 54,008 → **24,488** $\color{#16a34a}{\text{−54.7\\%}}$ | 44.3 → **30.8** $\color{#16a34a}{\text{−30.7\\%}}$ |
-| 128K | 1 | 20.5 → **29.0** $\color{#16a34a}{\text{+41.7\\%}}$ | 791 → **2,321** $\color{#16a34a}{\text{+193.5\\%}}$ | 168,458 → **58,360** $\color{#16a34a}{\text{−65.4\\%}}$ | 49.2 → **36.0** $\color{#16a34a}{\text{−26.9\\%}}$ |
 | no ctx | 2 | 46.5 → **63.4** $\color{#16a34a}{\text{+36.4\\%}}$ | 2,744 → **3,487** $\color{#16a34a}{\text{+27.1\\%}}$ | 1,433 → **1,097** $\color{#16a34a}{\text{−23.4\\%}}$ | 40.5 → **29.5** $\color{#16a34a}{\text{−27.3\\%}}$ |
 | 4K | 2 | 43.6 → **59.4** $\color{#16a34a}{\text{+36.3\\%}}$ | 2,728 → **3,644** $\color{#16a34a}{\text{+33.6\\%}}$ | 4,444 → **3,259** $\color{#16a34a}{\text{−26.7\\%}}$ | 43.1 → **30.4** $\color{#16a34a}{\text{−29.4\\%}}$ |
 | 8K | 2 | 45.6 → **58.0** $\color{#16a34a}{\text{+27.2\\%}}$ | 2,515 → **3,399** $\color{#16a34a}{\text{+35.1\\%}}$ | 8,081 → **5,847** $\color{#16a34a}{\text{−27.6\\%}}$ | 42.1 → **32.1** $\color{#16a34a}{\text{−23.8\\%}}$ |
 | 16K | 2 | 45.6 → **56.5** $\color{#16a34a}{\text{+23.9\\%}}$ | 2,195 → **3,299** $\color{#16a34a}{\text{+50.3\\%}}$ | 16,734 → **11,049** $\color{#16a34a}{\text{−34.0\\%}}$ | 42.3 → **33.7** $\color{#16a34a}{\text{−20.2\\%}}$ |
 | 32K | 2 | 36.7 → **44.0** $\color{#16a34a}{\text{+19.8\\%}}$ | 1,752 → **3,083** $\color{#16a34a}{\text{+76.0\\%}}$ | 39,043 → **21,938** $\color{#16a34a}{\text{−43.8\\%}}$ | 47.3 → **39.2** $\color{#16a34a}{\text{−17.3\\%}}$ |
-| 64K | 2 | *n/a* → **15.1** | *n/a* → **2,734** | *n/a* → **43,245** | *n/a* → **81.8** |
-| 128K | 2 | *n/a* → **4.7** | *n/a* → **2,237** | *n/a* → **94,897** | *n/a* → **225.4** |
 | no ctx | 4 | 85.0 → **109.4** $\color{#16a34a}{\text{+28.7\\%}}$ | 2,912 → **3,436** $\color{#16a34a}{\text{+18.0\\%}}$ | 2,781 → **2,248** $\color{#16a34a}{\text{−19.2\\%}}$ | 44.1 → **30.8** $\color{#16a34a}{\text{−30.1\\%}}$ |
 | 4K | 4 | 78.5 → **99.4** $\color{#16a34a}{\text{+26.6\\%}}$ | 2,722 → **3,485** $\color{#16a34a}{\text{+28.0\\%}}$ | 8,993 → **6,909** $\color{#16a34a}{\text{−23.2\\%}}$ | 46.8 → **33.1** $\color{#16a34a}{\text{−29.2\\%}}$ |
 | 8K | 4 | 68.1 → **68.6** $\color{grey}{\text{+0.7\\%}}$ | 2,491 → **3,349** $\color{#16a34a}{\text{+34.4\\%}}$ | 16,121 → **11,310** $\color{#16a34a}{\text{−29.8\\%}}$ | 49.1 → **39.8** $\color{#16a34a}{\text{−19.0\\%}}$ |
 | 16K | 4 | 42.0 → **50.8** $\color{#16a34a}{\text{+20.8\\%}}$ | 2,172 → **3,226** $\color{#16a34a}{\text{+48.5\\%}}$ | 32,309 → **21,042** $\color{#16a34a}{\text{−34.9\\%}}$ | 60.0 → **47.5** $\color{#16a34a}{\text{−20.9\\%}}$ |
 | 32K | 4 | 11.6 → **18.3** $\color{#16a34a}{\text{+58.5\\%}}$ | 1,738 → **3,010** $\color{#16a34a}{\text{+73.2\\%}}$ | 65,787 → **36,854** $\color{#16a34a}{\text{−44.0\\%}}$ | 161.8 → **107.7** $\color{#16a34a}{\text{−33.4\\%}}$ |
-| 64K | 4 | *n/a* → **7.3** | *n/a* → **2,664** | *n/a* → **71,508** | *n/a* → **272.6** |
-| 128K | 4 | *n/a* → **2.8** | *n/a* → **2,178** | *n/a* → **159,034** | *n/a* → **705.3** |
 
 > <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
@@ -212,7 +321,7 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (128K context, 1 request): TTFT 168,458 → 58,360 ms: (58,360 − 168,458) ÷ 168,458 × 100 = **−65.4%** (a latency reduction of 65.4%). The reciprocal speedup would be 168,458 ÷ 58,360 = 2.89× (+188.7%) — the same measurement, a different convention.
+- **Worked example** (4K context, 1 request): TTFT 2,314 → 1,701 ms: (1,701 − 2,314) ÷ 2,314 × 100 = **−26.5%** (a latency reduction of 26.5%). The reciprocal speedup would be 2,314 ÷ 1,701 = 1.36× (+36.0%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
