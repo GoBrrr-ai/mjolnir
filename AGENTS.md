@@ -64,9 +64,10 @@ skipped with a hint — nothing blocks on a password.
   2 CTAs × 20 SMs), dynamic fp8 Q, TMA KV ring with L2 evict-first, TMEM
   accumulators, softmax warpgroups, LSE merge kernel; q_len ≤ 1 + spec tokens;
   full CUDA graphs. Harness default: **e2m3 (fp6) KV on head-major (HND) pages,
-  2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **fp8 KV on HND pages** by
-  default, and **fp6 e2m3** with `NVFP4_MJOLNIR_E2M3` (calibrated per-channel
-  scales, `mjolnir calibrate`; `docs/faq/fp6-kv.md`). Results: README +
+  2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **e2m3 (fp6) KV** by default
+  (`DEFAULT_QUANT` = `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`: fp6 KV with calibrated
+  per-channel scales, `mjolnir calibrate`, `docs/faq/fp6-kv.md`; plus an fp8
+  lm_head, a 64K draft vocab and MTP=4); fp8 KV with `NVFP4_MJOLNIR`. Results: README +
   `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
@@ -81,7 +82,9 @@ skipped with a hint — nothing blocks on a password.
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
   Inventory: `docker/vllm-thor/PATCHES.md`.
-- **Configs** (`configs/Qwen/Qwen3.8-27B/`): `NVFP4_MJOLNIR` (default, Mjolnir),
+- **Configs** (`configs/Qwen/Qwen3.8-27B/`): `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`
+  (default: Mjolnir, fp6 KV, fp8 lm_head, 64K draft vocab, MTP=4),
+  `NVFP4_MJOLNIR_E2M3` (Mjolnir, fp6 KV), `NVFP4_MJOLNIR` (Mjolnir, fp8 KV),
   `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV — stock vLLM's
   choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4).
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
@@ -190,7 +193,7 @@ tool-eval-bench, pinned commit via `uvx`: the standard 69 tool-call scenarios +
 28 Hard Mode by default; anything after `--` is forwarded, e.g. `-- --gsm8k
 --mmlu --ifeval --skip-tool-eval`; legs as in `bench ab`, restarts per leg;
 `benchmarks/raw/accuracy/<run>/accuracy.json` → `docs/kernel/accuracy.md`);
-`mjolnir bench ab` (default legs: `NVFP4` on the official image vs `NVFP4_MJOLNIR`; legs
+`mjolnir bench ab` (default legs in `legs.py`; legs
 are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.
 
@@ -224,14 +227,13 @@ trusted publishing — and the image (vLLM version, on push to `main`).
       for stages without a default run).
 - [ ] **End-to-end**: `mjolnir bench e2e` (native FlashInfer on the official
       vLLM image vs Mjolnir) — restarts the server per leg; schedule deliberately.
-- [ ] **fp6 KV in vLLM — validate, then default**: the path is in
+- [x] **fp6 KV in vLLM — validated, now the default** (via `DEFAULT_QUANT`): the path is in
       (`thor-fp6-e2m3-kv-cache.patch`, `mjolnir/kvfp6.py`, `NVFP4_MJOLNIR_E2M3`).
       Per-head scales failed smoke e2m3 (Qwen3-0.6B: K outlier channels, amax
       486 in layer 0, rounded the other channels to 0 — wrong first token);
       scales are now per (layer, KV head, channel), `kv_scales/2` (a `/1` file
-      still loads but is per head: re-calibrate). To make it the default: `mjolnir calibrate`, commit
-      `configs/<model>/kv_scales.json`, pass `mjolnir verify vllm` (smoke e2m3)
-      and an e2e run, then set `DEFAULT_QUANT`.
+      still loads but is per head: re-calibrate after model changes:
+      `mjolnir calibrate`, commit `configs/<model>/kv_scales.json`).
 - [ ] **e2e at the shapes that matter**: decode gains need long contexts
       (64K+) and concurrency; `mjolnir verify sweep --batch 4 --q-len 4`
       measures the MTP=3 verify shape in ncu.
@@ -334,6 +336,12 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   same-run A/B win across L. Never change `emulate_decode` to make a test pass.
 - **Bench discipline:** gate via `gate.py`, raw JSON first, charts second; no
   prose-only results.
+- **Reporting changes:** % is the relative change of the measured value —
+  throughput +x% (more tokens/s), latency −x% (fewer ms: a latency
+  reduction, never the reciprocal speedup); × is a ratio of times (kernel:
+  reference ÷ Mjolnir) or of throughputs (≥ +100% on the infographic). Every
+  table / figure with % or × gets a `{{ how("<kind>") }}` panel
+  (`readme.py` `_HOW`) that states the formula.
 - **Lint:** `uvx ruff@0.14.14 check src/ tests/` + `format` (pre-commit runs it).
 - **Container output:** containers run as root; a file one writes into a host
   mount (the checkout) is handed back with `build_run_args(..., chown=...)` /

@@ -5,8 +5,8 @@ A *leg* is one kernel configuration swept over the L axis:
 * ``mjolnir``     — the Mjolnir kernel at the harness default (fp8 Q, e2m3 KV
                     on head-major HND pages, 2 CTAs/SM, evict-first, the
                     2-stage fp6 ring) — the kernel's best measured config;
-* ``mjolnir-fp8`` — the Mjolnir kernel on what vLLM serves today: fp8 KV on
-                    HND pages (`--attention-backend MJOLNIR`);
+* ``mjolnir-fp8`` — the Mjolnir kernel on fp8 KV on HND pages (the
+                    `NVFP4_MJOLNIR` config; the default serves e2m3);
 * ``fi``          — FlashInfer tensor-core decode as vLLM runs it (fp8 KV,
                     NHD pages) — the strongest stock baseline on Thor;
 * ``fi-hnd``      — FlashInfer on the same data in HND pages (fair layout check);
