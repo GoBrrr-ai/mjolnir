@@ -731,6 +731,16 @@ def test_lmhead_fp8_is_faster_than_bf16():
     assert all(f8 < bf for _, bf, f8 in out), f"the fp8 head is not faster: {out}"
 
 
+def test_lmhead_quantize_rows_chunked_matches_whole():
+    from mjolnir import lmhead
+
+    w = (torch.randn(1000, 256, device=DEV) * 0.05).to(torch.bfloat16)
+    q1, s1 = lmhead.quantize_rows(w, chunk=7)
+    q2, s2 = lmhead.quantize_rows(w, chunk=4096)
+    assert torch.equal(q1.view(torch.uint8), q2.view(torch.uint8)) and torch.equal(s1, s2)
+    assert lmhead._self_test(w, q1, s1) < 0.05
+
+
 def test_draft_vocab_trim():
     from mjolnir import lmhead
 

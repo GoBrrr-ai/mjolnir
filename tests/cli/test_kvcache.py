@@ -40,7 +40,23 @@ def _row(side, cfg, kv, tokens):
 
 def test_parse_log():
     r = kvcache.parse_log(LOG)
-    assert r == {"kv_gib": 38.12, "kv_tokens": 2656033, "max_model_len": 204800, "max_concurrency": 12.97}
+    assert {k: r[k] for k in ("kv_gib", "kv_tokens", "max_model_len", "max_concurrency")} == {
+        "kv_gib": 38.12,
+        "kv_tokens": 2656033,
+        "max_model_len": 204800,
+        "max_concurrency": 12.97,
+    }
+    mem = kvcache.parse_log(
+        "Model loading took 21.30 GiB memory and 30.1 seconds\n"
+        "Memory profiling takes 9.1 seconds ... model weights take 21.30GiB; non_torch_memory takes 0.42GiB; "
+        "PyTorch activation peak memory takes 3.25GiB; the rest of the memory reserved for KV Cache is 38.12GiB."
+    )
+    assert (mem["load_gib"], mem["weights_gib"], mem["activation_gib"], mem["non_torch_gib"]) == (
+        21.3,
+        21.3,
+        3.25,
+        0.42,
+    )
     assert kvcache.parse_log("nothing here")["kv_tokens"] is None
 
 

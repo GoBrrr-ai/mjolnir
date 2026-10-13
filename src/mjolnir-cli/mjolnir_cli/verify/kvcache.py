@@ -28,6 +28,17 @@ DEFAULT_LEGS = verify_legs("verify.kv-cache-size")  # mjolnir_cli.legs
 _AVAIL = re.compile(r"Available KV cache memory:\s*([0-9.]+)\s*GiB")
 _TOKENS = re.compile(r"GPU KV cache size:\s*([0-9,]+)\s*tokens")
 _CONC = re.compile(r"Maximum concurrency for\s*([0-9,]+)\s*tokens per request:\s*([0-9.]+)x")
+# where the rest of the memory budget went (vLLM's startup profile; optional —
+# wording differs between vLLM versions, absent fields stay None)
+_MEMORY = {
+    "load_gib": re.compile(r"Model loading took\s*([0-9.]+)\s*GiB"),
+    "weights_gib": re.compile(r"model weights take\s*([0-9.]+)\s*GiB"),
+    "activation_gib": re.compile(r"(?:PyTorch )?activation peak memory takes\s*([0-9.]+)\s*GiB"),
+    "non_torch_gib": re.compile(r"non[_ ]torch[_ ]memory takes\s*([0-9.]+)\s*GiB"),
+    "cudagraph_gib": re.compile(
+        r"(?:CUDA graph|cudagraph)[^\n]*?(?:take|took|estimate[ds]?|memory)[^\n]*?([0-9.]+)\s*GiB", re.I
+    ),
+}
 _FAILED = re.compile(r"EngineCore failed to start|Traceback \(most recent call last\)")
 
 # the e2e bench's request: context depth + 2048 prompt + 128 generated tokens
@@ -47,6 +58,9 @@ def parse_log(text: str) -> dict:
     if m:
         out["max_model_len"] = int(m.group(1).replace(",", ""))
         out["max_concurrency"] = float(m.group(2))
+    for key, rx in _MEMORY.items():
+        m = rx.search(text)
+        out[key] = float(m.group(1)) if m else None
     return out
 
 

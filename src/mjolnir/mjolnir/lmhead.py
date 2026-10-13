@@ -97,12 +97,28 @@ if triton is not None:
         )
 
 
-def quantize_rows(w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """(N, K) float -> (N, K) e4m3 and (N,) fp32 row scales (amax / 448)."""
-    w32 = w.float()
-    scale = (w32.abs().amax(dim=1) / FP8_MAX).clamp_min(1e-12)
-    q = (w32 / scale[:, None]).clamp(-FP8_MAX, FP8_MAX).to(torch.float8_e4m3fn)
-    return q.contiguous(), scale.contiguous()
+ROW_CHUNK = 4096  # rows per step when quantizing / testing a head (bounds the temporaries)
+
+
+def quantize_rows(w: torch.Tensor, chunk: int = ROW_CHUNK) -> tuple[torch.Tensor, torch.Tensor]:
+    """(N, K) float -> (N, K) e4m3 and (N,) fp32 row scales (amax / 448).
+
+    Row chunks of ``chunk``: a whole-head fp32 copy of the 248K x 5120 lm_head
+    is 5 GiB, and the abs / divide / clamp temporaries of one expression are
+    several more. Freed or not, the caching allocator keeps them reserved,
+    and vLLM's startup memory profile (on Thor: one unified pool) counts them
+    as used — they came straight out of the KV cache. Chunked, the peak is a
+    few hundred MiB."""
+    N = w.shape[0]
+    q = torch.empty(w.shape, dtype=torch.float8_e4m3fn, device=w.device)
+    scale = torch.empty(N, dtype=torch.float32, device=w.device)
+    for r0 in range(0, N, chunk):
+        w32 = w[r0 : r0 + chunk].float()
+        sc = (w32.abs().amax(dim=1) / FP8_MAX).clamp_min(1e-12)
+        q[r0 : r0 + chunk] = (w32.div_(sc[:, None])).clamp_(-FP8_MAX, FP8_MAX).to(torch.float8_e4m3fn)
+        scale[r0 : r0 + chunk] = sc
+        del w32
+    return q, scale
 
 
 def fp8_linear_reference(x: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
@@ -154,8 +170,10 @@ def _self_test(w: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor) -> float:
     """Relative error of the fp8 head vs bf16 on random activations."""
     g = torch.Generator(device=w.device).manual_seed(0)
     x = torch.randn(4, w.shape[1], device=w.device, dtype=w.dtype, generator=g)
-    ref = x.float() @ w.float().t()
-    got = fp8_linear(x, w8, scale).float()
+    rows = torch.arange(0, w.shape[0], max(1, w.shape[0] // ROW_CHUNK), device=w.device)[:ROW_CHUNK]
+    ref = x.float() @ w.index_select(0, rows).float().t()  # a strided row sample: no full fp32 copy
+    w8s = w8.view(torch.uint8).index_select(0, rows).view(torch.float8_e4m3fn)  # fp8 has no index_select kernel
+    got = fp8_linear(x, w8s, scale.index_select(0, rows)).float()
     return float((got - ref).norm() / ref.norm().clamp_min(1e-12))
 
 
@@ -184,7 +202,7 @@ def install_fp8_head(lm_head, model=None) -> bool:
     lm_head.quant_method = Fp8HeadMethod(qm, w8, scale)
     lm_head._mjolnir_fp8 = True
     freed = ""
-    if os.environ.get(ENV_DROP_BF16, "").strip() in ("1", "true", "yes") and model is not None:
+    if os.environ.get(ENV_DROP_BF16, "").strip().lower() in ("1", "true", "yes") and model is not None:
         if _is_tied(lm_head, model):
             freed = " (tied to the embedding: bf16 weight kept)"
         else:
@@ -269,14 +287,19 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
         def head(h):
             return torch.nn.functional.linear(h, sub)
 
+    # row chunks bound the temporaries when a caller (vLLM's startup memory
+    # profile) passes thousands of rows at once
     def compute_logits(hidden_states, *args, **kwargs):
-        part = head(hidden_states)
-        out = torch.full((*part.shape[:-1], vocab), float("-inf"), dtype=part.dtype, device=part.device)
-        out.index_copy_(out.dim() - 1, idx, part)
-        return out
+        h = hidden_states.reshape(-1, hidden_states.shape[-1])
+        out = torch.full((h.shape[0], vocab), float("-inf"), dtype=h.dtype, device=h.device)
+        for r0 in range(0, h.shape[0], ROW_CHUNK):
+            out[r0 : r0 + ROW_CHUNK].index_copy_(1, idx, head(h[r0 : r0 + ROW_CHUNK]).to(out.dtype))
+        return out.reshape(*hidden_states.shape[:-1], vocab)
 
     def get_top_tokens(hidden_states, *args, **kwargs):
-        return idx[head(hidden_states).argmax(dim=-1)]
+        h = hidden_states.reshape(-1, hidden_states.shape[-1])
+        top = torch.cat([head(h[r0 : r0 + ROW_CHUNK]).argmax(dim=-1) for r0 in range(0, max(1, h.shape[0]), ROW_CHUNK)])
+        return idx[top].reshape(hidden_states.shape[:-1])
 
     draft_model.compute_logits = compute_logits
     if hasattr(draft_model, "get_top_tokens"):
@@ -327,6 +350,10 @@ def after_load(runner) -> None:
                     install_fp8_head(head, target)
                 except Exception as e:  # noqa: BLE001
                     _log.warning("Mjolnir lm_head fp8: not installed (%r)", e)
+    if torch.cuda.is_available():
+        # hand the quantization temporaries back before vLLM profiles memory
+        # for the KV cache (a cached-but-free block still counts as used)
+        torch.cuda.empty_cache()
 
 
 def install_hooks() -> None:
