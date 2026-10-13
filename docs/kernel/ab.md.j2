@@ -19,11 +19,15 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 - {{ f }}
 {% endfor %}
 {{ ctx.tables.get("ab", "") }}
+
+{{ how("variant") }}
 {% if ctx.tables.get("ab_wall") %}
 
 **Wall clock** (harness median, cold L2, b=1; Δ vs the first variant):
 
 {{ ctx.tables["ab_wall"] }}
+
+{{ how("wall") }}
 {% endif %}
 
 <sub>Rendered from [`benchmarks/raw/verify/ab/{{ ctx.runs["ab"] }}.json`]({{ root }}benchmarks/raw/verify/ab/{{ ctx.runs["ab"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>

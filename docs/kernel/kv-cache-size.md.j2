@@ -28,6 +28,8 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 {% endfor %}
 {{ ctx.tables.get("kv-cache-size", "") }}
 
+{{ how("kvcache") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/{{ ctx.runs["kv-cache-size"] }}.json`]({{ root }}benchmarks/raw/verify/kv-cache-size/{{ ctx.runs["kv-cache-size"] }}.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
 {%- else %}
 > Pending — run `mjolnir verify kv-cache-size` on a Thor (it restarts the vLLM server per leg), then `mjolnir plot --readme`.

@@ -28,6 +28,8 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 {% endfor %}
 {{ ctx.accuracy_table }}
 
+{{ how("accuracy") }}
+
 <sub>Score in %, (±) = points vs **{{ ctx.accuracy_baseline }}**; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: {% for label, args in ctx.accuracy_args %}{{ label }}: `{{ args }}`{{ "; " if not loop.last else "" }}{% endfor %}. Rendered from {% for r in ctx.accuracy_runs %}[`benchmarks/raw/accuracy/{{ r }}/accuracy.json`]({{ root }}benchmarks/raw/accuracy/{{ r }}/accuracy.json){{ ", " if not loop.last else "" }}{% endfor %}.</sub>
 {% if ctx.accuracy_categories %}
 ### By tool-call category

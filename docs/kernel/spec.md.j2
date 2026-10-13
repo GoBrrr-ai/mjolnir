@@ -24,6 +24,8 @@ For every config and every draft count k the server is started with `--speculati
 {% endfor %}
 {{ ctx.tables.get("spec", "") }}
 
+{{ how("spec") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/spec/{{ ctx.runs["spec"] }}.json`]({{ root }}benchmarks/raw/verify/spec/{{ ctx.runs["spec"] }}.json). ★ = the draft count with the highest decode t/s per request for that config and concurrency.</sub>
 {%- else %}
 > Pending — run `mjolnir verify spec` on a Thor (it restarts the vLLM server per point: ~1.5 h for 4 configs × 4 draft counts), then `mjolnir plot --readme`.

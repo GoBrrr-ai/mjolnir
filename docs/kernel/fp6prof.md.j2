@@ -20,6 +20,8 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 {% endfor %}
 {{ ctx.tables.get("fp6prof", "") }}
 
+{{ how("fp6prof") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/fp6prof/{{ ctx.runs["fp6prof"] }}.json`]({{ root }}benchmarks/raw/verify/fp6prof/{{ ctx.runs["fp6prof"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}
 > Pending — run `mjolnir verify fp6prof` on a Thor, then `mjolnir plot --readme`.

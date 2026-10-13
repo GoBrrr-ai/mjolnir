@@ -20,6 +20,8 @@ Same data in both layouts: the FlashInfer driver generates the cache once in NHD
 {% endfor %}
 {{ ctx.tables.get("hndsweep", "") }}
 
+{{ how("kernel") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/hndsweep/{{ ctx.runs["hndsweep"] }}.json`]({{ root }}benchmarks/raw/verify/hndsweep/{{ ctx.runs["hndsweep"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}
 > Pending — run `mjolnir verify hndsweep` on a Thor, then `mjolnir plot --readme`.

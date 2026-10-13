@@ -1033,8 +1033,8 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     blocks = (
         ("tg_tps", "faster decode", "slower decode", "tokens / s", "{:.1f}"),
         ("pp_tps", "faster prefill", "slower prefill", "prompt tokens / s", "{:,.0f}"),
-        ("ttft_ms", "faster TTFT", "slower TTFT", "time to first token", None),
-        ("itl_ms", "faster ITL", "slower ITL", "inter-token latency", "{:.1f} ms"),
+        ("ttft_ms", "lower TTFT", "higher TTFT", "time to first token", None),
+        ("itl_ms", "lower ITL", "higher ITL", "inter-token latency", "{:.1f} ms"),
     )
     L, R, gap = 0.56, 0.96, 0.045
     cw = (R - L - gap) / 2
@@ -1049,8 +1049,13 @@ def render_infographic(layout: RepoLayout) -> Path | None:
             continue
         x0 = L + (i % 2) * (cw + gap)
         y0 = tops[i // 2]
-        # a doubling or more reads as a multiple (+200% is "3.0x", not "+200%")
-        big = multiple(gain) if gain >= 100 else e2e.pct(gain)
+        # throughput: the change in tokens/s, a doubling or more as a multiple
+        # (+200% reads "3×"); latency: the change in ms (−27% = 27% fewer ms —
+        # a reduction, never the reciprocal speedup)
+        if key in ("ttft_ms", "itl_ms"):
+            big = e2e.pct(-gain).replace(".0%", "%")
+        else:
+            big = multiple(gain) if gain >= 100 else e2e.pct(gain)
         T(x0, y0 - 0.115, big, 50, white, "bold")
         T(x0, y0 - 0.178, better if gain >= 0 else worse, 16.5, white)
         T(x0 + cw, y0 - 0.178, unit, 10.5, faint, ha="right")

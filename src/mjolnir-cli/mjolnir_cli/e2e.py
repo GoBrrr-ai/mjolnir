@@ -147,12 +147,21 @@ def value(c: dict | None, key: str) -> float | None:
     return None
 
 
+def change_pct(official: float, mjolnir: float) -> float:
+    """The relative change of the measured value, in %: (Mjolnir − official) ÷
+    official × 100. Throughput: +57% = 1.57× the tokens/s. Latency: −27% =
+    27% fewer milliseconds (a latency reduction, NOT the reciprocal speedup
+    official ÷ Mjolnir − 1, which would read +37%)."""
+    return (mjolnir / official - 1.0) * 100.0
+
+
 def gain_pct(key: str, official: float, mjolnir: float) -> float:
-    """Signed improvement of Mjolnir over official, in % — positive = better,
-    whichever direction the metric runs (faster decode, or lower TTFT)."""
-    if BY_KEY[key].higher_better:
-        return (mjolnir / official - 1.0) * 100.0
-    return (official / mjolnir - 1.0) * 100.0
+    """Signed improvement of Mjolnir over official, in % — positive = better
+    whichever way the metric runs: the throughput increase for decode /
+    prefill, the latency reduction (official − Mjolnir) ÷ official for TTFT /
+    ITL. Same magnitude as :func:`change_pct`, sign flipped for latency."""
+    ch = change_pct(official, mjolnir)
+    return ch if BY_KEY[key].higher_better else -ch
 
 
 def shared_cells(off: dict, mj: dict) -> list[tuple[int, int]]:

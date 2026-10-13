@@ -10,7 +10,7 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 - one sequence, 24 query / 4 KV heads, head dim 256, 128-token pages in random order — the hd256 attention shape of Qwen3.8-27B;
 - **ncu kernel time** of the decode kernel(s) + the split-KV merge, averaged over 50 launches, `--cache-control all` (cold L2: every launch reads KV from DRAM) and `--clock-control base`;
-- legs: **Mjolnir e2m3** (the kernel's fastest config), **Mjolnir fp8** (what `--attention-backend MJOLNIR` serves today), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, NHD pages), **FlashAttention 2** via `vllm_flash_attn` (bf16 KV — FA2 has no fp8 KV path);
+- legs: **Mjolnir e2m3** (the kernel's fastest config), **Mjolnir fp8** (the `NVFP4_MJOLNIR` config; the default serves e2m3), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, NHD pages), **FlashAttention 2** via `vllm_flash_attn` (bf16 KV — FA2 has no fp8 KV path);
 - bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit).
 
 ## Result
@@ -26,6 +26,8 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 - {{ f }}
 {% endfor %}
 {{ ctx.tables.get("sweep", "") }}
+
+{{ how("kernel") }}
 
 <sub>Rendered from [`benchmarks/raw/verify/sweep/{{ ctx.runs["sweep"] }}.json`]({{ root }}benchmarks/raw/verify/sweep/{{ ctx.runs["sweep"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}

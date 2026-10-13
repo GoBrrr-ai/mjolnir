@@ -20,6 +20,8 @@ Distances 0 (off), 1, 2, 4 on fp8 KV (the prefetch path is not wired for NVFP4) 
 {% endfor %}
 {{ ctx.tables.get("prefetch", "") }}
 
+{{ how("variant") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/prefetch/{{ ctx.runs["prefetch"] }}.json`]({{ root }}benchmarks/raw/verify/prefetch/{{ ctx.runs["prefetch"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}
 > Pending — run `mjolnir verify prefetch` on a Thor, then `mjolnir plot --readme`.

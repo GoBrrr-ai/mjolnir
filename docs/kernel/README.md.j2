@@ -5,6 +5,8 @@
 {% if ctx.has_sweep -%}
 **Where it stands:** {{ ctx.geo_vs_fi }}× FlashInfer (geomean over L = {{ ctx.ls }}){% if ctx.geo_vs_fa2 %}, {{ ctx.geo_vs_fa2 }}× FlashAttention 2{% endif %}{% if ctx.correctness %}, {{ ctx.correctness }} correctness checks{% endif %} — run `{{ ctx.sweep_run }}`.
 
+{{ how("kernel") }}
+
 {{ chart("kernel-speedup", "Mjolnir decode speedup over FlashInfer") }}
 {%- else -%}
 > No headline run in this checkout yet — `mjolnir verify bench`.

@@ -20,6 +20,8 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 {% endfor %}
 {{ ctx.tables.get("ring", "") }}
 
+{{ how("variant") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/ring/{{ ctx.runs["ring"] }}.json`]({{ root }}benchmarks/raw/verify/ring/{{ ctx.runs["ring"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}
 > Pending — run `mjolnir verify ring` on a Thor, then `mjolnir plot --readme`.

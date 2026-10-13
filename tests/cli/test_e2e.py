@@ -36,8 +36,10 @@ def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
     hero = e2e.hero(off, mj)
     assert hero["ctx"] == 8192
     assert round(hero["tg_tps"][2], 1) == round((30 / 22 - 1) * 100, 1)
-    # lower-is-better metrics: positive gain = Mjolnir lower; TTFT falls back to ttfr, ITL to 1000/tg at c=1
-    assert round(hero["ttft_ms"][2], 1) == round((3900 / 3200 - 1) * 100, 1)
+    # lower-is-better metrics: positive gain = the latency REDUCTION (official − Mjolnir) ÷ official,
+    # not the reciprocal speedup official ÷ Mjolnir − 1; TTFT falls back to ttfr, ITL to 1000/tg at c=1
+    assert round(hero["ttft_ms"][2], 1) == round((3900 - 3200) / 3900 * 100, 1) == 17.9
+    assert round(e2e.change_pct(3900, 3200), 1) == -17.9
     assert round(hero["itl_ms"][1], 3) == round(1000 / 30, 3)
 
 
@@ -177,3 +179,14 @@ def test_cells_only_one_side_measured_are_kept_and_flagged():
     full = e2e.compare(off, mj, every=True)
     assert [r["ctx"] for r in full] == [0, 8192, 131072] and full[-1]["tg_tps"][1] is None
     assert e2e.missing_contexts(off, mj) == {"official": [], "mjolnir": [131072]}
+
+
+def test_history_survives_a_missing_final_newline(tmp_path):
+    from mjolnir_cli import history
+
+    h = tmp_path / "history.jsonl"
+    h.write_text(json.dumps({"a": 1}))  # hand-edited: no final newline
+    history.append_record(h, {"b": 2})
+    assert h.read_text().count("\n") == 2
+    h.write_text(json.dumps({"a": 1}) + json.dumps({"b": 2}) + "\n" + '{"c": ')  # glued + truncated
+    assert history.load_records(h) == [{"a": 1}, {"b": 2}]

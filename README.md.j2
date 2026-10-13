@@ -43,6 +43,8 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </p>
 
 > <sub>End to end on a Jetson AGX Thor ({{ ctx.vs_vllm_spec }}), one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+
+{{ how("e2e") }}
 {%- endif %}
 
 {% if ctx.has_sweep -%}
@@ -62,7 +64,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 | one decode step at 64K tokens | **{{ ctx.us_64k_mjolnir }}** (FlashInfer {{ ctx.us_64k_fi }}{% if ctx.us_64k_fa2 %}, FlashAttention 2 {{ ctx.us_64k_fa2 }}{% endif %}) |
 {% endif -%}
 {% if ctx.geo_vs_fi_fp8 -%}
-| fp8 KV (what `--attention-backend MJOLNIR` serves today) | **{{ ctx.geo_vs_fi_fp8 }}×** vs FlashInfer, geomean |
+| fp8 KV (`NVFP4_MJOLNIR`; the default serves e2m3 KV) | **{{ ctx.geo_vs_fi_fp8 }}×** vs FlashInfer, geomean |
 {% endif -%}
 {% if ctx.correctness -%}
 | correctness vs a bit-faithful emulator | **{{ ctx.correctness }}** checks pass |
@@ -70,6 +72,8 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 > [!NOTE]
 > <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `{{ ctx.sweep_run }}`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
+
+{{ how("kernel") }}
 {%- else %}
 > [!NOTE]
 > The headline benchmark has not been recorded in this checkout yet. Run `mjolnir verify bench` on a Thor and `mjolnir plot --readme` to render the charts and numbers from the raw results.
@@ -112,8 +116,8 @@ All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, b
 
 | leg | what runs | KV cache |
 |---|---|---|
-| **Mjolnir · e2m3 KV** | this kernel, its fastest config (6-bit KV read directly by the tensor cores) | e2m3, head-major pages |
-| **Mjolnir · fp8 KV** | this kernel, what `--attention-backend MJOLNIR` serves today | fp8 e4m3, head-major pages |
+| **Mjolnir · e2m3 KV** | this kernel, the default (6-bit KV read directly by the tensor cores; served by `{{ ctx.default_config }}`) | e2m3, head-major pages |
+| **Mjolnir · fp8 KV** | this kernel on fp8 KV (`NVFP4_MJOLNIR`) | fp8 e4m3, head-major pages |
 | **FlashInfer** | tensor-core decode as vLLM's FlashInfer backend runs it | fp8 e4m3, NHD pages |
 | **FlashAttention 2** | `vllm_flash_attn` FA2 — stock vLLM {{ ctx.vllm_version }}'s `sm_110` default | bf16 <sup>(FA2 has no fp8 KV)</sup> |
 
@@ -125,6 +129,8 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ ctx.noise_pct
 {{ ctx.tables.sweep }}
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
+
+{{ how("kernel") }}
 
 {{ chart("kernel-bandwidth", "Effective KV bandwidth vs the LPDDR5X peak") }}
 {%- else -%}
@@ -138,7 +144,7 @@ Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vll
 
 {{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir") }}
 
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = better beyond the ±{{ ctx.e2e_noise_pct }}% noise band, grey = within it, red = worse beyond it). With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
+Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill (+ = more tokens/s), **latency change** for TTFT and ITL (− = fewer milliseconds, a latency reduction, not a reciprocal speedup). Green = better beyond the ±{{ ctx.e2e_noise_pct }}% noise band, grey = within it, red = worse beyond it. With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
 
 {{ ctx.vs_vllm }}
 {% if ctx.vs_vllm_missing %}
@@ -146,6 +152,8 @@ Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = be
 > Incomplete: {{ ctx.vs_vllm_missing }}.
 {% endif %}
 > <sub>official: `{{ ctx.vs_vllm_official }}` · Mjolnir: `{{ ctx.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+
+{{ how("e2e") }}
 {%- else -%}
 > Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).
 {%- endif %}
@@ -226,7 +234,7 @@ Mjolnir is meant to be a **community case study**: every claim is reproducible w
 │   └── mjolnir-cli/            the CLI package (PyPI: mjolnir-cli, command `mjolnir`)
 │       └── mjolnir_cli/        verify/ · charts.py · readme.py · autoresearch.py · serve/bench/...
 ├── docker/vllm-thor/           the image: Dockerfile, patches/, apply/verify gates, PATCHES.md
-├── configs/                    model configs (NVFP4_MJOLNIR default, NVFP4 = FlashInfer, NVFP4_FA2)
+├── configs/                    model configs ({{ ctx.default_config }} default, NVFP4 = FlashInfer, NVFP4_FA2)
 ├── benchmarks/raw/verify/      raw verify results (one JSON per stage run) — the charts' only input
 ├── assets/benchmarks/          generated charts (light + dark)
 ├── docs/kernel/                the kernel case study (rendered from *.md.j2 + raw data)

@@ -1201,7 +1201,10 @@ def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool =
     t.add_column("ctx", justify="right")
     t.add_column("c", justify="right")
     for m in e2e.METRICS:
-        t.add_column(f"{m.label} {m.unit} {'↑' if m.higher_better else '↓'}", justify="right")
+        t.add_column(
+            f"{m.label} {m.unit} {'↑' if m.higher_better else '↓'} ({'throughput' if m.higher_better else 'latency'} change)",
+            justify="right",
+        )
     for r in rows:
         cells = []
         for m in e2e.METRICS:
@@ -1210,14 +1213,17 @@ def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool =
                 cells.append("—")
                 continue
             color = "green" if g >= e2e.E2E_NOISE_PCT else ("red" if g <= -e2e.E2E_NOISE_PCT else "grey50")
-            cells.append(f"{m.fmt.format(a)} → {m.fmt.format(b)} [{color}]{e2e.pct(g)}[/{color}]")
+            cells.append(
+                f"{m.fmt.format(a)} → {m.fmt.format(b)} [{color}]{e2e.pct(g if m.higher_better else -g)}[/{color}]"
+            )
         t.add_row(e2e.ctx_label(r["ctx"]), str(r["conc"]), *cells)
     con.print(t)
     h = e2e.hero(off, mj)
     if h:
         con.print(
             f"[bold]1 request @ {e2e.ctx_label(h['ctx'])}:[/bold] decode {e2e.pct(h['tg_tps'][2])} · "
-            f"prefill {e2e.pct(h['pp_tps'][2])} · TTFT {e2e.pct(h['ttft_ms'][2])} · ITL {e2e.pct(h['itl_ms'][2])}"
+            f"prefill {e2e.pct(h['pp_tps'][2])} · TTFT {e2e.pct(-h['ttft_ms'][2])} · ITL {e2e.pct(-h['itl_ms'][2])} "
+            "(throughput: % more tokens/s; latency: % change in ms)"
         )
     return 0
 

@@ -20,6 +20,8 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 {% endfor %}
 {{ ctx.tables.get("pdl", "") }}
 
+{{ how("pdl") }}
+
 <sub>Rendered from [`benchmarks/raw/verify/pdl/{{ ctx.runs["pdl"] }}.json`]({{ root }}benchmarks/raw/verify/pdl/{{ ctx.runs["pdl"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}
 > Pending — run `mjolnir verify pdl` on a Thor, then `mjolnir plot --readme`.
