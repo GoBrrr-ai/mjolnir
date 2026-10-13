@@ -47,7 +47,7 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 - **vs first** = this row's KV tokens ÷ the first row's (`1.33×` = 33% more tokens).
 - **fits @ L** = ⌊KV tokens ÷ (L + 2,048 prompt + 128 generated)⌋ — whole requests of the e2e bench's shape that fit at once (`max-num-seqs` ignored).
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261013-092123.json`](../../benchmarks/raw/verify/kv-cache-size/20261013-092123.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
 

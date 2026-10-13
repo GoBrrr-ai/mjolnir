@@ -42,7 +42,7 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 - **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
 - Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
 
-</details>
+</details><br />
 
 
 **Wall clock** (harness median, cold L2, b=1; Δ vs the first variant):
@@ -65,7 +65,7 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 - **%** = (variant − first column) ÷ first column × 100 — the change in **time**: negative = faster. `−6.0%` = 6% less time than the first column.
 - Green = at least 3% less time, red = at least 3% more, grey = within ±3% (`NOISE_PCT`).
 
-</details>
+</details><br />
 
 
 <sub>Rendered from [`benchmarks/raw/verify/kvfmt/20261012-203801.json`](../../benchmarks/raw/verify/kvfmt/20261012-203801.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>

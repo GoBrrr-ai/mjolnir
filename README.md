@@ -37,95 +37,12 @@
 **Mjolnir makes LLM serving on the NVIDIA Jetson AGX Thor faster and roomier**: a decode-attention kernel written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), a 6-bit KV cache format for vLLM, a patched vLLM image that runs it, and a CLI that serves models from YAML configs and benchmarks every claim:
 
 ```bash
-mjolnir serve up        # or: vllm serve <model> --attention-backend MJOLNIR
+mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
 ## ⚡ Key Features
-
-<table width="100%">
-  <tr>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🚀&nbsp;Faster decode</h3>
-      <p><b>+64% tokens/s</b> per request vs the official vLLM image <sub>(1 request, 4K context)</sub>.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>⏱️&nbsp;Faster prompts</h3>
-      <p><b>+210%</b> prefill throughput, <b>−26%</b> time to first token.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🧠&nbsp;More context per GB</h3>
-      <p>The 6-bit <code>e2m3</code> KV cache holds <b>+31% tokens</b> in the same memory: longer documents, more users.</p>
-      <br>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🎯&nbsp;Same answers</h3>
-      <p>Tool calling within <b>±3.6 points</b> of the stock FlashInfer fp8 baseline on 97 agentic scenarios (<a href="docs/kernel/accuracy.md">accuracy</a>).</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🔮&nbsp;4-token speculation</h3>
-      <p>MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary make each draft cheap enough to pay off.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🔩&nbsp;A kernel for this chip</h3>
-      <p><b>1.24×</b> FlashInfer per decode step (geomean, 128 to 256K tokens), checked against a bit-faithful emulator.</p>
-      <br>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🐳&nbsp;One image</h3>
-      <p>Official vLLM 0.31.0 + Mjolnir + Thor patches. Drop-in: <code>--attention-backend MJOLNIR</code>.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>📄&nbsp;Models as YAML</h3>
-      <p>Each model is a YAML file of serve flags plus an optional <code>.env</code>. <code>mjolnir serve up</code> does the rest (<a href="#model-configs-yaml--env">how</a>).</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🧪&nbsp;Calibrated per model</h3>
-      <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
-      <br>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>📊&nbsp;Benchmarks you can rerun</h3>
-      <p>Kernel, serving and accuracy benches in one CLI: gated clean windows, raw JSON for every number.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🤖&nbsp;A self-writing README</h3>
-      <p>Every table, chart and number on this page is rendered from the raw results. No hand-typed claims.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🔬&nbsp;Autoresearch</h3>
-      <p>An agent loop proposes, tests and logs kernel experiments; every try leaves data behind.</p>
-      <br>
-    </td>
-  </tr>
-</table>
 
 <p align="center">
 <picture>
@@ -145,38 +62,90 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
-</details>
+</details><br />
 
-<p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-speedup-dark.png">
-  <img src="assets/benchmarks/kernel-speedup.png" alt="Mjolnir decode speedup over FlashInfer at every context length" width="100%">
-</picture>
-</p>
-
-| decode kernel, one step $\color{grey}{(ncu,\ cold\ L2)}$ | result |
-|---|---|
-| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.24× faster** $\color{grey}{(from\ 0.99\ at\ 16K\ to\ 1.64×\ at\ 128)}$ |
-| **vs FlashAttention 2** $\color{grey}{(stock\ vLLM's\ sm\_110\ default)}$ | **2.00× faster** |
-| faster than FlashInfer beyond the ±3% noise band | **7 of 8** context lengths |
-| at the longest context (256K tokens) | **1.31×** vs FlashInfer |
-| one decode step at 64K tokens | **599.8&nbsp;µs** (FlashInfer 783.9&nbsp;µs, FlashAttention 2 1.28&nbsp;ms) |
-| fp8 KV (`NVFP4_MJOLNIR`; the default serves e2m3 KV) | **1.15×** vs FlashInfer, geomean |
-| correctness vs a bit-faithful emulator | **90 / 90** checks pass |
-
-
-> [!NOTE]
-> <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261012-202029`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 2) is measured the same way, at the same L, in the same run.
-- **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
-- **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
-- **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.
-
-</details>
+<table width="100%">
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🚀&nbsp;Faster decode</h3>
+      <p><b>+64% tokens/s</b> per request vs the official vLLM image.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>⏱️&nbsp;Faster prompts</h3>
+      <p><b>+210%</b> prefill throughput, <b>−26%</b> time to first token.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🧠&nbsp;More context per GB</h3>
+      <p>The 6-bit <code>e2m3</code> KV cache holds <b>+31% tokens</b> in the same memory.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🎯&nbsp;Same accuracy</h3>
+      <p>Tool calling within <b>±3.6 points</b> of the stock FlashInfer fp8 baseline (<a href="docs/kernel/accuracy.md">accuracy</a>).</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔮&nbsp;4-token speculation</h3>
+      <p>MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary make each draft cheap enough to pay off.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔩&nbsp;A kernel for this chip</h3>
+      <p><b>1.24×</b> FlashInfer per decode step.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🐳&nbsp;Mjolnir docker image</h3>
+      <p>Official vLLM 0.31.0 + Mjolnir + Thor patches.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>📄&nbsp;LLM Models as YAML</h3>
+      <p>Each model is a YAML file of serve flags plus an optional <code>.env</code>. <code>mjolnir serve up</code> does the rest.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🧪&nbsp;Calibrated per model</h3>
+      <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>📊&nbsp;Benchmarks you can rerun</h3>
+      <p>Kernel, serving and accuracy benches in one CLI, raw JSON for every number.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🤖&nbsp;A self-writing README</h3>
+      <p>Every table, chart and number on this page is rendered from the raw results. No hand-typed claims!</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔬&nbsp;Autoresearch</h3>
+      <p>An agent loop proposes, tests and logs kernel experiments; every try leaves data behind.</p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 ## Quickstart
 
@@ -209,22 +178,22 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
 
 **Or bring your own vLLM 0.31.0**: `pip install mjolnir-kernel` registers the backend as `CUSTOM` through vLLM's plugin system (`--attention-backend CUSTOM`); [`thor-mjolnir-attention-backend.patch`](docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch) adds the `MJOLNIR` name.
 
-## Model configs (YAML + .env)
+## Model configs (`YAML` + `.env`)
 
 A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — under `configs/<vendor>/<model>/<config>.yaml`. What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into an optional `<config>.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit in the same directory:
 
-```text
+```bash
 configs/Qwen/Qwen3.8-27B/
-├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K.yaml   attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
-├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K.env    MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
-├── NVFP4.yaml                    the stock FlashInfer baseline, same model and limits
-├── kv_scales.json                per-channel KV scales (mjolnir calibrate)
-└── draft_vocab.json              the drafter's vocabulary (mjolnir calibrate --draft-vocab)
+├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K.yaml     # attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
+├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K.env      # MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
+├── NVFP4.yaml                             # the stock FlashInfer baseline, same model and limits
+├── kv_scales.json                         # per-channel KV scales (mjolnir calibrate)
+└── draft_vocab.json                       # the drafter's vocabulary (mjolnir calibrate --draft-vocab)
 ```
 
 ```bash
-mjolnir model use                       # pick the model and config (interactive)
-mjolnir serve up --config NVFP4_MJOLNIR_E2M3   # or serve one explicitly
+mjolnir model use                               # pick the model and config (interactive)
+mjolnir serve up --config NVFP4_MJOLNIR_E2M3    # or serve one explicitly
 ```
 
 - **One file per variant** — an A/B is two configs, not two shell histories: `mjolnir bench ab --backends NVFP4,NVFP4_MJOLNIR_E2M3_LMH8_VT64K`.
@@ -273,7 +242,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 - **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
 - **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.
 
-</details>
+</details><br />
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-bandwidth-dark.png">
@@ -325,7 +294,7 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
-</details>
+</details><br />
 
 ## How the kernel works
 

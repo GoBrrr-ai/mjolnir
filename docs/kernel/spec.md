@@ -75,7 +75,7 @@ For every config and every draft count k the server is started with `--speculati
 - **decode t/s per request** = (generated tokens − 1) ÷ (time of the last token − time of the first token); **aggregate t/s** = all generated tokens ÷ the block's wall time.
 - ★ = the draft count with the highest decode t/s for that config and concurrency.
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/spec/20261012-220110.json`](../../benchmarks/raw/verify/spec/20261012-220110.json). ★ = the draft count with the highest decode t/s per request for that config and concurrency.</sub>
 

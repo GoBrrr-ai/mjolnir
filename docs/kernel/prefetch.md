@@ -34,7 +34,7 @@ Distances 0 (off), 1, 2, 4 on fp8 KV (the prefetch path is not wired for NVFP4) 
 - **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
 - Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/prefetch/20261012-211441.json`](../../benchmarks/raw/verify/prefetch/20261012-211441.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 

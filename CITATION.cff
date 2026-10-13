@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using the metadata from this file.
+title: >-
+  Mjolnir (faster, bigger-context LLM serving on the Jetson AGX Thor: a dedicated decode kernel, a tuned vLLM image and a CLI that serves, benchmarks and documents it.)
+type: software
+version: 2.0.4
+authors:
+  - given-names: Mieszko
+    family-names: Syty
+    affiliation: "MS/1 Design"
+repository-code: "https://github.com/thor-arena/mjolnir"
+url: "https://thor-arena.github.io/mjolnir"
+abstract: >-
+  faster, bigger-context LLM serving on the Jetson AGX Thor: a dedicated decode kernel, a tuned vLLM image and a CLI that serves, benchmarks and documents it.
+license: Apache-2.0

@@ -36,7 +36,7 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 - **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
 - Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/ring/20261012-210506.json`](../../benchmarks/raw/verify/ring/20261012-210506.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 

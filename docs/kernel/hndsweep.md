@@ -40,7 +40,7 @@ Same data in both layouts: the FlashInfer driver generates the cache once in NHD
 - **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
 - **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/hndsweep/20261012-203356.json`](../../benchmarks/raw/verify/hndsweep/20261012-203356.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 

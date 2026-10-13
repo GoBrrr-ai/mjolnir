@@ -30,7 +30,7 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 - **%** = (time with PDL − time without PDL) ÷ time without PDL × 100, harness median per L, both measured back to back in the same run. Negative = PDL saves time.
 - Green ≤ −3%, red ≥ +3%, grey within ±3% (`NOISE_PCT`).
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/pdl/20261012-212058.json`](../../benchmarks/raw/verify/pdl/20261012-212058.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 

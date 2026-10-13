@@ -53,7 +53,7 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 - **time ratio** = this row's Nsight Compute kernel time ÷ the first row's at the same L; **L2 bytes ratio** = L2 read sectors ÷ the first row's; **ideal** = this row's KV bits ÷ the first row's — the ratio a purely bandwidth-bound kernel would show.
 - **bytes / L2 request** = 32 B × L2 read sectors ÷ L2 read requests.
 
-</details>
+</details><br />
 
 <sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261012-213840.json`](../../benchmarks/raw/verify/fp6prof/20261012-213840.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 

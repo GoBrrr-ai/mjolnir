@@ -947,7 +947,7 @@ def how(ctx: "ReadmeContext", kind: str) -> str:
     """A collapsed "How this is calculated" panel for the tables / figures of
     ``kind`` (GitHub renders the markdown inside ``<details>``)."""
     body = _how_e2e(ctx) if kind == "e2e" else _HOW[kind]
-    return f"<details>\n<summary>How the % and × here are calculated</summary>\n\n{body}\n\n</details>"
+    return f"<details>\n<summary>How the % and × here are calculated</summary>\n\n{body}\n\n</details><br />"
 
 
 # ── rendering ───────────────────────────────────────────────────────────────
