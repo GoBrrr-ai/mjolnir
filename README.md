@@ -69,7 +69,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🚀&nbsp;Faster decode</h3>
-      <p><b>+64% tokens/s</b> per request vs the official vLLM image.</p>
+      <p><b>+64% tokens/s</b> per request vs the official vLLM image. MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -94,20 +94,6 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🔮&nbsp;4-token speculation</h3>
-      <p>MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary make each draft cheap enough to pay off.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🔩&nbsp;A kernel for this chip</h3>
-      <p><b>1.24×</b> FlashInfer per decode step.</p>
-      <br>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top" align="center">
-      <br>
       <h3>🐳&nbsp;Mjolnir docker image</h3>
       <p>Official vLLM 0.31.0 + Mjolnir + Thor patches.</p>
       <br>
@@ -118,24 +104,18 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
       <p>Each model is a YAML file of serve flags plus an optional <code>.env</code>. <code>mjolnir serve up</code> does the rest.</p>
       <br>
     </td>
+  </tr>
+  <tr>
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🧪&nbsp;Calibrated per model</h3>
       <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
       <br>
     </td>
-  </tr>
-  <tr>
     <td width="33%" valign="top" align="center">
       <br>
       <h3>📊&nbsp;Benchmarks you can rerun</h3>
-      <p>Kernel, serving and accuracy benches in one CLI, raw JSON for every number.</p>
-      <br>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <br>
-      <h3>🤖&nbsp;A self-writing README</h3>
-      <p>Every table, chart and number on this page is rendered from the raw results. No hand-typed claims!</p>
+      <p>Kernel, serving and accuracy benches in one CLI, raw JSON for every table, chart and number on this page.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">

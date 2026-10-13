@@ -1,6 +1,6 @@
 # KV cache capacity
 
-> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · run `20261013-092123`
+> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · run `20261013-124353`
 
 ## The question
 
@@ -25,20 +25,20 @@ The stage reads those lines and stops the leg's server right after (no graph cap
   <img src="../../assets/benchmarks/kv-cache-capacity.png" alt="KV cache capacity per config" width="100%">
 </picture>
 
-- **Mjolnir · fp6 e2m3 KV** holds **2,632,688 tokens**, +31% vs official vLLM · FlashInfer · fp8 KV (2,005,007).
-- **Mjolnir · fp6 e2m3 KV** holds **2,632,688 tokens**, +31% vs Mjolnir · fp8 KV (2,012,747).
-- **Mjolnir · fp6 e2m3 KV** holds **2,632,688 tokens**, +34% vs Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab (1,962,318).
-- official vLLM · FlashInfer · fp8 KV: 9.8 requests at the full 200K context (vLLM's own estimate).
+- **Mjolnir · fp6 e2m3 KV** holds **2,645,421 tokens**, +31% vs official vLLM · FlashInfer · fp8 KV (2,022,204).
+- **Mjolnir · fp6 e2m3 KV** holds **2,645,421 tokens**, +32% vs Mjolnir · fp8 KV (1,998,478).
+- **Mjolnir · fp6 e2m3 KV** holds **2,645,421 tokens**, +1% vs Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab (2,608,065).
+- official vLLM · FlashInfer · fp8 KV: 9.9 requests at the full 200K context (vLLM's own estimate).
 - Mjolnir · fp8 KV: 9.8 requests at the full 200K context (vLLM's own estimate).
-- Mjolnir · fp6 e2m3 KV: 12.8 requests at the full 200K context (vLLM's own estimate).
-- Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab: 9.6 requests at the full 200K context (vLLM's own estimate).
+- Mjolnir · fp6 e2m3 KV: 12.9 requests at the full 200K context (vLLM's own estimate).
+- Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab: 12.7 requests at the full 200K context (vLLM's own estimate).
 
-| config | serving | KV memory | KV tokens | vs first | max concurrency | fits @ 4K | fits @ 8K | fits @ 16K | fits @ 32K | fits @ 64K | fits @ 128K |
-|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| `NVFP4` | official vLLM · FlashInfer · fp8 KV | 69.2 GiB | 2,005,007 | 1.00× | 9.8× @ 200K | 319 | 193 | 108 | 57 | 29 | 15 |
-| `NVFP4_MJOLNIR` | Mjolnir · fp8 KV | 69.7 GiB | 2,012,747 | 1.00× | 9.8× @ 200K | 320 | 194 | 108 | 57 | 29 | 15 |
-| `NVFP4_MJOLNIR_E2M3` | Mjolnir · fp6 e2m3 KV | 69.5 GiB | 2,632,688 | 1.31× | 12.8× @ 200K | 419 | 253 | 141 | 75 | 38 | 19 |
-| `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | 52.6 GiB | 1,962,318 | 0.98× | 9.6× @ 200K | 312 | 189 | 105 | 56 | 28 | 14 |
+| config | serving | KV memory | KV tokens | vs first | max concurrency | fits @ 4K | fits @ 8K | fits @ 16K | fits @ 32K | fits @ 64K | fits @ 128K | model load $\color{grey}{GiB}$ |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `NVFP4` | official vLLM · FlashInfer · fp8 KV | 69.8 GiB | 2,022,204 | 1.00× | 9.9× @ 200K | 322 | 195 | 108 | 57 | 29 | 15 | 18.4 |
+| `NVFP4_MJOLNIR` | Mjolnir · fp8 KV | 69.2 GiB | 1,998,478 | 0.99× | 9.8× @ 200K | 318 | 192 | 107 | 57 | 29 | 14 | 18.4 |
+| `NVFP4_MJOLNIR_E2M3` | Mjolnir · fp6 e2m3 KV | 69.9 GiB | 2,645,421 | 1.31× | 12.9× @ 200K | 421 | 255 | 142 | 75 | 39 | 19 | 18.4 |
+| `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | 70.0 GiB | 2,608,065 | 1.29× | 12.7× @ 200K | 415 | 251 | 140 | 74 | 38 | 19 | 18.4 |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -49,7 +49,7 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261013-092123.json`](../../benchmarks/raw/verify/kv-cache-size/20261013-092123.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261013-124353.json`](../../benchmarks/raw/verify/kv-cache-size/20261013-124353.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
 
 ## How to read it
 
