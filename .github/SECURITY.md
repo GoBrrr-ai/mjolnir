@@ -30,5 +30,5 @@ Two properties of the stack worth knowing:
   (`MJOLNIR_ATTN_DISABLE=1` turns it off). Install it from PyPI or this repo
   only.
 - **Autoresearch runs LLM agents with shell access** scoped by the permissions
-  in `.opencode/agent/` (they can commit and reset on their branch, never push).
+  in `.opencode/agent/autoresearch.md` and in any helper agents you define yourself (they can commit and reset on their branch, never push).
   Run it on a machine and a checkout you are willing to let an agent touch.

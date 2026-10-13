@@ -22,7 +22,7 @@ otherwise — forever, while every experiment lands on a ledger. Here:
   export`` snapshots it into ``research/runs/<tag>/`` for committing.
 
 The loop itself is an OpenCode session (``mjolnir autoresearch run``)
-driving the agents in ``.opencode/agent/``: ``autoresearch`` (orchestrator)
+driving ``.opencode/agent/autoresearch.md`` (the orchestrator; the helpers it delegates to are user-defined OpenCode agents)
 → ``web-researcher`` / ``arxiv-researcher`` (ideas + sources) →
 ``python-engineer`` (the change) → ``debugger`` (crashes, correctness
 failures). The program they follow is ``research/program.md``.

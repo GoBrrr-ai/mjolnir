@@ -69,8 +69,8 @@ into the last CTA; closing the fp6 byte-vs-time gap
 Let agents run kernel experiments overnight with every attempt on a ledger:
 [`research/README.md`](../research/README.md). Share the exported
 `research/runs/<tag>/` in a PR — a ledger of 40 discarded ideas is a real
-contribution: it tells everyone what not to try. Improvements to the agents
-(`.opencode/agent/`) or the program (`research/program.md`) are welcome too.
+contribution: it tells everyone what not to try. Improvements to the orchestrator
+(`.opencode/agent/autoresearch.md`) or the program (`research/program.md`) are welcome too.
 
 ### 4. Add a Thor patch, or bump the base image
 

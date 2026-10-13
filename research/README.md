@@ -31,7 +31,13 @@ Inside an OpenCode session, `/autoresearch` resumes the loop.
 | `ledger.jsonl` / `ledger.tsv` | one row per experiment; untracked while the run is live so `git reset --hard` never rewinds it |
 | `runs/<tag>/` | committed snapshots (`export`): the ledger + a `SUMMARY.md` |
 
-## The team ([`.opencode/agent/`](../.opencode/agent))
+## The team
+
+Only the orchestrator ships with the repo ([`.opencode/agent/autoresearch.md`](../.opencode/agent/autoresearch.md)).
+The four helpers are **ids it may delegate to**: create your own OpenCode agents
+with these ids in your global config (`~/.config/opencode/agent/<id>.md`) — your
+model, your prompt, your tool limits — and the orchestrator's `task` permissions
+already allow them. Missing ones are fine: the orchestrator does that step itself.
 
 | agent | role | can |
 |---|---|---|

@@ -54,6 +54,12 @@ This prompt only adds how you work with your team.
 | `@python-engineer` | implementing ONE hypothesis in `src/mjolnir/mjolnir/t5_decode.py`, behind a named harness flag | a diff summary, the flag name, and a py_compile result |
 | `@debugger` | a crash or a correctness failure, with the log directory from the harness output | the root cause, and either a minimal fix or "the idea is broken at its root" |
 
+These four are **not shipped with the repo** — only this orchestrator is. Each
+user brings their own: an OpenCode agent with exactly that id (e.g.
+`~/.config/opencode/agent/python-engineer.md`, any model, any prompt), and the
+`task` permissions above already allow it. **If an agent does not exist, do that
+step yourself** — research, implement or debug directly, under the same rules.
+
 Hand each subagent everything it needs in one message — it does not see this
 conversation. For `@python-engineer` that means: the hypothesis in one sentence,
 where in the kernel it lands (function / class names), the flag name to add, and

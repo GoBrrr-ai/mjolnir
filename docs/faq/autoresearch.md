@@ -14,7 +14,10 @@ the agents' instructions are [`research/program.md`](../../research/program.md).
 
 - a Thor with the image pulled (`mjolnir image`), and a checkout of this repo;
 - [OpenCode](https://opencode.ai) (`npm i -g opencode-ai`) with a model provider
-  configured — the agents live in [`.opencode/agent/`](../../.opencode/agent/).
+  configured — the orchestrator lives in [`.opencode/agent/autoresearch.md`](../../.opencode/agent/autoresearch.md);
+  the helpers it delegates to (`arxiv-researcher`, `web-researcher`,
+  `python-engineer`, `debugger`) are optional agents you define yourself in
+  `~/.config/opencode/agent/` (see [the team](../../research/README.md#the-team)).
 
 ## Run it
 
