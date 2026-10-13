@@ -1,6 +1,6 @@
 # KV cache capacity
 
-> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · run `20261011-213435`
+> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · run `20261012-215513`
 
 ## The question
 
@@ -25,19 +25,22 @@ The stage reads those lines and stops the leg's server right after (no graph cap
   <img src="../../assets/benchmarks/kv-cache-capacity.png" alt="KV cache capacity per config" width="100%">
 </picture>
 
-- **Mjolnir · fp6 e2m3 KV** holds **2,658,155 tokens**, +35% vs official vLLM · FlashInfer · fp8 KV (1,972,958).
-- **Mjolnir · fp6 e2m3 KV** holds **2,658,155 tokens**, +32% vs Mjolnir · fp8 KV (2,008,550).
-- official vLLM · FlashInfer · fp8 KV: 9.6 requests at the full 200K context (vLLM's own estimate).
-- Mjolnir · fp8 KV: 9.8 requests at the full 200K context (vLLM's own estimate).
-- Mjolnir · fp6 e2m3 KV: 13.0 requests at the full 200K context (vLLM's own estimate).
+- **Mjolnir · fp6 e2m3 KV** holds **2,652,849 tokens**, +30% vs official vLLM · FlashInfer · fp8 KV (2,039,401).
+- **Mjolnir · fp6 e2m3 KV** holds **2,652,849 tokens**, +31% vs Mjolnir · fp8 KV (2,021,980).
+- **Mjolnir · fp6 e2m3 KV** holds **2,652,849 tokens**, +34% vs Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab (1,974,781).
+- official vLLM · FlashInfer · fp8 KV: 10.0 requests at the full 200K context (vLLM's own estimate).
+- Mjolnir · fp8 KV: 9.9 requests at the full 200K context (vLLM's own estimate).
+- Mjolnir · fp6 e2m3 KV: 12.9 requests at the full 200K context (vLLM's own estimate).
+- Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab: 9.6 requests at the full 200K context (vLLM's own estimate).
 
 | config | serving | KV memory | KV tokens | vs first | max concurrency | fits @ 4K | fits @ 8K | fits @ 16K | fits @ 32K | fits @ 64K | fits @ 128K |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| `NVFP4` | official vLLM · FlashInfer · fp8 KV | 68.1 GiB | 1,972,958 | 1.00× | 9.6× @ 200K | 314 | 190 | 106 | 56 | 29 | 14 |
-| `NVFP4_MJOLNIR` | Mjolnir · fp8 KV | 69.5 GiB | 2,008,550 | 1.02× | 9.8× @ 200K | 320 | 193 | 108 | 57 | 29 | 15 |
-| `NVFP4_MJOLNIR_E2M3` | Mjolnir · fp6 e2m3 KV | 70.2 GiB | 2,658,155 | 1.35× | 13.0× @ 200K | 423 | 256 | 143 | 76 | 39 | 19 |
+| `NVFP4` | official vLLM · FlashInfer · fp8 KV | 70.4 GiB | 2,039,401 | 1.00× | 10.0× @ 200K | 325 | 196 | 109 | 58 | 30 | 15 |
+| `NVFP4_MJOLNIR` | Mjolnir · fp8 KV | 70.0 GiB | 2,021,980 | 0.99× | 9.9× @ 200K | 322 | 195 | 108 | 57 | 29 | 15 |
+| `NVFP4_MJOLNIR_E2M3` | Mjolnir · fp6 e2m3 KV | 70.1 GiB | 2,652,849 | 1.30× | 12.9× @ 200K | 422 | 255 | 142 | 75 | 39 | 19 |
+| `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | 52.2 GiB | 1,974,781 | 0.97× | 9.6× @ 200K | 314 | 190 | 106 | 56 | 29 | 14 |
 
-<sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261011-213435.json`](../../benchmarks/raw/verify/kv-cache-size/20261011-213435.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261012-215513.json`](../../benchmarks/raw/verify/kv-cache-size/20261012-215513.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
 
 ## How to read it
 

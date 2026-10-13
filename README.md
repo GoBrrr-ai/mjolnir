@@ -37,14 +37,7 @@ vllm serve <model> --attention-backend MJOLNIR
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
-<p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/opening-infographic.png">
-  <img src="assets/opening-infographic.png" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
-</picture>
-</p>
 
-> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens), one request at 8K context: decode <b>+50.8%</b>, prefill <b>+67.1%</b>, time to first token <b>4.13 s → 3.02 s</b>, inter-token latency <b>44.4 ms → 29.4 ms</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <p align="center">
 <picture>
@@ -55,17 +48,17 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 | decode kernel, one step (ncu, cold L2) | result |
 |---|---|
-| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.28× faster** (from 1.09× at 16K to 1.71× at 128) |
-| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **2.01× faster** |
-| faster than FlashInfer beyond the ±3% noise band | **8 of 8** context lengths |
-| at the longest context (256K tokens) | **1.37×** vs FlashInfer |
-| one decode step at 64K tokens | **602.3 µs** (FlashInfer 814.9 µs, FlashAttention 2 1.28 ms) |
-| fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.17×** vs FlashInfer, geomean |
+| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.24× faster** (from 0.99× at 16K to 1.64× at 128) |
+| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **2.00× faster** |
+| faster than FlashInfer beyond the ±3% noise band | **7 of 8** context lengths |
+| at the longest context (256K tokens) | **1.31×** vs FlashInfer |
+| one decode step at 64K tokens | **599.8&nbsp;µs** (FlashInfer 783.9&nbsp;µs, FlashAttention 2 1.28&nbsp;ms) |
+| fp8 KV (what `--attention-backend MJOLNIR` serves today) | **1.15×** vs FlashInfer, geomean |
 | correctness vs a bit-faithful emulator | **90 / 90** checks pass |
 
 
 > [!NOTE]
-> <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261011-113515`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
+> <sub>Every number above is computed from the raw results of `mjolnir verify sweep` (run `20261012-202029`, [`benchmarks/raw/verify/`](benchmarks/raw/verify/)) when this README is rendered — no hand-typed numbers. Hover the [interactive version](https://thor-arena.github.io/mjolnir/) for any point.</sub>
 
 ## Quickstart
 
@@ -107,7 +100,7 @@ All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, b
 | **Mjolnir · e2m3 KV** | this kernel, its fastest config (6-bit KV read directly by the tensor cores) | e2m3, head-major pages |
 | **Mjolnir · fp8 KV** | this kernel, what `--attention-backend MJOLNIR` serves today | fp8 e4m3, head-major pages |
 | **FlashInfer** | tensor-core decode as vLLM's FlashInfer backend runs it | fp8 e4m3, NHD pages |
-| **FlashAttention 2** | `vllm_flash_attn` FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 (FA2 has no fp8 KV) |
+| **FlashAttention 2** | `vllm_flash_attn` FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 <sup>(FA2 has no fp8 KV)</sup> |
 
 Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, so ratios inside that band are drawn gray (L=16K is the exception — it is bimodal across runs; see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md)).
 
@@ -118,15 +111,15 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 | L | FlashInfer | FA2 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA2 | e2m3 vs FA2 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 22.1 µs | 20.3 µs | 13.8 µs | **12.9 µs** | $\color{#16a34a}{\mathbf{1.60\times}}$ | $\color{#16a34a}{\mathbf{1.71\times}}$ | $\color{#16a34a}{\mathbf{1.47\times}}$ | $\color{#16a34a}{\mathbf{1.57\times}}$ |
-| **4K** | 60.9 µs | 95.2 µs | 56.4 µs | **51.9 µs** | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.69\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ |
-| **8K** | 96.8 µs | 180.7 µs | 87.2 µs | **84.6 µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{2.07\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ |
-| **16K** | 189.3 µs | 353.3 µs | **169.3 µs** | 173.2 µs | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ |
-| **32K** | 384.0 µs | 668.9 µs | 362.6 µs | **334.6 µs** | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.15\times}}$ | $\color{#16a34a}{\mathbf{1.84\times}}$ | $\color{#16a34a}{\mathbf{2.00\times}}$ |
-| **64K** | 814.9 µs | 1.28 ms | 693.2 µs | **602.3 µs** | $\color{#16a34a}{\mathbf{1.18\times}}$ | $\color{#16a34a}{\mathbf{1.35\times}}$ | $\color{#16a34a}{\mathbf{1.85\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ |
-| **128K** | 1.48 ms | 2.42 ms | 1.30 ms | **1.10 ms** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.35\times}}$ | $\color{#16a34a}{\mathbf{1.87\times}}$ | $\color{#16a34a}{\mathbf{2.21\times}}$ |
-| **256K** | 2.83 ms | 4.63 ms | 2.45 ms | **2.07 ms** | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.37\times}}$ | $\color{#16a34a}{\mathbf{1.89\times}}$ | $\color{#16a34a}{\mathbf{2.24\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{1.84\times}}$ | $\color{#16a34a}{\mathbf{2.01\times}}$ |
+| **128** | 21.5&nbsp;µs | 19.7&nbsp;µs | 13.5&nbsp;µs | **13.1&nbsp;µs** | $\color{#16a34a}{\mathbf{1.59\times}}$ | $\color{#16a34a}{\mathbf{1.64\times}}$ | $\color{#16a34a}{\mathbf{1.45\times}}$ | $\color{#16a34a}{\mathbf{1.50\times}}$ |
+| **4K** | 61.2&nbsp;µs | 94.9&nbsp;µs | 56.5&nbsp;µs | **50.2&nbsp;µs** | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.68\times}}$ | $\color{#16a34a}{\mathbf{1.89\times}}$ |
+| **8K** | 94.9&nbsp;µs | 180.6&nbsp;µs | **88.2&nbsp;µs** | 89.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{2.05\times}}$ | $\color{#16a34a}{\mathbf{2.03\times}}$ |
+| **16K** | 174.1&nbsp;µs | 355.3&nbsp;µs | **167.1&nbsp;µs** | 176.2&nbsp;µs | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{grey}{0.99\times}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ |
+| **32K** | 375.2&nbsp;µs | 664.3&nbsp;µs | 343.0&nbsp;µs | **324.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.94\times}}$ | $\color{#16a34a}{\mathbf{2.05\times}}$ |
+| **64K** | 783.9&nbsp;µs | 1.28&nbsp;ms | 670.5&nbsp;µs | **599.8&nbsp;µs** | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{1.91\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ |
+| **128K** | 1.41&nbsp;ms | 2.41&nbsp;ms | 1.27&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{1.91\times}}$ | $\color{#16a34a}{\mathbf{2.24\times}}$ |
+| **256K** | 2.70&nbsp;ms | 4.63&nbsp;ms | 2.42&nbsp;ms | **2.06&nbsp;ms** | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{2.25\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.15\times}}$ | $\color{#16a34a}{\mathbf{1.24\times}}$ | $\color{#16a34a}{\mathbf{1.86\times}}$ | $\color{#16a34a}{\mathbf{2.00\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
@@ -137,39 +130,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### Official vLLM image vs Mjolnir
 
-Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
-  <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
-</picture>
-
-Each cell: official → **Mjolnir** (gain; positive = Mjolnir better: green = better beyond the ±3% noise band, grey = within it, red = worse beyond it). With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
-
-| context | requests | decode (t/s, ↑) | prefill (t/s, ↑) | TTFT (ms, ↓) | ITL (ms, ↓) |
-|--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 22.5 → **35.2** $\color{#16a34a}{\text{+56.7\\%}}$ | 2,929 → **3,983** $\color{#16a34a}{\text{+36.0\\%}}$ | 833 → **606** $\color{#16a34a}{\text{+37.6\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{+57.3\\%}}$ |
-| 4K | 1 | 23.1 → **33.6** $\color{#16a34a}{\text{+45.7\\%}}$ | 2,820 → **6,570** $\color{#16a34a}{\text{+133.0\\%}}$ | 2,314 → **1,666** $\color{#16a34a}{\text{+38.9\\%}}$ | 43.5 → **30.1** $\color{#16a34a}{\text{+44.6\\%}}$ |
-| 8K | 1 | 22.8 → **34.3** $\color{#16a34a}{\text{+50.8\\%}}$ | 2,562 → **4,281** $\color{#16a34a}{\text{+67.1\\%}}$ | 4,132 → **3,023** $\color{#16a34a}{\text{+36.7\\%}}$ | 44.4 → **29.4** $\color{#16a34a}{\text{+51.1\\%}}$ |
-| 16K | 1 | 23.2 → *n/a* | 2,205 → *n/a* | 8,493 → *n/a* | 43.3 → *n/a* |
-| 32K | 1 | 23.2 → *n/a* | 1,762 → *n/a* | 19,894 → *n/a* | 43.2 → *n/a* |
-| 64K | 1 | 22.6 → *n/a* | 1,255 → *n/a* | 54,008 → *n/a* | 44.3 → *n/a* |
-| 128K | 1 | 20.5 → *n/a* | 791 → *n/a* | 168,458 → *n/a* | 49.2 → *n/a* |
-| no ctx | 2 | 46.5 → **63.3** $\color{#16a34a}{\text{+36.2\\%}}$ | 2,744 → **3,588** $\color{#16a34a}{\text{+30.8\\%}}$ | 1,433 → **1,000** $\color{#16a34a}{\text{+43.2\\%}}$ | 40.5 → **29.6** $\color{#16a34a}{\text{+36.7\\%}}$ |
-| 4K | 2 | 43.6 → **63.5** $\color{#16a34a}{\text{+45.7\\%}}$ | 2,728 → **3,590** $\color{#16a34a}{\text{+31.6\\%}}$ | 4,444 → **3,334** $\color{#16a34a}{\text{+33.3\\%}}$ | 43.1 → **29.7** $\color{#16a34a}{\text{+44.9\\%}}$ |
-| 8K | 2 | 45.6 → **57.6** $\color{#16a34a}{\text{+26.4\\%}}$ | 2,515 → **3,461** $\color{#16a34a}{\text{+37.6\\%}}$ | 8,081 → **5,758** $\color{#16a34a}{\text{+40.3\\%}}$ | 42.1 → **32.1** $\color{#16a34a}{\text{+31.2\\%}}$ |
-| 16K | 2 | 45.6 → *n/a* | 2,195 → *n/a* | 16,734 → *n/a* | 42.3 → *n/a* |
-| 32K | 2 | 36.7 → *n/a* | 1,752 → *n/a* | 39,043 → *n/a* | 47.3 → *n/a* |
-| no ctx | 4 | 85.0 → **104.5** $\color{#16a34a}{\text{+22.9\\%}}$ | 2,912 → **3,423** $\color{#16a34a}{\text{+17.6\\%}}$ | 2,781 → **2,225** $\color{#16a34a}{\text{+25.0\\%}}$ | 44.1 → **31.6** $\color{#16a34a}{\text{+39.7\\%}}$ |
-| 4K | 4 | 78.5 → **104.2** $\color{#16a34a}{\text{+32.8\\%}}$ | 2,722 → **3,458** $\color{#16a34a}{\text{+27.0\\%}}$ | 8,993 → **6,937** $\color{#16a34a}{\text{+29.6\\%}}$ | 46.8 → **32.9** $\color{#16a34a}{\text{+42.1\\%}}$ |
-| 8K | 4 | 68.1 → **68.0** $\color{grey}{\text{−0.1\\%}}$ | 2,491 → **3,375** $\color{#16a34a}{\text{+35.5\\%}}$ | 16,121 → **11,218** $\color{#16a34a}{\text{+43.7\\%}}$ | 49.1 → **39.2** $\color{#16a34a}{\text{+25.2\\%}}$ |
-| 16K | 4 | 42.0 → *n/a* | 2,172 → *n/a* | 32,309 → *n/a* | 60.0 → *n/a* |
-| 32K | 4 | 11.6 → *n/a* | 1,738 → *n/a* | 65,787 → *n/a* | 161.8 → *n/a* |
-
-> [!NOTE]
-> Incomplete: the Mjolnir side has no run at 16K, 32K, 64K, 128K context yet (`mjolnir bench e2e --only mjolnir --depths 16384,32768,65536,131072`).
-
-> <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+> Pending: `mjolnir bench e2e` (serves the official vLLM image, then the Mjolnir image, and benchmarks both).
 
 ## How the kernel works
 
@@ -194,7 +155,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [KV layouts and formats](docs/kernel/kvfmt.md)  | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
 | [KV format accuracy](docs/kernel/quant.md)  | relative L2 error of each KV format vs unquantized KV, at every L |
 | [KV cache capacity](docs/kernel/kv-cache-size.md)  | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context |
-| [Speculative decoding](docs/kernel/spec.md)  | MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count |
+| [Speculative decoding](docs/kernel/spec.md) *(pending)* | MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count |
 | [Full profiles per KV format](docs/kernel/fp6prof.md)  | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format |
 | [KV ring depth](docs/kernel/ring.md)  | TMA→MMA ring depth (--kv_stages) sweep at every L |
 | [L2 prefetch](docs/kernel/prefetch.md)  | TMA L2 prefetch distance (--l2_prefetch) sweep |

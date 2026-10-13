@@ -1,0 +1,147 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "kv-cache-size",
+ "run_id": "20261012-215513",
+ "ts": "2026-10-12T22:01:10+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.31.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "7cd9988",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "legs": "official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+  "model": null,
+  "e2e_pp": 2048,
+  "e2e_tg": 128,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.31.0-ubuntu2404",
+ "rows": [
+  {
+   "id": "official-NVFP4",
+   "side": "official",
+   "config": "NVFP4",
+   "image": "vllm/vllm-openai:v0.31.0-ubuntu2404",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "FLASHINFER",
+   "kv_dtype": "fp8",
+   "gpu_memory_utilization": "0.8",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/official-NVFP4.log",
+   "kv_gib": 70.41,
+   "kv_tokens": 2039401,
+   "max_model_len": 204800,
+   "max_concurrency": 9.96,
+   "startup_s": 85.1
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "MJOLNIR",
+   "kv_dtype": "fp8",
+   "gpu_memory_utilization": "0.8",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/mjolnir-NVFP4_MJOLNIR.log",
+   "kv_gib": 70.0,
+   "kv_tokens": 2021980,
+   "max_model_len": 204800,
+   "max_concurrency": 9.87,
+   "startup_s": 90.5
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "MJOLNIR",
+   "kv_dtype": "fp6_e2m3",
+   "gpu_memory_utilization": "0.8",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/mjolnir-NVFP4_MJOLNIR_E2M3.log",
+   "kv_gib": 70.06,
+   "kv_tokens": 2652849,
+   "max_model_len": 204800,
+   "max_concurrency": 12.95,
+   "startup_s": 90.6
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "MJOLNIR",
+   "kv_dtype": "fp6_e2m3",
+   "gpu_memory_utilization": "0.8",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K.log",
+   "kv_gib": 52.16,
+   "kv_tokens": 1974781,
+   "max_model_len": 204800,
+   "max_concurrency": 9.64,
+   "startup_s": 90.3
+  }
+ ],
+ "cases": [
+  {
+   "label": "official-NVFP4",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/official-NVFP4.log"
+  },
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/mjolnir-NVFP4_MJOLNIR.log"
+  },
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/mjolnir-NVFP4_MJOLNIR_E2M3.log"
+  },
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261012-215513/kv-cache-size/mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K.log"
+  }
+ ],
+ "summary": {
+  "official-NVFP4": {
+   "kv_tokens": 2039401,
+   "max_concurrency": 9.96
+  },
+  "mjolnir-NVFP4_MJOLNIR": {
+   "kv_tokens": 2021980,
+   "max_concurrency": 9.87
+  },
+  "mjolnir-NVFP4_MJOLNIR_E2M3": {
+   "kv_tokens": 2652849,
+   "max_concurrency": 12.95
+  },
+  "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K": {
+   "kv_tokens": 1974781,
+   "max_concurrency": 9.64
+  }
+ }
+}

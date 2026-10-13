@@ -1,6 +1,6 @@
 # KV layouts and formats
 
-> fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) · `mjolnir verify kvfmt` · run `20261011-115251`
+> fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) · `mjolnir verify kvfmt` · run `20261012-203801`
 
 ## The question
 
@@ -23,34 +23,34 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 </picture>
 
 - Fastest variant at the most context lengths: **`e2m1-hnd`** (7 of 8).
-- Best geomean vs FlashInfer: **`e2m1-hnd`** (1.94×); worst: `nvfp4-hnd` (0.58×).
+- Best geomean vs FlashInfer: **`e2m1-hnd`** (1.92×); worst: `nvfp4-hnd` (0.57×).
 
 | variant | flags | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K | geomean |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| `fp8-nhd` | `--kv_format fp8 --kv_layout nhd` | $\color{#16a34a}{1.78\times}$ | $\color{#16a34a}{1.07\times}$ | $\color{#dc2626}{0.92\times}$ | $\color{#dc2626}{0.97\times}$ | $\color{#dc2626}{0.92\times}$ | $\color{grey}{0.99\times}$ | $\color{#dc2626}{0.97\times}$ | $\color{grey}{0.98\times}$ | $\color{#16a34a}{\mathbf{1.05\times}}$ |
-| `fp8-interleaved` | `--kv_format fp8 --kv_layout interleaved` | $\color{#16a34a}{1.75\times}$ | $\color{#dc2626}{0.95\times}$ | $\color{#dc2626}{0.85\times}$ | $\color{grey}{0.97\times}$ | $\color{#dc2626}{0.88\times}$ | $\color{#dc2626}{0.97\times}$ | $\color{#dc2626}{0.90\times}$ | $\color{#dc2626}{0.97\times}$ | $\color{grey}{1.00\times}$ |
-| `fp8-hnd` | `--kv_format fp8 --kv_layout hnd` | $\color{#16a34a}{1.71\times}$ | $\color{#16a34a}{1.07\times}$ | $\color{#16a34a}{1.10\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{#16a34a}{1.05\times}$ | $\color{#16a34a}{1.18\times}$ | $\color{#16a34a}{1.11\times}$ | $\color{#16a34a}{1.19\times}$ | $\color{#16a34a}{\mathbf{1.17\times}}$ |
-| `e2m3-hnd` | `--kv_format e2m3 --kv_layout hnd` | **$\color{#16a34a}{1.79\times}$** | $\color{#16a34a}{1.18\times}$ | $\color{#16a34a}{1.16\times}$ | $\color{#16a34a}{1.08\times}$ | $\color{#16a34a}{1.16\times}$ | $\color{#16a34a}{1.35\times}$ | $\color{#16a34a}{1.35\times}$ | $\color{#16a34a}{1.38\times}$ | $\color{#16a34a}{\mathbf{1.29\times}}$ |
-| `e3m2-hnd` | `--kv_format e3m2 --kv_layout hnd` | $\color{#16a34a}{1.76\times}$ | $\color{#16a34a}{1.19\times}$ | $\color{#16a34a}{1.04\times}$ | $\color{#16a34a}{1.03\times}$ | $\color{#16a34a}{1.14\times}$ | $\color{#16a34a}{1.36\times}$ | $\color{#16a34a}{1.34\times}$ | $\color{#16a34a}{1.39\times}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ |
-| `e2m1-hnd` | `--kv_format e2m1 --kv_layout hnd` | $\color{#16a34a}{1.79\times}$ | **$\color{#16a34a}{1.51\times}$** | **$\color{#16a34a}{1.69\times}$** | **$\color{#16a34a}{1.89\times}$** | **$\color{#16a34a}{2.02\times}$** | **$\color{#16a34a}{2.25\times}$** | **$\color{#16a34a}{2.22\times}$** | **$\color{#16a34a}{2.34\times}$** | $\color{#16a34a}{\mathbf{1.94\times}}$ |
-| `nvfp4-hnd` | `--kv_format nvfp4 --kv_layout hnd` | $\color{#dc2626}{0.64\times}$ | $\color{#dc2626}{0.49\times}$ | $\color{#dc2626}{0.48\times}$ | $\color{#dc2626}{0.55\times}$ | $\color{#dc2626}{0.61\times}$ | $\color{#dc2626}{0.67\times}$ | $\color{#dc2626}{0.63\times}$ | $\color{#dc2626}{0.62\times}$ | $\color{#dc2626}{0.58\times}$ |
+| `fp8-nhd` | `--kv_format fp8 --kv_layout nhd` | **$\color{#16a34a}{1.81\times}$** | $\color{grey}{1.02\times}$ | $\color{grey}{0.99\times}$ | $\color{#dc2626}{0.87\times}$ | $\color{#dc2626}{0.93\times}$ | $\color{grey}{1.02\times}$ | $\color{#dc2626}{0.97\times}$ | $\color{grey}{0.98\times}$ | $\color{#16a34a}{\mathbf{1.04\times}}$ |
+| `fp8-interleaved` | `--kv_format fp8 --kv_layout interleaved` | $\color{#16a34a}{1.74\times}$ | $\color{grey}{0.97\times}$ | $\color{#dc2626}{0.89\times}$ | $\color{#dc2626}{0.88\times}$ | $\color{#dc2626}{0.91\times}$ | $\color{#dc2626}{0.95\times}$ | $\color{#dc2626}{0.93\times}$ | $\color{grey}{0.97\times}$ | $\color{grey}{1.00\times}$ |
+| `fp8-hnd` | `--kv_format fp8 --kv_layout hnd` | $\color{#16a34a}{1.67\times}$ | $\color{#16a34a}{1.07\times}$ | $\color{#16a34a}{1.05\times}$ | $\color{grey}{0.98\times}$ | $\color{#16a34a}{1.07\times}$ | $\color{#16a34a}{1.17\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{#16a34a}{1.12\times}$ | $\color{#16a34a}{\mathbf{1.14\times}}$ |
+| `e2m3-hnd` | `--kv_format e2m3 --kv_layout hnd` | $\color{#16a34a}{1.77\times}$ | $\color{#16a34a}{1.17\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{grey}{1.02\times}$ | $\color{#16a34a}{1.11\times}$ | $\color{#16a34a}{1.31\times}$ | $\color{#16a34a}{1.32\times}$ | $\color{#16a34a}{1.32\times}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ |
+| `e3m2-hnd` | `--kv_format e3m2 --kv_layout hnd` | $\color{#16a34a}{1.79\times}$ | $\color{#16a34a}{1.16\times}$ | $\color{#16a34a}{1.12\times}$ | $\color{grey}{1.02\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{#16a34a}{1.32\times}$ | $\color{#16a34a}{1.31\times}$ | $\color{#16a34a}{1.31\times}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ |
+| `e2m1-hnd` | `--kv_format e2m1 --kv_layout hnd` | $\color{#16a34a}{1.78\times}$ | **$\color{#16a34a}{1.63\times}$** | **$\color{#16a34a}{1.75\times}$** | **$\color{#16a34a}{1.87\times}$** | **$\color{#16a34a}{1.95\times}$** | **$\color{#16a34a}{2.11\times}$** | **$\color{#16a34a}{2.09\times}$** | **$\color{#16a34a}{2.24\times}$** | $\color{#16a34a}{\mathbf{1.92\times}}$ |
+| `nvfp4-hnd` | `--kv_format nvfp4 --kv_layout hnd` | $\color{#dc2626}{0.69\times}$ | $\color{#dc2626}{0.48\times}$ | $\color{#dc2626}{0.48\times}$ | $\color{#dc2626}{0.51\times}$ | $\color{#dc2626}{0.58\times}$ | $\color{#dc2626}{0.64\times}$ | $\color{#dc2626}{0.60\times}$ | $\color{#dc2626}{0.59\times}$ | $\color{#dc2626}{0.57\times}$ |
 
 
 **Wall clock** (harness median, cold L2, b=1; Δ vs the first variant):
 
 | L | fp8-nhd | fp8-interleaved | fp8-hnd | e2m3-hnd | e3m2-hnd | e2m1-hnd | nvfp4-hnd |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 14.2 µs | 12.3 µs $\color{#16a34a}{\text{−13.3\\%}}$ | 13.7 µs $\color{#16a34a}{\text{−3.9\\%}}$ | 14.2 µs $\color{grey}{\text{−0.2\\%}}$ | 14.1 µs $\color{grey}{\text{−0.5\\%}}$ | 12.1 µs $\color{#16a34a}{\text{−14.6\\%}}$ | 22.3 µs $\color{#dc2626}{\text{+57.2\\%}}$ |
-| **4K** | 107.3 µs | 132.3 µs $\color{#dc2626}{\text{+23.3\\%}}$ | 107.3 µs $\color{grey}{\text{−0.0\\%}}$ | 92.9 µs $\color{#16a34a}{\text{−13.4\\%}}$ | 97.9 µs $\color{#16a34a}{\text{−8.8\\%}}$ | 76.6 µs $\color{#16a34a}{\text{−28.6\\%}}$ | 136.0 µs $\color{#dc2626}{\text{+26.7\\%}}$ |
-| **8K** | 168.8 µs | 161.6 µs $\color{#16a34a}{\text{−4.2\\%}}$ | 166.7 µs $\color{grey}{\text{−1.2\\%}}$ | 141.2 µs $\color{#16a34a}{\text{−16.4\\%}}$ | 143.1 µs $\color{#16a34a}{\text{−15.2\\%}}$ | 102.2 µs $\color{#16a34a}{\text{−39.4\\%}}$ | 201.5 µs $\color{#dc2626}{\text{+19.4\\%}}$ |
-| **16K** | 248.6 µs | 277.3 µs $\color{#dc2626}{\text{+11.5\\%}}$ | 254.6 µs $\color{grey}{\text{+2.4\\%}}$ | 195.4 µs $\color{#16a34a}{\text{−21.4\\%}}$ | 194.4 µs $\color{#16a34a}{\text{−21.8\\%}}$ | 157.8 µs $\color{#16a34a}{\text{−36.6\\%}}$ | 346.9 µs $\color{#dc2626}{\text{+39.5\\%}}$ |
-| **32K** | 416.2 µs | 449.4 µs $\color{#dc2626}{\text{+8.0\\%}}$ | 393.0 µs $\color{#16a34a}{\text{−5.6\\%}}$ | 314.2 µs $\color{#16a34a}{\text{−24.5\\%}}$ | 314.3 µs $\color{#16a34a}{\text{−24.5\\%}}$ | 215.9 µs $\color{#16a34a}{\text{−48.1\\%}}$ | 634.7 µs $\color{#dc2626}{\text{+52.5\\%}}$ |
-| **64K** | 749.6 µs | 792.8 µs $\color{#dc2626}{\text{+5.8\\%}}$ | 657.5 µs $\color{#16a34a}{\text{−12.3\\%}}$ | 552.8 µs $\color{#16a34a}{\text{−26.3\\%}}$ | 553.8 µs $\color{#16a34a}{\text{−26.1\\%}}$ | 360.3 µs $\color{#16a34a}{\text{−51.9\\%}}$ | 1.21 ms $\color{#dc2626}{\text{+60.8\\%}}$ |
-| **128K** | 1.57 ms | 1.58 ms $\color{grey}{\text{+0.8\\%}}$ | 1.22 ms $\color{#16a34a}{\text{−22.3\\%}}$ | 1.03 ms $\color{#16a34a}{\text{−34.3\\%}}$ | 1.03 ms $\color{#16a34a}{\text{−34.5\\%}}$ | 631.6 µs $\color{#16a34a}{\text{−59.8\\%}}$ | 2.32 ms $\color{#dc2626}{\text{+47.6\\%}}$ |
-| **256K** | 3.15 ms | 2.96 ms $\color{#16a34a}{\text{−6.0\\%}}$ | 2.41 ms $\color{#16a34a}{\text{−23.6\\%}}$ | 2.00 ms $\color{#16a34a}{\text{−36.7\\%}}$ | 1.97 ms $\color{#16a34a}{\text{−37.4\\%}}$ | 1.18 ms $\color{#16a34a}{\text{−62.4\\%}}$ | 4.65 ms $\color{#dc2626}{\text{+47.5\\%}}$ |
+| **128** | 14.2&nbsp;µs | 12.4&nbsp;µs $\color{#16a34a}{\text{−12.4\\%}}$ | 14.1&nbsp;µs $\color{grey}{\text{−0.3\\%}}$ | 12.2&nbsp;µs $\color{#16a34a}{\text{−13.8\\%}}$ | 12.2&nbsp;µs $\color{#16a34a}{\text{−14.0\\%}}$ | 12.1&nbsp;µs $\color{#16a34a}{\text{−14.5\\%}}$ | 22.3&nbsp;µs $\color{#dc2626}{\text{+57.5\\%}}$ |
+| **4K** | 92.0&nbsp;µs | 92.2&nbsp;µs $\color{grey}{\text{+0.2\\%}}$ | 86.8&nbsp;µs $\color{#16a34a}{\text{−5.6\\%}}$ | 76.6&nbsp;µs $\color{#16a34a}{\text{−16.7\\%}}$ | 76.6&nbsp;µs $\color{#16a34a}{\text{−16.7\\%}}$ | 62.3&nbsp;µs $\color{#16a34a}{\text{−32.3\\%}}$ | 126.8&nbsp;µs $\color{#dc2626}{\text{+37.8\\%}}$ |
+| **8K** | 130.8&nbsp;µs | 135.0&nbsp;µs $\color{#dc2626}{\text{+3.2\\%}}$ | 122.5&nbsp;µs $\color{#16a34a}{\text{−6.3\\%}}$ | 107.2&nbsp;µs $\color{#16a34a}{\text{−18.1\\%}}$ | 107.4&nbsp;µs $\color{#16a34a}{\text{−17.9\\%}}$ | 88.3&nbsp;µs $\color{#16a34a}{\text{−32.5\\%}}$ | 192.3&nbsp;µs $\color{#dc2626}{\text{+47.0\\%}}$ |
+| **16K** | 220.0&nbsp;µs | 217.0&nbsp;µs $\color{grey}{\text{−1.4\\%}}$ | 193.2&nbsp;µs $\color{#16a34a}{\text{−12.2\\%}}$ | 169.7&nbsp;µs $\color{#16a34a}{\text{−22.9\\%}}$ | 167.7&nbsp;µs $\color{#16a34a}{\text{−23.8\\%}}$ | 119.5&nbsp;µs $\color{#16a34a}{\text{−45.7\\%}}$ | 327.5&nbsp;µs $\color{#dc2626}{\text{+48.9\\%}}$ |
+| **32K** | 360.6&nbsp;µs | 373.6&nbsp;µs $\color{#dc2626}{\text{+3.6\\%}}$ | 332.7&nbsp;µs $\color{#16a34a}{\text{−7.7\\%}}$ | 285.5&nbsp;µs $\color{#16a34a}{\text{−20.8\\%}}$ | 287.6&nbsp;µs $\color{#16a34a}{\text{−20.3\\%}}$ | 186.2&nbsp;µs $\color{#16a34a}{\text{−48.4\\%}}$ | 621.4&nbsp;µs $\color{#dc2626}{\text{+72.3\\%}}$ |
+| **64K** | 674.7&nbsp;µs | 692.5&nbsp;µs $\color{grey}{\text{+2.6\\%}}$ | 610.8&nbsp;µs $\color{#16a34a}{\text{−9.5\\%}}$ | 517.0&nbsp;µs $\color{#16a34a}{\text{−23.4\\%}}$ | 518.0&nbsp;µs $\color{#16a34a}{\text{−23.2\\%}}$ | 320.3&nbsp;µs $\color{#16a34a}{\text{−52.5\\%}}$ | 1.19&nbsp;ms $\color{#dc2626}{\text{+76.8\\%}}$ |
+| **128K** | 1.31&nbsp;ms | 1.36&nbsp;ms $\color{#dc2626}{\text{+4.1\\%}}$ | 1.17&nbsp;ms $\color{#16a34a}{\text{−10.7\\%}}$ | 994.2&nbsp;µs $\color{#16a34a}{\text{−24.1\\%}}$ | 990.0&nbsp;µs $\color{#16a34a}{\text{−24.4\\%}}$ | 595.8&nbsp;µs $\color{#16a34a}{\text{−54.5\\%}}$ | 2.32&nbsp;ms $\color{#dc2626}{\text{+77.2\\%}}$ |
+| **256K** | 2.62&nbsp;ms | 2.73&nbsp;ms $\color{#dc2626}{\text{+4.4\\%}}$ | 2.34&nbsp;ms $\color{#16a34a}{\text{−10.7\\%}}$ | 1.93&nbsp;ms $\color{#16a34a}{\text{−26.4\\%}}$ | 1.95&nbsp;ms $\color{#16a34a}{\text{−25.6\\%}}$ | 1.14&nbsp;ms $\color{#16a34a}{\text{−56.5\\%}}$ | 4.62&nbsp;ms $\color{#dc2626}{\text{+76.4\\%}}$ |
 
 
-<sub>Rendered from [`benchmarks/raw/verify/kvfmt/20261011-115251.json`](../../benchmarks/raw/verify/kvfmt/20261011-115251.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/kvfmt/20261012-203801.json`](../../benchmarks/raw/verify/kvfmt/20261012-203801.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

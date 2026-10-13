@@ -1,6 +1,6 @@
 # KV format accuracy
 
-> relative L2 error of each KV format vs unquantized KV, at every L · `mjolnir verify quant` · run `20261011-121120`
+> relative L2 error of each KV format vs unquantized KV, at every L · `mjolnir verify quant` · run `20261012-205732`
 
 ## The question
 
@@ -31,7 +31,7 @@ The harness generates float K/V, quantizes them to each format (per-KV-head desc
 | `nvfp4` | 4.5 | 0.1356 | 0.1407 | 0.1409 | 0.1402 | 0.1440 | 0.1412 | 0.1421 | 0.1400 | **0.1406** |
 | `e2m1` | 4 | 0.1891 | 0.1967 | 0.2010 | 0.2045 | 0.2070 | 0.2105 | 0.2086 | 0.2068 | **0.2030** |
 
-<sub>Rendered from [`benchmarks/raw/verify/quant/20261011-121120.json`](../../benchmarks/raw/verify/quant/20261011-121120.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/quant/20261012-205732.json`](../../benchmarks/raw/verify/quant/20261012-205732.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

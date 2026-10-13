@@ -53,7 +53,7 @@ def L_label(L: int) -> str:
 def fmt_us(t: float | None) -> str:
     if t is None:
         return "—"
-    return f"{t / 1000:.2f} ms" if t >= 1000 else f"{t:.1f} µs"
+    return f"{t / 1000:.2f}&nbsp;ms" if t >= 1000 else f"{t:.1f}&nbsp;µs"
 
 
 def ratio_md(r: float | None, bold_wins: bool = True) -> str:

@@ -4,16 +4,6 @@
   "light": "assets/benchmarks/ab-heatmap.png",
   "stage": "ab"
  },
- "e2e-decode": {
-  "dark": "assets/benchmarks/e2e-decode-dark.png",
-  "light": "assets/benchmarks/e2e-decode.png",
-  "stage": "e2e"
- },
- "e2e-prefill": {
-  "dark": "assets/benchmarks/e2e-prefill-dark.png",
-  "light": "assets/benchmarks/e2e-prefill.png",
-  "stage": "e2e"
- },
  "fp6prof-bytes-vs-time": {
   "dark": "assets/benchmarks/fp6prof-bytes-vs-time-dark.png",
   "light": "assets/benchmarks/fp6prof-bytes-vs-time.png",
@@ -59,11 +49,6 @@
   "light": "assets/benchmarks/kvfmt-tradeoff.png",
   "stage": "kvfmt"
  },
- "opening-infographic": {
-  "dark": "assets/opening-infographic.png",
-  "light": "assets/opening-infographic.png",
-  "stage": "e2e"
- },
  "pdl-delta": {
   "dark": "assets/benchmarks/pdl-delta-dark.png",
   "light": "assets/benchmarks/pdl-delta.png",
@@ -83,10 +68,5 @@
   "dark": "assets/benchmarks/ring-heatmap-dark.png",
   "light": "assets/benchmarks/ring-heatmap.png",
   "stage": "ring"
- },
- "spec-drafts": {
-  "dark": "assets/benchmarks/spec-drafts-dark.png",
-  "light": "assets/benchmarks/spec-drafts.png",
-  "stage": "spec"
  }
 }
