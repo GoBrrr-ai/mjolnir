@@ -84,7 +84,7 @@ def pct_md(p: float | None, lower_is_better: bool = True) -> str:
     color = _GREEN if good >= NOISE_PCT else (_RED if good <= -NOISE_PCT else _GREY)
     sign = "+" if p > 0 else (_MINUS if p < 0 else "")
     # We need to double-escape the `\\\%` as Github refuses to render the `%` symbol otherwise
-    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(p):.1f}\\\%}}}}$"
+    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(p):.1f}\\\\%}}}}$"
 
 
 def _table(header: list[str], rows: list[list[str]], align: list[str] | None = None) -> str:
@@ -325,8 +325,8 @@ def _vs_vllm_table(off: dict, mj: dict) -> str | None:
     if not rows:
         return None
     head = ["context", "requests"] + [
-        f"{m.label} ({m.unit}, {'↑' if m.higher_better else '↓'}) · "
-        f"{'throughput change' if m.higher_better else 'latency change'}"
+        f"{m.label} ({m.unit}, {'↑' if m.higher_better else '↓'}) "
+        + color("throughput change" if m.higher_better else "latency change")
         for m in e2e.METRICS
     ]
     return _table(head, rows, ["--:", "--:"] + ["--:"] * len(e2e.METRICS))
@@ -348,7 +348,7 @@ def ratio_pct(g: float | None, higher_better: bool = True) -> str:
     sign = "+" if shown > 0 else (_MINUS if shown < 0 else "")
     g = shown
     # We need to double-escape the `\\\%` as Github refuses to render the `%` symbol otherwise
-    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(g):.1f}\\\%}}}}$"
+    return f"$\\color{{{color}}}{{\\text{{{sign}{abs(g):.1f}\\\\%}}}}$"
 
 
 def _findings(stage: str, doc: dict) -> list[str]:
@@ -527,6 +527,13 @@ def _kvcache_table(doc: dict) -> str:
         )
     head = ["config", "serving", "KV memory", "KV tokens", "vs first", "max concurrency"]
     head += [f"fits @ {L_label(c)}" for c in KVCACHE_CTXS]
+    mem = [k for k in ("load_gib", "weights_gib", "activation_gib", "non_torch_gib") if any(r.get(k) for r in rows)]
+    if mem:  # where the rest of the budget went, when the logs carried it
+        names = {"load_gib": "model load", "weights_gib": "weights", "activation_gib": "activation peak",
+                 "non_torch_gib": "non-torch"}  # fmt: skip
+        head += [f"{names[k]} {color('GiB')}" for k in mem]
+        for r, line in zip(rows, out):
+            line += [f"{r[k]:.1f}" if r.get(k) else "—" for k in mem]
     return _table(head, out, ["---", "---"] + ["--:"] * (len(head) - 2))
 
 
@@ -623,7 +630,10 @@ class ReadmeContext:
     vs_vllm_mjolnir: str = ""
     vs_vllm_spec: str = ""  # speculative decoding both sides ran with, e.g. "MTP, 3 speculative tokens"
     vs_vllm_missing: str = ""
-    e2e_example: dict = field(default_factory=dict)  # the hero cell's TTFT, for the methodology panel
+    e2e_example: dict = field(default_factory=dict)
+    e2e_max_ctx: str = field(default_factory=lambda: L_label(__import__("mjolnir_cli.e2e").e2e.MAX_CTX))
+    # the README's Key Features grid: measured numbers, each None when its run is missing
+    feat: dict = field(default_factory=dict)  # the hero cell's TTFT, for the methodology panel
     default_config: str = field(
         default_factory=lambda: __import__("mjolnir_cli.config").config.DEFAULT_QUANT
     )  # contexts only one side measured (the command that completes the table)
@@ -747,7 +757,49 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
                 else "—",
             }
     _accuracy_context(ctx, layout)
+    _features(ctx, data, layout)
     return ctx
+
+
+def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
+    """The numbers the Key Features grid quotes — from the same raw results as
+    the tables (the grid falls back to plain text where a run is missing)."""
+    from mjolnir_cli import accuracy, e2e
+
+    f: dict = {"geo": ctx.geo_vs_fi or None}
+    off, mj = e2e.latest_pair(layout.history_file)
+    h = e2e.hero(off, mj) if off and mj else None
+    if h:
+        f.update(
+            ctx=e2e.ctx_label(h["ctx"]),
+            decode=f"+{h['tg_tps'][2]:.0f}%",
+            prefill=f"+{h['pp_tps'][2]:.0f}%",
+            ttft=f"−{h['ttft_ms'][2]:.0f}%" if h["ttft_ms"][2] is not None else None,
+        )
+    kv = data.get("kv-cache-size")
+    if kv:
+        rows = [r for r in kv.get("rows", []) if r.get("kv_tokens")]
+        base = next((r for r in rows if r.get("side") == "official"), None)
+        fp6 = max(
+            (r for r in rows if str(r.get("kv_dtype", "")).startswith("fp6")),
+            key=lambda r: r["kv_tokens"],
+            default=None,
+        )
+        if base and fp6:
+            f["kv"] = f"+{(fp6['kv_tokens'] / base['kv_tokens'] - 1) * 100:.0f}%"
+    rows = accuracy.latest_legs(accuracy.load_runs(layout))
+    b = accuracy.baseline(rows)
+    if b:
+        mine = [r for r in rows if r is not b and str(r.get("config", "")).startswith("NVFP4_MJOLNIR")]
+        deltas = [
+            abs(r["suites"][n]["score"] - b["suites"][n]["score"])
+            for r in mine
+            for n in ("tools", "hardmode")
+            if n in r["suites"] and n in b["suites"]
+        ]
+        if deltas:
+            f["acc"] = f"{max(deltas):.1f}"
+    ctx.feat = f
 
 
 def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:

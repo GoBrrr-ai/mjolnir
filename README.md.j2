@@ -17,10 +17,11 @@
 </p>
 
 <p align="center">
-  <b><em>Mjölnir</em></b> — <em>a decode-attention kernel built for exactly one GPU: the <b>Jetson AGX Thor</b>.</em>
+  <b><em>Mjölnir</em></b> — <em>faster, bigger-context LLM serving on the <b>Jetson AGX Thor</b>: a dedicated decode kernel, a tuned vLLM image and a CLI that serves, benchmarks and documents it.</em>
 </p>
 
 <p align="center">
+  <a href="#-key-features">Features</a> •
   <a href="#quickstart">Quickstart</a> •
   <a href="#benchmarks">Benchmarks</a> •
   <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
@@ -33,20 +34,105 @@
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir is a paged fp8 decode-attention kernel for the NVIDIA Jetson AGX Thor (`sm_110`)**, written in CuTe DSL on Blackwell's `tcgen05` tensor cores, `TMEM` and `TMA`, and shipped as a vLLM attention backend:
+**Mjolnir makes LLM serving on the NVIDIA Jetson AGX Thor faster and roomier**: a decode-attention kernel written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), a 6-bit KV cache format for vLLM, a patched vLLM image that runs it, and a CLI that serves models from YAML configs and benchmarks every claim:
 
 ```bash
-vllm serve <model> --attention-backend MJOLNIR
+mjolnir serve up        # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM {{ ctx.vllm_version }} runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+
+## ⚡ Key Features
+
+<table width="100%">
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🚀&nbsp;Faster decode</h3>
+      <p>{% if ctx.feat.get('decode') %}<b>{{ ctx.feat.get('decode') }} tokens/s</b> per request vs the official vLLM image <sub>(1 request, {{ ctx.feat.get('ctx') }} context)</sub>{% else %}More tokens per second per request than the official vLLM image{% endif %}.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>⏱️&nbsp;Faster prompts</h3>
+      <p>{% if ctx.feat.get('prefill') %}<b>{{ ctx.feat.get('prefill') }}</b> prefill throughput{% if ctx.feat.get('ttft') %}, <b>{{ ctx.feat.get('ttft') }}</b> time to first token{% endif %}{% else %}Faster prefill and a shorter wait for the first token{% endif %}.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🧠&nbsp;More context per GB</h3>
+      <p>The 6-bit <code>e2m3</code> KV cache holds {% if ctx.feat.get('kv') %}<b>{{ ctx.feat.get('kv') }} tokens</b>{% else %}25% fewer bytes per token, so more tokens{% endif %} in the same memory: longer documents, more users.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🎯&nbsp;Same answers</h3>
+      <p>{% if ctx.feat.get('acc') %}Tool calling within <b>±{{ ctx.feat.get('acc') }} points</b> of the stock FlashInfer fp8 baseline{% else %}Measured against the stock FlashInfer fp8 baseline{% endif %} on 97 agentic scenarios (<a href="docs/kernel/accuracy.md">accuracy</a>).</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔮&nbsp;4-token speculation</h3>
+      <p>MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary make each draft cheap enough to pay off.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔩&nbsp;A kernel for this chip</h3>
+      <p>{% if ctx.feat.get('geo') %}<b>{{ ctx.feat.get('geo') }}×</b> FlashInfer per decode step (geomean, 128 to 256K tokens){% else %}Paged decode on tcgen05, TMEM and TMA{% endif %}, checked against a bit-faithful emulator.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🐳&nbsp;One image</h3>
+      <p>Official vLLM {{ ctx.vllm_version }} + Mjolnir + Thor patches. Drop-in: <code>--attention-backend MJOLNIR</code>.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>📄&nbsp;Models as YAML</h3>
+      <p>Each model is a YAML file of serve flags plus an optional <code>.env</code>. <code>mjolnir serve up</code> does the rest (<a href="#model-configs-yaml--env">how</a>).</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🧪&nbsp;Calibrated per model</h3>
+      <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
+      <br>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>📊&nbsp;Benchmarks you can rerun</h3>
+      <p>Kernel, serving and accuracy benches in one CLI: gated clean windows, raw JSON for every number.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🤖&nbsp;A self-writing README</h3>
+      <p>Every table, chart and number on this page is rendered from the raw results. No hand-typed claims.</p>
+      <br>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <br>
+      <h3>🔬&nbsp;Autoresearch</h3>
+      <p>An agent loop proposes, tests and logs kernel experiments; every try leaves data behind.</p>
+      <br>
+    </td>
+  </tr>
+</table>
 
 {% if ctx.vs_vllm_hero -%}
 <p align="center">
 {{ chart("opening-infographic", "Mjolnir image vs the official vLLM image — end-to-end decode and prefill") }}
 </p>
 
-> <sub>End to end on a Jetson AGX Thor ({{ ctx.vs_vllm_spec }}), one request at {{ ctx.vs_vllm_hero.ctx }} context: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+> <sub>End to end on a Jetson AGX Thor ({{ ctx.vs_vllm_spec }}), one request at {{ ctx.vs_vllm_hero.ctx }} context {{ color("(the 1-request cell up to " + ctx.e2e_max_ctx + " with the highest decode gain)") }}: decode <b>{{ ctx.vs_vllm_hero.tg_tps }}</b>, prefill <b>{{ ctx.vs_vllm_hero.pp_tps }}</b>, time to first token <b>{{ ctx.vs_vllm_hero.ttft_ms }}</b>, inter-token latency <b>{{ ctx.vs_vllm_hero.itl_ms }}</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 {{ how("e2e") }}
 {%- endif %}
@@ -60,7 +146,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 |---|---|
 | **vs FlashInfer**, geomean over L = {{ ctx.ls }} | **{{ ctx.geo_vs_fi }}× faster** {{ color("(from " + ctx.min_vs_fi + " at " + ctx.min_vs_fi_L + " to " + ctx.max_vs_fi + "× at " + ctx.max_vs_fi_L + ")") }} |
 {% if ctx.geo_vs_fa2 -%}
-| **vs FlashAttention 2** {{ color("(stock vLLM's sm\_110 default)") }} | **{{ ctx.geo_vs_fa2 }}× faster** |
+| **vs FlashAttention 2** {{ color("(stock vLLM's sm\\_110 default)") }} | **{{ ctx.geo_vs_fa2 }}× faster** |
 {% endif -%}
 | faster than FlashInfer beyond the ±{{ ctx.noise_pct }}% noise band | **{{ ctx.beats_fi }}** context lengths |
 | at the longest context ({{ ctx.long_L }} tokens) | **{{ ctx.long_vs_fi }}×** vs FlashInfer |
@@ -114,6 +200,30 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
 
 **Or bring your own vLLM {{ ctx.vllm_version }}**: `pip install mjolnir-kernel` registers the backend as `CUSTOM` through vLLM's plugin system (`--attention-backend CUSTOM`); [`thor-mjolnir-attention-backend.patch`](docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch) adds the `MJOLNIR` name.
 
+## Model configs (YAML + .env)
+
+A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — under `configs/<vendor>/<model>/<config>.yaml`. What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into an optional `<config>.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit in the same directory:
+
+```text
+configs/Qwen/Qwen3.8-27B/
+├── {{ ctx.default_config }}.yaml   attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
+├── {{ ctx.default_config }}.env    MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
+├── NVFP4.yaml                    the stock FlashInfer baseline, same model and limits
+├── kv_scales.json                per-channel KV scales (mjolnir calibrate)
+└── draft_vocab.json              the drafter's vocabulary (mjolnir calibrate --draft-vocab)
+```
+
+```bash
+mjolnir model use                       # pick the model and config (interactive)
+mjolnir serve up --config NVFP4_MJOLNIR_E2M3   # or serve one explicitly
+```
+
+- **One file per variant** — an A/B is two configs, not two shell histories: `mjolnir bench ab --backends NVFP4,{{ ctx.default_config }}`.
+- **The same config everywhere** — `serve`, `bench`, `verify` and `calibrate` read the same YAML and `.env`, so a benchmark measures exactly what you serve.
+- **Yours without forking** — drop configs into `~/.local/share/mjolnir/configs/` (same layout); they appear next to the repo's.
+
+More: [adding a model config](docs/faq/new-model-config.md) · [the default model and config](docs/faq/default-model-quant.md) · [serving](docs/faq/serve-server.md) · [which setting wins](docs/faq/settings-precedence.md) · [fp6 KV and calibration](docs/faq/fp6-kv.md).
+
 ## Benchmarks
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**. Legs:
@@ -147,6 +257,8 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ ctx.noise_pct
 Native vLLM {{ ctx.vllm_version }} — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: {{ ctx.vs_vllm_spec }}** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
 
 {{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir") }}
+
+{{ chart("e2e-prefill", "End-to-end prompt processing: official vLLM vs Mjolnir") }}
 
 Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill (+ = more tokens/s), **latency change** for TTFT and ITL (− = fewer milliseconds, a latency reduction, not a reciprocal speedup). Green = better beyond the ±{{ ctx.e2e_noise_pct }}% noise band, grey = within it, red = worse beyond it. With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
 

@@ -88,8 +88,9 @@ skipped with a hint — nothing blocks on a password.
   `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV — stock vLLM's
   choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4).
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
-  + OpenCode agents in `.opencode/agent/` (orchestrator `autoresearch`;
-  `arxiv-researcher`, `web-researcher`, `python-engineer`, `debugger`). The loop
+  + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
+  to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
+  `debugger` from the user's global OpenCode config; none ship with the repo). The loop
   is `research/program.md`; every experiment is a ledger row.
 - **Retired**: the FA4 GEMV decode kernel and its tooling were removed; the
   last snapshot is in git history at
@@ -183,8 +184,10 @@ not hand-typed numbers.
 ### End to end
 `mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
 TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
-`mjolnir bench perf` (gated llama-benchy; `perf`, `ab` and `e2e` default to
-context depths 0–128K, `config.E2E_DEPTHS`, raw JSON + server log + a history row,
+`mjolnir bench perf` (gated llama-benchy; `perf` and `ab` default to
+context depths 0–128K (`config.E2E_DEPTHS`), `e2e` to 0–32K (`e2e.MAX_CTX`: the
+README table, e2e charts and infographic stop there; the infographic takes the
+1-request cell with the highest decode gain), raw JSON + server log + a history row,
 incl. `spec_stats`: MTP tokens per verify step and per-position acceptance from
 the server's counters — decode t/s = tokens/step ÷ step time, so compare it
 before blaming the kernel);

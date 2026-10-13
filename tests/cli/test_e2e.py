@@ -167,7 +167,9 @@ def test_runs_merge_cell_by_cell(tmp_path):
     assert sorted(c["context"] for c in o["cells"]) == [8192, 32768, 131072]
     assert e2e.cell(m, 1, 8192)["tg_tps"]["mean"] == 23  # newest run wins
     assert e2e.cell(m, 1, 32768)["tg_tps"]["mean"] == 19  # kept from the older run
-    assert e2e.hero(o, m)["ctx"] == 131072
+    # the hero: 1 request, up to MAX_CTX, the cell with the highest decode gain (128K is past the cap)
+    assert e2e.hero(o, m)["ctx"] == 8192
+    assert e2e.hero(o, m, max_ctx=None)["ctx"] in (8192, 131072)
 
 
 def test_cells_only_one_side_measured_are_kept_and_flagged():
@@ -177,8 +179,11 @@ def test_cells_only_one_side_measured_are_kept_and_flagged():
     off, mj = rec([0, 8192, 131072]), rec([0, 8192])
     assert [r["ctx"] for r in e2e.compare(off, mj)] == [0, 8192]  # the comparison: shared cells only
     full = e2e.compare(off, mj, every=True)
+    assert [r["ctx"] for r in full] == [0, 8192]  # 128K is past MAX_CTX: not in the table
+    assert e2e.missing_contexts(off, mj) == {"official": [], "mjolnir": []}
+    full = e2e.compare(off, mj, every=True, max_ctx=None)
     assert [r["ctx"] for r in full] == [0, 8192, 131072] and full[-1]["tg_tps"][1] is None
-    assert e2e.missing_contexts(off, mj) == {"official": [], "mjolnir": [131072]}
+    assert e2e.missing_contexts(off, mj, max_ctx=None) == {"official": [], "mjolnir": [131072]}
 
 
 def test_history_survives_a_missing_final_newline(tmp_path):

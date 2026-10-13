@@ -699,6 +699,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
         for i, (rec, sid, lbl) in enumerate(sides):
             hollow = not theme.filled(sid)
             col = theme.color(mode, sid)
+            labelled = ax is not axes[0]  # legend entry: the side's first drawn bar
             for j, ctx in enumerate(ctxs):
                 x = j + (i - (len(sides) - 1) / 2) * w
                 v = e2e.value(e2e.cell(rec, conc, ctx), metric)
@@ -724,8 +725,9 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
                     linewidth=1.6 if hollow else 0,
                     hatch=theme.hatch(sid),
                     zorder=3,
-                    label=lbl if ax is axes[0] and j == 0 else None,
+                    label=None if labelled else lbl,
                 )
+                labelled = True
         ax.set_xticks(range(len(ctxs)))
         ax.set_xticklabels([f"{L_label(c)}" if c else "0" for c in ctxs])
         ax.set_xlabel(f"context · {conc} concurrent request{'s' if conc > 1 else ''}")
@@ -1351,15 +1353,22 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
     return fig
 
 
+# a category holds 2–10 scenarios: one partial in a 10-scenario category moves it
+# 5 points, so up to that is "on par"; red from 30 points behind
+ACC_PAR_POINTS = 5.0
+ACC_RED_POINTS = 30.0
+
+
 def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     """Tool-call categories × configs: the share of points per cell, colored
-    by the difference to the baseline (orange = more, blue = fewer)."""
+    by how far the config falls behind the baseline — green on par (or
+    better), then orange, then red the more points it loses."""
     rows, base, _ = _accuracy_rows(layout)
     rows = [r for r in rows if r.get("categories")]
     if not rows:
         return None
     import numpy as np
-    from matplotlib.colors import TwoSlopeNorm
+    from matplotlib.colors import Normalize
 
     cats = sorted({c for r in rows for c in r["categories"]})
     pct = np.array([[r["categories"].get(c, {}).get("percent", np.nan) for c in cats] for r in rows], dtype=float)
@@ -1369,17 +1378,16 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
         else np.full(len(cats), np.nan)
     )
     delta = pct - ref[None, :]
-    finite = delta[np.isfinite(delta)]
-    span = max(10.0, float(np.nanmax(np.abs(finite))) if finite.size else 10.0)
+    loss = np.where(np.isfinite(delta), np.clip(-delta, 0, None), 0.0)  # points behind the baseline; ahead = 0
+    span = max(ACC_RED_POINTS, float(loss.max()) if loss.size else ACC_RED_POINTS)
     plt = _plt()
     fig, ax = plt.subplots(figsize=(max(9.0, 0.78 * len(cats) + 4.5), 1.8 + 0.55 * len(rows)))
     theme.apply(fig, ax, mode)
     ax.grid(False)
-    shown = np.where(np.isfinite(delta), delta, 0.0)
     ax.imshow(
-        shown,
-        cmap=theme.diverging_cmap(mode),
-        norm=TwoSlopeNorm(vmin=-span, vcenter=0.0, vmax=span),
+        loss,
+        cmap=theme.status_cmap(mode, ACC_PAR_POINTS, span),
+        norm=Normalize(vmin=0.0, vmax=span),
         aspect="auto",
         interpolation="nearest",
     )
@@ -1400,9 +1408,9 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
         ax,
         mode,
         "Tool calls by category",
-        "cell = share of points, % · color = difference to "
+        "cell = share of points, % · green = on par with "
         + (base["label"] if base else "the first row")
-        + " (orange more, blue fewer, gray equal)",
+        + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
     )
     _accuracy_footer(fig, mode, rows)
     return fig

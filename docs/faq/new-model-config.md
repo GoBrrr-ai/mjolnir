@@ -73,3 +73,22 @@ in the printed command.
 Promote a good local config to the repo when it's worth sharing: copy the
 file to `<repo>/configs/<vendor>/<model>/<quant>.yaml` and commit it — the
 local copy stops shadowing anything and the repo one becomes canonical.
+
+## Env switches: the `<config>.env` sidecar
+
+Some switches are environment variables, not `vllm serve` flags — the fp8
+lm_head, the drafter's trimmed vocabulary, Mjolnir kernel knobs. Put them in a
+file next to the YAML with the same name and `.env`:
+
+```bash
+# configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K.env
+MJOLNIR_LM_HEAD=fp8
+MJOLNIR_LM_HEAD_DROP_BF16=1
+MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json   # {configs} = this directory inside the container
+MJOLNIR_DRAFT_VOCAB_SIZE=65536
+```
+
+`mjolnir serve`, `bench` and `verify` pass every `KEY=VALUE` line to the
+container (`#` starts a comment). A config without a sidecar gets nothing
+extra, so an experiment is one new YAML + `.env` pair — the YAML can be a copy
+of its parent's.

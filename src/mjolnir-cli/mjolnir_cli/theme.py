@@ -134,6 +134,27 @@ def diverging_cmap(mode: Mode):
     return LinearSegmentedColormap.from_list(f"mjolnir-div-{mode.name}", [mode.flashinfer, mode.neutral, mode.mjolnir])
 
 
+# status scale for "how much worse than the baseline" (accuracy heatmaps):
+# soft tints in light mode, deep ones in dark mode, so the cell text (mode.text)
+# stays readable on every step; identity colors are never reused for it
+STATUS = {
+    "light": ("#bbf7d0", "#fed7aa", "#fecaca"),  # on par / worse / much worse
+    "dark": ("#14532d", "#7c2d12", "#7f1d1d"),
+}
+
+
+def status_cmap(mode: Mode, par: float, span: float):
+    """0 → ``span`` points worse: green up to ``par``, then to orange at the
+    middle of the rest, red at ``span``."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    good, warn, bad = STATUS[mode.name]
+    p = max(0.0, min(0.9, par / span))
+    return LinearSegmentedColormap.from_list(
+        f"mjolnir-status-{mode.name}", [(0.0, good), (p, good), ((1 + p) / 2, warn), (1.0, bad)]
+    )
+
+
 def apply(fig, axes, mode: Mode) -> None:
     """Surfaces, recessive hairline grid, muted ticks — for one or many axes."""
     fig.patch.set_facecolor(mode.bg)

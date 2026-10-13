@@ -39,6 +39,7 @@ from rich.table import Table
 
 from mjolnir_cli import __version__
 from mjolnir_cli import legs as legs_
+from mjolnir_cli.e2e import MAX_CTX as _E2E_MAX_CTX
 from mjolnir_cli.config import (
     BACKEND_LABELS,
     DEFAULT_IMAGE,
@@ -1244,7 +1245,9 @@ def bench_e2e(
     runs: int = typer.Option(6, "--runs", help="measured runs per cell"),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps per leg"),
     depths: str = typer.Option(
-        ",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths (tokens already in the KV)"
+        ",".join(str(d) for d in E2E_DEPTHS if d <= _E2E_MAX_CTX),
+        "--depths",
+        help="context depths (tokens already in the KV); the comparison shows up to 32K",
     ),
     concurrency: str = typer.Option("1,2,4", "--concurrency"),
     pp: int = typer.Option(2048, "--pp", help="prompt tokens per request (prefill)"),

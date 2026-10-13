@@ -187,16 +187,28 @@ def _is_mjolnir(image: str) -> bool:
     return e2e.is_mjolnir({"image": image})
 
 
+def kv_label(rec: dict) -> str:
+    kv = str(rec.get("kv_cache_dtype") or "auto")
+    return {"fp6_e2m3": "fp6 e2m3 KV", "fp8": "fp8 KV", "fp8_e4m3": "fp8 KV", "auto": "bf16 KV"}.get(kv, f"{kv} KV")
+
+
 def leg_label(rec: dict) -> str:
+    """'official vLLM · FlashInfer · fp8 KV', 'Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab', ...
+    — every label names the KV-cache format."""
     from mjolnir_cli.config import BACKEND_LABELS
 
     cfg = str(rec.get("config", ""))
-    base = BACKEND_LABELS.get(cfg, cfg)
+    kv = kv_label(rec)
     if not _is_mjolnir(str(rec.get("image", ""))):
-        return f"official vLLM · {base}"
+        return f"official vLLM · {BACKEND_LABELS.get(cfg, cfg)} · {kv}"
     if "MJOLNIR" not in cfg:
-        return f"Mjolnir image · {base}"
-    return base
+        return f"Mjolnir image · {BACKEND_LABELS.get(cfg, cfg)} · {kv}"
+    extra = "".join(
+        f" + {name}"
+        for tag, name in (("LMH8", "fp8 lm_head"), ("VT32K", "32K draft vocab"), ("VT64K", "64K draft vocab"))
+        if tag in cfg.split("_")
+    )
+    return f"Mjolnir · {kv}{extra}"
 
 
 def run_accuracy(
@@ -292,7 +304,8 @@ def latest_legs(docs: list[dict]) -> list[dict]:
                 {k: leg.get(k) for k in ("id", "model", "image", "config", "label", "kv_cache_dtype", "env")}
                 | {"suites": {}, "categories": {}, "scenarios": {}, "runs": {}},
             )
-            row["label"] = leg.get("label") or row["label"]
+            row["kv_cache_dtype"] = leg.get("kv_cache_dtype") or row.get("kv_cache_dtype")
+            row["label"] = leg_label(row)  # recomputed: labels improve after a run is stored
             for name, suite in (leg.get("suites") or {}).items():
                 row["suites"][name] = suite
                 row["runs"][name] = {"run_id": d.get("run_id"), "args": d.get("args")}

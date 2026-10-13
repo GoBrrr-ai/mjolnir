@@ -58,6 +58,10 @@ BY_KEY = {m.key: m for m in METRICS}
 # rate varies by prompt), so a decode mean of 6 runs carries a ~2-6% standard
 # error — a decode gain inside ~6% needs repeated sweeps (--repeat) to trust.
 E2E_NOISE_PCT = 3.0
+# the official-vs-Mjolnir comparison (README table, e2e charts, infographic)
+# and `bench e2e`'s default depths stop here: the 64K / 128K cells take hours
+# per leg; `bench perf|ab --depths` still measure beyond it
+MAX_CTX = 32768
 
 
 def is_official(rec: dict) -> bool:
@@ -171,25 +175,26 @@ def shared_cells(off: dict, mj: dict) -> list[tuple[int, int]]:
     return sorted(a & b, key=lambda k: (k[0], k[1]))
 
 
-def all_cells(off: dict, mj: dict) -> list[tuple[int, int]]:
-    """(concurrency, context) cells either record measured, sorted."""
+def all_cells(off: dict, mj: dict, max_ctx: int | None = MAX_CTX) -> list[tuple[int, int]]:
+    """(concurrency, context) cells either record measured, up to ``max_ctx``, sorted."""
     a = {(c.get("concurrency"), c.get("context") or 0) for c in off.get("cells", []) if not c.get("prefill_phase")}
     b = {(c.get("concurrency"), c.get("context") or 0) for c in mj.get("cells", []) if not c.get("prefill_phase")}
-    return sorted(a | b, key=lambda k: (k[0], k[1]))
+    return sorted((k for k in a | b if max_ctx is None or k[1] <= max_ctx), key=lambda k: (k[0], k[1]))
 
 
-def missing_contexts(off: dict, mj: dict) -> dict[str, list[int]]:
-    """Contexts only one side measured: {"official": [...], "mjolnir": [...]}."""
-    a = {c.get("context") or 0 for c in off.get("cells", []) if not c.get("prefill_phase")}
-    b = {c.get("context") or 0 for c in mj.get("cells", []) if not c.get("prefill_phase")}
+def missing_contexts(off: dict, mj: dict, max_ctx: int | None = MAX_CTX) -> dict[str, list[int]]:
+    """Contexts (up to ``max_ctx``) only one side measured: {"official": [...], "mjolnir": [...]}."""
+    ok = lambda c: max_ctx is None or (c.get("context") or 0) <= max_ctx  # noqa: E731
+    a = {c.get("context") or 0 for c in off.get("cells", []) if not c.get("prefill_phase") and ok(c)}
+    b = {c.get("context") or 0 for c in mj.get("cells", []) if not c.get("prefill_phase") and ok(c)}
     return {"official": sorted(b - a), "mjolnir": sorted(a - b)}
 
 
-def compare(off: dict, mj: dict, every: bool = False) -> list[dict]:
+def compare(off: dict, mj: dict, every: bool = False, max_ctx: int | None = MAX_CTX) -> list[dict]:
     """One row per shared cell (``every``: per cell either side measured, the
     other side None): {conc, ctx, <key>: (official, mjolnir, gain%)}."""
     rows = []
-    for conc, ctx in all_cells(off, mj) if every else shared_cells(off, mj):
+    for conc, ctx in all_cells(off, mj, max_ctx) if every else shared_cells(off, mj):
         a, b = cell(off, conc, ctx), cell(mj, conc, ctx)
         row: dict = {"conc": conc, "ctx": ctx}
         for m in METRICS:
@@ -199,21 +204,24 @@ def compare(off: dict, mj: dict, every: bool = False) -> list[dict]:
     return rows
 
 
-def hero(off: dict, mj: dict) -> dict | None:
-    """The infographic scenario: one request (c=1) at the longest context both
-    sides measured. {ctx, tg_tps: (off, mj, gain), pp_tps: (...)}."""
-    c1 = [ctx for conc, ctx in shared_cells(off, mj) if conc == 1]
-    if not c1:
-        return None
-    ctx = max(c1)
-    a, b = cell(off, 1, ctx), cell(mj, 1, ctx)
-    out: dict = {"ctx": ctx}
-    for key in ("tg_tps", "pp_tps", "ttft_ms", "itl_ms"):
-        va, vb = value(a, key), value(b, key)
-        out[key] = (va, vb, gain_pct(key, va, vb) if va and vb else None)
-    if out["tg_tps"][2] is None or out["pp_tps"][2] is None:
-        return None
-    return out
+def hero(off: dict, mj: dict, max_ctx: int | None = MAX_CTX) -> dict | None:
+    """The infographic scenario: one request (c=1), among the contexts up to
+    ``max_ctx`` where both sides measured decode AND prefill, the one with
+    the highest decode gain. {ctx, tg_tps: (off, mj, gain), pp_tps: (...), ...}."""
+    best = None
+    for conc, ctx in shared_cells(off, mj):
+        if conc != 1 or (max_ctx is not None and ctx > max_ctx):
+            continue
+        a, b = cell(off, 1, ctx), cell(mj, 1, ctx)
+        out: dict = {"ctx": ctx}
+        for key in ("tg_tps", "pp_tps", "ttft_ms", "itl_ms"):
+            va, vb = value(a, key), value(b, key)
+            out[key] = (va, vb, gain_pct(key, va, vb) if va and vb else None)
+        if out["tg_tps"][2] is None or out["pp_tps"][2] is None:
+            continue
+        if best is None or out["tg_tps"][2] > best["tg_tps"][2]:
+            best = out
+    return best
 
 
 def ctx_label(ctx: int) -> str:
