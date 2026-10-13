@@ -72,7 +72,7 @@ def ratio_md(r: float | None, bold_wins: bool = True) -> str:
 def color(text: str, color: str = "grey") -> str:
     """Render grey LaTeX text, escaping whitespace for math mode."""
     escaped = re.sub(r"\s+", lambda _: r"\ ", text.strip())
-    return rf"$\color{{{color}}}{{{escaped}}}$"
+    return rf"$\color{{{color}}}\scriptstyle\text{{{escaped}}}$"
 
 
 def pct_md(p: float | None, lower_is_better: bool = True) -> str:

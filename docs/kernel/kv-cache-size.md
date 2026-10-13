@@ -33,7 +33,7 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 - Mjolnir · fp6 e2m3 KV: 12.9 requests at the full 200K context (vLLM's own estimate).
 - Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab: 12.7 requests at the full 200K context (vLLM's own estimate).
 
-| config | serving | KV memory | KV tokens | vs first | max concurrency | fits @ 4K | fits @ 8K | fits @ 16K | fits @ 32K | fits @ 64K | fits @ 128K | model load $\color{grey}{GiB}$ |
+| config | serving | KV memory | KV tokens | vs first | max concurrency | fits @ 4K | fits @ 8K | fits @ 16K | fits @ 32K | fits @ 64K | fits @ 128K | model load $\color{grey}\scriptstyle\text{GiB}$ |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
 | `NVFP4` | official vLLM · FlashInfer · fp8 KV | 69.8 GiB | 2,022,204 | 1.00× | 9.9× @ 200K | 322 | 195 | 108 | 57 | 29 | 15 | 18.4 |
 | `NVFP4_MJOLNIR` | Mjolnir · fp8 KV | 69.2 GiB | 1,998,478 | 0.99× | 9.8× @ 200K | 318 | 192 | 107 | 57 | 29 | 14 | 18.4 |

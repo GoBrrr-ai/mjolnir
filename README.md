@@ -40,7 +40,7 @@
 mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
-Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention 2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+**Why?** Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
 ## ⚡ Key Features
 
@@ -50,8 +50,6 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <img src="assets/opening-infographic.png" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
 </picture>
 </p>
-
-> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens vs MTP, 4 speculative tokens), one request at 4K context $\color{grey}{(the\ 1-request\ cell\ up\ to\ 32K\ with\ the\ highest\ decode\ gain)}$: decode <b>+64.2%</b>, prefill <b>+210.0%</b>, time to first token <b>2.31 s → 1.70 s (−26.5%)</b>, inter-token latency <b>43.5 ms → 26.6 ms (−38.9%)</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -156,11 +154,11 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
   narandill/mjolnir-vllm:v0.31.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
-**Or bring your own vLLM 0.31.0**: `pip install mjolnir-kernel` registers the backend as `CUSTOM` through vLLM's plugin system (`--attention-backend CUSTOM`); [`thor-mjolnir-attention-backend.patch`](docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch) adds the `MJOLNIR` name.
+## Models as Code
 
-## Model configs (`YAML` + `.env`)
+A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — under `configs/<vendor>/<model>/<config>.yaml`.
 
-A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — under `configs/<vendor>/<model>/<config>.yaml`. What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into an optional `<config>.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit in the same directory:
+What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into an optional `<config>.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit in the same directory:
 
 ```bash
 configs/Qwen/Qwen3.8-27B/
@@ -184,16 +182,17 @@ More: [adding a model config](docs/faq/new-model-config.md) · [the default mode
 
 ## Benchmarks
 
-All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**. Legs:
+### Mjolnir Kernel
+
+All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
+Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md)).
 
 | leg | what runs | KV cache |
 |---|---|---|
 | **Mjolnir · e2m3 KV** | this kernel, the default (6-bit KV read directly by the tensor cores; served by `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`) | e2m3, head-major pages |
 | **Mjolnir · fp8 KV** | this kernel on fp8 KV (`NVFP4_MJOLNIR`) | fp8 e4m3, head-major pages |
 | **FlashInfer** | tensor-core decode as vLLM's FlashInfer backend runs it | fp8 e4m3, NHD pages |
-| **FlashAttention 2** | `vllm_flash_attn` FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 <sup>(FA2 has no fp8 KV)</sup> |
-
-Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, so ratios inside that band are drawn gray (L=16K is the exception — it is bimodal across runs; see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md)).
+| **FlashAttention&nbsp;2** | `vllm_flash_attn` FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2\ has\ no\ fp8\ KV)}$ |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-latency-dark.png">
@@ -229,7 +228,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
   <img src="assets/benchmarks/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
 </picture>
 
-### Official vLLM image vs Mjolnir
+### E2E: Official vLLM image vs Mjolnir
 
 Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
 
@@ -243,9 +242,9 @@ Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image,
   <img src="assets/benchmarks/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
 </picture>
 
-Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill (+ = more tokens/s), **latency change** for TTFT and ITL (− = fewer milliseconds, a latency reduction, not a reciprocal speedup). Green = better beyond the ±3% noise band, grey = within it, red = worse beyond it. With speculative decoding the decode rate also depends on how many draft tokens are accepted, which varies by prompt, so single decode cells move by more than the band from run to run.
+Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill (+ = more tokens/s), **latency change** for TTFT and ITL (− = fewer milliseconds, a latency reduction, not a reciprocal speedup).
 
-| context | requests | decode (t/s, ↑) $\color{grey}{throughput\ change}$ | prefill (t/s, ↑) $\color{grey}{throughput\ change}$ | TTFT (ms, ↓) $\color{grey}{latency\ change}$ | ITL (ms, ↓) $\color{grey}{latency\ change}$ |
+| context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput\ change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput\ change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency\ change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency\ change}$ |
 |--:|--:|--:|--:|--:|--:|
 | no ctx | 1 | 22.5 → **35.4** $\color{#16a34a}{\text{+57.3\\%}}$ | 2,929 → *n/a* | 833 → **590** $\color{#16a34a}{\text{−29.1\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{−36.4\\%}}$ |
 | 4K | 1 | 23.1 → **37.9** $\color{#16a34a}{\text{+64.2\\%}}$ | 2,820 → **8,740** $\color{#16a34a}{\text{+210.0\\%}}$ | 2,314 → **1,701** $\color{#16a34a}{\text{−26.5\\%}}$ | 43.5 → **26.6** $\color{#16a34a}{\text{−38.9\\%}}$ |
@@ -307,10 +306,9 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [Flag A/B](docs/kernel/ab.md)  | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
 | [Accuracy](docs/kernel/accuracy.md)  | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
 
+## What's in the Mjolnir image
 
-## What's in the image
-
-[`narandill/mjolnir-vllm:v0.31.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.31.0` image + the `mjolnir-kernel` package + a hand-adapted patch stack for Thor. Tags follow the upstream vLLM version.
+[`narandill/mjolnir-vllm:v0.31.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.31.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](docker/vllm-thor/PATCHES.md). Tags follow the upstream vLLM version.
 
 | patch | what it does |
 |---|---|
@@ -320,9 +318,6 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [#54165](https://github.com/vllm-project/vllm/pull/54165) | Mamba/GDN `copy_kv_cache` restore under speculative decode |
 | [#55519](https://github.com/vllm-project/vllm/pull/55519) | no false-positive KV-reuse warning on the GDN hybrid |
 | Thor `sm_110` patches | GDN prefill enablement, FA4 hd256 fp8-KV + 1-CTA decode, fused draft-decode plan advance, DSpark non-causal draft cudagraph, draft-cudagraph shape gate, the `MJOLNIR` backend name + FA4 fallback default, the `fp6_e2m3` KV cache dtype |
-
-> [!TIP]
-> Details: [`docker/vllm-thor/PATCHES.md`](docker/vllm-thor/PATCHES.md).
 
 ## The CLI
 
@@ -340,12 +335,9 @@ mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop
 mjolnir gate | hw | litellm | perses    # clean-window gate, host setup, side stacks
 ```
 
-> [!TIP]
-> Every `verify` stage defaults to `L = 128 4K 8K 16K 32K 64K 128K 256K`; `--ls`, `--iters`, `--image`, `--dry-run` work everywhere.
-
 ## Contributing
 
-Mjolnir is meant to be a **community case study**: every claim is reproducible with one command, and every experiment — kept or discarded — leaves raw data behind.
+**Mjolnir** is meant to be a **community case study**: every claim is reproducible with one command, and every experiment — kept or discarded — leaves raw data behind.
 
 - **Run the benchmarks on your Thor** — `mjolnir verify bench` writes JSON you can open a PR with; the README, docs and charts re-render from it.
 - **Try a kernel idea** — change `src/mjolnir/mjolnir/t5_decode.py`, prove it with `mjolnir verify correctness` and an `mjolnir verify ab --variants ...` run, and send the raw result with the PR.
@@ -375,7 +367,14 @@ The served API is unauthenticated; expose it deliberately. See [SECURITY.md](.gi
 
 ## License
 
-Mjolnir is open source under the [Apache License 2.0](LICENSE) — the license of vLLM and FlashInfer, which it builds on — with one exception: the kernel, [`src/mjolnir/mjolnir/t5_decode.py`](src/mjolnir/mjolnir/t5_decode.py), is derived from an NVIDIA CUTLASS CuTe DSL example and stays under that example's **BSD-3-Clause** license, with NVIDIA's notice kept at the top of the file. Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches, and what the [`narandill/mjolnir-vllm`](https://hub.docker.com/r/narandill/mjolnir-vllm) image redistributes are listed in [NOTICE](NOTICE).
+Mjolnir is open source under the [Apache License 2.0](LICENSE) — the license of vLLM and FlashInfer, which it builds on — with one exception: the kernel, [`src/mjolnir/mjolnir/t5_decode.py`](src/mjolnir/mjolnir/t5_decode.py), is derived from an NVIDIA CUTLASS CuTe DSL example and stays under that example's **BSD-3-Clause** license, with NVIDIA's notice kept at the top of the file.
 
-<p align="center"><sub>⚡ Mjölnir — built on and for the edge.</sub></p>
+### Third-party
+Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches, and what the [`narandill/mjolnir-vllm`](https://hub.docker.com/r/narandill/mjolnir-vllm) image redistributes are listed in [NOTICE](NOTICE).
+
+---
+
+<br />
+
+<p align="center"><sub>⚡ Mjölnir — built on and for the edge ❤️.</sub></p>
 <p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>
