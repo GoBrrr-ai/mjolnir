@@ -27,6 +27,7 @@ The file is the raw, git-trackable substrate for the charts and for
 from __future__ import annotations
 
 import json
+import sys
 import platform
 import time
 from pathlib import Path
@@ -35,19 +36,38 @@ from typing import Any
 
 def append_record(history_file: Path, record: dict[str, Any]) -> None:
     history_file.parent.mkdir(parents=True, exist_ok=True)
+    # a hand-edited file may lack the final newline: never glue a record onto it
+    lead = ""
+    if history_file.exists() and history_file.stat().st_size:
+        with history_file.open("rb") as f:
+            f.seek(-1, 2)
+            lead = "" if f.read(1) == b"\n" else "\n"
     with history_file.open("a") as f:
-        f.write(json.dumps(record) + "\n")
+        f.write(lead + json.dumps(record) + "\n")
 
 
 def load_records(history_file: Path) -> list[dict[str, Any]]:
+    """Every record, one JSON object per line — tolerant of objects glued
+    onto one line (an append after a hand edit that dropped the newline) and
+    of a truncated last line (an interrupted write), which is skipped with a
+    warning instead of failing every reader."""
     if not history_file.exists():
         return []
     out = []
+    dec = json.JSONDecoder()
     with history_file.open() as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             line = line.strip()
-            if line:
-                out.append(json.loads(line))
+            i = 0
+            while i < len(line):
+                try:
+                    rec, i = dec.raw_decode(line, i)
+                except json.JSONDecodeError as e:
+                    print(f"[mjolnir] {history_file}:{n}: skipped unreadable data ({e})", file=sys.stderr)
+                    break
+                out.append(rec)
+                while i < len(line) and line[i].isspace():
+                    i += 1
     return out
 
 
