@@ -4,6 +4,16 @@
   "light": "assets/benchmarks/ab-heatmap.png",
   "stage": "ab"
  },
+ "accuracy-categories": {
+  "dark": "assets/benchmarks/accuracy-categories-dark.png",
+  "light": "assets/benchmarks/accuracy-categories.png",
+  "stage": "accuracy"
+ },
+ "accuracy-suites": {
+  "dark": "assets/benchmarks/accuracy-suites-dark.png",
+  "light": "assets/benchmarks/accuracy-suites.png",
+  "stage": "accuracy"
+ },
  "e2e-decode": {
   "dark": "assets/benchmarks/e2e-decode-dark.png",
   "light": "assets/benchmarks/e2e-decode.png",

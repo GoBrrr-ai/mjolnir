@@ -13,7 +13,11 @@
 </p>
 
 <p align="center">
-  <b><em>Mjölnir</em></b> <sup>(MYOL-nir)</sup> — <em>a decode-attention kernel built for exactly one GPU: the <b>Jetson AGX Thor</b>.</em>
+  ⭐ Star us on GitHub — it motivates us a lot!
+</p>
+
+<p align="center">
+  <b><em>Mjölnir</em></b> — <em>a decode-attention kernel built for exactly one GPU: the <b>Jetson AGX Thor</b>.</em>
 </p>
 
 <p align="center">
@@ -52,11 +56,11 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 {{ chart("kernel-speedup", "Mjolnir decode speedup over FlashInfer at every context length") }}
 </p>
 
-| decode kernel, one step (ncu, cold L2) | result |
+| decode kernel, one step {{ color("(ncu, cold L2)") }} | result |
 |---|---|
-| **vs FlashInfer**, geomean over L = {{ ctx.ls }} | **{{ ctx.geo_vs_fi }}× faster** (from {{ ctx.min_vs_fi }}× at {{ ctx.min_vs_fi_L }} to {{ ctx.max_vs_fi }}× at {{ ctx.max_vs_fi_L }}) |
+| **vs FlashInfer**, geomean over L = {{ ctx.ls }} | **{{ ctx.geo_vs_fi }}× faster** {{ color("(from " + ctx.min_vs_fi + " at " + ctx.min_vs_fi_L + " to " + ctx.max_vs_fi + "× at " + ctx.max_vs_fi_L + ")") }} |
 {% if ctx.geo_vs_fa2 -%}
-| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **{{ ctx.geo_vs_fa2 }}× faster** |
+| **vs FlashAttention 2** {{ color("(stock vLLM's sm\_110 default)") }} | **{{ ctx.geo_vs_fa2 }}× faster** |
 {% endif -%}
 | faster than FlashInfer beyond the ±{{ ctx.noise_pct }}% noise band | **{{ ctx.beats_fi }}** context lengths |
 | at the longest context ({{ ctx.long_L }} tokens) | **{{ ctx.long_vs_fi }}×** vs FlashInfer |

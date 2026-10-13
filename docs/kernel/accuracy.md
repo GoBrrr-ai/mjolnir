@@ -1,6 +1,6 @@
 # Accuracy
 
-> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · **no run yet**
+> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · run `20261013-112727`
 
 ## The question
 
@@ -20,8 +20,61 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 ## Result
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/accuracy-suites-dark.png">
+  <img src="../../assets/benchmarks/accuracy-suites.png" alt="Score per suite and serving config" width="100%">
+</picture>
 
-> Pending — run `mjolnir bench accuracy` on a Thor (it restarts the vLLM server per leg: ~1–2 h per config for the 97 scenarios with thinking on), then `mjolnir plot --readme`.
+- **Mjolnir** vs official vLLM · FlashInfer: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
+- **Mjolnir fp6 KV** vs official vLLM · FlashInfer: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
+- **Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab** vs official vLLM · FlashInfer: Tool calls +0.0, Hard Mode +0.0 points (1 scenarios scored lower, 1 higher of 97).
+
+| config | KV | Tool calls % | Hard Mode % | completion |
+|---|---|--:|--:|--:|
+| **official vLLM · FlashInfer** | fp8 | 97.1 | 82.1 | 100% |
+| Mjolnir | fp8 | 95.7 (-1.4) | 78.6 (-3.6) | 100% |
+| Mjolnir fp6 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
+| Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 97.1 (+0.0) | 82.1 (+0.0) | 100% |
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **Score** = points ÷ maximum points × 100, each scenario 2 (pass), 1 (partial) or 0 (fail); GSM8K / MMLU = accuracy in %; IFEval = prompt-level accuracy in %.
+- **(±)** = this row's score − the baseline row's score, in percentage **points**, not a relative change: 86.5 vs 88.0 is −1.5 points (a relative change would be −1.7%).
+- **n** = runs averaged (`--trials`); **completion** = the share of scenarios the endpoint answered — compare rows only at equal completion.
+
+</details>
+
+<sub>Score in %, (±) = points vs **official vLLM · FlashInfer**; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json).</sub>
+
+### By tool-call category
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/accuracy-categories-dark.png">
+  <img src="../../assets/benchmarks/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
+</picture>
+
+| category | official vLLM · FlashInfer | Mjolnir | Mjolnir fp6 KV | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab |
+|---|--:|--:|--:|--:|
+| A · Tool Selection | 100 | 100 | 100 | 100 |
+| B · Parameter Precision | 100 | 100 | 100 | 100 |
+| C · Multi-Step Chains | 100 | 100 | 100 | 100 |
+| D · Restraint & Refusal | 100 | 100 | 100 | 100 |
+| E · Error Recovery | 100 | 100 | 100 | 100 |
+| F · Localization | 100 | 100 | 100 | 100 |
+| G · Structured Reasoning | 100 | 100 | 100 | 100 |
+| H · Instruction Following | 100 | 100 | 100 | 100 |
+| I · Context & State | 90 | 95 | 100 | 90 |
+| J · Code Patterns | 100 | 100 | 100 | 100 |
+| K · Safety & Boundaries | 100 | 88 | 100 | 100 |
+| L · Toolset Scale | 100 | 100 | 100 | 100 |
+| M · Autonomous Planning | 100 | 100 | 100 | 100 |
+| N · Creative Composition | 100 | 100 | 100 | 100 |
+| O · Structured Output | 83 | 83 | 83 | 83 |
+| P · Hard Mode | 82 | 79 | 84 | 82 |
+
+<sub>Share of points per category, %. A category has 2–10 scenarios: one scenario moving from pass to partial shifts it by 5–25 points — read single cells as anecdotes, the totals as the result.</sub>
+
 
 ## How to read it
 

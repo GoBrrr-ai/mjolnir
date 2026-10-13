@@ -69,6 +69,12 @@ def ratio_md(r: float | None, bold_wins: bool = True) -> str:
     return f"$\\color{{{color}}}{{{text}}}$"
 
 
+def color(text: str, color: str = "grey") -> str:
+    """Render grey LaTeX text, escaping whitespace for math mode."""
+    escaped = re.sub(r"\s+", lambda _: r"\ ", text.strip())
+    return rf"$\color{{{color}}}{{{escaped}}}$"
+
+
 def pct_md(p: float | None, lower_is_better: bool = True) -> str:
     """A colored % delta: green = better beyond the noise band, grey = within
     noise, red = worse beyond noise. Times: lower is better; throughput: higher."""
@@ -926,6 +932,7 @@ def _env(layout: RepoLayout, ctx: ReadmeContext, out_path: Path) -> jinja2.Envir
     env.globals.update(
         how=lambda kind: how(ctx, kind),
         ctx=ctx,
+        color=color,
         chart=chart,
         has=lambda stage: stage in ctx.runs,
         root=prefix,

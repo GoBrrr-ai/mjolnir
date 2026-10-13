@@ -13,7 +13,11 @@
 </p>
 
 <p align="center">
-  <b><em>Mjölnir</em></b> <sup>(MYOL-nir)</sup> — <em>a decode-attention kernel built for exactly one GPU: the <b>Jetson AGX Thor</b>.</em>
+  ⭐ Star us on GitHub — it motivates us a lot!
+</p>
+
+<p align="center">
+  <b><em>Mjölnir</em></b> — <em>a decode-attention kernel built for exactly one GPU: the <b>Jetson AGX Thor</b>.</em>
 </p>
 
 <p align="center">
@@ -44,14 +48,14 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </picture>
 </p>
 
-> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens), one request at 128K context: decode <b>+44.0%</b>, prefill <b>+197.9%</b>, time to first token <b>168.46 s → 57.47 s (−65.9%)</b>, inter-token latency <b>49.2 ms → 34.1 ms (−30.8%)</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
+> <sub>End to end on a Jetson AGX Thor (MTP, 3 speculative tokens vs MTP, 4 speculative tokens), one request at 128K context: decode <b>+41.7%</b>, prefill <b>+193.5%</b>, time to first token <b>168.46 s → 58.36 s (−65.4%)</b>, inter-token latency <b>49.2 ms → 36.0 ms (−26.9%)</b> vs the official vLLM image — <a href="#official-vllm-image-vs-mjolnir">all cells</a>.</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (128K context, 1 request): TTFT 168,458 → 57,472 ms: (57,472 − 168,458) ÷ 168,458 × 100 = **−65.9%** (a latency reduction of 65.9%). The reciprocal speedup would be 168,458 ÷ 57,472 = 2.93× (+193.1%) — the same measurement, a different convention.
+- **Worked example** (128K context, 1 request): TTFT 168,458 → 58,360 ms: (58,360 − 168,458) ÷ 168,458 × 100 = **−65.4%** (a latency reduction of 65.4%). The reciprocal speedup would be 168,458 ÷ 58,360 = 2.89× (+188.7%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
@@ -64,10 +68,10 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 </picture>
 </p>
 
-| decode kernel, one step (ncu, cold L2) | result |
+| decode kernel, one step $\color{grey}{(ncu,\ cold\ L2)}$ | result |
 |---|---|
-| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.24× faster** (from 0.99× at 16K to 1.64× at 128) |
-| **vs FlashAttention 2** (stock vLLM's sm_110 default) | **2.00× faster** |
+| **vs FlashInfer**, geomean over L = 128 4K 8K 16K 32K 64K 128K 256K | **1.24× faster** $\color{grey}{(from\ 0.99\ at\ 16K\ to\ 1.64×\ at\ 128)}$ |
+| **vs FlashAttention 2** $\color{grey}{(stock\ vLLM's\ sm\_110\ default)}$ | **2.00× faster** |
 | faster than FlashInfer beyond the ±3% noise band | **7 of 8** context lengths |
 | at the longest context (256K tokens) | **1.31×** vs FlashInfer |
 | one decode step at 64K tokens | **599.8&nbsp;µs** (FlashInfer 783.9&nbsp;µs, FlashAttention 2 1.28&nbsp;ms) |
@@ -168,7 +172,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### Official vLLM image vs Mjolnir
 
-Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
+Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
@@ -179,27 +183,27 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) · throughput change | prefill (t/s, ↑) · throughput change | TTFT (ms, ↓) · latency change | ITL (ms, ↓) · latency change |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 22.5 → **36.0** $\color{#16a34a}{\text{+60.0\\%}}$ | 2,929 → *n/a* | 833 → **570** $\color{#16a34a}{\text{−31.6\\%}}$ | 45.0 → **28.0** $\color{#16a34a}{\text{−37.7\\%}}$ |
-| 4K | 1 | 23.1 → **36.0** $\color{#16a34a}{\text{+56.2\\%}}$ | 2,820 → **8,854** $\color{#16a34a}{\text{+214.0\\%}}$ | 2,314 → **1,659** $\color{#16a34a}{\text{−28.3\\%}}$ | 43.5 → **27.9** $\color{#16a34a}{\text{−36.0\\%}}$ |
-| 8K | 1 | 22.8 → **33.6** $\color{#16a34a}{\text{+47.8\\%}}$ | 2,562 → **5,159** $\color{#16a34a}{\text{+101.4\\%}}$ | 4,132 → **2,949** $\color{#16a34a}{\text{−28.6\\%}}$ | 44.4 → **30.1** $\color{#16a34a}{\text{−32.2\\%}}$ |
-| 16K | 1 | 23.2 → **33.9** $\color{#16a34a}{\text{+46.1\\%}}$ | 2,205 → **4,025** $\color{#16a34a}{\text{+82.5\\%}}$ | 8,493 → **5,544** $\color{#16a34a}{\text{−34.7\\%}}$ | 43.3 → **29.6** $\color{#16a34a}{\text{−31.7\\%}}$ |
-| 32K | 1 | 23.2 → **32.4** $\color{#16a34a}{\text{+39.5\\%}}$ | 1,762 → **3,403** $\color{#16a34a}{\text{+93.1\\%}}$ | 19,894 → **11,196** $\color{#16a34a}{\text{−43.7\\%}}$ | 43.2 → **31.1** $\color{#16a34a}{\text{−28.2\\%}}$ |
-| 64K | 1 | 22.6 → **30.7** $\color{#16a34a}{\text{+35.9\\%}}$ | 1,255 → **2,902** $\color{#16a34a}{\text{+131.3\\%}}$ | 54,008 → **24,257** $\color{#16a34a}{\text{−55.1\\%}}$ | 44.3 → **32.8** $\color{#16a34a}{\text{−26.1\\%}}$ |
-| 128K | 1 | 20.5 → **29.5** $\color{#16a34a}{\text{+44.0\\%}}$ | 791 → **2,356** $\color{#16a34a}{\text{+197.9\\%}}$ | 168,458 → **57,472** $\color{#16a34a}{\text{−65.9\\%}}$ | 49.2 → **34.1** $\color{#16a34a}{\text{−30.8\\%}}$ |
-| no ctx | 2 | 46.5 → **62.0** $\color{#16a34a}{\text{+33.3\\%}}$ | 2,744 → **3,604** $\color{#16a34a}{\text{+31.3\\%}}$ | 1,433 → **1,034** $\color{#16a34a}{\text{−27.8\\%}}$ | 40.5 → **30.3** $\color{#16a34a}{\text{−25.2\\%}}$ |
-| 4K | 2 | 43.6 → **61.1** $\color{#16a34a}{\text{+40.2\\%}}$ | 2,728 → **3,588** $\color{#16a34a}{\text{+31.5\\%}}$ | 4,444 → **3,348** $\color{#16a34a}{\text{−24.7\\%}}$ | 43.1 → **31.5** $\color{#16a34a}{\text{−26.9\\%}}$ |
-| 8K | 2 | 45.6 → **58.9** $\color{#16a34a}{\text{+29.3\\%}}$ | 2,515 → **3,472** $\color{#16a34a}{\text{+38.0\\%}}$ | 8,081 → **5,727** $\color{#16a34a}{\text{−29.1\\%}}$ | 42.1 → **31.5** $\color{#16a34a}{\text{−25.1\\%}}$ |
-| 16K | 2 | 45.6 → **59.1** $\color{#16a34a}{\text{+29.8\\%}}$ | 2,195 → **3,350** $\color{#16a34a}{\text{+52.7\\%}}$ | 16,734 → **10,884** $\color{#16a34a}{\text{−35.0\\%}}$ | 42.3 → **31.3** $\color{#16a34a}{\text{−26.0\\%}}$ |
-| 32K | 2 | 36.7 → **46.9** $\color{#16a34a}{\text{+27.7\\%}}$ | 1,752 → **3,108** $\color{#16a34a}{\text{+77.4\\%}}$ | 39,043 → **21,790** $\color{#16a34a}{\text{−44.2\\%}}$ | 47.3 → **36.3** $\color{#16a34a}{\text{−23.4\\%}}$ |
-| 64K | 2 | *n/a* → **15.1** | *n/a* → **2,758** | *n/a* → **42,871** | *n/a* → **81.5** |
-| 128K | 2 | *n/a* → **4.7** | *n/a* → **2,270** | *n/a* → **93,486** | *n/a* → **227.6** |
-| no ctx | 4 | 85.0 → **106.6** $\color{#16a34a}{\text{+25.4\\%}}$ | 2,912 → **3,399** $\color{#16a34a}{\text{+16.7\\%}}$ | 2,781 → **2,280** $\color{#16a34a}{\text{−18.0\\%}}$ | 44.1 → **31.9** $\color{#16a34a}{\text{−27.5\\%}}$ |
-| 4K | 4 | 78.5 → **105.8** $\color{#16a34a}{\text{+34.9\\%}}$ | 2,722 → **3,477** $\color{#16a34a}{\text{+27.7\\%}}$ | 8,993 → **6,888** $\color{#16a34a}{\text{−23.4\\%}}$ | 46.8 → **33.4** $\color{#16a34a}{\text{−28.7\\%}}$ |
-| 8K | 4 | 68.1 → **72.6** $\color{#16a34a}{\text{+6.6\\%}}$ | 2,491 → **3,393** $\color{#16a34a}{\text{+36.2\\%}}$ | 16,121 → **11,168** $\color{#16a34a}{\text{−30.7\\%}}$ | 49.1 → **39.0** $\color{#16a34a}{\text{−20.6\\%}}$ |
-| 16K | 4 | 42.0 → **51.3** $\color{#16a34a}{\text{+22.2\\%}}$ | 2,172 → **3,249** $\color{#16a34a}{\text{+49.6\\%}}$ | 32,309 → **20,890** $\color{#16a34a}{\text{−35.3\\%}}$ | 60.0 → **47.6** $\color{#16a34a}{\text{−20.7\\%}}$ |
-| 32K | 4 | 11.6 → **18.5** $\color{#16a34a}{\text{+59.5\\%}}$ | 1,738 → **3,033** $\color{#16a34a}{\text{+74.5\\%}}$ | 65,787 → **36,590** $\color{#16a34a}{\text{−44.4\\%}}$ | 161.8 → **107.4** $\color{#16a34a}{\text{−33.6\\%}}$ |
-| 64K | 4 | *n/a* → **7.4** | *n/a* → **2,705** | *n/a* → **70,428** | *n/a* → **268.9** |
-| 128K | 4 | *n/a* → **2.9** | *n/a* → **2,211** | *n/a* → **156,647** | *n/a* → **698.1** |
+| no ctx | 1 | 22.5 → **35.4** $\color{#16a34a}{\text{+57.3\\%}}$ | 2,929 → *n/a* | 833 → **590** $\color{#16a34a}{\text{−29.1\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{−36.4\\%}}$ |
+| 4K | 1 | 23.1 → **37.9** $\color{#16a34a}{\text{+64.2\\%}}$ | 2,820 → **8,740** $\color{#16a34a}{\text{+210.0\\%}}$ | 2,314 → **1,701** $\color{#16a34a}{\text{−26.5\\%}}$ | 43.5 → **26.6** $\color{#16a34a}{\text{−38.9\\%}}$ |
+| 8K | 1 | 22.8 → **35.2** $\color{#16a34a}{\text{+54.9\\%}}$ | 2,562 → **5,077** $\color{#16a34a}{\text{+98.2\\%}}$ | 4,132 → **3,015** $\color{#16a34a}{\text{−27.0\\%}}$ | 44.4 → **28.6** $\color{#16a34a}{\text{−35.5\\%}}$ |
+| 16K | 1 | 23.2 → **33.8** $\color{#16a34a}{\text{+45.3\\%}}$ | 2,205 → **3,978** $\color{#16a34a}{\text{+80.4\\%}}$ | 8,493 → **5,631** $\color{#16a34a}{\text{−33.7\\%}}$ | 43.3 → **30.0** $\color{#16a34a}{\text{−30.6\\%}}$ |
+| 32K | 1 | 23.2 → **33.0** $\color{#16a34a}{\text{+42.1\\%}}$ | 1,762 → **3,383** $\color{#16a34a}{\text{+92.0\\%}}$ | 19,894 → **11,289** $\color{#16a34a}{\text{−43.3\\%}}$ | 43.2 → **31.0** $\color{#16a34a}{\text{−28.3\\%}}$ |
+| 64K | 1 | 22.6 → **32.9** $\color{#16a34a}{\text{+45.8\\%}}$ | 1,255 → **2,877** $\color{#16a34a}{\text{+129.4\\%}}$ | 54,008 → **24,488** $\color{#16a34a}{\text{−54.7\\%}}$ | 44.3 → **30.8** $\color{#16a34a}{\text{−30.7\\%}}$ |
+| 128K | 1 | 20.5 → **29.0** $\color{#16a34a}{\text{+41.7\\%}}$ | 791 → **2,321** $\color{#16a34a}{\text{+193.5\\%}}$ | 168,458 → **58,360** $\color{#16a34a}{\text{−65.4\\%}}$ | 49.2 → **36.0** $\color{#16a34a}{\text{−26.9\\%}}$ |
+| no ctx | 2 | 46.5 → **63.4** $\color{#16a34a}{\text{+36.4\\%}}$ | 2,744 → **3,487** $\color{#16a34a}{\text{+27.1\\%}}$ | 1,433 → **1,097** $\color{#16a34a}{\text{−23.4\\%}}$ | 40.5 → **29.5** $\color{#16a34a}{\text{−27.3\\%}}$ |
+| 4K | 2 | 43.6 → **59.4** $\color{#16a34a}{\text{+36.3\\%}}$ | 2,728 → **3,644** $\color{#16a34a}{\text{+33.6\\%}}$ | 4,444 → **3,259** $\color{#16a34a}{\text{−26.7\\%}}$ | 43.1 → **30.4** $\color{#16a34a}{\text{−29.4\\%}}$ |
+| 8K | 2 | 45.6 → **58.0** $\color{#16a34a}{\text{+27.2\\%}}$ | 2,515 → **3,399** $\color{#16a34a}{\text{+35.1\\%}}$ | 8,081 → **5,847** $\color{#16a34a}{\text{−27.6\\%}}$ | 42.1 → **32.1** $\color{#16a34a}{\text{−23.8\\%}}$ |
+| 16K | 2 | 45.6 → **56.5** $\color{#16a34a}{\text{+23.9\\%}}$ | 2,195 → **3,299** $\color{#16a34a}{\text{+50.3\\%}}$ | 16,734 → **11,049** $\color{#16a34a}{\text{−34.0\\%}}$ | 42.3 → **33.7** $\color{#16a34a}{\text{−20.2\\%}}$ |
+| 32K | 2 | 36.7 → **44.0** $\color{#16a34a}{\text{+19.8\\%}}$ | 1,752 → **3,083** $\color{#16a34a}{\text{+76.0\\%}}$ | 39,043 → **21,938** $\color{#16a34a}{\text{−43.8\\%}}$ | 47.3 → **39.2** $\color{#16a34a}{\text{−17.3\\%}}$ |
+| 64K | 2 | *n/a* → **15.1** | *n/a* → **2,734** | *n/a* → **43,245** | *n/a* → **81.8** |
+| 128K | 2 | *n/a* → **4.7** | *n/a* → **2,237** | *n/a* → **94,897** | *n/a* → **225.4** |
+| no ctx | 4 | 85.0 → **109.4** $\color{#16a34a}{\text{+28.7\\%}}$ | 2,912 → **3,436** $\color{#16a34a}{\text{+18.0\\%}}$ | 2,781 → **2,248** $\color{#16a34a}{\text{−19.2\\%}}$ | 44.1 → **30.8** $\color{#16a34a}{\text{−30.1\\%}}$ |
+| 4K | 4 | 78.5 → **99.4** $\color{#16a34a}{\text{+26.6\\%}}$ | 2,722 → **3,485** $\color{#16a34a}{\text{+28.0\\%}}$ | 8,993 → **6,909** $\color{#16a34a}{\text{−23.2\\%}}$ | 46.8 → **33.1** $\color{#16a34a}{\text{−29.2\\%}}$ |
+| 8K | 4 | 68.1 → **68.6** $\color{grey}{\text{+0.7\\%}}$ | 2,491 → **3,349** $\color{#16a34a}{\text{+34.4\\%}}$ | 16,121 → **11,310** $\color{#16a34a}{\text{−29.8\\%}}$ | 49.1 → **39.8** $\color{#16a34a}{\text{−19.0\\%}}$ |
+| 16K | 4 | 42.0 → **50.8** $\color{#16a34a}{\text{+20.8\\%}}$ | 2,172 → **3,226** $\color{#16a34a}{\text{+48.5\\%}}$ | 32,309 → **21,042** $\color{#16a34a}{\text{−34.9\\%}}$ | 60.0 → **47.5** $\color{#16a34a}{\text{−20.9\\%}}$ |
+| 32K | 4 | 11.6 → **18.3** $\color{#16a34a}{\text{+58.5\\%}}$ | 1,738 → **3,010** $\color{#16a34a}{\text{+73.2\\%}}$ | 65,787 → **36,854** $\color{#16a34a}{\text{−44.0\\%}}$ | 161.8 → **107.7** $\color{#16a34a}{\text{−33.4\\%}}$ |
+| 64K | 4 | *n/a* → **7.3** | *n/a* → **2,664** | *n/a* → **71,508** | *n/a* → **272.6** |
+| 128K | 4 | *n/a* → **2.8** | *n/a* → **2,178** | *n/a* → **159,034** | *n/a* → **705.3** |
 
 > <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
@@ -208,7 +212,7 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (128K context, 1 request): TTFT 168,458 → 57,472 ms: (57,472 − 168,458) ÷ 168,458 × 100 = **−65.9%** (a latency reduction of 65.9%). The reciprocal speedup would be 168,458 ÷ 57,472 = 2.93× (+193.1%) — the same measurement, a different convention.
+- **Worked example** (128K context, 1 request): TTFT 168,458 → 58,360 ms: (58,360 − 168,458) ÷ 168,458 × 100 = **−65.4%** (a latency reduction of 65.4%). The reciprocal speedup would be 168,458 ÷ 58,360 = 2.89× (+188.7%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
@@ -243,7 +247,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [L2 prefetch](docs/kernel/prefetch.md)  | TMA L2 prefetch distance (--l2_prefetch) sweep |
 | [Programmatic dependent launch](docs/kernel/pdl.md)  | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) |
 | [Flag A/B](docs/kernel/ab.md)  | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
-| [Accuracy](docs/kernel/accuracy.md) *(pending)* | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
+| [Accuracy](docs/kernel/accuracy.md)  | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
 
 
 ## What's in the image
