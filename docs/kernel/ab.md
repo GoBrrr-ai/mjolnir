@@ -28,6 +28,15 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 | `pdl` | `--kv_evict_first 0 --pdl` | $\color{#16a34a}{1.81\times}$ | $\color{#16a34a}{1.14\times}$ | $\color{#16a34a}{1.09\times}$ | **$\color{#16a34a}{1.09\times}$** | **$\color{#16a34a}{1.20\times}$** | $\color{#16a34a}{1.29\times}$ | $\color{#16a34a}{1.35\times}$ | **$\color{#16a34a}{1.37\times}$** | $\color{#16a34a}{\mathbf{1.28\times}}$ |
 | `both` | `--kv_evict_first 1 --pdl` | **$\color{#16a34a}{1.87\times}$** | $\color{#16a34a}{1.16\times}$ | $\color{#16a34a}{1.10\times}$ | $\color{#16a34a}{1.05\times}$ | $\color{#16a34a}{1.17\times}$ | $\color{#16a34a}{1.30\times}$ | **$\color{#16a34a}{1.36\times}$** | $\color{#16a34a}{1.32\times}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ |
 
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- Each cell = **reference time ÷ variant time** (Nsight Compute kernel time, decode + merge, base clocks, cold L2, same run, same L). `1.10×` = the variant needs 1 ÷ 1.10 = 91% of the reference's time; below 1 it is slower.
+- **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
+- Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
+
+</details>
+
 
 **Wall clock** (harness median, cold L2, b=1; Δ vs the first variant):
 
@@ -41,6 +50,15 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 | **64K** | 528.3&nbsp;µs | 535.9&nbsp;µs $\color{grey}{\text{+1.4\\%}}$ | 522.1&nbsp;µs $\color{grey}{\text{−1.2\\%}}$ | 523.1&nbsp;µs $\color{grey}{\text{−1.0\\%}}$ |
 | **128K** | 1.01&nbsp;ms | 999.1&nbsp;µs $\color{grey}{\text{−1.0\\%}}$ | 991.1&nbsp;µs $\color{grey}{\text{−1.8\\%}}$ | 984.9&nbsp;µs $\color{grey}{\text{−2.4\\%}}$ |
 | **256K** | 1.97&nbsp;ms | 1.99&nbsp;ms $\color{grey}{\text{+1.1\\%}}$ | 1.96&nbsp;ms $\color{grey}{\text{−0.8\\%}}$ | 1.95&nbsp;ms $\color{grey}{\text{−1.1\\%}}$ |
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- Wall-clock median per launch over the stage's iterations (CUDA events), every variant in the same run.
+- **%** = (variant − first column) ÷ first column × 100 — the change in **time**: negative = faster. `−6.0%` = 6% less time than the first column.
+- Green = at least 3% less time, red = at least 3% more, grey = within ±3% (`NOISE_PCT`).
+
+</details>
 
 
 <sub>Rendered from [`benchmarks/raw/verify/ab/20261012-212748.json`](../../benchmarks/raw/verify/ab/20261012-212748.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>

@@ -29,6 +29,15 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 | `stages=5` | `--kv_stages 5` | $\color{#16a34a}{1.73\times}$ | **$\color{#16a34a}{1.20\times}$** | $\color{#16a34a}{1.16\times}$ | **$\color{#16a34a}{1.09\times}$** | $\color{#16a34a}{1.07\times}$ | $\color{#16a34a}{1.12\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{#16a34a}{1.13\times}$ | $\color{#16a34a}{\mathbf{1.19\times}}$ |
 | `stages=6` | `--kv_stages 6` | $\color{#16a34a}{1.70\times}$ | $\color{#16a34a}{1.18\times}$ | **$\color{#16a34a}{1.16\times}$** | $\color{#16a34a}{1.04\times}$ | $\color{grey}{1.01\times}$ | $\color{#16a34a}{1.11\times}$ | $\color{#16a34a}{1.10\times}$ | $\color{#16a34a}{1.13\times}$ | $\color{#16a34a}{\mathbf{1.16\times}}$ |
 
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- Each cell = **reference time ÷ variant time** (Nsight Compute kernel time, decode + merge, base clocks, cold L2, same run, same L). `1.10×` = the variant needs 1 ÷ 1.10 = 91% of the reference's time; below 1 it is slower.
+- **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
+- Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
+
+</details>
+
 <sub>Rendered from [`benchmarks/raw/verify/ring/20261012-210506.json`](../../benchmarks/raw/verify/ring/20261012-210506.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it

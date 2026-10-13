@@ -24,6 +24,14 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 | fp8 | 1 | $\color{grey}{\text{−1.1\\%}}$ | $\color{#dc2626}{\text{+5.7\\%}}$ | $\color{#16a34a}{\text{−3.4\\%}}$ | $\color{grey}{\text{−0.6\\%}}$ | $\color{grey}{\text{−1.1\\%}}$ | $\color{grey}{\text{−0.2\\%}}$ | $\color{grey}{\text{−0.4\\%}}$ | $\color{grey}{\text{−0.1\\%}}$ |
 | fp8 | 8 | $\color{grey}{\text{0.0\\%}}$ | $\color{grey}{\text{−2.5\\%}}$ | $\color{#16a34a}{\text{−3.3\\%}}$ | $\color{grey}{\text{−0.9\\%}}$ | $\color{grey}{\text{+0.3\\%}}$ | $\color{grey}{\text{−1.5\\%}}$ | $\color{grey}{\text{+0.5\\%}}$ | $\color{#16a34a}{\text{−3.1\\%}}$ |
 
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **%** = (time with PDL − time without PDL) ÷ time without PDL × 100, harness median per L, both measured back to back in the same run. Negative = PDL saves time.
+- Green ≤ −3%, red ≥ +3%, grey within ±3% (`NOISE_PCT`).
+
+</details>
+
 <sub>Rendered from [`benchmarks/raw/verify/pdl/20261012-212058.json`](../../benchmarks/raw/verify/pdl/20261012-212058.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it

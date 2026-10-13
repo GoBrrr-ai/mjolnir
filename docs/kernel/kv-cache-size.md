@@ -40,6 +40,15 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 | `NVFP4_MJOLNIR_E2M3` | Mjolnir · fp6 e2m3 KV | 70.1 GiB | 2,652,849 | 1.30× | 12.9× @ 200K | 422 | 255 | 142 | 75 | 39 | 19 |
 | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | 52.2 GiB | 1,974,781 | 0.97× | 9.6× @ 200K | 314 | 190 | 106 | 56 | 29 | 14 |
 
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **KV tokens** and KV memory come from vLLM's own startup log ("GPU KV cache size", "Available KV cache memory") for the same model and memory budget.
+- **vs first** = this row's KV tokens ÷ the first row's (`1.33×` = 33% more tokens).
+- **fits @ L** = ⌊KV tokens ÷ (L + 2,048 prompt + 128 generated)⌋ — whole requests of the e2e bench's shape that fit at once (`max-num-seqs` ignored).
+
+</details>
+
 <sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261012-215513.json`](../../benchmarks/raw/verify/kv-cache-size/20261012-215513.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
 
 ## How to read it

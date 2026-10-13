@@ -27,6 +27,15 @@ Distances 0 (off), 1, 2, 4 on fp8 KV (the prefetch path is not wired for NVFP4) 
 | `prefetch=2` | `--kv_format fp8 --l2_prefetch 2` | **$\color{#16a34a}{1.75\times}$** | $\color{grey}{1.01\times}$ | $\color{#dc2626}{0.93\times}$ | $\color{#dc2626}{0.93\times}$ | $\color{#dc2626}{0.92\times}$ | $\color{grey}{1.02\times}$ | $\color{#dc2626}{0.97\times}$ | $\color{grey}{1.01\times}$ | $\color{#16a34a}{\mathbf{1.04\times}}$ |
 | `prefetch=4` | `--kv_format fp8 --l2_prefetch 4` | $\color{#16a34a}{1.63\times}$ | $\color{#16a34a}{1.04\times}$ | $\color{#dc2626}{0.93\times}$ | $\color{#dc2626}{0.84\times}$ | $\color{#dc2626}{0.88\times}$ | $\color{grey}{1.01\times}$ | $\color{grey}{0.98\times}$ | $\color{grey}{1.00\times}$ | $\color{grey}{1.02\times}$ |
 
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- Each cell = **reference time ÷ variant time** (Nsight Compute kernel time, decode + merge, base clocks, cold L2, same run, same L). `1.10×` = the variant needs 1 ÷ 1.10 = 91% of the reference's time; below 1 it is slower.
+- **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
+- Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
+
+</details>
+
 <sub>Rendered from [`benchmarks/raw/verify/prefetch/20261012-211441.json`](../../benchmarks/raw/verify/prefetch/20261012-211441.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it

@@ -4,6 +4,16 @@
 
 **Where it stands:** 1.24× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.00× FlashAttention 2, 90 / 90 correctness checks — run `20261012-202029`.
 
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 2) is measured the same way, at the same L, in the same run.
+- **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
+- **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
+- **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.
+
+</details>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../../assets/benchmarks/kernel-speedup-dark.png">
   <img src="../../assets/benchmarks/kernel-speedup.png" alt="Mjolnir decode speedup over FlashInfer" width="100%">
@@ -58,7 +68,7 @@ flowchart LR
 | 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261012-203801` |
 | 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261012-205732` |
 | 6 | [KV cache capacity](kv-cache-size.md) | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context | ✅ run `20261012-215513` |
-| 7 | [Speculative decoding](spec.md) | MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count | ⏳ pending |
+| 7 | [Speculative decoding](spec.md) | MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count | ✅ run `20261012-220110` |
 | 8 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261012-213840` |
 | 9 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261012-210506` |
 | 10 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261012-211441` |
