@@ -87,6 +87,11 @@ skipped with a hint — nothing blocks on a password.
   `NVFP4_MJOLNIR_E2M3` (Mjolnir, fp6 KV), `NVFP4_MJOLNIR` (Mjolnir, fp8 KV),
   `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV — stock vLLM's
   choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4).
+  Opt-in drafter legs (`legs.OPTIONAL`, `bench e2e --optional`;
+  `docs/faq/spec-drafters.md`): `NVFP4_DSPARK` / `NVFP4_DFLASH2` (official
+  image) and `NVFP4_MJOLNIR_E2M3_DSPARK` / `…_DFLASH2` (Mjolnir) — DSpark or
+  DFlash2, K=7, instead of MTP; the drafter's layers (64-68) on bf16 KV and
+  FlashInfer. Not yet run on a Thor.
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,

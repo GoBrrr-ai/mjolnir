@@ -21,7 +21,7 @@
 | [`mjolnir bench ab`](#mjolnir-bench-ab) | Headline A/B: restart the server per leg, gated perf bench for each, one history row-set per leg. |
 | [`mjolnir bench accuracy`](#mjolnir-bench-accuracy) | Model quality per serving config with tool-eval-bench: does fp6 KV / the fp8 lm_head keep the model's answers? |
 | [`mjolnir bench e2e`](#mjolnir-bench-e2e) | Official vLLM image vs the Mjolnir image, end to end: decode and prefill throughput, time to first token and inter-token latency per context x concurrency. Serves each image in turn (the server is restarted per leg), benchmarks it with llama-benchy, then prints the comparison and re-renders the README (infographic + table). |
-| [`mjolnir bench compare`](#mjolnir-bench-compare) | Official vLLM image vs Mjolnir image from the history — no new run. |
+| [`mjolnir bench compare`](#mjolnir-bench-compare) | Official vLLM image vs Mjolnir image from the history — no new run. `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares the same drafter on both images. |
 | [`mjolnir model`](#mjolnir-model) | Pick the active model / config. |
 | [`mjolnir model use`](#mjolnir-model-use) | Remember the active model/config (bare `mjolnir model` or no args here = arrow-key picker over configs: repo configs/ + user-local ~/.local/share/mjolnir/configs). |
 | [`mjolnir model list`](#mjolnir-model-list) | List every config (repo configs/ + the user-local dir; ● = the active one; the state file is printed below the table). |
@@ -362,7 +362,8 @@ the README (infographic + table).
 | `--gate` / `--no-gate` | wait for a clean window (vLLM queue 0/0) before measuring | --gate |
 | `--port` | the server port (default: the active one) |  |
 | `--only` | run one leg: 'mjolnir' or 'official'; the comparison pairs it with the other side's latest record |  |
-| `--also` | more Mjolnir-image configs to measure after the pair (comma-separated; '' = none) — they join the e2e charts; the comparison and infographic stay on --config | `` |
+| `--also` | more legs to measure after the pair, comma-separated: a config (Mjolnir image) or official:&lt;config&gt; / mjolnir:&lt;config&gt;; '' = none. They land in the history (bench compare --config &lt;cfg&gt;); the README table, charts and infographic stay on --config | `` |
+| `--optional` | also measure the opt-in legs (legs.OPTIONAL: DSpark and DFlash2 on the official and the Mjolnir image) — hours per leg | off |
 | `--dry-run` | print the serve commands, run nothing | off |
 | `--allow-stale-image` | benchmark a Mjolnir image older than the checkout's kernel | off |
 
@@ -372,10 +373,13 @@ the README (infographic + table).
 ## `mjolnir bench compare`
 
 Official vLLM image vs Mjolnir image from the history — no new run.
+`--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares
+the same drafter on both images.
 
 | option | description | default |
 |---|---|---|
 | `--config` | Mjolnir-side config (default: the Mjolnir backend) |  |
+| `--official-config` | official-side config (default: the stock baseline, NVFP4) |  |
 | `--json` / `-j` |  | off |
 
 

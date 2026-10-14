@@ -59,6 +59,19 @@ SERVING: dict[str, tuple[Leg, ...]] = {
     ),
 }
 
+# Opt-in serving legs: measured only when asked (`bench e2e --optional`), after
+# the default legs — other speculative decoders on both images. They land in
+# the history (`mjolnir history`, `bench compare --config <cfg>`) but never
+# replace the headline pair, so the README stays on the default legs.
+OPTIONAL: dict[str, tuple[Leg, ...]] = {
+    "bench.e2e": (
+        (OFFICIAL, "NVFP4_DSPARK"),  # stock vLLM: FlashInfer, fp8 KV, DSpark K=7
+        (OFFICIAL, "NVFP4_DFLASH2"),  # stock vLLM: FlashInfer, fp8 KV, DFlash2 K=7
+        (MJOLNIR, "NVFP4_MJOLNIR_E2M3_DSPARK"),  # Mjolnir fp6 KV, DSpark K=7
+        (MJOLNIR, "NVFP4_MJOLNIR_E2M3_DFLASH2"),  # Mjolnir fp6 KV, DFlash2 K=7
+    ),
+}
+
 # ── kernel legs (ncu stages) ────────────────────────────────────────────────
 KERNEL: dict[str, str] = {
     "verify.sweep": "fi,fa2,mjolnir-fp8,mjolnir",
@@ -85,3 +98,12 @@ def bench_legs(name: str) -> str:
 
 def side_configs(name: str, side: str) -> list[str]:
     return [cfg for s, cfg in SERVING[name] if s == side]
+
+
+def parse_leg(text: str, default_side: str = MJOLNIR) -> Leg:
+    """``official:NVFP4_DSPARK`` / ``mjolnir:NVFP4_MJOLNIR_E2M3_DSPARK`` / a bare
+    config (``default_side``) -> (side, config)."""
+    side, sep, cfg = text.strip().partition(":")
+    if sep and side.lower() in (OFFICIAL, MJOLNIR):
+        return side.lower(), cfg.strip()
+    return default_side, text.strip()

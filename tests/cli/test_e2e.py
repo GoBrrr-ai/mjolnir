@@ -203,3 +203,57 @@ def test_no_context_has_no_prefill():
     assert e2e.value({"context": 0, "pp_tps": {"mean": 2929.0}}, "pp_tps") is None
     assert e2e.value({"context": 4096, "pp_tps": {"mean": 2929.0}}, "pp_tps") == 2929.0
     assert e2e.value({"context": 0, "tg_tps": {"mean": 22.5}}, "tg_tps") == 22.5
+
+
+def test_optional_legs_run_only_when_asked(monkeypatch):
+    from mjolnir_cli import cli, dockerctl
+    from mjolnir_cli import legs
+    from mjolnir_cli.config import STOCK_IMAGE
+    from typer.testing import CliRunner
+
+    served = []
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: served.append((s.image, s.quant)))
+    runner = CliRunner()
+    assert runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--also", ""]).exit_code == 0
+    assert len(served) == 2  # no optional leg by default
+    served.clear()
+    r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--also", "", "--optional"])
+    assert r.exit_code == 0, r.output
+    opt = legs.OPTIONAL["bench.e2e"]
+    assert [q for _, q in served[2:]] == [cfg for _, cfg in opt]
+    for (img, _), (side, _) in zip(served[2:], opt):
+        assert (img == STOCK_IMAGE) == (side == legs.OFFICIAL)  # official legs stay on the upstream image
+    served.clear()
+    r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", "official", "--optional", "--also", ""])
+    assert [q for _, q in served] == ["NVFP4", "NVFP4_DSPARK", "NVFP4_DFLASH2"]
+    served.clear()
+    r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--also", "official:NVFP4_DSPARK"])
+    assert served[-1] == (STOCK_IMAGE, "NVFP4_DSPARK")
+
+
+def test_optional_configs_exist_and_carry_their_drafter():
+    from mjolnir_cli import legs
+    from mjolnir_cli.config import config_speculative, configs_root
+
+    want = {"DSPARK": "dspark", "DFLASH2": "dflash"}
+    for _, cfg in legs.OPTIONAL["bench.e2e"]:
+        path = configs_root() / "Qwen" / "Qwen3.8-27B" / f"{cfg}.yaml"
+        assert path.exists(), cfg
+        assert config_speculative(path) == {"method": want[cfg.rsplit("_", 1)[-1]], "tokens": 7}
+        assert not path.with_suffix(".env").exists()  # DFlash2 shares the target's lm_head: no LMH8 / VT knobs
+    assert legs.parse_leg("official:NVFP4_DSPARK") == ("official", "NVFP4_DSPARK")
+    assert legs.parse_leg("NVFP4_MJOLNIR_E2M3_DSPARK") == ("mjolnir", "NVFP4_MJOLNIR_E2M3_DSPARK")
+
+
+def test_a_newer_optional_official_leg_never_replaces_the_baseline(tmp_path):
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 8192, 20, 2000, 4000)]),
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4_DSPARK", 5, [_cell(1, 8192, 35, 2000, 4000)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR", 4, [_cell(1, 8192, 30, 2600, 3200)]),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, _ = e2e.latest_pair(h, "NVFP4_MJOLNIR")
+    assert off["config"] == "NVFP4"
+    off, _ = e2e.latest_pair(h, "NVFP4_MJOLNIR", "NVFP4_DSPARK")
+    assert off["config"] == "NVFP4_DSPARK"

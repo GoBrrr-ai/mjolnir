@@ -1178,10 +1178,12 @@ def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
             dockerctl.serve_down(s)
 
 
-def _print_compare(layout, mjolnir_config: Optional[str] = None, as_json: bool = False) -> int:
+def _print_compare(
+    layout, mjolnir_config: Optional[str] = None, as_json: bool = False, official_config: Optional[str] = None
+) -> int:
     from mjolnir_cli import e2e
 
-    off, mj = e2e.latest_pair(layout.history_file, mjolnir_config)
+    off, mj = e2e.latest_pair(layout.history_file, mjolnir_config, official_config)
     if not off or not mj:
         missing = "the official vLLM image" if not off else "a Mjolnir image"
         typer.secho(f"no run on {missing} in {layout.history_file} — run: mjolnir bench e2e", fg=typer.colors.YELLOW)
@@ -1262,8 +1264,15 @@ def bench_e2e(
     also: str = typer.Option(
         ",".join(legs_.side_configs("bench.e2e", legs_.MJOLNIR)[1:]),
         "--also",
-        help="more Mjolnir-image configs to measure after the pair (comma-separated; '' = none) — they join the "
-        "e2e charts; the comparison and infographic stay on --config",
+        help="more legs to measure after the pair, comma-separated: a config (Mjolnir image) or "
+        "official:<config> / mjolnir:<config>; '' = none. They land in the history (bench compare "
+        "--config <cfg>); the README table, charts and infographic stay on --config",
+    ),
+    optional: bool = typer.Option(
+        False,
+        "--optional",
+        help="also measure the opt-in legs (legs.OPTIONAL: DSpark and DFlash2 on the official and the Mjolnir "
+        "image) — hours per leg",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the serve commands, run nothing"),
     allow_stale_image: bool = typer.Option(
@@ -1291,8 +1300,17 @@ def bench_e2e(
             typer.secho(f"--only must be 'mjolnir' or 'official', got {only!r}", fg=typer.colors.RED, err=True)
             raise typer.Exit(2)
         legs = [legs[1] if side == "mjolnir" else legs[0]]
-    if only is None or only.strip().lower() == "mjolnir":
-        legs += [(s.model, image, q.strip(), None) for q in also.split(",") if q.strip() and q.strip() != config]
+    extra = [legs_.parse_leg(q) for q in also.split(",") if q.strip()]
+    if optional:
+        extra += list(legs_.OPTIONAL["bench.e2e"])
+    side_only = only.strip().lower() if only else None
+    for side, q in dict.fromkeys(extra):
+        if side_only and side != side_only:
+            continue
+        if side == legs_.OFFICIAL and q != official_config:
+            legs.append((s.model, official_image, q, f"vLLM {VLLM_VERSION} (official image)"))
+        elif side == legs_.MJOLNIR and q != config:
+            legs.append((s.model, image, q, None))
     stale = dockerctl.stale_image(image) if any(leg[1] == image for leg in legs) else None
     if stale and not dry_run:
         if not allow_stale_image:
@@ -1321,16 +1339,33 @@ def bench_e2e(
         tg=tg,
     )
     _print_compare(layout, config)
+    measured = [(img, q) for _, img, q, _ in legs if q not in (config, official_config)]
+    if measured:
+        typer.echo("optional legs — compare them with:")
+        offs = [q for img, q in measured if img == official_image]
+        for img, q in measured:
+            if img != image:
+                continue
+            twin = next((o for o in offs if o.split("_")[-1] == q.split("_")[-1]), None)
+            typer.echo(
+                f"  mjolnir bench compare --config {q}"
+                + (f"   |   --official-config {twin} --config {q}" if twin else "")
+            )
     _rerender(layout)
 
 
 @bench_app.command("compare")
 def bench_compare(
     config: Optional[str] = typer.Option(None, "--config", help="Mjolnir-side config (default: the Mjolnir backend)"),
+    official_config: Optional[str] = typer.Option(
+        None, "--official-config", help="official-side config (default: the stock baseline, NVFP4)"
+    ),
     as_json: bool = typer.Option(False, "--json", "-j"),
 ):
-    """Official vLLM image vs Mjolnir image from the history — no new run."""
-    raise typer.Exit(_print_compare(load_layout(), config, as_json))
+    """Official vLLM image vs Mjolnir image from the history — no new run.
+    `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares
+    the same drafter on both images."""
+    raise typer.Exit(_print_compare(load_layout(), config, as_json, official_config))
 
 
 # ── plot / history ──────────────────────────────────────────────────────────

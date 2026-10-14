@@ -30,6 +30,7 @@ trust or publish any number.
 |---|---|
 | The clean-window gate — why every bench waits, and never kills the server | [clean-window-gate.md](clean-window-gate.md) |
 | Official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL (`mjolnir bench e2e`) | [e2e-vs-vllm.md](e2e-vs-vllm.md) |
+| Try other speculative drafters — DSpark, DFlash2 (`bench e2e --optional`) | [spec-drafters.md](spec-drafters.md) |
 | A/B a custom image against the default image | [ab-image.md](ab-image.md) |
 | A/B different models against each other | [ab-models.md](ab-models.md) |
 | Verify and benchmark the kernel (`mjolnir verify …`) | [verify-kernel.md](verify-kernel.md) |

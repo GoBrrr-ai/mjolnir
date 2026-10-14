@@ -38,6 +38,13 @@ the Mjolnir image. The comparison, the README table and the infographic then
 pair it with the other side's latest record in `benchmarks/history.jsonl`, so
 run both legs again when the official image or the serving parameters change.
 
+`--optional` adds the opt-in legs after the pair: DSpark and DFlash2 drafters
+instead of MTP, on both images ([spec-drafters.md](spec-drafters.md)).
+`--also` takes more legs one by one: a config name runs on the Mjolnir image;
+`official:<config>` runs it on the official image. Extra legs are saved to the
+history (`bench compare --config <cfg>`, `--official-config <cfg>`). They never
+replace the pair the README is built from.
+
 ## Why the baseline runs on the official image
 
 The Mjolnir image carries a patch stack that also touches FlashInfer paths

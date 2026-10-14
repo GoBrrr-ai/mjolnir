@@ -1,0 +1,102 @@
+# NVFP4_DSPARK — EXPERIMENT (opt-in e2e leg, official image): NVFP4 with the DSpark drafter
+# instead of the built-in MTP head. Stock vLLM 0.31.0: FlashInfer, fp8 KV — what
+# DSpark gives WITHOUT Mjolnir. Measure it next to the headline pair:
+#   mjolnir bench e2e --optional            (all optional legs)
+#   mjolnir bench e2e --only official --official-config NVFP4_DSPARK
+# Untested on Thor before its first run: watch the startup log for the drafter's
+# attention backend and the acceptance rate (`mjolnir verify spec` reads it).
+model: QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4
+served-model-name: Qwen/Qwen3.8-27B
+
+dtype: bfloat16
+
+performance-mode: throughput
+optimization-level: 3
+compilation-config:
+  cudagraph_num_of_warmups: 5
+  custom_ops:
+    - +rotary_embedding
+  pass_config:
+    eliminate_noops: true
+    fuse_allreduce_rms: false
+
+disable-custom-all-reduce: true
+trust-remote-code: true
+enforce-eager: false
+
+max-num-seqs: 8
+max-model-len: 200K
+max-num-batched-tokens: 16K
+gpu-memory-utilization: 0.80
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention / linear backends ─────────────────────────────────────────────
+attention-backend: flashinfer # TRITON_ATTN
+enable-flashinfer-autotune: true
+mm-encoder-attn-backend: TORCH_SDPA   # SM110 ViT PTX-crash workaround (vLLM issue #38411)
+linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — that's the RTX5090/SM120 GEMM path, not SM110
+
+# ── KV Cache ─────────────────────────────────────────────────────────────
+kv-cache-dtype: fp8   # NVFP4 KV isn't available on SM110 for this arch; FP8 matches the checkpoint's own design (NVFP4 weights, FP8 KV)
+# The drafter's layers (indices 64-68, after the target's 64) keep bf16 KV:
+# its non-causal block attention then runs on any backend, and the KV it holds
+# is small (5 layers, 8 KV heads).
+kv-cache-dtype-skip-layers: ["sliding_window", "64", "65", "66", "67", "68"]
+mamba-cache-mode: align
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+# ── Multimodal ─────────────────────────────────────────────────────────────
+language-model-only: true
+mm-encoder-tp-mode: data
+mm-processor-cache-type: shm
+limit-mm-per-prompt:
+  image: 4
+  video: 0
+
+# ── Caching & Scheduling ─────────────────────────────────────────────────
+enable-prefix-caching: true
+enable-chunked-prefill: true
+async-scheduling: true
+
+# ── Speculative Decoding — DSpark drafter, K=7 ──────────────────────────
+# RadixArk's DSpark drafter (5 dense Qwen3 layers + a Markov head) through the
+# vLLM-ready fork (byte-identical weights; its "architectures" is set to
+# Qwen3DSparkModel, which vLLM 0.31.0 registers natively — no custom image).
+#   num_speculative_tokens 7 — the drafter's trained block (block_size 7), not 8
+#   draft_sample_method probabilistic — greedy drafting measured ~23% slower in
+#     RadixArk's eval
+#   enable_adaptive_verification stays OFF (the default): vLLM rejects it for
+#     Qwen3.8, whose GDN layers cannot trim a verification on device
+# The checkpoint's built-in MTP head is not loaded.
+speculative-config:
+  method: dspark
+  model: Doopeworld/Qwen3.8-27B-DSpark-vLLM
+  num_speculative_tokens: 7
+  draft_sample_method: probabilistic
+  # the drafter's attention: FlashInfer, like the target. If it fails to boot on
+  # sm_110, try attention_backend: FLASH_ATTN (its layers keep bf16 KV — the skip
+  # list in the KV Cache section).
+
+# ── Generation defaults (Qwen3.8 card's documented Thinking-mode preset) ────
+# NOTE: the verified Thor launch args do not set this server-side (sampling is
+# left to the client/proxy). Included here as the model card's recommendation
+# if you want it pinned at the server instead.
+override-generation-config:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# ── Chat Template ──────────────────────────────────────────────────────────
+default-chat-template-kwargs:
+  reasoning_effort: medium
+  preserve_thinking: true
+  enable_thinking: true
+
+chat-template: /configs/Qwen/Qwen3.8_chat_template.jinja
