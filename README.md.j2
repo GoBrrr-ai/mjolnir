@@ -258,19 +258,9 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 ## The CLI
 
-```bash
-mjolnir                                 # help + next steps
-mjolnir serve [up|down|status|logs]     # the vLLM container (Mjolnir image)
-mjolnir model | image                   # pick the model config / image
-mjolnir verify <stage>                  # correctness + ncu benchmarks -> benchmarks/raw/verify
-mjolnir verify bench | all              # every benchmark stage (all = + correctness)
-mjolnir verify show | list              # re-print saved results
-mjolnir bench e2e | compare             # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
-mjolnir bench perf | ab                 # end-to-end serving benchmarks -> history.jsonl
-mjolnir plot --readme [--site DIR]      # charts + README + docs (+ interactive site) from raw data
-mjolnir autoresearch init|run|ledger    # the autonomous kernel-research loop
-mjolnir gate | hw | litellm | perses    # clean-window gate, host setup, side stacks
-```
+`mjolnir` serves, benchmarks, calibrates and documents everything in this repo. Every command, with its options and defaults: **[the CLI reference](docs/cli.md)** (generated from the commands themselves; `mjolnir <command> --help` prints the same).
+
+{{ ctx.cli_table }}
 
 ## Contributing
 

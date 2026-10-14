@@ -632,7 +632,8 @@ class ReadmeContext:
     e2e_example: dict = field(default_factory=dict)
     e2e_max_ctx: str = field(default_factory=lambda: L_label(__import__("mjolnir_cli.e2e").e2e.MAX_CTX))
     # the README's Key Features grid: measured numbers, each None when its run is missing
-    feat: dict = field(default_factory=dict)  # the hero cell's TTFT, for the methodology panel
+    feat: dict = field(default_factory=dict)
+    cli_table: str = ""  # one line per command (mjolnir_cli.clidoc), set by render_readme  # the hero cell's TTFT, for the methodology panel
     default_config: str = field(
         default_factory=lambda: __import__("mjolnir_cli.config").config.DEFAULT_QUANT
     )  # contexts only one side measured (the command that completes the table)
@@ -1006,7 +1007,14 @@ def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | 
     if not tpl.exists():
         raise FileNotFoundError(f"README template not found: {tpl}")
     ctx = collect_context(layout)
-    written = [render_file(layout, tpl, dest, ctx)]
+    from mjolnir_cli import clidoc
+    from mjolnir_cli.cli import app as cli_app
+
+    ctx.cli_table = clidoc.summary_table(cli_app)
+    cli_md = root / "docs" / "cli.md"
+    cli_md.parent.mkdir(parents=True, exist_ok=True)
+    cli_md.write_text(clidoc.reference(cli_app))
+    written = [render_file(layout, tpl, dest, ctx), cli_md]
     for t in sorted((root / "docs").rglob("*.md.j2")):
         written.append(render_file(layout, t, t.with_suffix(""), ctx))
     for p in written:
