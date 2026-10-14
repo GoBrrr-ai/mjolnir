@@ -230,6 +230,7 @@ class VariantKey:
     l2_prefetch: int
     kv_evict_first: bool
     kv_format: str = "fp8"  # "fp8" | "e2m3" (packed fp6, read by kind::f8f6f4)
+    causal: bool = True  # False: parallel-drafter blocks (every query sees every key)
 
 
 # KV formats the vLLM path serves: e4m3 bytes, or e2m3 codes packed 4 per 3
@@ -252,6 +253,7 @@ class StepPlan:
     n_splits: torch.Tensor  # (num_seqs,) int32 view of a persistent buffer
     chunk_tiles: int
     num_chunks: int
+    causal: bool = True
 
 
 class T5DecodeRunner:
@@ -362,6 +364,7 @@ class T5DecodeRunner:
         block_table: torch.Tensor,
         seq_lens: torch.Tensor,
         margin: int = 0,
+        causal: bool = True,
     ) -> StepPlan:
         """CPU plan + async copy into the persistent device buffers.
 
@@ -402,10 +405,11 @@ class T5DecodeRunner:
             n_splits=self.nsplit_buf[:num_seqs],
             chunk_tiles=p.chunk_tiles,
             num_chunks=sum(1 for w in p.work if w[2] > w[1]),
+            causal=causal or q_len == 1,  # one query token: the same kernel either way
         )
 
     # --------------------------------------------------------------- compile
-    def _key(self, q_len: int, with_reduction: bool) -> VariantKey:
+    def _key(self, q_len: int, with_reduction: bool, causal: bool = True) -> VariantKey:
         return VariantKey(
             q_dtype=torch.float8_e4m3fn if self.fp8_q else torch.bfloat16,
             out_dtype=self.out_dtype,
@@ -422,6 +426,7 @@ class T5DecodeRunner:
             l2_prefetch=self.l2_prefetch,
             kv_evict_first=self.kv_evict_first,
             kv_format=self.kv_format,
+            causal=causal or q_len == 1,
         )
 
     def _make_kernel(self, key: VariantKey):
@@ -447,6 +452,7 @@ class T5DecodeRunner:
             l2_prefetch=key.l2_prefetch,
             kv_evict_first=key.kv_evict_first,
             kv_format=key.kv_format,
+            causal=key.causal,
         )
         import cutlass
 
@@ -485,15 +491,15 @@ class T5DecodeRunner:
                 _COMPILED[key] = fn
         return fn
 
-    def is_compiled(self, q_len: int, with_reduction: bool) -> bool:
-        return self._key(q_len, with_reduction) in _COMPILED
+    def is_compiled(self, q_len: int, with_reduction: bool, causal: bool = True) -> bool:
+        return self._key(q_len, with_reduction, causal) in _COMPILED
 
-    def ensure_compiled(self, q_len: int, with_reduction: bool):
+    def ensure_compiled(self, q_len: int, with_reduction: bool, causal: bool = True):
         """Compile one variant with tiny dummy tensors if it is missing.
         Runtime shapes/strides/pointers are dynamic, so one compile per
         (q_len, reduction) serves every batch and every layer. Must run
         outside CUDA-graph capture (the vLLM builder calls it from build())."""
-        if self.is_compiled(q_len, with_reduction):
+        if self.is_compiled(q_len, with_reduction, causal):
             return
         dev = self.device
         PS, d = self.page_size, self.d
@@ -517,6 +523,7 @@ class T5DecodeRunner:
             n_splits=torch.ones(1, dtype=torch.int32, device=dev),
             chunk_tiles=1,
             num_chunks=1,
+            causal=causal or q_len == 1,
         )
         self._launch(plan, q, o, kv, kv, one, one, one, 1.0, compile_only=True)
 
@@ -570,7 +577,7 @@ class T5DecodeRunner:
             1.0,
             _stream(),
         )
-        fn = self._get_compiled(self._key(plan.q_len, plan.with_reduction), args)
+        fn = self._get_compiled(self._key(plan.q_len, plan.with_reduction, plan.causal), args)
         if not compile_only:
             fn(*args)
 

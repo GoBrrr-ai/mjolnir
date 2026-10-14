@@ -449,6 +449,19 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
         BOTH,
     ),
     ("default: headdim 128 + PDL", "@default --batches 2 --seqlen 9000 --varlen --headdim 128 --pdl", BOTH),
+    # parallel drafters (DSpark / DFlash): a non-causal block of 1 + 7 queries,
+    # the DSpark drafter's heads (40 query / 8 KV, d = 128)
+    (
+        "non-causal q_len=8 (drafter block)",
+        "@default --batches 4 --seqlen 5000 --varlen --q_len 8 --heads_q 40 --heads_k 8 --headdim 128 --non_causal",
+        BOTH,
+    ),
+    (
+        "non-causal q_len=8 fp8 p16 pad",
+        "--batches 3 --seqlen 2500 --varlen --q_len 8 --heads_q 40 --heads_k 8 --headdim 128 --page_size 16 "
+        "--non_causal --pad_work_to 40",
+        BOTH,
+    ),
     ("ring depth 2, fp8 (ring wraps)", "--seqlen 65536 --kv_layout hnd --kv_stages 2", BOTH),
     ("ring depth 2, e2m3 varlen p16", "@default --batches 4 --seqlen 9000 --varlen --page_size 16 --kv_stages 2", FP8),
     ("kv evict_first", "--batches 4 --seqlen 20000 --varlen --kv_evict_first", BOTH),
@@ -487,6 +500,7 @@ QUICK_CASES = (
     "default: e2m3 HND L=8192",
     "default: varlen 6x<=20000",
     "evict + PDL q_len=3 + pad",
+    "non-causal q_len=8 (drafter block)",
 )
 
 

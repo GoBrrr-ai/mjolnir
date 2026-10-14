@@ -40,7 +40,7 @@ and the next ideas are in [`program.md`](program.md)).
 |---|---|
 | [`program.md`](program.md) | the loop the orchestrator follows — the human-editable "research org" |
 | `src/mjolnir/mjolnir/t5_decode.py` | the only file experiments change |
-| `mjolnir autoresearch evaluate` | the fixed harness: quick correctness (12 cases × fp8/bf16 Q vs the emulator), then an ncu sweep of FlashInfer vs Mjolnir at the 8 headline L |
+| `mjolnir autoresearch evaluate` | the fixed harness: quick correctness (13 cases × fp8/bf16 Q vs the emulator, incl. a non-causal drafter block), then an ncu sweep of FlashInfer vs Mjolnir at the 8 headline L |
 | score | per L, FlashInfer time ÷ Mjolnir time from the same run; the score is their geomean |
 | decision | per L against the best kept row, computed by the harness, never by an agent: **keep** if correct, the geomean gains > 2%, the gain survives dropping its best L (> 1%) and at most one L is slower than the ±3% noise; an L where the FlashInfer reference jumped > 15% is set aside; **noisy** (re-evaluate) if that happens at > 2 L; else **discard** with the reason; **crash** if no score |
 | `ledger.jsonl` / `ledger.tsv` | one row per experiment; untracked while the run is live so `git reset --hard` never rewinds it |

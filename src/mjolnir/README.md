@@ -34,7 +34,8 @@ Steps that are **decode only** run on Mjolnir:
 - every request has the same `q_len ≤ 1 + num_speculative_tokens` (so MTP /
   n-gram speculative verification runs on Mjolnir too);
 - CUDA-graph padding requests (zero tokens) may trail the batch;
-- the step is causal and has no cascade prefix.
+- the step is causal — or the non-causal block of a parallel drafter (DSpark,
+  DFlash: every query token sees every key) — and has no cascade prefix.
 
 Every other step (prefill, mixed, cascade) is built and run by the base backend,
 unchanged.
@@ -110,6 +111,7 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_PRECOMPILE` | `all` | compile every variant at start-up; `none` compiles on first use |
 | `MJOLNIR_ATTN_KERNEL_CACHE` | on | compiled variants are exported to `$VLLM_CACHE_ROOT/mjolnir/kernels` (else `~/.cache/mjolnir/kernels`) and loaded on the next start instead of recompiling; `0` = off, a path = that directory. Keyed by variant, kernel source, CuTe DSL version and GPU |
 | `MJOLNIR_ATTN_DRAFT_T5` | `1` | `0`: the drafter's layers (MTP / EAGLE) run on the fallback — isolates the draft-step cost (`mjolnir verify profile`). fp8 KV only: refused on fp6 KV, whose fallback cannot be CUDA-graphed |
+| `MJOLNIR_ATTN_NONCAUSAL` | `1` | `0`: a parallel drafter's non-causal block steps (DSpark / DFlash) go to the fallback instead of the decode kernel — fp8 KV only for the same reason as above |
 | `MJOLNIR_ATTN_FUSED_DRAFT` | `1` | `0`: tell vLLM the backend cannot advance draft metadata in place → one graph replay per draft step instead of the fused draft loop |
 | `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8`) |
 | `MJOLNIR_LM_HEAD_DROP_BF16` | – | `1`: with `MJOLNIR_LM_HEAD=fp8`, free the bf16 head (untied heads only; +2.5 GB KV) |

@@ -10,7 +10,8 @@ KV-cache layout, the KV-cache write, prefill, validation and everything else.
 Only two things change:
 
   * the metadata builder: a step whose batch is decode-only (uniform
-    q_len <= 1 + num_speculative_tokens, causal, no cascade) gets a T5 plan
+    q_len <= 1 + num_speculative_tokens, causal or a parallel drafter's
+    non-causal block, no cascade) gets a T5 plan
     (occupancy-pinned split-KV, written into persistent buffers, padded to a
     fixed grid -> FULL CUDA graphs replay it). Any other step is built by
     the base builder and run by the base impl, unchanged.
@@ -73,7 +74,10 @@ def _kv_format(cache_dtype: str) -> str:
 
 # Builder-level step counters (per process): smoke tests read these to make
 # sure decode steps really ran on T5.
-STATS = {"t5_steps": 0, "fallback_steps": 0}
+STATS = {"t5_steps": 0, "fallback_steps": 0, "t5_noncausal_steps": 0}
+# Parallel drafters' non-causal block attention on T5 (MJOLNIR_ATTN_NONCAUSAL=0:
+# those steps go to the fallback, as before)
+_NONCAUSAL = env_flag("MJOLNIR_ATTN_NONCAUSAL", "1").lower() not in ("0", "false", "no")
 
 
 def _default_fallback() -> tuple[str, bool]:
@@ -513,7 +517,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     # -- build ---------------------------------------------------------------
     def _t5_q_len(self, cam) -> int | None:
-        """q_len if this step is a uniform decode batch T5 can take."""
+        """q_len if this step is a uniform decode batch T5 can take: causal
+        (decode, speculative verification), or non-causal (a parallel drafter's
+        block — DSpark / DFlash — where every query token sees every key; off
+        with MJOLNIR_ATTN_NONCAUSAL=0)."""
         t5 = self.t5
         if t5 is None:
             return None
@@ -521,7 +528,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         if not 1 <= q_len <= t5.max_q_len or cam.num_reqs > t5.max_num_seqs:
             return None
         causal = getattr(cam, "causal", True)
-        if causal is not True:
+        if causal is not True and not (causal is False and _NONCAUSAL):
             return None
         if getattr(cam, "dcp_local_seq_lens", None) is not None:
             return None
@@ -562,6 +569,9 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         STATS["t5_steps"] += 1
         t5 = self.t5
         num_seqs = cam.num_reqs
+        causal = getattr(cam, "causal", True) is not False
+        if not causal:
+            STATS["t5_noncausal_steps"] += 1
         plan = t5.plan(
             self._seq_lens_cpu(cam),
             num_seqs,
@@ -569,9 +579,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             cam.block_table_tensor,
             cam.seq_lens,
             margin=self._plan_margin,
+            causal=causal,
         )
         # Never compiled inside graph capture: build() runs outside it.
-        t5.ensure_compiled(q_len, plan.with_reduction)
+        t5.ensure_compiled(q_len, plan.with_reduction, plan.causal)
         return MjolnirMetadata(plan=plan, runner=t5, cam=cam)
 
     def _fp6_page_map(self, cam):

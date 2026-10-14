@@ -52,7 +52,10 @@ qi-major (n = qi * h_r + hr). For q_len == 1 that is exactly vLLM's layout
 (no copy). For q_len > 1 (speculative decoding) the caller permutes q
 (b, q_len, h_k, h_r, d) -> (b, h_k, q_len, h_r, d) and o back; see
 pack_q / unpack_o below. Query token qi of a sequence of length L may
-attend to keys 0 .. L - q_len + qi (causal tail).
+attend to keys 0 .. L - q_len + qi (causal tail). With ``causal=False`` every
+query token sees all L keys — the block attention of parallel drafters
+(DSpark / DFlash: one bonus query and K mask queries attend to the context
+and to each other).
 
 Split-KV scheduling is occupancy-pinned (FlashInfer/FlashDecoding style):
 a host-side plan (plan_split_kv) picks the smallest contiguous KV chunk such
@@ -173,7 +176,9 @@ class MixedInputFusedMultiHeadAttentionDecode:
         l2_prefetch=0,  # TMA-prefetch K/V tiles this many tiles ahead into L2 (0 = off)
         kv_evict_first=False,  # TMA K/V loads with an L2 EVICT_FIRST cache policy
         kv_format="fp8",  # KV cache format, see KV_FORMATS
+        causal=True,  # False: every query token sees all seq_len keys (parallel-drafter blocks)
     ):
+        self.causal = bool(causal)
         self.max_kv_stages = max_kv_stages
         self.pdl = bool(pdl)
         # Extra .launch() kwargs, built here in plain Python: the DSL rewrites
@@ -1747,8 +1752,9 @@ class MixedInputFusedMultiHeadAttentionDecode:
             assert warp_threads >= cute.size(tSsM)
 
             # Causal tail for q_len > 1: column n (= qi * h_r + hr) may see
-            # keys 0 .. seq_len - q_len + qi.
-            if cutlass.const_expr(self.q_len > 1):
+            # keys 0 .. seq_len - q_len + qi. Non-causal: every column sees
+            # keys 0 .. seq_len - 1 (the q_len == 1 mask below).
+            if cutlass.const_expr(self.q_len > 1 and self.causal):
                 h_r_true = n_q // self.q_len
                 col_lim = cute.make_fragment_like(tSrM_prev, cutlass.Int32)
                 for i in cutlass.range_constexpr(cute.size(col_lim)):
@@ -1781,7 +1787,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
 
                 # Mask keys past the sequence end (select, so garbage/zero
                 # K rows from padding or OOB pages can't leak in)
-                if cutlass.const_expr(self.q_len == 1):
+                if cutlass.const_expr(self.q_len == 1 or not self.causal):
                     if row >= seq_len:
                         tSrS.fill(-cutlass.Float32.inf)
                 else:
@@ -2346,6 +2352,7 @@ def emulate_decode(
     q_len,
     chunk_tiles,
     fp8,
+    causal=True,
 ):
     """Bit-faithful model of the kernel's arithmetic (contiguous chunk split, running
     max, -inf guard, P rounding to e4m3(p * 448) or bf16, descale folding).
@@ -2365,7 +2372,7 @@ def emulate_decode(
         Vb = v_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)
         S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
         qi = torch.arange(n_q) // h_r
-        lim = L - q_len + qi  # (n_q,)
+        lim = L - q_len + qi if causal else torch.full((n_q,), L - 1)  # (n_q,) last key each row sees
         masked = torch.arange(L)[None, :] > lim[:, None]  # (n_q, L)
         S = S.masked_fill(masked[None], -math.inf)
         qk = q_descale[bi] * k_descale[bi]  # (h_k,)
@@ -2443,6 +2450,7 @@ def run(
     kv_evict_first: int = -1,  # -1 auto: on for fp8 Q (vLLM default), off for bf16 Q
     kv_format: str = "fp8",
     kv_from_float: bool = False,
+    non_causal: bool = False,
     **kwargs,
 ):
     if not torch.cuda.is_available():
@@ -2540,6 +2548,7 @@ def run(
         l2_prefetch=l2_prefetch,
         kv_evict_first=bool(kv_evict_first),
         kv_format=kv_format,
+        causal=not non_causal,
     )
     fmha.can_implement(num_seqs, heads_q, heads_k, headdim, q_dtype, kv_dtype)
 
@@ -2768,6 +2777,7 @@ def run(
             q_len,
             plan.chunk_tiles,
             fp8,
+            causal=not non_causal,
         )
         o_kern = o_d.float().cpu()
         lse_kern = lse_d.cpu()
@@ -2789,6 +2799,7 @@ def run(
                 q_len,
                 plan.chunk_tiles,
                 fp8,
+                causal=not non_causal,
             )
             d_true = (o_kern - o_true).abs()
             rel = (d_true.norm() / o_true.norm().clamp(min=1e-12)).item()
@@ -2917,6 +2928,12 @@ if __name__ == "__main__":
         help="fp8: quantize KV from float data with per-head "
         "descales and report the quantization error (always "
         "on for the other formats) — the accuracy A/B baseline",
+    )
+    parser.add_argument(
+        "--non_causal",
+        action="store_true",
+        help="every query token sees all seq_len keys (q_len > 1): the block attention of "
+        "parallel drafters (DSpark / DFlash)",
     )
     parser.add_argument(
         "--strided_qo", action="store_true", help="Q/O rows inside wider rows (like vLLM's fused-QKV view)"
