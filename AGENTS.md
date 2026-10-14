@@ -146,8 +146,9 @@ skipped with a hint — nothing blocks on a password.
 - `research/` — autoresearch program, ledger (untracked while live), exported runs.
 - `.opencode/` — agents (`agent/`), the `/autoresearch` command, skills
   (`kernel-iteration`, `update-base-image`).
-- `.github/workflows/` — `ci.yml`, `docker-image.yml`, `release-kernel.yml`,
-  `release-cli.yml`, `pages.yml`.
+- `.github/workflows/` — `ci.yml` (pull requests), `release.yml` (manual: tags
+  + GitHub Release + dispatch), `release-kernel.yml`, `release-cli.yml`,
+  `docker-image.yml`, `pages.yml` (all tag-driven); `scripts/release_plan.py`.
 
 ## How to work
 
@@ -219,10 +220,15 @@ Agents may change only `src/mjolnir/mjolnir/t5_decode.py`; the keep/discard rule
 is in the harness (> 2% geomean gain over the best kept, correctness required).
 
 ### Releases
-Three independent versions: `mjolnir-kernel` (tag `mjolnir-kernel-v<ver>`,
-version in `src/mjolnir/mjolnir/__init__.py`), `mjolnir-cli` (tag
-`mjolnir-cli-v<ver>`, `src/mjolnir-cli/mjolnir_cli/__init__.py`) — both via PyPI
-trusted publishing — and the image (vLLM version, on push to `main`).
+One manual workflow, **Actions → Release** (`release.yml`): it plans the next
+versions from the tag history (`scripts/release_plan.py`), runs the CI gates,
+tags `main` (`mjolnir-kernel-vX.Y.Z`, `mjolnir-cli-vX.Y.Z`, umbrella
+`release-YYYY.MM.DD`), writes the GitHub Release and dispatches the tag-driven
+publishers: `release-kernel.yml` / `release-cli.yml` (PyPI, trusted
+publishing; `__version__` is stamped from the tag — never bump it by hand
+unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
+`pages.yml`. CI runs on pull requests only. Setup + details:
+`docs/faq/releasing.md`.
 
 ## Open work
 - [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,

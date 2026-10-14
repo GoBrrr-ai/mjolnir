@@ -1,12 +1,15 @@
 # Release mjolnir-cli (src/mjolnir-cli, import `mjolnir_cli`, command
 # `mjolnir`) to PyPI.
 #
-# Tag-gated: push a tag `mjolnir-cli-vX.Y.Z` whose version equals
-# `__version__` in src/mjolnir-cli/mjolnir_cli/__init__.py. Independent of
-# the kernel's version (release-kernel.yml) and of the image (docker-image.yml).
+# Tag-driven: runs on a tag `mjolnir-cli-vX.Y.Z` — pushed by hand, or
+# dispatched on the tag by the Release workflow (release.yml), which computes
+# the version from the tag history. The tag is the source of truth: the
+# version is stamped into `__version__` (src/mjolnir-cli/mjolnir_cli/__init__.py)
+# before the build. Independent of the kernel's version (release-kernel.yml)
+# and of the image (docker-image.yml).
 #
 # One-time human setup (before the first tag):
-#   1. pypi.org: add a *pending* trusted publisher for project `mjolnir-cli`:
+#   1. pypi.org: add a (pending) trusted publisher for project `mjolnir-cli`:
 #        owner=thor-arena  repo=mjolnir  workflow=release-cli.yml  environment=pypi-cli
 #   2. GitHub: Settings -> Environments -> create `pypi-cli`.
 #   3. GitHub: a tag ruleset for `mjolnir-cli-v*` (block force-push + delete).
@@ -14,6 +17,7 @@
 name: Release mjolnir-cli
 
 on:
+  workflow_dispatch:  # by release.yml, with ref = the tag
   push:
     tags:
       - "mjolnir-cli-v[0-9]+.[0-9]+.[0-9]+"
@@ -38,14 +42,15 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
-      - name: Tag is at HEAD and matches the package version
+      - name: Version from the tag, stamped into the package
         run: |
           set -euo pipefail
-          [ "${GITHUB_REF_NAME}" = "$(git describe --tags --exact-match HEAD)" ] \
-            || { echo "::error::tag ${GITHUB_REF_NAME} is not at HEAD"; exit 1; }
-          want="${GITHUB_REF_NAME#mjolnir-cli-v}"
-          have=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' src/mjolnir-cli/mjolnir_cli/__init__.py)
-          [ "$want" = "$have" ] || { echo "::error::tag $want != src/mjolnir-cli/mjolnir_cli/__init__.py $have"; exit 1; }
+          [ "${GITHUB_REF_TYPE}" = "tag" ] || { echo "::error::run on a mjolnir-cli-v* tag, not ${GITHUB_REF}"; exit 1; }
+          case "${GITHUB_REF_NAME}" in mjolnir-cli-v*) ;; *) echo "::error::${GITHUB_REF_NAME} is not a mjolnir-cli-v* tag"; exit 1;; esac
+          version="${GITHUB_REF_NAME#mjolnir-cli-v}"
+          sed -i -E "s/^__version__ = \"[^\"]+\"/__version__ = \"${version}\"/" src/mjolnir-cli/mjolnir_cli/__init__.py
+          grep -q "^__version__ = \"${version}\"" src/mjolnir-cli/mjolnir_cli/__init__.py || { echo "::error::could not stamp ${version}"; exit 1; }
+          echo "mjolnir-cli ${version}" >> "$GITHUB_STEP_SUMMARY"
       - name: Lint
         run: |
           uvx ruff@0.14.14 check src/mjolnir-cli

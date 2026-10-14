@@ -9,10 +9,12 @@ vllm serve <model> --attention-backend MJOLNIR      # the mjolnir-vllm image
 vllm serve <model> --attention-backend CUSTOM       # stock vLLM 0.31.0 + this package
 ```
 
-Benchmarks (Mjolnir vs FlashInfer vs FlashAttention 2 at 128 to 256K tokens of
-context), the design, and one chapter per kernel feature live in the project
-repository: **[thor-arena/mjolnir](https://github.com/thor-arena/mjolnir)** —
-numbers there are rendered from the raw results, so they are never stale.
+This package is the kernel only. Serving, calibration and benchmarking are the
+[`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) package; benchmarks
+(Mjolnir vs FlashInfer vs FlashAttention 2 across context lengths), the design,
+and one chapter per kernel feature live in the project repository:
+**[thor-arena/mjolnir](https://github.com/thor-arena/mjolnir)** — numbers there
+are rendered from the raw results, so they are never stale.
 
 ## What it does
 

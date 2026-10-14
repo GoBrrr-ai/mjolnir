@@ -3,9 +3,11 @@
 #
 # Versioning follows UPSTREAM vLLM, not the Python packages: the tag is the
 # vLLM version of the Dockerfile's BASE_IMAGE (vllm/vllm-openai:v0.31.0-… ->
-# narandill/mjolnir-vllm:v0.31.0). Every push also gets an immutable
-# :v0.31.0-<short-sha>, and main gets :latest. Bumping vLLM = bumping
-# BASE_IMAGE (+ VLLM_VERSION in mjolnir_cli/config.py — checked below).
+# narandill/mjolnir-vllm:v0.31.0). Every release also gets an immutable
+# :v0.31.0-<short-sha>, and a release-* tag moves :latest. Bumping vLLM =
+# bumping BASE_IMAGE (+ VLLM_VERSION in mjolnir_cli/config.py — checked below).
+# Runs on tags only (release.yml dispatches it); a manual run of a branch
+# builds without pushing unless asked.
 #
 # One-time setup:
 #   1. Docker Hub: create an access token with write access to the repo.
@@ -22,13 +24,11 @@
 name: Docker image
 
 on:
+  # a release: dispatched by release.yml on the umbrella tag (release-*), or a
+  # hand-pushed release-* / image-v* tag
   push:
-    branches: [main]
-    paths:
-      - "docker/vllm-thor/**"
-      - "src/mjolnir/**"
-      - ".github/workflows/docker-image.yml"
     tags:
+      - "release-*"
       - "image-v*"
   workflow_dispatch:
     inputs:
@@ -36,6 +36,10 @@ on:
         description: "push to Docker Hub"
         type: boolean
         default: true
+      kernel_version:
+        description: "mjolnir-kernel version baked in (default: the latest mjolnir-kernel-v* tag)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -53,20 +57,28 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0  # the kernel tags
           persist-credentials: false
 
       - name: Version from the upstream vLLM base image
         id: v
+        env:
+          KERNEL_INPUT: ${{ inputs.kernel_version }}
         run: |
           set -euo pipefail
           base=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+[^ -]*).*/\1/p' docker/vllm-thor/Dockerfile)
           [ -n "$base" ] || { echo "::error::cannot parse BASE_IMAGE vLLM version from the Dockerfile"; exit 1; }
           cli=$(sed -nE 's/^VLLM_VERSION = "([^"]+)"/\1/p' src/mjolnir-cli/mjolnir_cli/config.py)
           [ "$base" = "$cli" ] || { echo "::error::Dockerfile vLLM $base != mjolnir_cli VLLM_VERSION $cli (bump both)"; exit 1; }
-          kernel=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' src/mjolnir/mjolnir/__init__.py)
+          kernel="${KERNEL_INPUT}"
+          if [ -z "$kernel" ]; then  # the latest released kernel, else the source's own version
+            kernel=$(git tag --list 'mjolnir-kernel-v*' --sort=-v:refname | head -1 | sed 's/^mjolnir-kernel-v//')
+            [ -n "$kernel" ] || kernel=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' src/mjolnir/mjolnir/__init__.py)
+          fi
+          sed -i -E "s/^__version__ = \"[^\"]+\"/__version__ = \"${kernel}\"/" src/mjolnir/mjolnir/__init__.py
           short=${GITHUB_SHA::7}
           tags="${IMAGE_REPO}:v${base},${IMAGE_REPO}:v${base}-${short}"
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then tags="${tags},${IMAGE_REPO}:latest"; fi
+          case "${GITHUB_REF}" in refs/tags/release-*) tags="${tags},${IMAGE_REPO}:latest";; esac
           {
             echo "vllm=${base}"
             echo "kernel=${kernel}"

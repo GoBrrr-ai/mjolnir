@@ -1,0 +1,188 @@
+# Cut a release: one manual run tags what changed, writes the GitHub Release,
+# and starts every publishing workflow on the new tags.
+#
+#   Actions -> Release -> Run workflow   (bump: patch | minor | major)
+#
+# 1. plan     scripts/release_plan.py reads the tag history: the next
+#             mjolnir-kernel / mjolnir-cli version (last tag + bump; a package
+#             whose source did not change since its tag is skipped unless
+#             forced), the image tag from the pinned upstream vLLM version
+#             (VLLM_VERSION == the Dockerfile's BASE_IMAGE), and the umbrella
+#             tag release-YYYY.MM.DD[.N].
+# 2. checks   the same lint / tests / README / build gates as a pull request.
+# 3. tag      pushes mjolnir-kernel-vX.Y.Z, mjolnir-cli-vX.Y.Z and the umbrella
+#             tag at the current main, and creates the GitHub Release (notes
+#             generated from the merged PRs since the previous release).
+# 4. publish  dispatches the tag-driven workflows ON the new tags:
+#             release-kernel.yml, release-cli.yml (PyPI), docker-image.yml
+#             (Docker Hub, tagged v<vLLM>), pages.yml (the interactive site).
+#             Tags pushed with GITHUB_TOKEN do not trigger workflows by
+#             themselves, so they are dispatched explicitly (workflow_dispatch
+#             with ref = the tag) — each still runs as its own top-level
+#             workflow, which is what PyPI trusted publishing expects.
+#
+# Package versions are not committed back to main: each publishing workflow
+# stamps __version__ from its tag before building (the tag is the source of
+# truth). dry_run stops after the plan and the checks.
+#
+# One-time setup: see docs/faq/releasing.md.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "version bump for the packages that are released"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      packages:
+        description: "which Python packages to release (changed = those whose source changed since their last tag)"
+        type: choice
+        options: [changed, both, cli, kernel, none]
+        default: changed
+      image:
+        description: "build and push the Docker image"
+        type: boolean
+        default: true
+      pages:
+        description: "rebuild the interactive benchmark site"
+        type: boolean
+        default: true
+      dry_run:
+        description: "plan + checks only: no tags, no release, nothing published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      vllm: ${{ steps.plan.outputs.vllm }}
+      umbrella: ${{ steps.plan.outputs.umbrella }}
+      title: ${{ steps.plan.outputs.title }}
+      kernel_release: ${{ steps.plan.outputs.kernel_release }}
+      kernel_version: ${{ steps.plan.outputs.kernel_version }}
+      kernel_tag: ${{ steps.plan.outputs.kernel_tag }}
+      cli_release: ${{ steps.plan.outputs.cli_release }}
+      cli_version: ${{ steps.plan.outputs.cli_version }}
+      cli_tag: ${{ steps.plan.outputs.cli_tag }}
+    steps:
+      - name: Releases are cut from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::run the Release workflow on main (got ${GITHUB_REF})"
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # the whole tag history
+          persist-credentials: false
+      - name: Plan the versions from the tag history
+        id: plan
+        run: python3 scripts/release_plan.py --bump "${{ inputs.bump }}" --packages "${{ inputs.packages }}" --github-output
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ steps.plan.outputs.title }}"
+            echo "| artifact | release | version / tag |"
+            echo "|---|---|---|"
+            echo "| mjolnir-kernel | ${{ steps.plan.outputs.kernel_release }} | ${{ steps.plan.outputs.kernel_tag || '—' }} |"
+            echo "| mjolnir-cli | ${{ steps.plan.outputs.cli_release }} | ${{ steps.plan.outputs.cli_tag || '—' }} |"
+            echo "| image | ${{ inputs.image }} | v${{ steps.plan.outputs.vllm }} |"
+            echo "| umbrella tag | ${{ !inputs.dry_run }} | ${{ steps.plan.outputs.umbrella }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+
+  tag:
+    needs: [plan, checks]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Push the tags
+        env:
+          KERNEL_TAG: ${{ needs.plan.outputs.kernel_tag }}
+          CLI_TAG: ${{ needs.plan.outputs.cli_tag }}
+          UMBRELLA: ${{ needs.plan.outputs.umbrella }}
+          TITLE: ${{ needs.plan.outputs.title }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tags=()
+          for t in "$KERNEL_TAG" "$CLI_TAG" "$UMBRELLA"; do
+            [ -n "$t" ] || continue
+            git tag -a "$t" -m "$TITLE" "$GITHUB_SHA"
+            tags+=("$t")
+          done
+          git push origin "${tags[@]}"
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UMBRELLA: ${{ needs.plan.outputs.umbrella }}
+          TITLE: ${{ needs.plan.outputs.title }}
+          VLLM: ${{ needs.plan.outputs.vllm }}
+          KERNEL: ${{ needs.plan.outputs.kernel_version }}
+          CLI: ${{ needs.plan.outputs.cli_version }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          prev=$(git tag --list 'release-*' --sort=-creatordate | grep -vx "$UMBRELLA" | head -1 || true)
+          {
+            echo "## Install"
+            echo
+            echo '```bash'
+            [ -n "$CLI" ] && echo "uv tool install mjolnir-cli==${CLI}"
+            [ -n "$KERNEL" ] && echo "pip install mjolnir-kernel==${KERNEL}   # stock vLLM ${VLLM}: --attention-backend CUSTOM"
+            [ "$IMAGE" = "true" ] && echo "docker pull narandill/mjolnir-vllm:v${VLLM}"
+            echo '```'
+            echo
+            echo "| artifact | version |"
+            echo "|---|---|"
+            echo "| [mjolnir-cli](https://pypi.org/project/mjolnir-cli/) | ${CLI:-unchanged} |"
+            echo "| [mjolnir-kernel](https://pypi.org/project/mjolnir-kernel/) | ${KERNEL:-unchanged} |"
+            echo "| [narandill/mjolnir-vllm](https://hub.docker.com/r/narandill/mjolnir-vllm) | $([ "$IMAGE" = "true" ] && echo "v${VLLM}" || echo unchanged) (vLLM ${VLLM}) |"
+            echo
+          } > notes.md
+          gh release create "$UMBRELLA" --title "$TITLE" --notes-file notes.md --generate-notes \
+            ${prev:+--notes-start-tag "$prev"} --verify-tag
+
+  publish:
+    needs: [plan, tag]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # workflow_dispatch of the tag-driven workflows
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: mjolnir-kernel -> PyPI
+        if: needs.plan.outputs.kernel_release == 'true'
+        run: gh workflow run release-kernel.yml --ref "${{ needs.plan.outputs.kernel_tag }}"
+      - name: mjolnir-cli -> PyPI
+        if: needs.plan.outputs.cli_release == 'true'
+        run: gh workflow run release-cli.yml --ref "${{ needs.plan.outputs.cli_tag }}"
+      - name: image -> Docker Hub
+        if: inputs.image
+        run: gh workflow run docker-image.yml --ref "${{ needs.plan.outputs.umbrella }}" -f push=true -f kernel_version="${{ needs.plan.outputs.kernel_version }}"
+      - name: interactive site -> GitHub Pages
+        if: inputs.pages
+        run: gh workflow run pages.yml --ref "${{ needs.plan.outputs.umbrella }}"
+      - name: Summary
+        run: |
+          echo "Dispatched on the release tags — follow them under Actions: release-kernel, release-cli, Docker image, Pages." >> "$GITHUB_STEP_SUMMARY"

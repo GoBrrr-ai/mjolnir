@@ -1,12 +1,15 @@
 # Release mjolnir-kernel (src/mjolnir, import `mjolnir`) to PyPI.
 #
-# Tag-gated: push a tag `mjolnir-kernel-vX.Y.Z` whose version equals
-# `__version__` in src/mjolnir/mjolnir/__init__.py. The CLI has its own tag
-# prefix and workflow (release-cli.yml) — the two packages version
-# independently. Docker images follow upstream vLLM (docker-image.yml).
+# Tag-driven: runs on a tag `mjolnir-kernel-vX.Y.Z` — pushed by hand, or
+# dispatched on the tag by the Release workflow (release.yml), which computes
+# the version from the tag history. The tag is the source of truth: the
+# version is stamped into `__version__` (src/mjolnir/mjolnir/__init__.py)
+# before the build. The CLI has its own tag prefix and workflow
+# (release-cli.yml) — the two packages version independently. Docker images
+# follow upstream vLLM (docker-image.yml).
 #
 # One-time human setup (before the first tag):
-#   1. pypi.org: add a *pending* trusted publisher for project `mjolnir-kernel`:
+#   1. pypi.org: add a (pending) trusted publisher for project `mjolnir-kernel`:
 #        owner=thor-arena  repo=mjolnir  workflow=release-kernel.yml  environment=pypi-kernel
 #   2. GitHub: Settings -> Environments -> create `pypi-kernel`
 #      (optional protection rule: required reviewer).
@@ -18,6 +21,7 @@
 name: Release mjolnir-kernel
 
 on:
+  workflow_dispatch:  # by release.yml, with ref = the tag
   push:
     tags:
       - "mjolnir-kernel-v[0-9]+.[0-9]+.[0-9]+"
@@ -43,14 +47,15 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false  # never cache on a release (cache-poisoning vector)
-      - name: Tag is at HEAD and matches the package version
+      - name: Version from the tag, stamped into the package
         run: |
           set -euo pipefail
-          [ "${GITHUB_REF_NAME}" = "$(git describe --tags --exact-match HEAD)" ] \
-            || { echo "::error::tag ${GITHUB_REF_NAME} is not at HEAD"; exit 1; }
-          want="${GITHUB_REF_NAME#mjolnir-kernel-v}"
-          have=$(sed -nE 's/^__version__ = "([^"]+)"/\1/p' src/mjolnir/mjolnir/__init__.py)
-          [ "$want" = "$have" ] || { echo "::error::tag $want != src/mjolnir/mjolnir/__init__.py $have"; exit 1; }
+          [ "${GITHUB_REF_TYPE}" = "tag" ] || { echo "::error::run on a mjolnir-kernel-v* tag, not ${GITHUB_REF}"; exit 1; }
+          case "${GITHUB_REF_NAME}" in mjolnir-kernel-v*) ;; *) echo "::error::${GITHUB_REF_NAME} is not a mjolnir-kernel-v* tag"; exit 1;; esac
+          version="${GITHUB_REF_NAME#mjolnir-kernel-v}"
+          sed -i -E "s/^__version__ = \"[^\"]+\"/__version__ = \"${version}\"/" src/mjolnir/mjolnir/__init__.py
+          grep -q "^__version__ = \"${version}\"" src/mjolnir/mjolnir/__init__.py || { echo "::error::could not stamp ${version}"; exit 1; }
+          echo "mjolnir-kernel ${version}" >> "$GITHUB_STEP_SUMMARY"
       - name: Lint
         run: uvx ruff@0.14.14 check src/mjolnir
       - name: Build sdist + wheel

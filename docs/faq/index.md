@@ -42,4 +42,5 @@ trust or publish any number.
 | Upgrade the Dockerfile base image and re-adapt the patch stack | [base-image-bump.md](base-image-bump.md) |
 | Improve the Mjolnir kernel by hand: measure, A/B, publish | [verify-kernel.md](verify-kernel.md#improving-the-kernel) |
 | Run the autonomous research loop overnight | [autoresearch.md](autoresearch.md) |
+| Cut a release: PyPI packages, Docker image, site (one manual workflow) | [releasing.md](releasing.md) |
 | Serve with `--attention-backend MJOLNIR` (image or stock vLLM) | [serve-server.md](serve-server.md#the-mjolnir-backend) |

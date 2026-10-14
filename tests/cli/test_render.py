@@ -59,8 +59,9 @@ def test_full_render_from_fixture_data(repo):
     readme.render_readme(layout)
     text = (repo / "README.md").read_text()
     assert "{{" not in text and "{%" not in text
-    assert "1.26× faster" in text  # geomean vs FlashInfer from the fixture sweep
-    assert 'srcset="assets/benchmarks/kernel-speedup-dark.png"' in text
+    # the geomean vs FlashInfer from the fixture sweep (the case study's headline line)
+    assert "**Where it stands:** 1.26× FlashInfer" in (repo / "docs" / "kernel" / "README.md").read_text()
+    assert 'srcset="assets/benchmarks/kernel-latency-dark.png"' in text
     page = (repo / "docs" / "kernel" / "ring.md").read_text()
     assert "../../assets/benchmarks/ring-heatmap.png" in page  # paths are relative to the page
     assert "Fastest variant at the most context lengths" in page
@@ -74,7 +75,6 @@ def test_render_without_verify_data_is_pending(repo):
     charts.render_all(layout)  # e2e charts only (history), no kernel charts
     readme.render_readme(layout)
     text = (repo / "README.md").read_text()
-    assert "has not been recorded in this checkout yet" in text
     assert "Pending: `mjolnir verify sweep`" in text
     assert "Pending — run `mjolnir verify ring`" in (repo / "docs" / "kernel" / "ring.md").read_text()
 

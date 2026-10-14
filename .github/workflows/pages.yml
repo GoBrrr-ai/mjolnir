@@ -1,19 +1,19 @@
 # The interactive benchmark site (https://thor-arena.github.io/mjolnir/):
 # `mjolnir plot --site` renders one self-contained page from the committed
-# raw results (benchmarks/raw/verify + history.jsonl) on every push that
-# changes them.
+# raw results (benchmarks/raw/verify + history.jsonl) at every release.
 #
-# One-time setup: Settings -> Pages -> Build and deployment: "GitHub Actions".
+# One-time setup: Settings -> Pages -> Build and deployment: "GitHub Actions";
+# Settings -> Environments -> github-pages -> deployment branches and tags:
+# add the tag pattern `release-*` (by default only the default branch may
+# deploy, which would reject a run on a release tag).
 
 name: Pages
 
 on:
+  # a release: dispatched by release.yml on the umbrella tag, or a hand-pushed one
   push:
-    branches: [main]
-    paths:
-      - "benchmarks/**"
-      - "src/mjolnir-cli/**"
-      - ".github/workflows/pages.yml"
+    tags:
+      - "release-*"
   workflow_dispatch:
 
 permissions:
