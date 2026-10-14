@@ -65,7 +65,10 @@ bookkeeping.
 3. **GitHub → Settings → Secrets and variables → Actions** — secrets
    `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (a Docker Hub token with write
    access); optional variables `IMAGE_REPO`, `IMAGE_RUNNER`.
-4. **GitHub → Settings → Pages** — source: *GitHub Actions*.
+4. **GitHub → Settings → Pages** — source: *GitHub Actions*. With *Deploy
+   from a branch* GitHub serves its own Jekyll render of `README.md` as the
+   site (static PNGs, unrendered LaTeX) instead of the interactive charts;
+   `pages.yml` fails with that message until it is switched.
 5. **GitHub → Settings → Rules** — a tag ruleset for `mjolnir-*-v*` and
    `release-*` (block updates and deletions), and a branch ruleset for `main`
    that requires the CI checks on pull requests.

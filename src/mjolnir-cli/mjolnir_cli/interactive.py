@@ -49,7 +49,7 @@ def build(layout: RepoLayout, out_dir: Path, data: dict | None = None) -> Path:
                         "concurrency": c.get("concurrency"),
                         "context": c.get("context") or 0,
                         "tg": (c.get("tg_tps") or {}).get("mean"),
-                        "pp": (c.get("pp_tps") or {}).get("mean"),
+                        "pp": (c.get("pp_tps") or {}).get("mean") if c.get("context") else None,  # no ctx: no prefill
                     }
                     for c in v.get("cells", [])
                 ],

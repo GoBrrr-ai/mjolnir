@@ -2,7 +2,10 @@
 # `mjolnir plot --site` renders one self-contained page from the committed
 # raw results (benchmarks/raw/verify + history.jsonl) at every release.
 #
-# One-time setup: Settings -> Pages -> Build and deployment: "GitHub Actions";
+# One-time setup: Settings -> Pages -> Build and deployment -> Source: "GitHub
+# Actions". With the default "Deploy from a branch" GitHub runs its own Jekyll
+# build of main instead and serves README.md as the site (no charts, raw
+# LaTeX) — the deploy job below refuses to run in that state and says so;
 # Settings -> Environments -> github-pages -> deployment branches and tags:
 # add the tag pattern `release-*` (by default only the default branch may
 # deploy, which would reject a run on a release tag).
@@ -33,7 +36,9 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - run: uv sync
       - name: Build the site from the raw data
-        run: uv run mjolnir plot --site _site
+        run: |
+          uv run mjolnir plot --site _site
+          touch _site/.nojekyll
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -49,5 +54,15 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Pages must be served from GitHub Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          type=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type 2>/dev/null || echo unknown)
+          echo "Pages build_type: ${type}"
+          if [ "$type" = "legacy" ]; then
+            echo "::error::Settings -> Pages -> Source is 'Deploy from a branch': GitHub serves its Jekyll render of README.md, not this site. Switch it to 'GitHub Actions' and re-run."
+            exit 1
+          fi
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
