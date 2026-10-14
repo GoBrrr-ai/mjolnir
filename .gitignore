@@ -24,3 +24,5 @@ task/
 # `mjolnir autoresearch export` snapshots it into research/runs/<tag>/
 research/ledger.jsonl
 research/ledger.tsv
+# …and the exported runs ARE committed (the generic runs/ rule above would hide them)
+!research/runs/

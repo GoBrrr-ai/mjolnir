@@ -31,6 +31,9 @@ it the per-L split — each experiment's FlashInfer÷Mjolnir ratio at every L ov
 the baseline's (`ref?` marks an L where the FlashInfer reference itself jumped).
 `mjolnir autoresearch chart` re-renders it.*
 
+Runs so far: [run 1](runs/run1/SUMMARY.md) (12 experiments, no keep — its lessons
+and the next ideas are in [`program.md`](program.md)).
+
 ## The pieces
 
 | | |

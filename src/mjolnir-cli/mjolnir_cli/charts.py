@@ -1460,14 +1460,14 @@ def chart_autoresearch(rows: list[dict], mode: Mode):
         return fig
     base = next((r for r in rows if r.get("status") == "baseline" and r.get("per_L")), None)
     Ls = sorted({int(L) for r in rows for L in (r.get("per_L") or {})})
-    fig, (ax, hx) = plt.subplots(
-        2,
-        1,
-        figsize=(13.5, 8.2 if Ls else 5.6),
-        sharex=True,
-        gridspec_kw={"height_ratios": [3, 1.35] if Ls else [1, 0.001], "hspace": 0.08},
-    )
-    theme.apply(fig, [ax, hx], mode)
+    if Ls:
+        fig, (ax, hx) = plt.subplots(
+            2, 1, figsize=(13.5, 8.2), sharex=True, gridspec_kw={"height_ratios": [3, 1.35], "hspace": 0.08}
+        )
+    else:  # rows without per-L numbers (an imported ledger): the score panel only
+        fig, ax = plt.subplots(figsize=(13.5, 5.6))
+        hx = None
+    theme.apply(fig, [a for a in (ax, hx) if a is not None], mode)
     ids = [r["id"] for r in rows]
     scored = [r for r in rows if r.get("score")]
     kept = [r for r in scored if r.get("status") in ("keep", "baseline")]
@@ -1552,7 +1552,9 @@ def chart_autoresearch(rows: list[dict], mode: Mode):
         "score = FlashInfer time ÷ Mjolnir time (fp6 e2m3 KV), both legs in the same ncu run"
         + (" · below: each L against the baseline" if Ls else ""),
     )
-    if Ls and base:
+    if hx is not None and not base:
+        hx.set_visible(False)
+    if hx is not None and base:
         vals = np.full((len(Ls), len(ids)), np.nan)
         for j, r in enumerate(rows):
             for i, L in enumerate(Ls):
@@ -1595,17 +1597,16 @@ def chart_autoresearch(rows: list[dict], mode: Mode):
         cb.ax.tick_params(labelsize=8, colors=mode.text_dim)
         cb.outline.set_visible(False)
         cb.ax.yaxis.set_major_formatter(_fmt_x())
-    else:
-        hx.set_visible(False)
-    (hx if Ls else ax).set_xlabel("experiment #")
-    (hx if Ls else ax).xaxis.set_major_locator(_int_locator())
+    bottom = hx if hx is not None and hx.get_visible() else ax
+    bottom.set_xlabel("experiment #")
+    bottom.xaxis.set_major_locator(_int_locator())
     ax.set_xlim(min(ids) - 0.8, max(ids) + 0.8)
     theme.footer(
         fig,
         mode,
-        f"mjolnir autoresearch · {rows[-1].get('branch', '')} · research/ledger.jsonl · "
-        "ref? = FlashInfer reference jumped at that L: set aside by the judge",
-        below_in=0.75,
+        f"mjolnir autoresearch · {rows[-1].get('branch', '')}"
+        + (" · ref? = FlashInfer reference jumped at that L: set aside by the judge" if hx is not None else ""),
+        below_in=0.75 if hx is not None else 0.62,
     )
     return fig
 
