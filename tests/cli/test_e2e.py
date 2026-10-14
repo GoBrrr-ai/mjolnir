@@ -195,3 +195,11 @@ def test_history_survives_a_missing_final_newline(tmp_path):
     assert h.read_text().count("\n") == 2
     h.write_text(json.dumps({"a": 1}) + json.dumps({"b": 2}) + "\n" + '{"c": ')  # glued + truncated
     assert history.load_records(h) == [{"a": 1}, {"b": 2}]
+
+
+def test_no_context_has_no_prefill():
+    from mjolnir_cli import e2e
+
+    assert e2e.value({"context": 0, "pp_tps": {"mean": 2929.0}}, "pp_tps") is None
+    assert e2e.value({"context": 4096, "pp_tps": {"mean": 2929.0}}, "pp_tps") == 2929.0
+    assert e2e.value({"context": 0, "tg_tps": {"mean": 22.5}}, "tg_tps") == 22.5

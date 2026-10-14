@@ -135,9 +135,12 @@ def cell(rec: dict, conc: int, ctx: int) -> dict | None:
 
 def value(c: dict | None, key: str) -> float | None:
     """Mean of a metric in a cell, with fallbacks for records written before
-    TTFT/ITL were stored (ttft ← ttfr; ITL ← 1000 / decode t/s at c=1)."""
+    TTFT/ITL were stored (ttft ← ttfr; ITL ← 1000 / decode t/s at c=1).
+    Prefill is not reported for a cell without context."""
     if not c:
         return None
+    if key == "pp_tps" and not (c.get("context") or 0):
+        return None  # no context, no prefill to compare: the "no ctx" row is decode only
     m = (c.get(key) or {}).get("mean")
     if m is not None:
         return float(m)

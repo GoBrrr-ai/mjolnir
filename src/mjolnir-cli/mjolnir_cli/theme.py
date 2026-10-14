@@ -185,10 +185,13 @@ def title(ax, mode: Mode, text: str, subtitle: str | None = None, fontsize: int 
 
 
 def footer(fig, mode: Mode, text: str) -> None:
-    # below the axes (and their x labels): the bbox-tight save grows to fit
+    # below the axes (and their x labels): the bbox-tight save grows to fit.
+    # Horizontally the two texts are pinned to the content's edges at save time
+    # (``fit_footer``): placed at the figure's edges they would stretch the tight
+    # bbox to the whole canvas and leave wide empty margins left and right.
     y = min(ax.get_position().y0 for ax in fig.axes) - 0.13 if fig.axes else 0.0
-    fig.text(0.01, y, text, ha="left", va="top", color=mode.text_dim, fontsize=8.5)
-    fig.text(
+    left = fig.text(0.01, y, text, ha="left", va="top", color=mode.text_dim, fontsize=8.5)
+    right = fig.text(
         0.995,
         y,
         "MJOLNIR · Jetson AGX Thor · sm_110",
@@ -198,6 +201,26 @@ def footer(fig, mode: Mode, text: str) -> None:
         fontsize=8,
         family="monospace",
     )
+    fig._mjolnir_footer = (left, right)
+
+
+def fit_footer(fig) -> None:
+    """Move the footer to the left / right edge of everything else on the
+    figure (call right before a bbox-tight save)."""
+    texts = getattr(fig, "_mjolnir_footer", None)
+    if not texts:
+        return
+    for t in texts:
+        t.set_in_layout(False)
+    renderer = fig.canvas.get_renderer()
+    bb = fig.get_tightbbox(renderer)  # inches, footer excluded
+    w = fig.get_figwidth()
+    left, right = texts
+    left.set_x(bb.x0 / w)
+    right.set_x(bb.x1 / w)
+    # a footer wider than the content still widens the bbox, never clips
+    for t in texts:
+        t.set_in_layout(True)
 
 
 def legend(ax, mode: Mode, **kw):

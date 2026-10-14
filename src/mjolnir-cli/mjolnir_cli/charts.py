@@ -694,7 +694,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     sides = [(rec, *_e2e_series(rec)) for rec in (off, mj)]
     top = max((e2e.value(e2e.cell(rec, c, x), metric) or 0) for rec in (off, mj) for c, x in cells)
     for ax, conc in zip(axes, concs):
-        ctxs = sorted({x for c, x in cells if c == conc})
+        ctxs = sorted({x for c, x in cells if c == conc and (x or metric != "pp_tps")})  # no ctx: no prefill
         w = 0.8 / len(sides)
         for i, (rec, sid, lbl) in enumerate(sides):
             hollow = not theme.filled(sid)
@@ -1442,7 +1442,8 @@ ACCURACY_CHARTS: dict[str, Callable] = {
 
 def _save(fig, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.2, dpi=DPI)
+    theme.fit_footer(fig)
+    fig.savefig(path, facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
     return path
 
 
