@@ -69,8 +69,16 @@ The drafter's 5 layers come after the target's 64, as layer indices 64–68.
 **DSpark on the Mjolnir image runs on Mjolnir and fp6 KV, like the target.**
 That matters because its layers keep a K/V for every context token: 20 KB a
 token on bf16 next to the target's 24 KB on fp6. On fp6 they take 7.5 KB, so
-the cache holds about 1.4× the tokens of a bf16 drafter. Two pieces make it
+the cache holds about 1.4× the tokens of a bf16 drafter. Three pieces make it
 work:
+
+- **The backend, set explicitly.** vLLM chooses a DSpark / DFlash drafter's
+  attention backend separately from the target's: `speculative-config.attention_backend`,
+  or automatic selection when that is unset. It never inherits the target's
+  `attention-backend`. The automatic choice knows nothing of fp6 and fails at
+  startup with `No valid attention backend found … kv_cache_dtype=fp6_e2m3 …
+  use_non_causal=True`. So the config sets `attention_backend: MJOLNIR` for
+  the drafter.
 
 - **Its own calibration.** `mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK`
   serves the config on fp8 KV with the drafter on Mjolnir and records the

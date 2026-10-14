@@ -87,7 +87,11 @@ def test_a_drafter_on_mjolnir_gets_its_own_scales(monkeypatch):
 
     monkeypatch.delenv("MJOLNIR_ATTN_KV_SCALES", raising=False)
     dspark, dflash2 = _s("NVFP4_MJOLNIR_E2M3_DSPARK"), _s("NVFP4_MJOLNIR_E2M3_DFLASH2")
-    assert config_drafter_on_mjolnir(dspark.config_path)  # DSpark inherits MJOLNIR: fp6 + its own calibration
+    assert config_drafter_on_mjolnir(dspark.config_path)  # DSpark's drafter on MJOLNIR: fp6 + its own calibration
+    import yaml
+
+    spec = yaml.safe_load(dspark.config_path.read_text())["speculative-config"]
+    assert spec["attention_backend"] == "MJOLNIR"  # vLLM never hands a DSpark drafter the target's backend
     assert not config_drafter_on_mjolnir(dflash2.config_path)  # DFlash2's sliding window stays on FlashInfer
     assert not config_drafter_on_mjolnir(_s("NVFP4_MJOLNIR_E2M3").config_path)  # MTP is part of the model
     assert not config_drafter_on_mjolnir(_s("NVFP4_DSPARK").config_path)  # official image: no Mjolnir at all

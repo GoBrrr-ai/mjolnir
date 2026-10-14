@@ -134,18 +134,19 @@ def config_speculative(path: Path) -> dict | None:
 
 def config_drafter_on_mjolnir(path: Path) -> bool:
     """Does the config run an external drafter (``speculative-config.model``:
-    DSpark, DFlash, EAGLE, ...) on the Mjolnir backend? True when the drafter
-    inherits the target's backend (no ``speculative-config.attention_backend``)
-    and that backend is MJOLNIR / CUSTOM — then the drafter's layers need fp6
-    scales of their own, calibrated with the config (``<config>.kv_scales.json``)."""
+    DSpark, DFlash, EAGLE, ...) on the Mjolnir backend? Only when it says so in
+    ``speculative-config.attention_backend`` (MJOLNIR / CUSTOM): vLLM gives a
+    DSpark / DFlash drafter its own backend choice — auto unless set there,
+    never the target's. Its layers then need fp6 scales of their own,
+    calibrated with the config (``<config>.kv_scales.json``)."""
     try:
         data = yaml.safe_load(Path(path).read_text())
     except Exception:  # noqa: BLE001
         return False
     spec = data.get("speculative-config") if isinstance(data, dict) else None
-    if not isinstance(spec, dict) or not spec.get("model") or spec.get("attention_backend"):
+    if not isinstance(spec, dict) or not spec.get("model"):
         return False
-    return (config_attention_backend(path) or "") in ("MJOLNIR", "CUSTOM")
+    return str(spec.get("attention_backend") or "").upper() in ("MJOLNIR", "CUSTOM")
 
 
 def config_attention_backend(path: Path) -> str | None:

@@ -14,8 +14,8 @@ what ``MJOLNIR_ATTN_KV_SCALES`` points ``--kv-cache-dtype fp6_e2m3`` at.
 
 The scales cover every attention layer that runs on the Mjolnir backend,
 drafters included (drafting writes its KV too): the built-in MTP head, and an
-external drafter that inherits the backend (DSpark: its 5 layers come out as
-layers 64-68). ``mjolnir calibrate`` runs this in the image and writes a config
+external drafter whose ``speculative-config.attention_backend`` is MJOLNIR
+(DSpark: its 5 layers come out as layers 64-68). ``mjolnir calibrate`` runs this in the image and writes a config
 with its own drafter to ``<config>.kv_scales.json``.
 """
 

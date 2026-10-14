@@ -99,7 +99,9 @@ speculative-config:
   model: Doopeworld/Qwen3.8-27B-DSpark-vLLM
   num_speculative_tokens: 7
   draft_sample_method: probabilistic
-  # no attention_backend: the drafter runs on the target's (MJOLNIR), fp6 KV
+  # the drafter on Mjolnir + fp6 KV. Explicit: vLLM gives a DSpark drafter its
+  # own backend choice (auto, unless set here) — it does not inherit the target's
+  attention_backend: MJOLNIR
 
 # ── Generation defaults (Qwen3.8 card's documented Thinking-mode preset) ────
 # NOTE: the verified Thor launch args do not set this server-side (sampling is
