@@ -40,7 +40,7 @@
 mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
-**Why?** Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
 ## ⚡ Key Features
 
@@ -67,7 +67,7 @@ mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🚀&nbsp;Faster decode</h3>
-      <p><b>+64% tokens/s</b> per request vs the official vLLM image. MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
+      <p><b>+64% tokens/s</b> vs the official vLLM image. MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -87,19 +87,19 @@ mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🎯&nbsp;Same accuracy</h3>
-      <p>Tool calling within <b>±3.6 points</b> of the stock FlashInfer fp8 baseline (<a href="docs/kernel/accuracy.md">accuracy</a>).</p>
+      <p>Tool calling within <b>±3.6 points</b> of the stock FlashInfer fp8 baseline.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🐳&nbsp;Mjolnir docker image</h3>
-      <p>Official vLLM 0.31.0 + Mjolnir + Thor patches.</p>
+      <h3>🐳&nbsp;Dockerized</h3>
+      <p>Official vLLM 0.31.0 + Mjolnir + Jetson Thor patches.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>📄&nbsp;LLM Models as YAML</h3>
-      <p>Each model is a YAML file of serve flags plus an optional <code>.env</code>. <code>mjolnir serve up</code> does the rest.</p>
+      <h3>📄&nbsp;Models as Code</h3>
+      <p>Each model is a YAML file of serve flags. <code>mjolnir serve up</code> does the rest.</p>
       <br>
     </td>
   </tr>
@@ -185,14 +185,14 @@ More: [adding a model config](docs/faq/new-model-config.md) · [the default mode
 ### Mjolnir Kernel
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
-Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md)).
+Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, see [`docs/methodology/benchmarking.md`](docs/methodology/benchmarking.md).
 
-| leg | what runs | KV cache |
-|---|---|---|
-| **Mjolnir · e2m3 KV** | this kernel, the default (6-bit KV read directly by the tensor cores; served by `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`) | e2m3, head-major pages |
-| **Mjolnir · fp8 KV** | this kernel on fp8 KV (`NVFP4_MJOLNIR`) | fp8 e4m3, head-major pages |
-| **FlashInfer** | tensor-core decode as vLLM's FlashInfer backend runs it | fp8 e4m3, NHD pages |
-| **FlashAttention&nbsp;2** | `vllm_flash_attn` FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2\ has\ no\ fp8\ KV)}$ |
+| leg | config | what runs | KV cache |
+|---|---|---|---|
+| **Mjolnir · e2m3 KV** | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
+| **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
+| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.31.0 FlasInfer for `sm_110` | fp8 e4m3, NHD pages |
+| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-latency-dark.png">
@@ -230,7 +230,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### E2E: Official vLLM image vs Mjolnir
 
-Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image, untouched — against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e` (llama-benchy, gated clean windows). Native backends are never measured on the Mjolnir image: it patches FlashInfer paths too.
+Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
@@ -242,9 +242,9 @@ Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image,
   <img src="assets/benchmarks/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
 </picture>
 
-Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill (+ = more tokens/s), **latency change** for TTFT and ITL (− = fewer milliseconds, a latency reduction, not a reciprocal speedup).
+Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
 
-| context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput\ change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput\ change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency\ change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency\ change}$ |
+| context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
 | no ctx | 1 | 22.5 → **35.4** $\color{#16a34a}{\text{+57.3\\%}}$ | 2,929 → *n/a* | 833 → **590** $\color{#16a34a}{\text{−29.1\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{−36.4\\%}}$ |
 | 4K | 1 | 23.1 → **37.9** $\color{#16a34a}{\text{+64.2\\%}}$ | 2,820 → **8,740** $\color{#16a34a}{\text{+210.0\\%}}$ | 2,314 → **1,701** $\color{#16a34a}{\text{−26.5\\%}}$ | 43.5 → **26.6** $\color{#16a34a}{\text{−38.9\\%}}$ |
