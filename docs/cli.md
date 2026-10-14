@@ -106,7 +106,7 @@ itself: refuses while the vLLM server is up (stop it with
 | `--model` | vendor/Model (default: the active one) |  |
 | `--config` | the config to calibrate (default: the active one) |  |
 | `--image` | the Mjolnir image |  |
-| `--out` | default: kv_scales.json next to the config |  |
+| `--out` | default: kv_scales.json next to the config — &lt;config&gt;.kv_scales.json for a config whose own drafter (DSpark) runs on Mjolnir |  |
 | `--prompts` | short prompts | `48` |
 | `--long` | long-context prompts | `6` |
 | `--max-model-len` |  | `32768` |

@@ -1,13 +1,20 @@
 # NVFP4_MJOLNIR_E2M3_DSPARK — EXPERIMENT (opt-in e2e leg, Mjolnir image): NVFP4_MJOLNIR_E2M3
-# (Mjolnir decode kernel, fp6 KV) with the DSpark drafter instead of the built-in MTP head.
-# The target's verify steps (1 + 7 tokens) run on Mjolnir; the drafter runs on
-# FlashInfer with bf16 KV (it is not in kv_scales.json, and its block attention
-# is non-causal). Measure it next to the headline pair:
+# (Mjolnir decode kernel, fp6 KV) with the DSpark drafter instead of the built-in MTP head —
+# the drafter on Mjolnir and fp6 KV too. Its 5 layers (indices 64-68) hold a K/V
+# per context token, 20 KB/token on bf16 next to the target's 24 KB on fp6; on
+# fp6 they take 7.5 KB, so the cache holds ~1.4x the tokens of a bf16 drafter.
+#   - the target's verify steps (1 + 7 tokens) and the drafter's non-causal
+#     block steps (1 + 7 queries over the whole context) both run on the decode
+#     kernel (MJOLNIR_ATTN_NONCAUSAL); other steps on FlashAttention 4
+#   - fp6 scales for the target AND the drafter, in one file next to this one —
+#     NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json, written by:
+#       mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK
+#     (`mjolnir serve` refuses to start this config without it)
+# Measure it next to the headline pair:
 #   mjolnir bench e2e --optional            (all optional legs)
 #   mjolnir bench e2e --only mjolnir --config NVFP4_MJOLNIR_E2M3_DSPARK
-# Untested on Thor before its first run: if the server refuses fp6 for the
-# drafter's layers, the skip list below did not reach them — serve the fp8
-# variant (copy this file, kv-cache-dtype: fp8) and report the log line.
+# Untested on Thor before its first run: check the startup log for "fp6_e2m3 KV
+# scales ... for 5 layer(s)" (the drafter's group) and the acceptance rate.
 model: QUASAR-QAT/Qwen3.8-27B-QUASAR-NVFP4
 served-model-name: Qwen/Qwen3.8-27B
 
@@ -59,9 +66,7 @@ linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — t
 # Needs per-(layer, KV head) scales: `mjolnir calibrate` writes kv_scales.json
 # next to this file, and `mjolnir serve` points MJOLNIR_ATTN_KV_SCALES at it.
 kv-cache-dtype: fp6_e2m3
-# The drafter's layers (indices 64-68, after the target's 64) keep bf16 KV:
-# kv_scales.json calibrates the target only.
-kv-cache-dtype-skip-layers: ["sliding_window", "64", "65", "66", "67", "68"]
+kv-cache-dtype-skip-layers: sliding_window
 mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
@@ -94,9 +99,7 @@ speculative-config:
   model: Doopeworld/Qwen3.8-27B-DSpark-vLLM
   num_speculative_tokens: 7
   draft_sample_method: probabilistic
-  # the drafter's own attention backend: its layers hold bf16 KV (the skip list in
-  # the KV Cache section) and have no fp6 calibration, so they cannot run on MJOLNIR
-  attention_backend: FLASHINFER
+  # no attention_backend: the drafter runs on the target's (MJOLNIR), fp6 KV
 
 # ── Generation defaults (Qwen3.8 card's documented Thinking-mode preset) ────
 # NOTE: the verified Thor launch args do not set this server-side (sampling is

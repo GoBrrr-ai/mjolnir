@@ -90,8 +90,11 @@ skipped with a hint — nothing blocks on a password.
   Opt-in drafter legs (`legs.OPTIONAL`, `bench e2e --optional`;
   `docs/faq/spec-drafters.md`): `NVFP4_DSPARK` / `NVFP4_DFLASH2` (official
   image) and `NVFP4_MJOLNIR_E2M3_DSPARK` / `…_DFLASH2` (Mjolnir) — DSpark or
-  DFlash2, K=7, instead of MTP; the drafter's layers (64-68) on bf16 KV and
-  FlashInfer. Not yet run on a Thor.
+  DFlash2, K=7, instead of MTP. DSpark on Mjolnir runs its drafter on Mjolnir
+  + fp6 too: its own calibration (`<config>.kv_scales.json`, `mjolnir
+  calibrate --config …`) and the kernel's non-causal variant for its block
+  steps (`MJOLNIR_ATTN_NONCAUSAL`). DFlash2's sliding-window drafter stays on
+  bf16 KV + FlashInfer. Not yet run on a Thor.
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,

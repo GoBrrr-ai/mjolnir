@@ -1,8 +1,11 @@
 # NVFP4_MJOLNIR_E2M3_DFLASH2 — EXPERIMENT (opt-in e2e leg, Mjolnir image): NVFP4_MJOLNIR_E2M3
 # (Mjolnir decode kernel, fp6 KV) with the DFlash2 drafter instead of the built-in MTP head.
 # The target's verify steps (1 + 7 tokens) run on Mjolnir; the drafter runs on
-# FlashInfer with bf16 KV (it is not in kv_scales.json, and its block attention
-# is non-causal). Measure it next to the headline pair:
+# FlashInfer with bf16 KV. Unlike DSpark it stays there: its 5 layers are
+# sliding-window (2048 tokens), which neither the decode kernel nor the FA4
+# fallback implements — and a 2048-token window caps its KV at ~42 MB per
+# request on bf16, so fp6 would save ~26 MB a request. Measure it next to the
+# headline pair:
 #   mjolnir bench e2e --optional            (all optional legs)
 #   mjolnir bench e2e --only mjolnir --config NVFP4_MJOLNIR_E2M3_DFLASH2
 # Untested on Thor before its first run: if the server refuses fp6 for the
@@ -95,8 +98,8 @@ speculative-config:
   method: dflash
   model: incoai/Qwen3.8-27B-DFlash2
   num_speculative_tokens: 7
-  # the drafter's own attention backend: its layers hold bf16 KV (the skip list in
-  # the KV Cache section) and have no fp6 calibration, so they cannot run on MJOLNIR
+  # the drafter's own attention backend: its sliding-window layers hold bf16 KV
+  # (the skip list in the KV Cache section) — MJOLNIR has no sliding window
   attention_backend: FLASHINFER
 
 # ── Generation defaults (Qwen3.8 card's documented Thinking-mode preset) ────

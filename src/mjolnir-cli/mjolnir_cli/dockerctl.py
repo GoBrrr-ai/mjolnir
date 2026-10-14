@@ -171,8 +171,32 @@ def stale_image(image: str) -> str | None:
 
 def kv_scales_host_path(s: Settings) -> Path:
     """Where `mjolnir calibrate` writes, and an fp6 config's scales are read
-    from: next to the config (repo or user-local configs dir)."""
+    from: next to the config (repo or user-local configs dir).
+
+    ``kv_scales.json`` is the model's — every config without its own drafter
+    shares it (the built-in MTP head is part of the model). A config whose
+    external drafter (DSpark, DFlash, ...) runs on the Mjolnir backend has
+    layers no other config has: it gets ``<config>.kv_scales.json``, target
+    and drafter layers in one file, written by ``mjolnir calibrate --config
+    <config>``."""
+    from mjolnir_cli.config import config_drafter_on_mjolnir
+
+    own = s.config_path.parent / f"{s.quant}.{KV_SCALES_FILE}"
+    if own.exists() or config_drafter_on_mjolnir(s.config_path):
+        return own
     return s.config_path.parent / KV_SCALES_FILE
+
+
+def missing_kv_scales(s: Settings) -> str | None:
+    """Why an fp6 config cannot start (its calibration file is missing), or None."""
+    if (s.attention_backend or "") not in ("MJOLNIR", "CUSTOM") or os.environ.get("MJOLNIR_ATTN_KV_SCALES"):
+        return None
+    if not (config_field(s.config_path, "kv-cache-dtype") or "").startswith("fp6"):
+        return None
+    path = kv_scales_host_path(s)
+    if path.exists():
+        return None
+    return f"{s.quant} serves fp6 KV but {path} is missing — calibrate it first: mjolnir calibrate --config {s.quant}"
 
 
 def backend_env(s: Settings) -> list[str]:
@@ -301,7 +325,7 @@ def build_run_args(
         mounts.append((str(local_cfg), f"/configs/{s.model}/{s.quant}.yaml:ro"))
         scales = kv_scales_host_path(s)
         if scales.exists():
-            mounts.append((str(scales), f"/configs/{s.model}/{KV_SCALES_FILE}:ro"))
+            mounts.append((str(scales), f"/configs/{s.model}/{scales.name}:ro"))
     mounts += list(extra_mounts)
     for host, container in mounts:
         if host.startswith("/data") is False and not Path(host).exists() and not host.startswith(("/dev/shm", "/etc/")):
@@ -386,6 +410,9 @@ def serve_up(
     if dry_run:
         print(" ".join(cmd))
         return
+    why = missing_kv_scales(s)
+    if why:
+        raise DockerError(why)
     # Always-before: clear the host page cache before starting vLLM (a clean,
     # reproducible model-load). No-op + hint if the grant is missing; never
     # prompts, never blocks.

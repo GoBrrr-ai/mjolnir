@@ -755,7 +755,12 @@ def calibrate(
     model: Optional[str] = typer.Option(None, "--model", help="vendor/Model (default: the active one)"),
     config: Optional[str] = typer.Option(None, "--config", help="the config to calibrate (default: the active one)"),
     image: Optional[str] = typer.Option(None, "--image", help="the Mjolnir image"),
-    out: Optional[Path] = typer.Option(None, "--out", help="default: kv_scales.json next to the config"),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        help="default: kv_scales.json next to the config — <config>.kv_scales.json for a config whose own "
+        "drafter (DSpark) runs on Mjolnir",
+    ),
     prompts: int = typer.Option(48, "--prompts", help="short prompts"),
     long: int = typer.Option(6, "--long", help="long-context prompts"),
     max_model_len: int = typer.Option(32768, "--max-model-len"),

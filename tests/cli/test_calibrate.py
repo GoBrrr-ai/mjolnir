@@ -80,3 +80,43 @@ def test_calibrate_draft_vocab_dry_run(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert "python3 -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3.yaml" in r.output
+
+
+def test_a_drafter_on_mjolnir_gets_its_own_scales(monkeypatch):
+    from mjolnir_cli.config import config_drafter_on_mjolnir
+
+    monkeypatch.delenv("MJOLNIR_ATTN_KV_SCALES", raising=False)
+    dspark, dflash2 = _s("NVFP4_MJOLNIR_E2M3_DSPARK"), _s("NVFP4_MJOLNIR_E2M3_DFLASH2")
+    assert config_drafter_on_mjolnir(dspark.config_path)  # DSpark inherits MJOLNIR: fp6 + its own calibration
+    assert not config_drafter_on_mjolnir(dflash2.config_path)  # DFlash2's sliding window stays on FlashInfer
+    assert not config_drafter_on_mjolnir(_s("NVFP4_MJOLNIR_E2M3").config_path)  # MTP is part of the model
+    assert not config_drafter_on_mjolnir(_s("NVFP4_DSPARK").config_path)  # official image: no Mjolnir at all
+    assert dockerctl.kv_scales_host_path(dspark).name == "NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json"
+    assert dockerctl.kv_scales_host_path(dflash2).name == "kv_scales.json"
+    env = dockerctl.backend_env(dspark)
+    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json" in env
+    r = CliRunner().invoke(
+        cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR_E2M3_DSPARK", "--dry-run"]
+    )  # default output: the config's own file
+    assert r.exit_code == 0, r.output
+    assert "--out /out/NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json" in r.output
+
+
+def test_serve_refuses_an_fp6_config_without_scales(monkeypatch):
+    monkeypatch.delenv("MJOLNIR_ATTN_KV_SCALES", raising=False)
+    s = _s("NVFP4_MJOLNIR_E2M3_DSPARK")
+    if dockerctl.kv_scales_host_path(s).exists():  # calibrated in this checkout: nothing to refuse
+        return
+    why = dockerctl.missing_kv_scales(s)
+    assert why and "mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK" in why
+    assert dockerctl.missing_kv_scales(_s("NVFP4_MJOLNIR")) is None  # fp8: no scales needed
+    monkeypatch.setenv("MJOLNIR_ATTN_KV_SCALES", "/data/mine.json")
+    assert dockerctl.missing_kv_scales(s) is None
+
+
+def test_quick_correctness_covers_the_non_causal_drafter_block():
+    from mjolnir_cli.verify import stages
+
+    label = "non-causal q_len=8 (drafter block)"
+    args = dict((lab, a) for lab, a, _ in stages.CASES)[label]
+    assert label in stages.QUICK_CASES and "--non_causal" in args and "--headdim 128" in args
