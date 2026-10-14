@@ -72,8 +72,9 @@ mjolnir verify fp6prof --variants "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-
 
 ## Ideas to try
 
-- a TMA box shape that keeps fp6 requests at 128 B;
-- loading fp6 as raw bytes and unpacking in registers (costs ALU, saves requests).
+- **Tried:** a TMA box that keeps fp6 requests at 128 B (SW128 smem atoms, autoresearch run 1) — ~5% faster at 64K–256K, slower at short L; gated at ≥ 64K it is +1.7% overall. At long L e2m3 is already close to its byte ratio, so request size is not the main limit there.
+- **Open:** the 16K–32K range, where e2m3 is as slow as fp8 and its L2 throughput drops; the latency side of the whole kernel (L2 at 16–24% of peak, `long_scoreboard` the top stall — the TMA warp reads the block table on its critical path); ring depth chosen per L at runtime. The ranked list with commands is [`research/program.md`](../../research/program.md).
+- **Not worth it:** unpacking fp6 in registers instead of the TMA — the nvfp4 convert warpgroup shows what a conversion pass costs (0.48–0.69× FlashInfer).
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../.github/CONTRIBUTING.md).
 

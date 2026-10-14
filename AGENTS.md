@@ -260,8 +260,11 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       Opt-in experiment configs carry their switches in a `<config>.env`
       sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
-- [ ] **fp6 byte-vs-time gap**: 64-byte L2 requests (`docs/kernel/fp6prof.md`).
-- [ ] Fuse the split-KV merge into the last CTA per sequence.
+- [ ] **fp6 byte-vs-time gap**: not the 64-byte L2 requests (SW128 tried: ~5% at
+      ≥64K only) — the kernel is latency-bound and e2m3 has a 16K–32K hole
+      (`docs/kernel/fp6prof.md`, ranked ideas in `research/program.md`).
+- [x] Fuse the split-KV merge into the last CTA per sequence — tried
+      (autoresearch run 1): 0.56× at 4K; retired in favour of a cheaper merge.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
 
 ### FA4 + hd256 + FP8 KV (prefill) — blocked upstream, plan to port later
