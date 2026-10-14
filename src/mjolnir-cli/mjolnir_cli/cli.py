@@ -1364,6 +1364,10 @@ def plot(
     except RuntimeError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
+    if layout.repo_root:  # research/progress.png: the live ledger, else the newest exported run
+        from mjolnir_cli import autoresearch
+
+        autoresearch._render_progress(layout.repo_root, autoresearch.latest_rows(layout.repo_root))
     if render_readme:
         try:
             readme.render_readme(layout, template=readme_template, out=readme_out)

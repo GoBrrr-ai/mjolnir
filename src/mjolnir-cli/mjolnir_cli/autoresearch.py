@@ -8,12 +8,16 @@ otherwise — forever, while every experiment lands on a ledger. Here:
 * the fixed harness  — ``mjolnir autoresearch evaluate``: the quick
   correctness subset (``mjolnir verify correctness --quick``) + an ncu sweep
   of FlashInfer vs Mjolnir (harness default) at every L;
-* the metric         — the geomean over L of FlashInfer time / Mjolnir time,
-  both measured in the SAME run (drift on the shared Thor cancels out);
-* the decision       — made by this module, not the agent: ``keep`` if
-  correctness passes and the score beats the best kept score by more than
-  ``--min-gain`` (default 2%), ``discard`` otherwise, ``crash`` if a stage
-  failed to produce data. The agent then advances or resets the branch.
+* the metric         — per L, FlashInfer time / Mjolnir time, both measured
+  in the SAME run (drift on the shared Thor cancels out); the score is their
+  geomean over L;
+* the decision       — made by this module, not the agent (:func:`judge`),
+  on the per-L ratios against the best kept row, not only on the geomean:
+  ``keep`` needs a geomean gain > ``--min-gain`` (2%) that does not rest on a
+  single L and no more than one L slower than the noise band; L where the
+  FlashInfer reference itself jumped are set aside; ``noisy`` when the
+  reference was unstable at too many L (re-evaluate the same commit),
+  ``crash`` if a stage failed to produce data.
 * the ledger         — ``research/ledger.jsonl`` (+ a ``ledger.tsv`` view):
   one row per experiment with the hypothesis, the agents involved, the
   sources (URLs / arXiv ids), the commit, the per-L numbers and the verify
@@ -56,7 +60,7 @@ app = typer.Typer(
 
 KERNEL_FILE = Path("src/mjolnir/mjolnir/t5_decode.py")
 LEDGER_DIR = Path("research")
-TSV_COLUMNS = ["id", "ts", "commit", "status", "score", "best_before", "correctness", "agent", "hypothesis"]
+TSV_COLUMNS = ["id", "ts", "commit", "status", "score", "best_before", "correctness", "agent", "hypothesis", "reason"]
 
 
 # ── ledger ──────────────────────────────────────────────────────────────────
@@ -106,6 +110,84 @@ def decide(score: float | None, correct: bool, best: float | None, min_gain: flo
     if best is None:
         return "baseline"
     return "keep" if score > best * (1 + min_gain) else "discard"
+
+
+NOISE = 0.03  # a same-run ratio moves ±3% between runs (verify.stages.NOISE_PCT)
+REF_JUMP = 0.15  # the FlashInfer leg moved more than this vs the best row's run: that L is suspect
+MAX_SUSPECT = 2  # more suspect L than this and the measurement itself is rejected ("noisy")
+
+
+def _gm(xs) -> float:
+    xs = list(xs)
+    return results.geomean(xs) if xs else 1.0
+
+
+def _pct(x: float) -> str:
+    return f"{(x - 1) * 100:+.1f}%"
+
+
+def _L(k) -> str:
+    k = int(k)
+    return f"{k // 1024}K" if k >= 1024 and k % 1024 == 0 else str(k)
+
+
+def judge(row: dict, best: dict | None, min_gain: float = 0.02, noise: float = NOISE) -> tuple[str, str, dict]:
+    """The fixed keep/discard rule, per L. Returns (status, reason, rel) where
+    ``rel[L]`` = this row's FlashInfer÷Mjolnir ratio ÷ the best kept row's.
+
+    A single global geomean can be moved by one L — a FlashInfer outlier at
+    256K once turned a no-op into "+8%" — so a keep needs all of:
+
+    1. the geomean of ``rel`` over the trusted L beats ``1 + min_gain``;
+    2. it still beats ``1 + min_gain / 2`` with the single best L left out
+       (the win does not rest on one context length);
+    3. at most one L is slower than ``1 - noise`` (one is tolerated: 16K is
+       bimodal run to run).
+
+    An L is *suspect* — set aside — when the FlashInfer reference time moved
+    by more than ``REF_JUMP`` against the best row's run (the reference never
+    changes between experiments, so a jump there is noise in the measurement,
+    not a property of the kernel). More than ``MAX_SUSPECT`` suspect L and the
+    run is ``noisy``: nothing is decided, evaluate the same commit again.
+    """
+    score, correct = row.get("score"), row.get("correctness") == "pass"
+    if score is None:
+        return "crash", "no score (a stage failed)", {}
+    if not correct:
+        return "discard", "correctness failed", {}
+    if best is None:
+        return "baseline", "the starting kernel", {}
+    new, old = row.get("per_L") or {}, best.get("per_L") or {}
+    common = [L for L in new if L in old and old[L]]
+    if not common:  # rows written before per-L judging: the plain geomean rule
+        st = decide(score, correct, best.get("score"), min_gain)
+        return st, f"geomean {_pct(score / best['score'])} (no per-L reference)", {}
+    rel = {L: new[L] / old[L] for L in common}
+    fi_new, fi_old = row.get("fi_us") or {}, best.get("fi_us") or {}
+    suspect = [L for L in common if L in fi_new and fi_old.get(L) and abs(fi_new[L] / fi_old[L] - 1) > REF_JUMP]
+    if len(suspect) > MAX_SUSPECT:
+        return "noisy", "FlashInfer reference unstable at " + ", ".join(_L(L) for L in suspect) + " — re-evaluate", rel
+    trusted = {L: v for L, v in rel.items() if L not in suspect}
+    note = f" (set aside, reference jumped: {', '.join(_L(L) for L in suspect)})" if suspect else ""
+    gain = _gm(trusted.values())
+    if gain <= 1 + min_gain:
+        return "discard", f"geomean {_pct(gain)} ≤ +{min_gain * 100:g}%{note}", rel
+    top = max(trusted, key=trusted.get)
+    loo = _gm(v for L, v in trusted.items() if L != top)
+    if loo <= 1 + min_gain / 2:
+        return (
+            "discard",
+            f"geomean {_pct(gain)} rests on {_L(top)} ({_pct(trusted[top])}): {_pct(loo)} without it{note}",
+            rel,
+        )
+    slower = sorted((L for L, v in trusted.items() if v < 1 - noise), key=int)
+    if len(slower) > 1:
+        return (
+            "discard",
+            f"geomean {_pct(gain)} but slower at " + ", ".join(f"{_L(L)} ({_pct(trusted[L])})" for L in slower) + note,
+            rel,
+        )
+    return "keep", f"geomean {_pct(gain)}, {_pct(loo)} without its best L ({_L(top)}){note}", rel
 
 
 # ── git helpers ─────────────────────────────────────────────────────────────
@@ -200,7 +282,7 @@ def _evaluate(
             return rc  # no docker / no image: an environment problem, not an experiment — no ledger row
         correct = rc == 0
         corr_run = doc["run_id"] if doc else None
-    score, per_L, sweep_run = None, {}, None
+    score, per_L, sweep_run, fi_us, mj_us = None, {}, None, {}, {}
     if correct:
         rc, doc = execute(
             "sweep",
@@ -223,34 +305,83 @@ def _evaluate(
                 if sp and set(sp) >= want:
                     score = results.geomean(sp.values())
                     per_L = {str(k): round(v, 4) for k, v in sp.items()}
+                    fi_us = {str(k): round(v, 2) for k, v in results.point_map(by["fi"]).items()}
+                    mj_us = {str(k): round(v, 2) for k, v in results.point_map(by["mjolnir"]).items()}
             sweep_run = doc["run_id"]
-    status = decide(score, correct, best["score"] if best else None, min_gain)
     row = {
         "id": len(rows) + 1,
         "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "branch": _git(root, "rev-parse", "--abbrev-ref", "HEAD"),
         "commit": commit,
-        "status": status,
+        "status": None,
+        "reason": None,
         "score": round(score, 4) if score else None,
         "best_before": best["score"] if best else None,
         "min_gain": min_gain,
         "correctness": "pass" if correct else "fail",
         "per_L": per_L,
+        "fi_us": fi_us,
+        "mj_us": mj_us,
         "agent": agent,
         "hypothesis": hypothesis,
         "sources": [s.strip() for s in sources.split(",") if s.strip()],
         "verify_runs": {"correctness": corr_run, "sweep": sweep_run},
     }
+    status, reason, rel = judge(row, best, min_gain)
+    row["status"], row["reason"] = status, reason
+    row["vs_best"] = {L: round(v, 4) for L, v in rel.items()}
     append_ledger(root, row)
-    color = {"keep": "green", "baseline": "cyan", "discard": "yellow", "crash": "red"}[status]
+    color = STATUS_COLORS[status]
     console.print(
         f"\n[bold {color}]{status.upper()}[/bold {color}]  score {row['score']}  "
-        f"(best kept {row['best_before']}, needs > {row['best_before'] and round(row['best_before'] * (1 + min_gain), 4)})"
-        f"  correctness {row['correctness']}  commit {commit}"
+        f"(best kept {row['best_before']})  correctness {row['correctness']}  commit {commit}\n  {reason}"
     )
+    if rel:
+        console.print(
+            "  vs best, per L: "
+            + "  ".join(f"{_L(L)} {_pct(v)}" for L, v in sorted(rel.items(), key=lambda kv: int(kv[0])))
+        )
     if status in ("discard", "crash"):
         console.print(f"[dim]  revert: git reset --hard {best['commit'] if best else 'HEAD~1'}[/dim]")
+    elif status == "noisy":
+        console.print("[dim]  the measurement was rejected, not the idea: evaluate the same commit again[/dim]")
+    _render_progress(root)
     return 0
+
+
+STATUS_COLORS = {"keep": "green", "baseline": "cyan", "discard": "yellow", "crash": "red", "noisy": "magenta"}
+PROGRESS = LEDGER_DIR / "progress.png"
+
+
+def _render_progress(root: Path, rows: list[dict] | None = None, out: Path | None = None) -> Path | None:
+    """research/progress.png (+ -dark): every experiment on one chart, the
+    kept staircase, and the per-L split vs the baseline. Best effort — a
+    missing matplotlib never fails an evaluation."""
+    rows = rows if rows is not None else load_ledger(root)
+    try:
+        from mjolnir_cli import charts, theme
+
+        plt = charts._plt()
+        out = out or root / PROGRESS
+        for mode in theme.MODES:
+            fig = charts.chart_autoresearch(rows, mode)
+            if fig is None:
+                return None
+            charts._save(fig, out.with_name(f"{out.stem}{mode.suffix}{out.suffix}"))
+            plt.close(fig)
+        return out
+    except Exception as e:  # noqa: BLE001 — a chart must never cost a ledger row
+        console.print(f"[dim]progress chart skipped: {e!r}[/dim]")
+        return None
+
+
+def latest_rows(root: Path) -> list[dict]:
+    """The live ledger, else the newest exported run (research/runs/<tag>/)."""
+    rows = load_ledger(root)
+    if rows:
+        return rows
+    runs = sorted((root / LEDGER_DIR / "runs").glob("*/ledger.jsonl"), key=lambda p: p.stat().st_mtime)
+    return [json.loads(x) for x in runs[-1].read_text().splitlines() if x.strip()] if runs else []
 
 
 @app.command()
@@ -284,9 +415,9 @@ def ledger(
         return
     best = best_kept(rows)
     t = Table(box=box.SIMPLE_HEAD, pad_edge=False)
-    for c in ("#", "when", "commit", "status", "score", "agent", "hypothesis"):
+    for c in ("#", "when", "commit", "status", "score", "agent", "hypothesis", "why"):
         t.add_column(c, justify="right" if c in ("#", "score") else "left")
-    colors = {"keep": "green", "baseline": "cyan", "discard": "yellow", "crash": "red"}
+    colors = STATUS_COLORS
     for r in rows[-tail:]:
         st = r.get("status", "")
         mark = " ★" if best and r is best else ""
@@ -297,7 +428,8 @@ def ledger(
             f"[{colors.get(st, 'white')}]{st}[/]",
             f"{r['score']:.4f}{mark}" if r.get("score") else "—",
             r.get("agent", ""),
-            r.get("hypothesis", "")[:70],
+            r.get("hypothesis", "")[:60],
+            (r.get("reason") or "")[:60],
         )
     console.print(t)
 
@@ -320,6 +452,14 @@ def status():
             f"best: [bold]{best['score']:.4f}×[/bold] vs FlashInfer (geomean over L) at {best['commit']} "
             f"— {best['hypothesis']}"
         )
+
+
+@app.command()
+def chart():
+    """Re-render research/progress.png from the live ledger (or the newest exported run)."""
+    root = _root()
+    p = _render_progress(root, latest_rows(root))
+    console.print(f"[green]{p}[/green]" if p else "[yellow]no experiments yet[/yellow]")
 
 
 @app.command()
@@ -383,13 +523,16 @@ def export(
         f"- baseline: {base['score']}× vs FlashInfer at `{base['commit']}`" if base and base.get("score") else "",
         f"- best: **{best['score']}×** at `{best['commit']}` — {best['hypothesis']}" if best else "",
         "",
-        "| # | commit | status | score | agent | hypothesis | sources |",
-        "|--:|---|---|--:|---|---|---|",
+        "![progress](progress.png)" if _render_progress(root, rows, out / "progress.png") else "",
+        "",
+        "| # | commit | status | score | why | agent | hypothesis | sources |",
+        "|--:|---|---|--:|---|---|---|---|",
     ]
     for r in rows:
         src = " ".join(f"[{i + 1}]({u})" if u.startswith("http") else u for i, u in enumerate(r.get("sources", [])))
         lines.append(
-            f"| {r['id']} | `{r['commit']}` | {r['status']} | {r.get('score') or '—'} | {r.get('agent', '')} "
+            f"| {r['id']} | `{r['commit']}` | {r['status']} | {r.get('score') or '—'} "
+            f"| {(r.get('reason') or '').replace('|', '/')} | {r.get('agent', '')} "
             f"| {r.get('hypothesis', '').replace('|', '/')} | {src} |"
         )
     (out / "SUMMARY.md").write_text("\n".join(x for x in lines if x is not None) + "\n")

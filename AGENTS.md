@@ -214,10 +214,14 @@ The build fails if a patch stops applying — the signal the base moved. Bumping
 ```
 mjolnir autoresearch init <tag>   # branch autoresearch/<tag> + baseline row
 mjolnir autoresearch run          # OpenCode orchestrator; never stops by itself
-mjolnir autoresearch ledger | status | export
+mjolnir autoresearch ledger | status | chart | export
 ```
-Agents may change only `src/mjolnir/mjolnir/t5_decode.py`; the keep/discard rule
-is in the harness (> 2% geomean gain over the best kept, correctness required).
+Agents may change only `src/mjolnir/mjolnir/t5_decode.py` and work on the fp6
+(e2m3, HND) path only; the keep/discard rule is in the harness
+(`autoresearch.judge`, per L against the best kept row: > 2% geomean gain that
+survives dropping its best L, at most one L slower than noise, FlashInfer
+outliers set aside; correctness required). `research/progress.png` is rendered
+from the ledger by `mjolnir plot` / every `evaluate`.
 
 ### Releases
 One manual workflow, **Actions → Release** (`release.yml`): it plans the next

@@ -370,6 +370,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | [`mjolnir autoresearch evaluate`](docs/cli.md#mjolnir-autoresearch-evaluate) | Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep; append the result and the fixed keep/discard decision to the ledger. |
 | [`mjolnir autoresearch ledger`](docs/cli.md#mjolnir-autoresearch-ledger) | Show the ledger (newest last). |
 | [`mjolnir autoresearch status`](docs/cli.md#mjolnir-autoresearch-status) | Best kept score, experiment counts, the current branch. |
+| [`mjolnir autoresearch chart`](docs/cli.md#mjolnir-autoresearch-chart) | Re-render research/progress.png from the live ledger (or the newest exported run). |
 | [`mjolnir autoresearch run`](docs/cli.md#mjolnir-autoresearch-run) | Launch the loop: an OpenCode session with the `autoresearch` agent. |
 | [`mjolnir autoresearch export`](docs/cli.md#mjolnir-autoresearch-export) | Snapshot the ledger into research/runs/&lt;tag&gt;/ (ledger.jsonl, ledger.tsv, SUMMARY.md) — commit that to keep the run's notebook with the repo. |
 | [`mjolnir litellm up`](docs/cli.md#mjolnir-litellm-up) | Render the config from your template (in the litellm data dir, ~/.local/share/mjolnir/litellm/) with the currently selected model/config, and start the stack (proxy + postgres + redis). |

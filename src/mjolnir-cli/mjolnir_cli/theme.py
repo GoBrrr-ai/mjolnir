@@ -184,12 +184,13 @@ def title(ax, mode: Mode, text: str, subtitle: str | None = None, fontsize: int 
         ax.text(0, 1.018, subtitle, transform=ax.transAxes, color=mode.text_dim, fontsize=10.5, ha="left", va="bottom")
 
 
-def footer(fig, mode: Mode, text: str) -> None:
+def footer(fig, mode: Mode, text: str, below_in: float | None = None) -> None:
     # below the axes (and their x labels): the bbox-tight save grows to fit.
     # Horizontally the two texts are pinned to the content's edges at save time
     # (``fit_footer``): placed at the figure's edges they would stretch the tight
     # bbox to the whole canvas and leave wide empty margins left and right.
-    y = min(ax.get_position().y0 for ax in fig.axes) - 0.13 if fig.axes else 0.0
+    drop = below_in / fig.get_figheight() if below_in else 0.13
+    y = min(ax.get_position().y0 for ax in fig.axes if ax.get_visible()) - drop if fig.axes else 0.0
     left = fig.text(0.01, y, text, ha="left", va="top", color=mode.text_dim, fontsize=8.5)
     right = fig.text(
         0.995,
