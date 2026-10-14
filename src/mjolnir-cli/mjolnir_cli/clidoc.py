@@ -1,10 +1,11 @@
 """The CLI reference, generated from the typer commands themselves.
 
 ``mjolnir plot --readme`` writes ``docs/cli.md`` (every command and sub-command
-with its description, arguments and options, defaults included) and gives the
-README its one-line-per-command table, so the docs can never drift from the
-code: change a command's docstring or an option's help and the next render
-carries it — CI fails if the committed copy is stale.
+with its description, arguments and options, defaults included), so the docs
+can never drift from the code: change a command's docstring or an option's
+help and the next render carries it — CI fails if the committed copy is stale.
+The README keeps a short hand-written overview; :func:`block_commands` lets a
+test check that every command it names exists.
 """
 
 from __future__ import annotations
@@ -59,11 +60,6 @@ def _short(cmd: Any) -> str:
     """The first paragraph of the help, on one line."""
     text = _clean(cmd.short_help or cmd.help)
     return _rst(text.split("\n\n", 1)[0].replace("\n", " ").strip())
-
-
-def first_sentence(text: str) -> str:
-    m = re.match(r"(.+?[.!?])(\s|$)", text)
-    return m.group(1) if m else text
 
 
 def walk(app) -> list[Cmd]:
@@ -146,14 +142,29 @@ def reference(app) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def summary_table(app, link: str = "docs/cli.md") -> str:
-    """The README's table: one line per command (groups expanded), with its
-    one-line description, each linking into the reference."""
-    rows = ["| command | what it does |", "|---|---|"]
-    for c in walk(app)[1:]:
-        if c.group:
+def block_commands(block: str) -> list[str]:
+    """Command paths named in a README-style overview block, one per line:
+    ``mjolnir serve [up|down]  # …`` -> ``mjolnir serve up``, ``mjolnir serve
+    down``; ``mjolnir bench perf | ab`` -> ``mjolnir bench perf``, ``mjolnir
+    bench ab``. Options (``--x``, ``[--x]``), placeholders (``<stage>``) and
+    comments are ignored."""
+    out: list[str] = []
+    for line in block.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line != "mjolnir" and not line.startswith("mjolnir "):
             continue
-        rows.append(
-            f"| [`{c.path}`]({link}#{c.path.replace(' ', '-')}) | {first_sentence(c.short).replace('|', chr(92) + '|')} |"
-        )
-    return "\n".join(rows)
+        words = []
+        for w in line.split()[1:]:
+            if w.startswith(("-", "<", "[-")):
+                break
+            words.append(w)
+        text = " ".join(words)
+        sub = re.search(r"\[([^\]]+)\]", text)
+        if sub:  # mjolnir serve [up|down]: sub-commands of the prefix
+            prefix = text[: sub.start()].split()
+            out += [" ".join(["mjolnir", *prefix, a]) for a in sub.group(1).split("|")]
+            continue
+        alts = [a.split() for a in text.split("|")] if text else [[]]
+        head = alts[0][:-1]  # mjolnir verify bench | all: siblings of the last word
+        out += [" ".join(["mjolnir", *head, a[-1]] if a else ["mjolnir"]) for a in alts]
+    return list(dict.fromkeys(out))

@@ -15,13 +15,35 @@ def test_reference_covers_every_command():
     assert "<run>" not in ref.replace("`<run>`", "")  # placeholders escaped outside code
 
 
-def test_summary_lists_leaf_commands_only():
-    cmds = clidoc.walk(app)
-    table = clidoc.summary_table(app)
-    for c in cmds[1:]:
-        assert (f"[`{c.path}`]" in table) == (not c.group)
+def test_readme_overview_names_real_commands():
+    from pathlib import Path
+
+    t = (Path(__file__).resolve().parents[2] / "README.md.j2").read_text()
+    block = t[t.index("## The CLI") : t.index("## Contributing")]
+    named = clidoc.block_commands(block)
+    have = {c.path for c in clidoc.walk(app)}
+    assert len(named) > 10
+    assert [n for n in named if n not in have] == []  # a renamed command breaks the README
+
+
+def test_block_parser():
+    block = """
+mjolnir                               # help
+mjolnir serve [up|down]               # x
+mjolnir bench perf | ab               # y
+mjolnir calibrate [--draft-vocab]     # z
+mjolnir verify <stage>                # w
+"""
+    assert clidoc.block_commands(block) == [
+        "mjolnir",
+        "mjolnir serve up",
+        "mjolnir serve down",
+        "mjolnir bench perf",
+        "mjolnir bench ab",
+        "mjolnir calibrate",
+        "mjolnir verify",
+    ]
 
 
 def test_rst_conversion():
     assert clidoc._rst("``a <b>`` and <c>") == "`a <b>` and &lt;c&gt;"
-    assert clidoc.first_sentence("One. Two.") == "One."

@@ -321,69 +321,22 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 ## The CLI
 
-`mjolnir` serves, benchmarks, calibrates and documents everything in this repo. Every command, with its options and defaults: **[the CLI reference](docs/cli.md)** (generated from the commands themselves; `mjolnir <command> --help` prints the same).
+```bash
+mjolnir                                      # help + next steps
+mjolnir serve [up|down|status|logs]          # the vLLM container on the Mjolnir image
+mjolnir model | image                        # pick the active model config / vLLM image
+mjolnir calibrate [--draft-vocab]            # fp6 KV-cache scales (and the drafter's vocabulary) per model
+mjolnir verify <stage>                       # kernel correctness + ncu benchmarks -> benchmarks/raw/verify
+mjolnir verify bench | all                   # every benchmark stage (all = + correctness)
+mjolnir verify show | list                   # re-print saved results
+mjolnir bench e2e | compare                  # official vLLM image vs Mjolnir: decode, prefill, TTFT, ITL
+mjolnir bench perf | ab | accuracy           # serving benchmarks, A/B legs, model quality
+mjolnir plot --readme [--site DIR]           # charts + README + docs (+ the interactive site) from raw data
+mjolnir autoresearch [init|run|ledger]       # the autonomous kernel-research loop
+mjolnir gate | hw | litellm | perses         # clean-window gate, Thor host setup, side stacks
+```
 
-| command | what it does |
-|---|---|
-| [`mjolnir gate`](docs/cli.md#mjolnir-gate) | The clean-window gate (vLLM request queue 0/0 × N consecutive samples). |
-| [`mjolnir calibrate`](docs/cli.md#mjolnir-calibrate) | Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache (or, with --draft-vocab, the drafter's vocabulary for VocabTrim). |
-| [`mjolnir grant-permissions`](docs/cli.md#mjolnir-grant-permissions) | Check for — and, if missing, install — the NOPASSWD sudo grant the kernel benches use to clear the page cache. |
-| [`mjolnir drop-caches`](docs/cli.md#mjolnir-drop-caches) | Clear the host page cache (`sysctl -w vm.drop_caches=3`) for a clean kernel-bench baseline. |
-| [`mjolnir plot`](docs/cli.md#mjolnir-plot) | Render every chart (light + dark PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). |
-| [`mjolnir history`](docs/cli.md#mjolnir-history) | Bench results at a glance: decode throughput (t/s) per recent run. |
-| [`mjolnir version`](docs/cli.md#mjolnir-version) | Print the version. |
-| [`mjolnir serve up`](docs/cli.md#mjolnir-serve-up) | Start the vLLM server (custom image, config from --model/--config). |
-| [`mjolnir serve down`](docs/cli.md#mjolnir-serve-down) | Stop the vLLM container. |
-| [`mjolnir serve status`](docs/cli.md#mjolnir-serve-status) | Container state + /health + current queue load. |
-| [`mjolnir serve logs`](docs/cli.md#mjolnir-serve-logs) | Tail the vLLM container logs. |
-| [`mjolnir bench perf`](docs/cli.md#mjolnir-bench-perf) | End-to-end perf bench (gated clean window, raw JSON, history log). |
-| [`mjolnir bench ab`](docs/cli.md#mjolnir-bench-ab) | Headline A/B: restart the server per leg, gated perf bench for each, one history row-set per leg. |
-| [`mjolnir bench accuracy`](docs/cli.md#mjolnir-bench-accuracy) | Model quality per serving config with tool-eval-bench: does fp6 KV / the fp8 lm_head keep the model's answers? |
-| [`mjolnir bench e2e`](docs/cli.md#mjolnir-bench-e2e) | Official vLLM image vs the Mjolnir image, end to end: decode and prefill throughput, time to first token and inter-token latency per context x concurrency. |
-| [`mjolnir bench compare`](docs/cli.md#mjolnir-bench-compare) | Official vLLM image vs Mjolnir image from the history — no new run. |
-| [`mjolnir model use`](docs/cli.md#mjolnir-model-use) | Remember the active model/config (bare `mjolnir model` or no args here = arrow-key picker over configs: repo configs/ + user-local ~/.local/share/mjolnir/configs). |
-| [`mjolnir model list`](docs/cli.md#mjolnir-model-list) | List every config (repo configs/ + the user-local dir; ● = the active one; the state file is printed below the table). |
-| [`mjolnir image use`](docs/cli.md#mjolnir-image-use) | Remember the active vLLM image (bare `mjolnir image` or no args here = arrow-key picker over local docker images). |
-| [`mjolnir image list`](docs/cli.md#mjolnir-image-list) | List local docker images (● = the active one). |
-| [`mjolnir image build`](docs/cli.md#mjolnir-image-build) | Build the Mjolnir vLLM image: the patch stack + the mjolnir-kernel package from this checkout (repo-root build context). |
-| [`mjolnir image gates`](docs/cli.md#mjolnir-image-gates) | Run the sm_110 gate-probe canaries against the image (fresh container, no server needed). |
-| [`mjolnir verify correctness`](docs/cli.md#mjolnir-verify-correctness) | Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len and Q dtype. |
-| [`mjolnir verify sweep`](docs/cli.md#mjolnir-verify-sweep) | The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks). |
-| [`mjolnir verify hndsweep`](docs/cli.md#mjolnir-verify-hndsweep) | FlashInfer on NHD and HND pages vs Mjolnir (fp8 KV) on HND: the fair layout comparison. |
-| [`mjolnir verify kvfmt`](docs/cli.md#mjolnir-verify-kvfmt) | KV layouts x formats: fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD / interleaved / HND. |
-| [`mjolnir verify quant`](docs/cli.md#mjolnir-verify-quant) | Accuracy per KV format: relative L2 error vs attention over unquantized KV. |
-| [`mjolnir verify ring`](docs/cli.md#mjolnir-verify-ring) | KV ring depth (TMA → MMA stages) at every L. |
-| [`mjolnir verify prefetch`](docs/cli.md#mjolnir-verify-prefetch) | TMA L2-prefetch distance sweep. |
-| [`mjolnir verify pdl`](docs/cli.md#mjolnir-verify-pdl) | Programmatic dependent launch on/off (wall clock). |
-| [`mjolnir verify ab`](docs/cli.md#mjolnir-verify-ab) | A/B any harness flag sets (ncu + wall clock). |
-| [`mjolnir verify fp6prof`](docs/cli.md#mjolnir-verify-fp6prof) | Full ncu profiles per KV format (bytes vs requests vs time, warp stalls). |
-| [`mjolnir verify timing`](docs/cli.md#mjolnir-verify-timing) | Harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q (no ncu). |
-| [`mjolnir verify profile`](docs/cli.md#mjolnir-verify-profile) | Profile a decode workload per config (torch profiler): graph replays, eager kernels, GPU idle, top kernels. |
-| [`mjolnir verify spec`](docs/cli.md#mjolnir-verify-spec) | MTP per config and draft count: tokens/step, per-position acceptance, decode t/s (restarts the server per point). |
-| [`mjolnir verify kv-cache-size`](docs/cli.md#mjolnir-verify-kv-cache-size) | KV cache capacity per config: serves each leg (restarting the server), reads vLLM's KV sizing, stops it. |
-| [`mjolnir verify vllm`](docs/cli.md#mjolnir-verify-vllm) | The vLLM plugin: runner tests + greedy MJOLNIR-vs-FLASHINFER smoke runs (checkout only). |
-| [`mjolnir verify bench`](docs/cli.md#mjolnir-verify-bench) | Every benchmark stage with default parameters (one headline run each), then re-render the charts. |
-| [`mjolnir verify all`](docs/cli.md#mjolnir-verify-all) | Correctness + every benchmark stage, then re-render the charts. |
-| [`mjolnir verify show`](docs/cli.md#mjolnir-verify-show) | Re-print the latest saved run of a stage (or every stage). |
-| [`mjolnir verify list`](docs/cli.md#mjolnir-verify-list) | Stages and their saved runs. |
-| [`mjolnir autoresearch init`](docs/cli.md#mjolnir-autoresearch-init) | Create the research branch and score the starting kernel (the baseline row). |
-| [`mjolnir autoresearch evaluate`](docs/cli.md#mjolnir-autoresearch-evaluate) | Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep; append the result and the fixed keep/discard decision to the ledger. |
-| [`mjolnir autoresearch ledger`](docs/cli.md#mjolnir-autoresearch-ledger) | Show the ledger (newest last). |
-| [`mjolnir autoresearch status`](docs/cli.md#mjolnir-autoresearch-status) | Best kept score, experiment counts, the current branch. |
-| [`mjolnir autoresearch chart`](docs/cli.md#mjolnir-autoresearch-chart) | Re-render research/progress.png from the live ledger (or the newest exported run). |
-| [`mjolnir autoresearch run`](docs/cli.md#mjolnir-autoresearch-run) | Launch the loop: an OpenCode session with the `autoresearch` agent. |
-| [`mjolnir autoresearch export`](docs/cli.md#mjolnir-autoresearch-export) | Snapshot the ledger into research/runs/&lt;tag&gt;/ (ledger.jsonl, ledger.tsv, SUMMARY.md) — commit that to keep the run's notebook with the repo. |
-| [`mjolnir litellm up`](docs/cli.md#mjolnir-litellm-up) | Render the config from your template (in the litellm data dir, ~/.local/share/mjolnir/litellm/) with the currently selected model/config, and start the stack (proxy + postgres + redis). |
-| [`mjolnir litellm down`](docs/cli.md#mjolnir-litellm-down) | Stop the stack (the vLLM server keeps running; data kept by default, --purge wipes postgres + redis state). |
-| [`mjolnir litellm status`](docs/cli.md#mjolnir-litellm-status) | Container state + proxy liveliness + the rendered config path. |
-| [`mjolnir litellm logs`](docs/cli.md#mjolnir-litellm-logs) | Tail the proxy container logs. |
-| [`mjolnir litellm config`](docs/cli.md#mjolnir-litellm-config) | Render the template with the current model/config (no containers) — validates the variables and the YAML. |
-| [`mjolnir perses up`](docs/cli.md#mjolnir-perses-up) | Start the observability stack (prometheus + perses) with the two vLLM dashboards provisioned. |
-| [`mjolnir perses down`](docs/cli.md#mjolnir-perses-down) | Stop the stack (the vLLM server keeps running; data kept by default, --purge wipes the prometheus TSDB + the perses db). |
-| [`mjolnir perses status`](docs/cli.md#mjolnir-perses-status) | Container state + API health + the vLLM scrape target + the data dir. |
-| [`mjolnir perses logs`](docs/cli.md#mjolnir-perses-logs) | Tail a stack service's logs (default: perses). |
-| [`mjolnir hw setup`](docs/cli.md#mjolnir-hw-setup) | Pre-configure the Thor host (port of the ~/thor HW setup script). |
-| [`mjolnir hw status`](docs/cli.md#mjolnir-hw-status) | Installed fan profiles and the selected default (read-only, no sudo). |
+Every command, sub-command and option, with defaults: **[the CLI reference](docs/cli.md)** — generated from the commands themselves; `mjolnir <command> --help` prints the same.
 
 ## Contributing
 
