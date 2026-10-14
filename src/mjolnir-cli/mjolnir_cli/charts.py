@@ -159,13 +159,12 @@ def chart_speedup(data: dict, mode: Mode):
         ys = [sp[L] for L in xs]
         ymax = max(ymax, max(ys))
         ax.plot(xs, ys, **theme.line_kw(mode, sid))
-        g = results.geomean(ys)
         name = {"mjolnir": "Mjolnir · e2m3 KV", "mjolnir-fp8": "Mjolnir · fp8 KV", "fa2": "FlashAttention 2"}[sid]
-        labels.append((xs[-1], ys[-1], f"{name}  ({g:.2f}× geomean)"))
+        labels.append((xs[-1], ys[-1], name))  # the geomeans are in the README table, not here
     _log2_axis(ax, Ls, mode)
     ax.set_ylim(0, max(2.0, ymax * 1.12))
     ax.set_ylabel("speedup over FlashInfer (×, higher is faster)")
-    ax.set_xlim(Ls[0] / 1.5, Ls[-1] * 6)  # room for the direct labels
+    ax.set_xlim(Ls[0] / 1.5, Ls[-1] * 3.6)  # room for the direct labels
     _place_labels(ax, mode, labels)
     theme.title(
         ax,
@@ -1150,14 +1149,14 @@ def chart_kvcache(data: dict, mode: Mode):
             fontweight="bold",
         )
     ax0.set_yticks(ys)
-    ax0.set_yticklabels([kvcache_label(r).replace(" · ", "\n", 1) for r in rows], fontsize=9)
+    ax0.set_yticklabels([theme.wrap(kvcache_label(r), 22) for r in rows], fontsize=9)
     ax0.set_xlabel("KV cache, million tokens")
     ax0.set_xlim(0, max(r["kv_tokens"] for r in rows) / 1e6 * 1.32)
     ctxs = [0, 4096, 8192, 16384, 32768, 65536, 131072]
     for r in rows:
         sid = _kvcache_series(r)
         fit = [r["kv_tokens"] / (c + pp + tg) for c in ctxs]
-        ax1.plot(range(len(ctxs)), fit, label=kvcache_label(r), **theme.line_kw(mode, sid))
+        ax1.plot(range(len(ctxs)), fit, label=theme.wrap(kvcache_label(r), 30), **theme.line_kw(mode, sid))
     ax1.axhspan(0, 4, color=mode.neutral, alpha=0.6, zorder=1, lw=0)
     ax1.text(len(ctxs) - 1, 4.4, "e2e bench: 1-4 concurrent requests", color=mode.text_dim, fontsize=9, ha="right")
     ax1.set_yscale("log", base=2)
@@ -1341,14 +1340,14 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         ax.set_xlabel(f"{accuracy.suite_label(name)} score, %")
         ax.grid(axis="y", visible=False)
     axes[0].set_yticks(ys)
-    axes[0].set_yticklabels([r["label"] for r in rows], color=mode.text, fontsize=10)
+    axes[0].set_yticklabels([theme.wrap(r["label"], 24) for r in rows], color=mode.text, fontsize=10)
     axes[0].set_ylim(-0.7, len(rows) - 0.3)
     theme.title(
         axes[0],
         mode,
         "Model quality per serving config",
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
-        + (base["label"] if base else "baseline")
+        + (base["label"].replace(" · ", ", ") if base else "baseline")
         + " · (±) = points vs it",
     )
     _accuracy_footer(fig, mode, rows)
@@ -1383,7 +1382,7 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     loss = np.where(np.isfinite(delta), np.clip(-delta, 0, None), 0.0)  # points behind the baseline; ahead = 0
     span = max(ACC_RED_POINTS, float(loss.max()) if loss.size else ACC_RED_POINTS)
     plt = _plt()
-    fig, ax = plt.subplots(figsize=(max(9.0, 0.78 * len(cats) + 4.5), 1.8 + 0.55 * len(rows)))
+    fig, ax = plt.subplots(figsize=(max(9.0, 0.78 * len(cats) + 4.5), 1.8 + 0.75 * len(rows)))
     theme.apply(fig, ax, mode)
     ax.grid(False)
     ax.imshow(
@@ -1404,14 +1403,14 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     ax.set_xticks(range(len(cats)))
     ax.set_xticklabels(cats, color=mode.text)
     ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([r["label"] for r in rows], color=mode.text)
+    ax.set_yticklabels([theme.wrap(r["label"], 24) for r in rows], color=mode.text)
     ax.set_xlabel("tool-call category (names: the table below)")
     theme.title(
         ax,
         mode,
         "Tool calls by category",
         "cell = share of points, % · green = on par with "
-        + (base["label"] if base else "the first row")
+        + (base["label"].replace(" · ", ", ") if base else "the first row")
         + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
     )
     _accuracy_footer(fig, mode, rows)

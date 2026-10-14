@@ -170,9 +170,26 @@ def apply(fig, axes, mode: Mode) -> None:
 
 
 def title(ax, mode: Mode, text: str, subtitle: str | None = None, fontsize: int = 16) -> None:
-    """Left-aligned bold title + one dim subtitle line above the axes."""
+    """Left-aligned bold title + a dim subtitle above the axes. The subtitle
+    wraps at the axes' width (at `` · `` joints): one wider than the plot
+    would stretch the saved image and leave an empty band on the right."""
+    sub_lines = []
+    if subtitle:
+        fig = ax.figure
+        pos = ax.get_position()  # the subtitle may run across every panel of the top row
+        right = max(a.get_position().x1 for a in fig.axes if abs(a.get_position().y1 - pos.y1) < 0.02)
+        width_in = (right - pos.x0) * fig.get_figwidth()
+        per_line = max(30, int(width_in * 72 / (10.5 * 0.56)))  # DejaVu Sans ≈ 0.56 em per char
+        cur = ""
+        for part in subtitle.split(" · "):
+            if cur and len(cur) + 3 + len(part) > per_line:
+                sub_lines.append(cur)
+                cur = part
+            else:
+                cur = f"{cur} · {part}" if cur else part
+        sub_lines.append(cur)
     nlines = text.count("\n") + 1
-    pad = (26 if subtitle else 10) + (fontsize + 5) * (nlines - 1)
+    pad = (26 if subtitle else 10) + (fontsize + 5) * (nlines - 1) + 15 * max(0, len(sub_lines) - 1)
     t = ax.set_title(text, pad=pad)
     t.set_color(mode.text)
     t.set_fontsize(fontsize)
@@ -181,7 +198,17 @@ def title(ax, mode: Mode, text: str, subtitle: str | None = None, fontsize: int 
     t.set_position((0.0, y))
     t.set_horizontalalignment("left")
     if subtitle:
-        ax.text(0, 1.018, subtitle, transform=ax.transAxes, color=mode.text_dim, fontsize=10.5, ha="left", va="bottom")
+        ax.text(
+            0,
+            1.018,
+            "\n".join(sub_lines),
+            transform=ax.transAxes,
+            color=mode.text_dim,
+            fontsize=10.5,
+            ha="left",
+            va="bottom",
+            linespacing=1.25,
+        )
 
 
 def footer(fig, mode: Mode, text: str, below_in: float | None = None) -> None:
@@ -222,6 +249,25 @@ def fit_footer(fig) -> None:
     # a footer wider than the content still widens the bbox, never clips
     for t in texts:
         t.set_in_layout(True)
+
+
+def wrap(text: str, width: int = 24) -> str:
+    """Break a long series label into lines at its natural joints: `` · ``
+    (dropped at a break) and `` + `` (kept, leading the next line), so
+    "Mjolnir · fp6 e2m3 KV + fp8 lm_head" reads "Mjolnir · fp6 e2m3 KV\n+ fp8 lm_head"
+    instead of widening the chart."""
+    import re
+
+    parts = re.split(r"( · | \+ )", text)
+    lines, cur = [], parts[0]
+    for sep, word in zip(parts[1::2], parts[2::2]):
+        if len(cur) + len(sep) + len(word) <= width:
+            cur += sep + word
+        else:
+            lines.append(cur)
+            cur = ("+ " if "+" in sep else "") + word
+    lines.append(cur)
+    return "\n".join(lines)
 
 
 def legend(ax, mode: Mode, **kw):
