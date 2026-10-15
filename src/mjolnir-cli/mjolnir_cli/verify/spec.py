@@ -32,7 +32,7 @@ from mjolnir_cli.legs import verify_legs
 from mjolnir_cli.gate import server_counters, spec_delta
 
 DEFAULT_LEGS = verify_legs("verify.spec")  # mjolnir_cli.legs
-DEFAULT_DRAFTS = "1 2 3 4"
+DEFAULT_DRAFTS = "1 2 3 4 5 6 7"
 DEFAULT_CONCURRENCY = "1 4"
 DEFAULT_MAX_TOKENS = 256
 

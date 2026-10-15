@@ -753,7 +753,7 @@ STAGES: dict[str, Stage] = {
             "spec",
             "Speculative decoding",
             "serving",
-            "MTP acceptance per draft position and decode t/s for 1-4 draft tokens, per config — the best draft count",
+            "MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count",
             _spec_stage,
         ),
         Stage(

@@ -745,7 +745,7 @@ MTP per config and draft count: tokens/step, per-position acceptance, decode t/s
 | option | description | default |
 |---|---|---|
 | `--legs` | side:config, comma-separated; official = the stock vLLM image, mjolnir = --image | `official:NVFP4,mjolnir:NVFP4_MJOLNIR,mjolnir:NVFP4_MJOLNIR_E2M3,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
-| `--drafts` | num_speculative_tokens values to serve | `1 2 3 4` |
+| `--drafts` | num_speculative_tokens values to serve | `1 2 3 4 5 6 7` |
 | `--concurrency` | requests in flight per block | `1 4` |
 | `--max-tokens` | generated tokens per request | `256` |
 | `--long-words` | the long-context prompt's size (0 = none) | `6000` |

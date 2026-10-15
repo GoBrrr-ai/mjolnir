@@ -28,7 +28,7 @@ from mjolnir_cli.legs import KERNEL, SMOKE_MODES
 from mjolnir_cli.verify import results, stages
 from mjolnir_cli.verify.kvcache import DEFAULT_LEGS as KV_LEGS
 from mjolnir_cli.verify.profile import DEFAULT_LEGS as PROFILE_LEGS
-from mjolnir_cli.verify.spec import DEFAULT_LEGS as SPEC_LEGS
+from mjolnir_cli.verify.spec import DEFAULT_DRAFTS, DEFAULT_LEGS as SPEC_LEGS
 from mjolnir_cli.verify.docker import Runner, ensure_image
 from mjolnir_cli.verify.report import console, show
 
@@ -581,7 +581,7 @@ def spec(
         "--legs",
         help="side:config, comma-separated; official = the stock vLLM image, mjolnir = --image",
     ),
-    drafts: str = typer.Option("1 2 3 4", "--drafts", help="num_speculative_tokens values to serve"),
+    drafts: str = typer.Option(DEFAULT_DRAFTS, "--drafts", help="num_speculative_tokens values to serve"),
     concurrency: str = typer.Option("1 4", "--concurrency", help="requests in flight per block"),
     max_tokens: int = typer.Option(256, "--max-tokens", help="generated tokens per request"),
     long_words: int = typer.Option(6000, "--long-words", help="the long-context prompt's size (0 = none)"),
@@ -598,7 +598,7 @@ def spec(
     """MTP per config and draft count: tokens/step, per-position acceptance, decode t/s (restarts the server per point)."""
     defaults = {
         "legs": SPEC_LEGS,
-        "drafts": "1 2 3 4",
+        "drafts": DEFAULT_DRAFTS,
         "concurrency": "1 4",
         "max_tokens": 256,
         "long_words": 6000,
