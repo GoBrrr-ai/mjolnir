@@ -113,8 +113,7 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_DRAFT_T5` | `1` | `0`: the drafter's layers (MTP / EAGLE) run on the fallback — isolates the draft-step cost (`mjolnir verify profile`). fp8 KV only: refused on fp6 KV, whose fallback cannot be CUDA-graphed |
 | `MJOLNIR_ATTN_NONCAUSAL` | `1` | `0`: a parallel drafter's non-causal block steps (DSpark / DFlash) go to the fallback instead of the decode kernel — fp8 KV only for the same reason as above |
 | `MJOLNIR_ATTN_FUSED_DRAFT` | `1` | `0`: tell vLLM the backend cannot advance draft metadata in place → one graph replay per draft step instead of the fused draft loop |
-| `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8`) |
-| `MJOLNIR_LM_HEAD_DROP_BF16` | – | `1`: with `MJOLNIR_LM_HEAD=fp8`, free the bf16 head (untied heads only; +2.5 GB KV) |
+| `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8`); the bf16 copy is freed automatically (untied heads only, +2.5 GB KV) |
 | `MJOLNIR_DRAFT_VOCAB` | – | path to a `draft_vocab.json` (`mjolnir calibrate --draft-vocab`): the drafter's logits only over those tokens (VocabTrim); `MJOLNIR_DRAFT_VOCAB_SIZE` keeps the first N (a shorter file is padded with the lowest unused ids, with a warning) |
  | `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
  | `MJOLNIR_ATTN_BANNER` | `1` | `0`: skip the Mjolnir hammer banner in the vLLM boot log (`mjolnir.banner.emit`, once per start, coloured with the server's formatter) |

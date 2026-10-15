@@ -3,13 +3,14 @@
 On Qwen3.8-27B NVFP4 the bf16 lm_head (248,320 x 5,120, 2.54 GB) is read by
 the target's verify and by every MTP draft step — ~40% of a decode step's
 bytes. Two experiments, both off unless their env var is set (a config opts
-in through its ``<config>.env`` sidecar, see ``mjolnir_cli.dockerctl``):
+in through the ``.env`` sidecar inside its config dir, see
+``mjolnir_cli.dockerctl``):
 
 * ``MJOLNIR_LM_HEAD=fp8`` — the lm_head weight quantized to e4m3 per row at
   load (scale = row amax / 448) and multiplied by a Triton fp8-weight GEMM
   (bf16 activations, fp32 accumulate): half the bytes for the verify and the
-  drafts. ``MJOLNIR_LM_HEAD_DROP_BF16=1`` also frees the bf16 weight (an
-  untied head only), returning 2.5 GB to the KV cache.
+  drafts. The fp8 head makes the bf16 copy dead weight, so the bf16 weight is
+  freed automatically (an untied head only), returning 2.5 GB to the KV cache.
 * ``MJOLNIR_DRAFT_VOCAB=<json>`` (+ ``MJOLNIR_DRAFT_VOCAB_SIZE``) — VocabTrim
   for the drafter: its logits are computed only over the most frequent
   target tokens (``mjolnir calibrate --draft-vocab``), the rest are -inf.
@@ -39,7 +40,6 @@ except ImportError:  # pragma: no cover
 _log = logging.getLogger("vllm.mjolnir")
 
 ENV_LM_HEAD = "MJOLNIR_LM_HEAD"
-ENV_DROP_BF16 = "MJOLNIR_LM_HEAD_DROP_BF16"
 ENV_DRAFT_VOCAB = "MJOLNIR_DRAFT_VOCAB"
 ENV_DRAFT_VOCAB_SIZE = "MJOLNIR_DRAFT_VOCAB_SIZE"
 FP8_MAX = 448.0
@@ -202,7 +202,7 @@ def install_fp8_head(lm_head, model=None) -> bool:
     lm_head.quant_method = Fp8HeadMethod(qm, w8, scale)
     lm_head._mjolnir_fp8 = True
     freed = ""
-    if os.environ.get(ENV_DROP_BF16, "").strip().lower() in ("1", "true", "yes") and model is not None:
+    if model is not None:  # the fp8 head is now the only consumer: the bf16 copy is dead weight
         if _is_tied(lm_head, model):
             freed = " (tied to the embedding: bf16 weight kept)"
         else:
