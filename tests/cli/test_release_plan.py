@@ -34,6 +34,11 @@ def repo(tmp_path):
         (r / rel).parent.mkdir(parents=True, exist_ok=True)
         (r / rel).write_text(text)
     _git(r, "init", "-q")
+    # hermetic: the scratch repo must not inherit the host's git config — a global
+    # commit.gpgsign / tag.gpgsign would need the host's GPG agent or an editor
+    # (git tag then fails with "Terminal is dumb, but EDITOR unset")
+    _git(r, "config", "commit.gpgsign", "false")
+    _git(r, "config", "tag.gpgsign", "false")
     _git(r, "-c", "user.name=t", "-c", "user.email=t@t", "add", ".")
     _git(r, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
     return r
