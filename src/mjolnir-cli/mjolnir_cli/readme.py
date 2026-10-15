@@ -671,6 +671,8 @@ def _patches(layout: RepoLayout) -> tuple[str, int, int]:
     verbatim — it is the single source of truth the build consumes. Returns
     (table, total, pr_backed); pr_backed = rows patching a vLLM PR."""
     p = layout.repo_root / "docker" / "vllm-thor" / "PATCHES.md"
+    if not p.exists():
+        return "", 0, 0
     lines = p.read_text().splitlines()
     start = next((i for i, ln in enumerate(lines) if ln.startswith("| File |")), None)
     if start is None or start + 1 >= len(lines) or not lines[start + 1].startswith("|-"):
