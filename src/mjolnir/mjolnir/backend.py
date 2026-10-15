@@ -715,13 +715,13 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         row = runner.kv_row_bytes
         if self._kv_layout is None:
             self._kv_layout = detect_kv_layout(kv_cache.shape, runner.h_k, runner.page_size, row)
-            logger.info(
-                "Mjolnir: KV cache %s %s -> layout %s (%s)",
-                tuple(kv_cache.shape),
-                tuple(kv_cache.stride()),
-                self._kv_layout,
-                runner.kv_format,
-            )
+            # logger.info(
+            #     "Mjolnir: KV cache %s %s -> layout %s (%s)",
+            #     tuple(kv_cache.shape),
+            #     tuple(kv_cache.stride()),
+            #     self._kv_layout,
+            #     runner.kv_format,
+            # )
         return split_kv_cache(kv_cache, self._kv_layout, row)
 
     def _write_kv(self, layer, key, value, kv_cache, k_cache, v_cache, md):
