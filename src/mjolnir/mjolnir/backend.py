@@ -39,6 +39,7 @@ from typing import Any, ClassVar
 
 import torch
 
+from . import banner
 from .runner import (
     SUPPORTED_PAGE_SIZES,
     StepPlan,
@@ -378,6 +379,8 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     def __init__(self, kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs):
         super().__init__(kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs)
+        if env_flag("MJOLNIR_ATTN_BANNER", "1").lower() not in ("0", "false", "no"):
+            banner.emit()  # the hammer, once, into this log
         # Fused multi-step draft decode (MTP / EAGLE): the speculator builds the
         # draft metadata once and runs every draft step on it, advancing the
         # device seq_lens in place. A T5 plan stays valid across those steps if

@@ -29,6 +29,11 @@ def test_serve_env_points_fp6_configs_at_their_scales(monkeypatch):
     assert env.count("MJOLNIR_ATTN_KV_SCALES=/data/mine.json") == 1
 
 
+def test_serve_env_names_the_config_for_the_banner():
+    assert "MJOLNIR_CONFIG=NVFP4_MJOLNIR_E2M3" in dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3"))
+    assert not any(e.startswith("MJOLNIR_CONFIG") for e in dockerctl.backend_env(_s("NVFP4")))
+
+
 def test_calibrate_dry_run_builds_a_foreground_container(tmp_path):
     out = tmp_path / "scales.json"
     r = CliRunner().invoke(cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR", "--out", str(out), "--dry-run"])

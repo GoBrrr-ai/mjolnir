@@ -206,6 +206,7 @@ def backend_env(s: Settings) -> list[str]:
     MJOLNIR_ATTN_KV_SCALES pointed at its calibration file."""
     out: list[str] = []
     if (s.attention_backend or "") in ("MJOLNIR", "CUSTOM"):
+        out.append(f"MJOLNIR_CONFIG={s.quant}")  # the boot banner's `Model:` line
         for k, v in MJOLNIR_ENV_DEFAULTS.items():
             out.append(f"{k}={os.environ.get(k, v)}")
         if (config_field(s.config_path, "kv-cache-dtype") or "").startswith("fp6") and not os.environ.get(

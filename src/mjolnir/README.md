@@ -116,7 +116,8 @@ runs on the fallback backend.
 | `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8`) |
 | `MJOLNIR_LM_HEAD_DROP_BF16` | – | `1`: with `MJOLNIR_LM_HEAD=fp8`, free the bf16 head (untied heads only; +2.5 GB KV) |
 | `MJOLNIR_DRAFT_VOCAB` | – | path to a `draft_vocab.json` (`mjolnir calibrate --draft-vocab`): the drafter's logits only over those tokens (VocabTrim); `MJOLNIR_DRAFT_VOCAB_SIZE` keeps the first N (a shorter file is padded with the lowest unused ids, with a warning) |
-| `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
+ | `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
+ | `MJOLNIR_ATTN_BANNER` | `1` | `0`: skip the Mjolnir hammer banner in the vLLM boot log (`mjolnir.banner.emit`, once per start, coloured with the server's formatter) |
 | `MJOLNIR_ATTN_KV_LAYOUT` | auto | force the KV view: `BHN2D BNH2D B2NHD B2HND 2BNHD 2BHND` |
 | `MJOLNIR_ATTN_FUSED_QPACK` | `1` | `0`: quantize fp8 Q with PyTorch ops (~10 launches) instead of one Triton kernel |
 | `MJOLNIR_ATTN_KV_SCALES` | – | `fp6_e2m3` KV: the per-(layer, KV head, channel) scales file from `python -m mjolnir.calibrate` |
