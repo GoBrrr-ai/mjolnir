@@ -20,6 +20,11 @@
 # The build runs the patch gates (apply_patches.py / verify_patches.py), the
 # MJOLNIR enum + plugin smoke and the no-GPU canaries; the GPU canaries
 # self-skip on a CPU runner (run `mjolnir image gates` on a Thor afterwards).
+#
+# The Docker Hub repository description is the same file every time the image
+# is pushed: docker/vllm-thor/README.md, rendered from its .md.j2 by
+# `mjolnir plot --readme` (CI checks it reproduces) and synced via
+# peter-evans/dockerhub-description with the same DOCKERHUB_* credentials.
 
 name: Docker image
 
@@ -117,6 +122,16 @@ jobs:
             io.github.thor-arena.mjolnir.vllm-version=${{ steps.v.outputs.vllm }}
           cache-from: type=registry,ref=${{ env.IMAGE_REPO }}:buildcache
           cache-to: ${{ (github.event_name != 'workflow_dispatch' || inputs.push) && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_REPO) || '' }}
+
+      - name: Update the Docker Hub description (docker/vllm-thor/README.md)
+        if: github.event_name != 'workflow_dispatch' || inputs.push
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE_REPO }}
+          readme-filepath: docker/vllm-thor/README.md
+          short-description: vLLM for Jetson AGX Thor (sm_110) + the Mjolnir decode-attention kernel
 
       - name: Summary
         run: |
