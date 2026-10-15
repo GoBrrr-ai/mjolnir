@@ -106,7 +106,7 @@ itself: refuses while the vLLM server is up (stop it with
 | `--model` | vendor/Model (default: the active one) |  |
 | `--config` | the config to calibrate (default: the active one) |  |
 | `--image` | the Mjolnir image |  |
-| `--out` | default: kv_scales.json next to the config — &lt;config&gt;.kv_scales.json for a config whose own drafter (DSpark) runs on Mjolnir |  |
+| `--out` | default: the model's kv_scales.json next to the config dirs — kv_scales.json inside the config dir for a config whose own drafter (DSpark) runs on Mjolnir |  |
 | `--prompts` | short prompts | `48` |
 | `--long` | long-context prompts | `6` |
 | `--max-model-len` |  | `32768` |
@@ -291,7 +291,7 @@ one history row-set per leg.
 Each leg is a model config (quant), optionally model-qualified and/or
 image-pinned: '&lt;config&gt;', '&lt;image&gt;:&lt;config&gt;', '&lt;model&gt;/&lt;config&gt;' or
 '&lt;image&gt;:&lt;model&gt;/&lt;config&gt;'. The image carries the backend (kernel stack
-is baked in); the config (configs/&lt;model&gt;/&lt;quant&gt;.yaml, repo or local)
+is baked in); the config (configs/&lt;model&gt;/&lt;quant&gt;/config.yaml, repo or local)
 carries the serving parameters. Bare configs use --model/--image.
 Compare images on one model and/or models on one image. Charts
 re-render at the end.

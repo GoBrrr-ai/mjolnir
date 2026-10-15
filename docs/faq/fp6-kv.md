@@ -48,7 +48,7 @@ mjolnir serve up --config NVFP4_MJOLNIR_E2M3
 ```
 
 `mjolnir serve` points `MJOLNIR_ATTN_KV_SCALES` at the `kv_scales.json` next
-to the config; set it yourself to use another file. Commit the file with the
+to the config dirs; set it yourself to use another file. Commit the file with the
 config — it is part of the serving setup. Without it, the server refuses to
 start with fp6 (no silent bad scales). Files from before per-channel scales
 (`mjolnir.kv_scales/1`, one amax per head) still load, but give per-head
@@ -56,8 +56,9 @@ accuracy — re-run `mjolnir calibrate`.
 
 A config whose own drafter runs on Mjolnir (`NVFP4_MJOLNIR_E2M3_DSPARK`) has
 layers the model's file does not: calibrate that config
-(`mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK`). It gets
-`<config>.kv_scales.json`, with the target's and the drafter's layers, and
+(`mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK`). It gets its own
+`kv_scales.json` inside its config dir, with the target's and the drafter's
+layers, and
 the model's `kv_scales.json` is left alone. See
 [spec-drafters.md](spec-drafters.md).
 

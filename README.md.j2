@@ -146,17 +146,19 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
 
 ## Models as Code
 
-A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — under `configs/<vendor>/<model>/<config>.yaml`.
+A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — in its own directory, `configs/<vendor>/<model>/<config>/config.yaml`.
 
-What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into an optional `<config>.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit in the same directory:
+What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into the config dir's optional `.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales.json`, `draft_vocab.json`) sit next to the config dirs:
 
 ```bash
 configs/Qwen/Qwen3.8-27B/
-├── {{ ctx.default_config }}.yaml     # attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
-├── {{ ctx.default_config }}.env      # MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
-├── NVFP4.yaml                             # the stock FlashInfer baseline, same model and limits
-├── kv_scales.json                         # per-channel KV scales (mjolnir calibrate)
-└── draft_vocab.json                       # the drafter's vocabulary (mjolnir calibrate --draft-vocab)
+├── {{ ctx.default_config }}/          # attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
+│   ├── config.yaml
+│   └── .env                           # MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
+├── NVFP4/
+│   └── config.yaml                    # the stock FlashInfer baseline, same model and limits
+├── kv_scales.json                     # per-channel KV scales (mjolnir calibrate)
+└── draft_vocab.json                   # the drafter's vocabulary (mjolnir calibrate --draft-vocab)
 ```
 
 ```bash

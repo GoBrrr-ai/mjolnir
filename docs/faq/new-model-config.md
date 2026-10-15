@@ -11,13 +11,13 @@ configs:
 
 | Root | Path | Use |
 |---|---|---|
-| **repo** (canonical) | `<repo>/configs/<vendor>/<model>/<quant>.yaml` | committed, reviewed, what the project ships |
-| **user-local** (persisted at `~/`) | `~/.local/share/mjolnir/configs/<vendor>/<model>/<quant>.yaml` | your experiments; override with `$MJOLNIR_CONFIGS_DIR` |
+| **repo** (canonical) | `<repo>/configs/<vendor>/<model>/<quant>/config.yaml` | committed, reviewed, what the project ships |
+| **user-local** (persisted at `~/`) | `~/.local/share/mjolnir/configs/<vendor>/<model>/<quant>/config.yaml` | your experiments; override with `$MJOLNIR_CONFIGS_DIR` |
 
 Rules:
 
-- Same layout in both: `<vendor>/<model>/<quant>.yaml`
-  (e.g. `Meta/Llama-3.3-70B/NVFP4.yaml`).
+- Same layout in both: `<vendor>/<model>/<quant>/config.yaml`
+  (e.g. `Meta/Llama-3.3-70B/NVFP4/config.yaml`).
 - On a `(model, quant)` clash the **repo copy wins** — local never shadows a
   committed config (the repo one is canonical).
 - Local configs are your personal, uncommitted state; the state file
@@ -27,12 +27,12 @@ Rules:
 ## Create one
 
 ```bash
-mkdir -p ~/.local/share/mjolnir/configs/Meta/Llama-3.3-70B
-$EDITOR ~/.local/share/mjolnir/configs/Meta/Llama-3.3-70B/NVFP4.yaml
+mkdir -p ~/.local/share/mjolnir/configs/Meta/Llama-3.3-70B/NVFP4
+$EDITOR ~/.local/share/mjolnir/configs/Meta/Llama-3.3-70B/NVFP4/config.yaml
 ```
 
 Minimal working config (copy a repo one — e.g.
-`configs/Qwen/Qwen3.8-27B/NVFP4.yaml` — and change the model block; the
+`configs/Qwen/Qwen3.8-27B/NVFP4/config.yaml` — and change the model block; the
 attention-backend / KV-cache / GDN sections are Thor-specific and usually
 stay):
 
@@ -61,34 +61,33 @@ The two fields that matter to the CLI:
 ```bash
 mjolnir model list          # it appears now, under the 'local' column
 mjolnir model use Meta/Llama-3.3-70B NVFP4     # make it active (state file)
-mjolnir serve up            # serves from it: the file is mounted into the
-                            # container at /configs/Meta/Llama-3.3-70B/NVFP4.yaml
+mjolnir serve up            # serves from it: the config dir is mounted into
+                             # the container at /configs/Meta/Llama-3.3-70B/NVFP4
 mjolnir bench perf          # benchmarks it (targets the served-model-name)
 ```
 
 `serve up --dry-run` is the no-risk way to check the wiring: you should see
-`-v …/configs/Meta/Llama-3.3-70B/NVFP4.yaml:/configs/Meta/Llama-3.3-70B/NVFP4.yaml:ro`
+`-v …/configs/Meta/Llama-3.3-70B/NVFP4:/configs/Meta/Llama-3.3-70B/NVFP4:ro`
 in the printed command.
 
 Promote a good local config to the repo when it's worth sharing: copy the
-file to `<repo>/configs/<vendor>/<model>/<quant>.yaml` and commit it — the
+config dir to `<repo>/configs/<vendor>/<model>/<quant>/` and commit it — the
 local copy stops shadowing anything and the repo one becomes canonical.
 
-## Env switches: the `<config>.env` sidecar
+## Env switches: the `.env` sidecar
 
 Some switches are environment variables, not `vllm serve` flags — the fp8
 lm_head, the drafter's trimmed vocabulary, Mjolnir kernel knobs. Put them in a
-file next to the YAML with the same name and `.env`:
+`.env` file inside the config dir:
 
 ```bash
-# configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K.env
+# configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/.env
 MJOLNIR_LM_HEAD=fp8
-MJOLNIR_LM_HEAD_DROP_BF16=1
-MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json   # {configs} = this directory inside the container
+MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json   # {configs} = the model's config directory inside the container
 MJOLNIR_DRAFT_VOCAB_SIZE=65536
 ```
 
 `mjolnir serve`, `bench` and `verify` pass every `KEY=VALUE` line to the
 container (`#` starts a comment). A config without a sidecar gets nothing
-extra, so an experiment is one new YAML + `.env` pair — the YAML can be a copy
-of its parent's.
+extra, so an experiment is one new config dir — the `config.yaml` can be a
+copy of its parent's.

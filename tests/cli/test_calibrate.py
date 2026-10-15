@@ -41,7 +41,7 @@ def test_calibrate_dry_run_builds_a_foreground_container(tmp_path):
     cmd = r.output
     assert "--rm" in cmd and " -d " not in cmd and "-p " not in cmd  # foreground, no port
     assert f"{tmp_path.resolve()}:/out" in cmd
-    assert "python3 -m mjolnir.calibrate --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR.yaml" in cmd
+    assert "python3 -m mjolnir.calibrate --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/config.yaml" in cmd
     assert "--out /out/scales.json" in cmd
 
 
@@ -68,6 +68,20 @@ def test_experiment_configs_are_e2m3_plus_env_sidecars():
     env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3_VT32K"))
     assert "MJOLNIR_DRAFT_VOCAB=/configs/Qwen/Qwen3.8-27B/draft_vocab.json" in env
     assert "MJOLNIR_DRAFT_VOCAB_SIZE=32768" in env
+    assert not any(e.startswith("MJOLNIR_LM_HEAD") for e in env)  # this config has no fp8 head
+
+
+def test_vocab_sidecar_env_with_configs_expansion(tmp_path, monkeypatch):
+    model, quant = "Vend/Test", "TEST"
+    cfg = tmp_path / "local" / model / quant
+    cfg.mkdir(parents=True)
+    (cfg / "config.yaml").write_text("model: x\n")
+    monkeypatch.setenv("MJOLNIR_CONFIGS_DIR", str(tmp_path / "local"))
+    # {configs} expands to the model's dir (the sidecar's parent in the container)
+    (cfg / ".env").write_text("MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json\nMJOLNIR_DRAFT_VOCAB_SIZE=32768\n")
+    env = dockerctl.config_env(Settings(model=model, quant=quant))
+    assert "MJOLNIR_DRAFT_VOCAB=/configs/Vend/Test/draft_vocab.json" in env
+    assert "MJOLNIR_DRAFT_VOCAB_SIZE=32768" in env
 
 
 def test_calibrate_draft_vocab_dry_run(tmp_path):
@@ -84,7 +98,7 @@ def test_calibrate_draft_vocab_dry_run(tmp_path):
         ],
     )
     assert r.exit_code == 0, r.output
-    assert "python3 -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3.yaml" in r.output
+    assert "python3 -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/config.yaml" in r.output
 
 
 def test_a_drafter_on_mjolnir_gets_its_own_scales(monkeypatch):
@@ -100,15 +114,16 @@ def test_a_drafter_on_mjolnir_gets_its_own_scales(monkeypatch):
     assert not config_drafter_on_mjolnir(dflash2.config_path)  # DFlash2's sliding window stays on FlashInfer
     assert not config_drafter_on_mjolnir(_s("NVFP4_MJOLNIR_E2M3").config_path)  # MTP is part of the model
     assert not config_drafter_on_mjolnir(_s("NVFP4_DSPARK").config_path)  # official image: no Mjolnir at all
-    assert dockerctl.kv_scales_host_path(dspark).name == "NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json"
-    assert dockerctl.kv_scales_host_path(dflash2).name == "kv_scales.json"
+    # the drafter's scales live inside its config dir; the rest share the model's file
+    assert dockerctl.kv_scales_host_path(dspark) == dspark.config_path.parent / "kv_scales.json"
+    assert dockerctl.kv_scales_host_path(dflash2) == dflash2.config_path.parent.parent / "kv_scales.json"
     env = dockerctl.backend_env(dspark)
-    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json" in env
+    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/kv_scales.json" in env
     r = CliRunner().invoke(
         cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR_E2M3_DSPARK", "--dry-run"]
     )  # default output: the config's own file
     assert r.exit_code == 0, r.output
-    assert "--out /out/NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json" in r.output
+    assert "--out /out/kv_scales.json" in r.output
 
 
 def test_serve_refuses_an_fp6_config_without_scales(monkeypatch):

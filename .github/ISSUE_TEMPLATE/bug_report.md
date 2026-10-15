@@ -29,7 +29,7 @@ $ mjolnir verify sweep
 |---|---|
 | Image tag | `mjolnir image` (e.g. `narandill/mjolnir-vllm:v0.31.0`) |
 | Base vLLM | (e.g. `vllm/vllm-openai:v0.31.0-ubuntu2404`) |
-| Model + quant config | (e.g. `configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR.yaml`) |
+| Model + quant config | (e.g. `configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/config.yaml`) |
 | `mjolnir` version | `mjolnir version` (+ git commit if from a checkout) |
 | `mjolnir-kernel` version | `python -c 'import mjolnir; print(mjolnir.__version__)'` in the container |
 | Thor state | output of `mjolnir hw status` (or "not run yet" if pre-setup) |

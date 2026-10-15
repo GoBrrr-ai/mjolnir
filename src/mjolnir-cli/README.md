@@ -15,8 +15,9 @@ mjolnir serve up                 # serve the default model on the Mjolnir image,
 
 ## What it does
 
-- **Models as YAML** — every served model is a YAML file of `vllm serve` flags
-  (plus an optional `.env` of switches and its calibration files). The default
+- **Models as config dirs** — every served model config is a `config.yaml` of
+  `vllm serve` flags (plus an optional `.env` of switches inside its dir; the
+  model's calibration files sit next to the config dirs). The default
   configs ship inside this package; add your own under
   `~/.local/share/mjolnir/configs/`. `mjolnir model` picks the active one.
 - **Serve** — `mjolnir serve up|down|status|logs` runs the

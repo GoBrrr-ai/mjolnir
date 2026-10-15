@@ -340,7 +340,7 @@ def model_use(
     if model and quant:
         if not any(e.model == model and e.quant == quant for e in entries):
             typer.secho(
-                f"config not found: {model}/{quant}.yaml (available: mjolnir model list)", fg=typer.colors.RED, err=True
+                f"config not found: {model}/{quant} (available: mjolnir model list)", fg=typer.colors.RED, err=True
             )
             raise typer.Exit(4)
         chosen = next(e for e in entries if e.model == model and e.quant == quant)
@@ -758,8 +758,8 @@ def calibrate(
     out: Optional[Path] = typer.Option(
         None,
         "--out",
-        help="default: kv_scales.json next to the config — <config>.kv_scales.json for a config whose own "
-        "drafter (DSpark) runs on Mjolnir",
+        help="default: the model's kv_scales.json next to the config dirs — kv_scales.json inside the config "
+        "dir for a config whose own drafter (DSpark) runs on Mjolnir",
     ),
     prompts: int = typer.Option(48, "--prompts", help="short prompts"),
     long: int = typer.Option(6, "--long", help="long-context prompts"),
@@ -812,7 +812,7 @@ def calibrate(
         pass
     cmd = (
         f"python3 -m mjolnir.{'draftvocab' if draft_vocab else 'calibrate'} "
-        f"--config /configs/{s.model}/{s.quant}.yaml --out /out/{target.name} "
+        f"--config /configs/{s.model}/{s.quant}/config.yaml --out /out/{target.name} "
         f"--download-dir /data/models/huggingface --max-model-len {max_model_len} "
         f"--prompts {prompts} --long {long}"
     )
@@ -1013,7 +1013,7 @@ def bench_ab(
     Each leg is a model config (quant), optionally model-qualified and/or
     image-pinned: '<config>', '<image>:<config>', '<model>/<config>' or
     '<image>:<model>/<config>'. The image carries the backend (kernel stack
-    is baked in); the config (configs/<model>/<quant>.yaml, repo or local)
+    is baked in); the config (configs/<model>/<quant>/config.yaml, repo or local)
     carries the serving parameters. Bare configs use --model/--image.
     Compare images on one model and/or models on one image. Charts
     re-render at the end."""

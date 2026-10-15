@@ -166,7 +166,7 @@ Mjolnir kernel cache uses) or warm the prefill shapes at startup.
 ## lm_head experiments (2, 3, 4): how to run them
 
 Opt-in configs (YAML identical to `NVFP4_MJOLNIR_E2M3`; the switch is the
-`<config>.env` sidecar the CLI passes to the container):
+the `.env` sidecar (inside the config dir) the CLI passes to the container):
 
 | config | env | what |
 |---|---|---|

@@ -18,7 +18,7 @@ default). After that, `mjolnir serve up`, `mjolnir bench perf`, `mjolnir
 verify`, … all target the active model/config.
 
 What a "config" is: a per-model serving yaml —
-`configs/<vendor>/<model>/<quant>.yaml` (repo) or the user-local dir
+`configs/<vendor>/<model>/<quant>/config.yaml` (repo) or the user-local dir
 ([new-model-config.md](new-model-config.md)). The same model usually has
 several configs; picking a quant *is* picking the attention backend:
 

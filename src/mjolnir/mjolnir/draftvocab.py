@@ -11,7 +11,7 @@ run never generated follow in id order (BPE merge rank), so a top-K always has
 K tokens. VocabTrim found the target's own generations the best source
 (arXiv 2506.22694).
 
-    python -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3.yaml \\
+    python -m mjolnir.draftvocab --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/config.yaml \\
         --out /out/draft_vocab.json --download-dir /data/models/huggingface
 
 File: ``{"format": "mjolnir.draft_vocab/1", "model": ..., "generated_tokens": N,

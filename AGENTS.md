@@ -143,8 +143,11 @@ skipped with a hint — nothing blocks on a password.
 - `docker/vllm-thor/` — the image: `Dockerfile` (repo-root build context),
   `patches/`, `apply_patches.py` + `verify_patches.py` (the build gate),
   `PATCHES.md`, canary scripts.
-- `configs/<vendor>/<model>/<quant>.yaml` — serving configs; user-local configs
-  in `~/.local/share/mjolnir/configs/` (`$MJOLNIR_CONFIGS_DIR`).
+- `configs/<vendor>/<model>/<quant>/config.yaml` — serving configs, each in its
+  own dir (with a `.env` sidecar inside when it has env switches); the model's
+  calibration files (`kv_scales.json`, `draft_vocab.json`) sit next to the
+  config dirs. User-local configs in `~/.local/share/mjolnir/configs/`
+  (`$MJOLNIR_CONFIGS_DIR`), same layout.
 - `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
   `history.jsonl`, `logs/` (untracked).
 - `assets/benchmarks/` — generated charts (`*.png`, `*-dark.png`, `manifest.json`).
@@ -265,8 +268,8 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       spec|kv-cache-size|profile` and `bench ab|e2e|accuracy`, kernel legs of
       the ncu stages, the `verify vllm` smoke modes — is set in ONE place:
       `src/mjolnir-cli/mjolnir_cli/legs.py`.
-      Opt-in experiment configs carry their switches in a `<config>.env`
-      sidecar (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
+      Opt-in experiment configs carry their switches in the `.env` inside
+      their config dir (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
 - [ ] **fp6 byte-vs-time gap**: not the 64-byte L2 requests (SW128 tried: ~5% at
       ≥64K only) — the kernel is latency-bound and e2m3 has a 16K–32K hole

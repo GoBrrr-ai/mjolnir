@@ -40,7 +40,7 @@ mjolnir serve up --dry-run     # print the exact docker run, do nothing
   persistent `~/.local/share/mjolnir/` volumes, so **restarts are fast** and
   the one-time JIT cost is paid once.
 - Mounts `configs/` read-only at `/configs` inside the container; the serve
-  command is `vllm serve --config /configs/<model>/<quant>.yaml …`
+  command is `vllm serve --config /configs/<model>/<quant>/config.yaml …`
   (add your local config: [new-model-config.md](new-model-config.md)).
 
 ## Sanity check after up
@@ -52,7 +52,7 @@ mjolnir gate --once      # expect: CLEAN
 
 ## The Mjolnir backend
 
-The default config (`configs/<model>/NVFP4_MJOLNIR.yaml`) sets
+The default config (`configs/<model>/NVFP4_MJOLNIR/config.yaml`) sets
 `attention-backend: MJOLNIR`; for it, `serve up` adds `VLLM_KV_CACHE_LAYOUT=HND`
 (the kernel reads head-major pages) and passes through any `MJOLNIR_ATTN_*`
 variable from your shell (the knobs are listed in

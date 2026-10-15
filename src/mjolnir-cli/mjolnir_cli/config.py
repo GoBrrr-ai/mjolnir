@@ -66,7 +66,7 @@ _REPO_MARKER = Path("docker") / "vllm-thor" / "Dockerfile"
 
 @dataclass(frozen=True)
 class ConfigEntry:
-    """One model config discovered under ``configs/<vendor>/<model>/<quant>.yaml``
+    """One model config discovered under ``configs/<vendor>/<model>/<quant>/config.yaml``
     (the repo's / bundled configs, or the user-local dir — see ``source``)."""
 
     model: str  # "vendor/Model", e.g. "Qwen/Qwen3.8-27B"
@@ -80,19 +80,23 @@ class ConfigEntry:
 
 
 def scan_configs(configs_dir: Path) -> list[ConfigEntry]:
-    """Scan ``configs/<vendor>/<model>/<quant>.yaml`` into pickable entries."""
+    """Scan ``configs/<vendor>/<model>/<quant>/config.yaml`` into pickable
+    entries. Everything config-specific lives in the config dir: the
+    ``.env`` sidecar and a drafter's ``kv_scales.json``; the model-level files
+    (shared ``kv_scales.json``, ``draft_vocab.json``, chat template) stay
+    next to it."""
     out: list[ConfigEntry] = []
     if not configs_dir.is_dir():
         return out
-    for p in sorted(configs_dir.glob("*/*/*.yaml")):
-        out.append(ConfigEntry(model=str(p.parent.relative_to(configs_dir)), quant=p.stem, path=p))
+    for p in sorted(configs_dir.glob("*/*/*/config.yaml")):
+        out.append(ConfigEntry(model=str(p.parent.parent.relative_to(configs_dir)), quant=p.parent.name, path=p))
     return out
 
 
 def user_configs_dir() -> Path:
     """The user-local model-config root: ``~/.local/share/mjolnir/configs``
     (under the project data dir ``MJOLNIR_DATA``); override with
-    ``$MJOLNIR_CONFIGS_DIR``. Layout: ``<vendor>/<model>/<quant>.yaml``."""
+    ``$MJOLNIR_CONFIGS_DIR``. Layout: ``<vendor>/<model>/<quant>/config.yaml``."""
     return Path(_env("MJOLNIR_CONFIGS_DIR", str(Path.home() / ".local" / "share" / "mjolnir" / "configs"))).expanduser()
 
 
@@ -286,13 +290,14 @@ class Settings:
 
     @property
     def config_path(self) -> Path:
-        """The resolved config file: the canonical ``configs/<model>/<quant>.yaml``
-        (repo or bundled) if present, else the user-local one, else the
-        canonical path (for the not-found error)."""
-        canon = configs_root() / self.model / f"{self.quant}.yaml"
+        """The resolved config file: the canonical
+        ``configs/<model>/<quant>/config.yaml`` (repo or bundled) if present,
+        else the user-local one, else the canonical path (for the not-found
+        error)."""
+        canon = configs_root() / self.model / self.quant / "config.yaml"
         if canon.exists():
             return canon
-        local = user_configs_dir() / self.model / f"{self.quant}.yaml"
+        local = user_configs_dir() / self.model / self.quant / "config.yaml"
         if local.exists():
             return local
         return canon

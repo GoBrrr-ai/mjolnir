@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from mjolnir_cli import cachectl
-from mjolnir_cli.config import CONTAINER_NAME, Settings, config_field, configs_root
+from mjolnir_cli.config import CONTAINER_NAME, Settings, config_field, configs_root, user_configs_dir
 
 # Container-side env (the Thor-specific knobs from the old vllm.yaml service).
 _CONTAINER_ENV: list[str] = [
@@ -171,20 +171,21 @@ def stale_image(image: str) -> str | None:
 
 def kv_scales_host_path(s: Settings) -> Path:
     """Where `mjolnir calibrate` writes, and an fp6 config's scales are read
-    from: next to the config (repo or user-local configs dir).
+    from (repo or user-local configs dir).
 
-    ``kv_scales.json`` is the model's — every config without its own drafter
-    shares it (the built-in MTP head is part of the model). A config whose
-    external drafter (DSpark, DFlash, ...) runs on the Mjolnir backend has
-    layers no other config has: it gets ``<config>.kv_scales.json``, target
-    and drafter layers in one file, written by ``mjolnir calibrate --config
-    <config>``."""
+    ``kv_scales.json`` is the model's — next to the config dirs, shared by
+    every config without its own drafter (the built-in MTP head is part of
+    the model). A config whose external drafter (DSpark, DFlash, ...) runs
+    on the Mjolnir backend has layers no other config has: it gets its own
+    ``kv_scales.json`` inside its config dir, target and drafter layers in
+    one file, written by ``mjolnir calibrate --config <config>``."""
     from mjolnir_cli.config import config_drafter_on_mjolnir
 
-    own = s.config_path.parent / f"{s.quant}.{KV_SCALES_FILE}"
+    cdir = s.config_path.parent
+    own = cdir / KV_SCALES_FILE
     if own.exists() or config_drafter_on_mjolnir(s.config_path):
         return own
-    return s.config_path.parent / KV_SCALES_FILE
+    return cdir.parent / KV_SCALES_FILE
 
 
 def missing_kv_scales(s: Settings) -> str | None:
@@ -221,14 +222,14 @@ def backend_env(s: Settings) -> list[str]:
 
 
 def config_env(s: Settings) -> list[str]:
-    """``KEY=VALUE`` lines from the config's ``<config>.env`` sidecar — how an
-    opt-in experiment config sets env vars vLLM's YAML cannot carry (e.g.
-    ``MJOLNIR_LM_HEAD=fp8``). ``{configs}`` expands to the model's config dir
-    as the container sees it; ``#`` starts a comment."""
-    side = Path(s.config_path).with_suffix(".env")
+    """``KEY=VALUE`` lines from the config's ``.env`` sidecar (inside its
+    config dir) — how an opt-in experiment config sets env vars vLLM's YAML
+    cannot carry (e.g. ``MJOLNIR_LM_HEAD=fp8``). ``{configs}`` expands to the
+    model's config dir as the container sees it; ``#`` starts a comment."""
+    side = s.config_path.parent / ".env"
     if not side.exists():
         return []
-    cdir = _container_path(s, Path(s.config_path)).rsplit("/", 1)[0]
+    cdir = f"/configs/{s.model}"
     out = []
     for line in side.read_text().splitlines():
         line = line.split("#", 1)[0].strip()
@@ -242,8 +243,12 @@ def _container_path(s: Settings, host: Path) -> str:
     """A file under the configs dir, as the container sees it."""
     try:
         return "/configs/" + str(Path(host).relative_to(configs_root()))
-    except ValueError:  # user-local configs: mounted file by file under /configs/<model>/
-        return f"/configs/{s.model}/{Path(host).name}"
+    except ValueError:  # user-local file: mirror its position under /configs/<model>/
+        try:
+            rel = str(Path(host).relative_to(user_configs_dir() / s.model))
+        except ValueError:
+            rel = Path(host).name
+        return f"/configs/{s.model}/{rel}"
 
 
 def build_run_args(
@@ -318,14 +323,16 @@ def build_run_args(
         ("/etc/localtime", "/etc/localtime:ro"),
         ("/etc/machine-id", "/etc/machine-id:ro"),
     ]
-    # A user-local model config (outside the repo's configs/) is mounted as a
-    # single file on top of the /configs mount (the more-specific mount wins).
+    # A user-local model config (outside the repo's configs/) is mounted as
+    # its config dir on top of the /configs mount (the more-specific mount
+    # wins): config.yaml + its .env sidecar, and its own scales when it has
+    # them.
     local_cfg = s.config_path
-    repo_cfg = configs_root() / s.model / f"{s.quant}.yaml"
+    repo_cfg = configs_root() / s.model / s.quant / "config.yaml"
     if local_cfg != repo_cfg and local_cfg.exists():
-        mounts.append((str(local_cfg), f"/configs/{s.model}/{s.quant}.yaml:ro"))
+        mounts.append((str(local_cfg.parent), f"/configs/{s.model}/{s.quant}:ro"))
         scales = kv_scales_host_path(s)
-        if scales.exists():
+        if scales.exists() and scales.parent != local_cfg.parent:
             mounts.append((str(scales), f"/configs/{s.model}/{scales.name}:ro"))
     mounts += list(extra_mounts)
     for host, container in mounts:
@@ -338,7 +345,7 @@ def build_run_args(
 
     serve = (
         "vllm serve "
-        f"--config /configs/{s.model}/{s.quant}.yaml "
+        f"--config /configs/{s.model}/{s.quant}/config.yaml "
         "--host 0.0.0.0 "
         "--cpu-offload-gb 0 "
         "--pipeline-parallel-size 1 "

@@ -256,7 +256,7 @@ def spec_of(rec: dict) -> dict | None:
         return rec["spec"] or None
     from mjolnir_cli.config import config_speculative, configs_root
 
-    path = configs_root() / str(rec.get("model", "")) / f"{rec.get('config', '')}.yaml"
+    path = configs_root() / str(rec.get("model", "")) / str(rec.get("config", "")) / "config.yaml"
     return config_speculative(path) if path.exists() else None
 
 

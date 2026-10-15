@@ -8,7 +8,7 @@ varied prompt set is generated (prose, code, math, multilingual, long
 contexts), and the result is written as a ``mjolnir.kv_scales/2`` file —
 what ``MJOLNIR_ATTN_KV_SCALES`` points ``--kv-cache-dtype fp6_e2m3`` at.
 
-    python -m mjolnir.calibrate --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR.yaml \\
+    python -m mjolnir.calibrate --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/config.yaml \\
         --out /out/kv_scales.json --download-dir /data/models/huggingface
     python -m mjolnir.calibrate --model Qwen/Qwen3-0.6B --out /tmp/scales.json   # small models / tests
 

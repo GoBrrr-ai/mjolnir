@@ -70,10 +70,10 @@ def _repo_with_configs(root: Path, entries: dict[str, str]) -> None:
         p.write_text(body)
 
 
-def test_scan_configs_finds_the_three_level_tree(tmp_path):
-    d = tmp_path / "configs" / "Qwen" / "Qwen3.8-27B"
+def test_scan_configs_finds_the_config_tree(tmp_path):
+    d = tmp_path / "configs" / "Qwen" / "Qwen3.8-27B" / "NVFP4"
     d.mkdir(parents=True)
-    (d / "NVFP4.yaml").write_text("model: x\n")
+    (d / "config.yaml").write_text("model: x\n")
     (d / "not-yaml.txt").write_text("nope")
     (tmp_path / "configs" / "stray.yaml").write_text("model: y\n")  # wrong depth: ignored
     entries = scan_configs(tmp_path / "configs")
@@ -89,11 +89,12 @@ def test_scan_all_configs_repo_wins_on_clash(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "docker" / "vllm-thor").mkdir(parents=True)
     (repo / "docker" / "vllm-thor" / "Dockerfile").write_text("# base")
-    _repo_with_configs(repo, {"Qwen/Qwen3.8-27B/NVFP4.yaml": "model: repo-copy\n"})
+    _repo_with_configs(repo, {"Qwen/Qwen3.8-27B/NVFP4/config.yaml": "model: repo-copy\n"})
     local = tmp_path / "local"
-    (local / "Qwen" / "Qwen3.8-27B").mkdir(parents=True)
-    (local / "Qwen" / "Qwen3.8-27B" / "NVFP4.yaml").write_text("model: local-copy\n")
-    (local / "Qwen" / "Qwen3.8-27B" / "Extra.yaml").write_text("model: local-only\n")
+    (local / "Qwen" / "Qwen3.8-27B" / "NVFP4").mkdir(parents=True)
+    (local / "Qwen" / "Qwen3.8-27B" / "NVFP4" / "config.yaml").write_text("model: local-copy\n")
+    (local / "Qwen" / "Qwen3.8-27B" / "Extra").mkdir()
+    (local / "Qwen" / "Qwen3.8-27B" / "Extra" / "config.yaml").write_text("model: local-only\n")
     monkeypatch.setenv("MJOLNIR_REPO", str(repo))
     monkeypatch.setenv("MJOLNIR_CONFIGS_DIR", str(local))
 
@@ -159,10 +160,10 @@ def test_config_path_repo_wins_over_local(tmp_path, monkeypatch):
     (repo / "docker" / "vllm-thor" / "Dockerfile").write_text("# base")
     monkeypatch.setenv("MJOLNIR_REPO", str(repo))
     model, quant = "Qwen/Qwen3.8-27B", "NVFP4"
-    repo_cfg = repo / "configs" / model / f"{quant}.yaml"
+    repo_cfg = repo / "configs" / model / quant / "config.yaml"
     repo_cfg.parent.mkdir(parents=True)
     repo_cfg.write_text("model: m\n")
-    local_cfg = tmp_path / "local" / model / f"{quant}.yaml"
+    local_cfg = tmp_path / "local" / model / quant / "config.yaml"
     local_cfg.parent.mkdir(parents=True)
     local_cfg.write_text("model: m\n")
     monkeypatch.setenv("MJOLNIR_CONFIGS_DIR", str(tmp_path / "local"))
@@ -177,7 +178,7 @@ def test_config_path_repo_wins_over_local(tmp_path, monkeypatch):
 def test_served_model_precedence(tmp_path, monkeypatch):
     s = _settings_with_repo(tmp_path, monkeypatch)
     model, quant = "Qwen/Qwen3.8-27B", "NVFP4"
-    repo_cfg = tmp_path / "repo" / "configs" / model / f"{quant}.yaml"
+    repo_cfg = tmp_path / "repo" / "configs" / model / quant / "config.yaml"
     repo_cfg.parent.mkdir(parents=True)
 
     s.model, s.quant = model, quant

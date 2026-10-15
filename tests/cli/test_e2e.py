@@ -237,10 +237,10 @@ def test_optional_configs_exist_and_carry_their_drafter():
 
     want = {"DSPARK": "dspark", "DFLASH2": "dflash"}
     for _, cfg in legs.OPTIONAL["bench.e2e"]:
-        path = configs_root() / "Qwen" / "Qwen3.8-27B" / f"{cfg}.yaml"
+        path = configs_root() / "Qwen" / "Qwen3.8-27B" / cfg / "config.yaml"
         assert path.exists(), cfg
         assert config_speculative(path) == {"method": want[cfg.rsplit("_", 1)[-1]], "tokens": 7}
-        assert not path.with_suffix(".env").exists()  # DFlash2 shares the target's lm_head: no LMH8 / VT knobs
+        assert not (path.parent / ".env").exists()  # DFlash2 shares the target's lm_head: no LMH8 / VT knobs
     assert legs.parse_leg("official:NVFP4_DSPARK") == ("official", "NVFP4_DSPARK")
     assert legs.parse_leg("NVFP4_MJOLNIR_E2M3_DSPARK") == ("mjolnir", "NVFP4_MJOLNIR_E2M3_DSPARK")
 
