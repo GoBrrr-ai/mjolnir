@@ -46,7 +46,7 @@ mjolnir verify pdl
 
 ## Ideas to try
 
-- measure inside a full vLLM CUDA graph, where the neighbors are real model kernels.
+- measure inside a full vLLM CUDA graph, where the neighbors are real model kernels: `mjolnir verify profile` with and without `MJOLNIR_ATTN_PDL=1`.
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../.github/CONTRIBUTING.md).
 

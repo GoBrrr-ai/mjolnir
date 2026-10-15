@@ -71,8 +71,8 @@ mjolnir verify sweep --legs fi,fi-hnd,mjolnir-fp8,mjolnir --ls "8192 65536"   # 
 
 ## Ideas to try
 
-- batch > 1 and varlen batches (`--batches 8 --varlen` on the harness);
-- page size 16 (what vLLM's FlashInfer backend uses on Thor) via `--page-size 16`.
+- batch > 1 and varlen batches: `mjolnir verify sweep --batch 4 --q-len 4` (the MTP=3 verify shape at 4 concurrent requests), `--batches 8 --varlen` on the harness;
+- page size 16 (what vLLM's FlashInfer backend uses on Thor): `mjolnir verify sweep --page-size 16`.
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../.github/CONTRIBUTING.md).
 

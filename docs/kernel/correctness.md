@@ -41,8 +41,7 @@ mjolnir verify correctness --match nvfp4 --dtypes fp8   # a subset
 
 ## Ideas to try
 
-- add a case for any shape your model uses (`stages.CASES` in `src/mjolnir-cli/mjolnir_cli/verify/stages.py`);
-- a GQA ratio other than 6 (e.g. 32 query / 8 KV heads).
+- add a case for any shape your model uses (`stages.CASES` in `src/mjolnir-cli/mjolnir_cli/verify/stages.py`); GQA ratios other than 6 are already covered by the 40 query / 8 KV drafter cases.
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../.github/CONTRIBUTING.md).
 

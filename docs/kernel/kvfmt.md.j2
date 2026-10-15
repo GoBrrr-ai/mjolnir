@@ -53,8 +53,7 @@ mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3|e2m3-s3:--kv_format e2m3 
 
 ## Ideas to try
 
-- fp4 with per-channel K scales folded into Q and per-token V scales folded into P (KIVI-style), to bring e2m1's accuracy toward fp6;
-- a vLLM cache-write path for e2m3, so serving can use the 6-bit cache.
+- fp4 with per-channel K scales folded into Q and per-token V scales folded into P (KIVI-style), to bring e2m1's accuracy toward fp6.
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING]({{ root }}.github/CONTRIBUTING.md).
 

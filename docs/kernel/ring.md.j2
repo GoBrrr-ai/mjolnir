@@ -40,7 +40,7 @@ mjolnir verify ring --base "--kv_format fp8" --stages "3 4 6"
 
 ## Ideas to try
 
-- 1 CTA per SM with a deeper ring (`--base "--ctas_per_sm 1"`).
+- 1 CTA per SM with a deeper ring: `mjolnir verify ring --base "--ctas_per_sm 1"` (double the smem per CTA fits deeper rings).
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING]({{ root }}.github/CONTRIBUTING.md).
 

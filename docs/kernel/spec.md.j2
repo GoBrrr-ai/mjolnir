@@ -45,8 +45,7 @@ mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3 --drafts "2 3"
 
 ## Ideas to try
 
-- an fp8 lm_head and MTP layer (cheaper drafts), then re-run;
-- a reduced draft vocabulary for the MTP head;
+- an fp8 MTP layer (the draft head is still bf16 — the lm_head is already fp8 via `MJOLNIR_LM_HEAD`), then `mjolnir verify spec`;
 - per-request adaptive draft length (stop drafting when the draft's confidence drops).
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING]({{ root }}.github/CONTRIBUTING.md).

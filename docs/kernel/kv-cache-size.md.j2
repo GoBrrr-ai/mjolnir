@@ -49,7 +49,7 @@ mjolnir verify kv-cache-size --legs mjolnir:NVFP4_MJOLNIR_E2M3   # one config
 
 ## Ideas to try
 
-- an e2e sweep at 8–16 concurrent requests and 64K+ context, where capacity turns into throughput;
+- an e2e sweep at 8–16 concurrent requests and 64K+ context, where capacity turns into throughput: `mjolnir bench perf --concurrency 8,16` (the default depths already span 0–128K);
 - fp4 (e2m1 / nvfp4) KV once its accuracy holds up on a real model (see [{{ stages["quant"].title }}](quant.md)).
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING]({{ root }}.github/CONTRIBUTING.md).
