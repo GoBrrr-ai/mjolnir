@@ -1,0 +1,65 @@
+![Mjolnir — vLLM for Jetson AGX Thor](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.png)
+
+[![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
+[![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)
+[![Docker Hub](https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a)](https://hub.docker.com/r/narandill/mjolnir-vllm)
+[![vLLM {{ ctx.vllm_version }}](https://img.shields.io/badge/vLLM-{{ ctx.vllm_version }}-blue)](https://github.com/thor-arena/mjolnir)
+[![Jetson AGX Thor](https://img.shields.io/badge/Jetson-AGX%20Thor-76b900)](https://www.nvidia.com/en-us/autonomous-machines/embedded-platforms/module/jetson-modules/agx-thor/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/thor-arena/mjolnir/blob/main/LICENSE)
+
+**Mjolnir** — faster, bigger-context LLM serving on the **Jetson AGX Thor**: a dedicated paged decode-attention kernel, the tuned vLLM image it runs in, and a CLI that serves, benchmarks and documents every claim.
+
+[GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
+
+![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/opening-infographic.png)
+
+## ⚡ What's inside this image
+
+`{{ ctx.image }}` is the official **vLLM {{ ctx.vllm_version }}** aarch64 image (CUDA 13.0, Ubuntu 24.04) with a small overlay on top — everything else is upstream vLLM:
+
+- **The Mjolnir decode-attention kernel** — paged decode written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
+- **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on Thor; applied and verified at build time, the build fails when a patch stops applying — the list is below.
+- **The Thor platform environment** — `sm_110a` architecture flags and the JIT environment for Triton / FlashInfer, so the prebuilt wheels run on JetPack 7.x as-is.
+
+The Mjolnir kernel takes over single-token and speculative-verify steps; prefill and mixed steps run on the image's own attention backend (FlashAttention 4).
+
+{% if ctx.patches_table %}
+## ⚡ Patches
+
+`{{ ctx.patches_pr }}` hand-adapted vLLM PR fixes and `{{ ctx.patches_total - ctx.patches_pr }}` Thor-/FlashInfer-authored patches, applied to the installed vLLM `{{ ctx.vllm_version }}` and FlashInfer at build time:
+
+{{ ctx.patches_table }}
+
+The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md)
+
+{% endif %}
+## ⚡ Quickstart
+
+> Requires a Jetson AGX Thor (JetPack 7.x, `sm_110a`) with Docker + the NVIDIA Container Toolkit.
+
+```bash
+docker pull {{ ctx.image }}
+
+# any model, any vLLM flags — Mjolnir serves the decode:
+docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
+  {{ ctx.image }} <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+```
+
+The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md).
+
+## ⚡ Tags
+
+Tags follow the **upstream vLLM version** of the base image, not the kernel's:
+
+- `v{{ ctx.vllm_version }}` — the current image (re-pushed on every rebuild)
+- `v{{ ctx.vllm_version }}-<sha>` — the same build, immutable per commit
+- `latest` — moved by each release
+
+A kernel release is rebuilt into the same `v{{ ctx.vllm_version }}` tag; the kernel version rides along as the `io.github.thor-arena.mjolnir.kernel-version` image label.
+
+## ⚡ More
+
+- [Repo README](https://github.com/thor-arena/mjolnir) — benchmarks and docs
+- [Kernel case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md) — how the kernel works
+- [Interactive charts](https://thor-arena.github.io/mjolnir/) — every chart, live data
+- [Patch inventory](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md) — what is patched, and why

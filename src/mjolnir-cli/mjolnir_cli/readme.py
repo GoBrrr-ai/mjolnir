@@ -5,6 +5,12 @@ computed from the committed raw data.
 
 * ``README.md``                  from ``README.md.j2``
 * ``docs/kernel/**/*.md``        from the ``*.md.j2`` next to them
+* ``docker/vllm-thor/README.md`` from ``docker/vllm-thor/README.md.j2`` — the
+  Docker Hub description: plain markdown only (Docker Hub does not render inline
+  HTML), absolute image / link URLs (no repo file hosting to resolve relatives
+  against), no charts or data tables, well under Docker Hub's 25,000-byte
+  description limit. ``docker-image.yml`` pushes it via
+  ``peter-evans/dockerhub-description``.
 
 Inputs: the latest default run of each ``mjolnir verify`` stage
 (``benchmarks/raw/verify/``), the e2e history (``benchmarks/history.jsonl``),
@@ -643,6 +649,10 @@ class ReadmeContext:
     accuracy_runs: list = field(default_factory=list)  # run ids the table draws on
     accuracy_args: list = field(default_factory=list)  # (suite label, tool-eval-bench args)
     accuracy_baseline: str = ""
+    # the image's patch inventory (docker/vllm-thor/PATCHES.md) — verbatim table + row counts
+    patches_table: str = ""
+    patches_total: int = 0
+    patches_pr: int = 0
 
 
 def _vllm_base_version(layout: RepoLayout) -> str:
@@ -654,6 +664,29 @@ def _vllm_base_version(layout: RepoLayout) -> str:
         if m:
             return m.group(1)
     return ""
+
+
+def _patches(layout: RepoLayout) -> tuple[str, int, int]:
+    """The patch inventory table from docker/vllm-thor/PATCHES.md, re-emitted
+    verbatim — it is the single source of truth the build consumes. Returns
+    (table, total, pr_backed); pr_backed = rows patching a vLLM PR."""
+    p = layout.repo_root / "docker" / "vllm-thor" / "PATCHES.md"
+    lines = p.read_text().splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.startswith("| File |")), None)
+    if start is None or start + 1 >= len(lines) or not lines[start + 1].startswith("|-"):
+        raise ValueError(f"{p}: the '| File | PR | What it fixes |' inventory table is missing")
+    i = start + 2
+    rows = []
+    while i < len(lines) and lines[i].startswith("|"):
+        rows.append(lines[i])
+        i += 1
+    if not rows:
+        raise ValueError(f"{p}: the inventory table has no rows")
+    return (
+        "\n".join([lines[start], lines[start + 1], *rows]),
+        len(rows),
+        sum(1 for r in rows if "vllm-project/vllm/pull/" in r),
+    )
 
 
 def _version_from(path: Path) -> str:
@@ -673,6 +706,7 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
     if layout.repo_root is not None:
         ctx.kernel_version = _version_from(layout.repo_root / "src" / "mjolnir" / "mjolnir" / "__init__.py")
         ctx.cli_version = _version_from(layout.repo_root / "src" / "mjolnir-cli" / "mjolnir_cli" / "__init__.py")
+        ctx.patches_table, ctx.patches_total, ctx.patches_pr = _patches(layout)
     for stage, doc in data.items():
         ctx.runs[stage] = doc["run_id"]
         if stage in TABLES:
@@ -1013,6 +1047,9 @@ def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | 
     cli_md.parent.mkdir(parents=True, exist_ok=True)
     cli_md.write_text(clidoc.reference(cli_app))
     written = [render_file(layout, tpl, dest, ctx), cli_md]
+    docker_tpl = root / "docker" / "vllm-thor" / "README.md.j2"
+    if docker_tpl.exists():
+        written.append(render_file(layout, docker_tpl, docker_tpl.with_suffix(""), ctx))
     for t in sorted((root / "docs").rglob("*.md.j2")):
         written.append(render_file(layout, t, t.with_suffix(""), ctx))
     for p in written:

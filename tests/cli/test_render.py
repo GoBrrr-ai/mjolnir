@@ -25,6 +25,8 @@ def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     (root / "docker" / "vllm-thor").mkdir(parents=True)
     shutil.copy(REPO / "docker" / "vllm-thor" / "Dockerfile", root / "docker" / "vllm-thor" / "Dockerfile")
+    shutil.copy(REPO / "docker" / "vllm-thor" / "PATCHES.md", root / "docker" / "vllm-thor" / "PATCHES.md")
+    shutil.copy(REPO / "docker" / "vllm-thor" / "README.md.j2", root / "docker" / "vllm-thor" / "README.md.j2")
     shutil.copy(REPO / "README.md.j2", root / "README.md.j2")
     shutil.copytree(REPO / "docs" / "kernel", root / "docs" / "kernel", ignore=shutil.ignore_patterns("*.md"))
     for pkg, init in (("mjolnir/mjolnir", "__init__.py"), ("mjolnir-cli/mjolnir_cli", "__init__.py")):
@@ -59,6 +61,13 @@ def test_full_render_from_fixture_data(repo):
     readme.render_readme(layout)
     text = (repo / "README.md").read_text()
     assert "{{" not in text and "{%" not in text
+    # the Docker Hub description: rendered too, absolute URLs only (Docker Hub
+    # has no repo file hosting to resolve relatives against)
+    dh = (repo / "docker" / "vllm-thor" / "README.md").read_text()
+    assert "{{" not in dh and "<img" not in dh
+    assert "https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.png" in dh
+    # the patch inventory re-emitted verbatim from docker/vllm-thor/PATCHES.md
+    assert "| File | PR | What it fixes |" in dh and "thor-fp6-e2m3-kv-cache.patch" in dh
     # the geomean vs FlashInfer from the fixture sweep (the case study's headline line)
     assert "**Where it stands:** 1.26× FlashInfer" in (repo / "docs" / "kernel" / "README.md").read_text()
     assert 'srcset="assets/benchmarks/kernel-latency-dark.png"' in text
