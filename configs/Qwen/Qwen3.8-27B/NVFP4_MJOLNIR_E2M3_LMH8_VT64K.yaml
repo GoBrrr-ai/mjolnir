@@ -72,12 +72,14 @@ enable-prefix-caching: true
 enable-chunked-prefill: true
 async-scheduling: true
 
-# ── Speculative Decoding — MTP (built-in head), K=4 ─────────────────────
-# 4 drafts: with the fp8 lm_head and the 64K draft vocab a draft is cheap enough
-# that the 4th pays (verify spec 20261012-161120: 39.0 vs 37.4 t/s at 1 request)
+# ── Speculative Decoding — MTP (built-in head), K=5 ─────────────────────
+# 5 drafts: with the fp8 lm_head and the 64K draft vocab a draft is cheap
+# enough that the 5th and 6th pay — best at 4 requests, 1% off best at 1
+# (verify spec 20261014-182829: 34.0 vs 33.8 t/s at 4 requests, 39.4 vs 39.8
+# at 1 request)
 speculative-config:
   method: mtp
-  num_speculative_tokens: 4
+  num_speculative_tokens: 5
 
 # ── Generation defaults (Qwen3.8 card's documented Thinking-mode preset) ────
 # NOTE: the verified Thor launch args do not set this server-side (sampling is
