@@ -38,9 +38,10 @@ jobs:
       - run: uv run pytest -q
 
   readme:
-    # README.md + docs/kernel/*.md are rendered from their .md.j2 templates
-    # and the committed raw data (benchmarks/raw/verify, history.jsonl) —
-    # a hand edit, or raw data committed without re-rendering, fails here.
+    # README.md + docker/vllm-thor/README.md (the Docker Hub description) +
+    # docs/kernel/*.md are rendered from their .md.j2 templates and the
+    # committed raw data (benchmarks/raw/verify, history.jsonl) — a hand edit,
+    # or raw data committed without re-rendering, fails here.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,7 +52,7 @@ jobs:
       - name: README + docs are reproducible from the raw data
         run: |
           uv run mjolnir plot --readme
-          git diff --exit-code -- README.md docs/ assets/benchmarks/manifest.json
+          git diff --exit-code -- README.md docker/vllm-thor/README.md docs/ assets/benchmarks/manifest.json
 
   build:
     runs-on: ubuntu-latest

@@ -1,0 +1,80 @@
+![Mjolnir — vLLM for Jetson AGX Thor](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.png)
+
+[![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
+[![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)
+[![Docker Hub](https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a)](https://hub.docker.com/r/narandill/mjolnir-vllm)
+[![vLLM 0.31.0](https://img.shields.io/badge/vLLM-0.31.0-blue)](https://github.com/thor-arena/mjolnir)
+[![Jetson AGX Thor](https://img.shields.io/badge/Jetson-AGX%20Thor-76b900)](https://www.nvidia.com/en-us/autonomous-machines/embedded-platforms/module/jetson-modules/agx-thor/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/thor-arena/mjolnir/blob/main/LICENSE)
+
+**Mjolnir** — faster, bigger-context LLM serving on the **Jetson AGX Thor**: a dedicated paged decode-attention kernel, the tuned vLLM image it runs in, and a CLI that serves, benchmarks and documents every claim.
+
+[GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
+
+![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/opening-infographic.png)
+
+## ⚡ What's inside this image
+
+`narandill/mjolnir-vllm:v0.31.0` is the official **vLLM 0.31.0** aarch64 image (CUDA 13.0, Ubuntu 24.04) with a small overlay on top — everything else is upstream vLLM:
+
+- **The Mjolnir decode-attention kernel** — paged decode written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
+- **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on Thor; applied and verified at build time, the build fails when a patch stops applying — the list is below.
+- **The Thor platform environment** — `sm_110a` architecture flags and the JIT environment for Triton / FlashInfer, so the prebuilt wheels run on JetPack 7.x as-is.
+
+The Mjolnir kernel takes over single-token and speculative-verify steps; prefill and mixed steps run on the image's own attention backend (FlashAttention 4).
+
+
+## ⚡ Patches
+
+`4` hand-adapted vLLM PR fixes and `10` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.31.0` and FlashInfer at build time:
+
+| File | PR | What it fixes |
+|------|----|---------------|
+| `50885-flashinfer-full-cudagraph.patch` | [#50885](https://github.com/vllm-project/vllm/pull/50885) | Capture **FULL** decode cudagraphs for spec-decode on the FlashInfer **native** (non-trtllm) path — uniform multi-token verify batches. Previously only trtllm-gen (SM100) / dedicated-XQA (SM12x) could FULL-capture spec decode; elsewhere it fell back to PIECEWISE, hurting Thor (SM110) TTFT. |
+| `49652-draft-decode-capture.patch` | [#49652](https://github.com/vllm-project/vllm/pull/49652) | Autoregressive (MTP) **draft-decode** cudagraph capture under **Dynamic SD**. The draft decoder always processes 1 token/request, so its graphs must stay at fixed query length 1 instead of following the target's dynamic-SD verify schedule. |
+| `54165-mamba-spec-kv-restore.patch` | [#54165](https://github.com/vllm-project/vllm/pull/54165) | Restore **hybrid mamba-align cache hits under spec decode** with a KV connector. Gates the EAGLE last-block drop on drafters that actually *preserve* (pollute) the target KV cache — DFlash/DSpark don't, so they must not back off `last_cache_position`. |
+| `55519-no-warn-when-block-drop-off.patch` | [#55519](https://github.com/vllm-project/vllm/pull/55519) | **Don't warn "prefix reuse is disabled" when `disable_eagle_block_drop` is set.** All flag-all fallbacks are gated on `use_eagle_block_drop()`, so with the drop disabled reuse is intact — the old `use_eagle()` gate made the warning a false positive. Also rewords the scheduler's "drop disabled" warning to document that reuse works in that mode. |
+| `thor-fused-draft-decode-fi-native-update.patch` | — (Thor-authored) | **Implement `update_draft_decode_metadata` for the FlashInfer backend** so the spec-decode loop can use the **fused multi-step draft decode** instead of the "rebuild attention metadata between draft steps" fallback. The upstream contract (backend.py `update_draft_decode_metadata`) is implemented for triton/triton_mla (a `pass`, they read live GPU buffers) and flash_attn (re-plan the scheduler), but the FlashInfer native decode wrapper plans from host buffers and had no in-place advance. Adds `_advance_fi_decode_plan_kernel`, which re-derives the FI decode plan (`paged_kv_indptr`/`last_page_len`/`page_indices`) **on the GPU** from the advancing `seq_lens` + block table — the same formula as `build()`, but capture-safe (no host sync, no D2D index copy) so it replays correctly inside the draft CUDA graph. Gated to full-cudagraph, single-rank, non-DCP, native-FI (non-trtllm) builders. Pays off only at **K ≥ 3** (MTP3 / DSpark K≥2); it is a deliberate no-op at K=2. |
+| `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly (removes the `speculator.py:124` "does not support full CUDA graphs; running the draft eagerly" warning). A non-causal drafter (DSpark/DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **last** in `PATCH_ORDER` (its `flashinfer.py` hunks sit on top of the fused-draft-decode patch's changes). Most bump-fragile patch — see below. |
+| `thor-draft-cg-gate-sm110.patch` | — (Thor-authored) | **Shape-gate the DSpark draft's FULL cudagraph replay on sm_110 (the c1 fix).** The forensics showed the graphed draft is 7–16% *slower* than the eager draft at N=1 (replay overhead eats the launch savings on a tiny 5-layer draft). The gate routes per-step draft batches below `VLLM_THOR_DRAFT_CG_MIN_BATCH` requests (default **2**; min 1, where 1 = today's behavior) through the **existing eager fallback** via the dispatch's `need_eager` channel — no new eager path, no capture-logic changes. sm_110 only: off sm_110 the decision helper is a structural no-op (always CG). One-shot `THOR draft-CG gate: …` log lines; any gate evaluation error degrades to the CG behavior (logged once). Probe-gated, inert on non-sm_110, default N=1→eager. |
+| `thor-fa4-hd256-1cta-decode-sm110.patch` | — (Thor-authored) | **The 1CTA decode carve-out for the FA4 hd256 kernel (the v11 "N-2 decode" workstream).** Decode-shaped hd256 calls — `max_seqlen_q <= 8` (decode M 1..8, incl. MTP verify; prefill is 1024+), non-local, dense or paged-128 TMA (the kernel's only legal paged mode) — now OR into the `hd256_use_2cta` carve-out in `vllm_flash_attn/cute/interface.py` (one hunk), so the kernel drops its 2CTA cluster to a single CTA (`cluster (1,1)`, `CtaGroup.ONE`): a **1.56× decode win** at L=8192 M=1 (clean micro-bench 2CTA 323 µs → 1CTA 207 µs), with 1CTA == 2CTA == fp32-ref within fp8 tolerance; the kernel file is untouched and the 2CTA prefill path is unchanged (separate compile keys coexist in one process). The in-tree hd256 SplitKV machinery was investigated and is a no-win on **both** the 2CTA and 1CTA paths — kept inert (see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below). |
+| `thor-mjolnir-attention-backend.patch` | — (Thor-authored) | **The `MJOLNIR` attention-backend name.** Adds `MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"` to `AttentionBackendEnum` (`v1/attention/backends/registry.py`), so `vllm serve <model> --attention-backend MJOLNIR` parses (the CLI resolves the name through the enum *before* plugins could add one — an `Enum` cannot grow at runtime) and `Attention.__init__`'s `AttentionBackendEnum[backend.get_name()]` round-trip works. The class itself comes from the `mjolnir-kernel` package, installed by the `Dockerfile`; its `vllm.general_plugins` entry point also maps `CUSTOM` to the same class, so a stock vLLM can use `--attention-backend CUSTOM`. Also makes **FlashAttention 4 the Mjolnir backend's default fallback** (its prefill/mixed-step backend) on sm_110: a `fa_utils.py` hunk resolves `flash_attn_version` to 4 when the selected backend is `MJOLNIR`/`CUSTOM`, `MJOLNIR_ATTN_FALLBACK` is unset or `FLASH_ATTN`, and none is configured — see "The Mjolnir attention backend" below. |
+| `thor-fp6-e2m3-kv-cache.patch` | — (Thor-authored) | **The `fp6_e2m3` KV cache dtype.** Adds `"fp6_e2m3"` to `CacheDType` (`config/cache.py`), its storage dtype (`uint8`) and `is_quantized_kv_cache` (`utils/torch_utils.py`), and `KVQuantMode.FP6_E2M3` with its `get_kv_quant_mode` mapping (`v1/kv_cache_interface.py`). Nothing else: the Mjolnir backend publishes the packed cell size (`customize_spec`: `d·6/8` bytes per K and per V row), writes the cache, reads it in decode, and expands a step's pages to e4m3 for the FA4 fallback. Inert unless a config sets `kv-cache-dtype: fp6_e2m3`; no other backend accepts it. See "fp6 e2m3 KV cache" below. |
+| `thor-gdn-prefill-sm110.patch` | — (Thor-authored) | GDN **prefill** grant in `_resolve_gdn_prefill_backend()` (the fast FlashInfer kernel for the model's GDN layers) — probe-gated at import; see "Thor sm_110 gate probes". |
+| `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
+| `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
+| `thor-gdn-prefill-fi-sm110.patch` | — (FlashInfer) | **FlashInfer-side** GDN prefill non-CP dispatch allowlist widened major 10 → (10, 11) so the SM100 CuTe-DSL kernel is reachable on sm_110 (behavior unchanged on other devices); see "Thor sm_110 GDN prefill enablement (flashinfer side)". |
+
+The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md)
+
+
+## ⚡ Quickstart
+
+> Requires a Jetson AGX Thor (JetPack 7.x, `sm_110a`) with Docker + the NVIDIA Container Toolkit.
+
+```bash
+docker pull narandill/mjolnir-vllm:v0.31.0
+
+# any model, any vLLM flags — Mjolnir serves the decode:
+docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
+  narandill/mjolnir-vllm:v0.31.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+```
+
+The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md).
+
+## ⚡ Tags
+
+Tags follow the **upstream vLLM version** of the base image, not the kernel's:
+
+- `v0.31.0` — the current image (re-pushed on every rebuild)
+- `v0.31.0-<sha>` — the same build, immutable per commit
+- `latest` — moved by each release
+
+A kernel release is rebuilt into the same `v0.31.0` tag; the kernel version rides along as the `io.github.thor-arena.mjolnir.kernel-version` image label.
+
+## ⚡ More
+
+- [Repo README](https://github.com/thor-arena/mjolnir) — benchmarks and docs
+- [Kernel case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md) — how the kernel works
+- [Interactive charts](https://thor-arena.github.io/mjolnir/) — every chart, live data
+- [Patch inventory](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md) — what is patched, and why
