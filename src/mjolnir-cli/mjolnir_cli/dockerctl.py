@@ -323,6 +323,12 @@ def build_run_args(
         ("/etc/localtime", "/etc/localtime:ro"),
         ("/etc/machine-id", "/etc/machine-id:ro"),
     ]
+    # $MJOLNIR_HF_CACHE: reuse a host HF hub cache (e.g. ~/.cache/huggingface/hub)
+    # as vLLM's --download-dir instead of a second copy of every checkpoint under
+    # the data dir (the more-specific mount wins over /data/models).
+    hf_cache = os.environ.get("MJOLNIR_HF_CACHE")
+    if hf_cache:
+        mounts.append((str(Path(hf_cache).expanduser()), "/data/models/huggingface"))
     # A user-local model config (outside the repo's configs/) is mounted as
     # its config dir on top of the /configs mount (the more-specific mount
     # wins): config.yaml + its .env sidecar, and its own scales when it has
