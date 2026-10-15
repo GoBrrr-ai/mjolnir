@@ -40,7 +40,7 @@ mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 
 # ── Multimodal ─────────────────────────────────────────────────────────────
-language-model-only: true
+language-model-only: false
 mm-encoder-tp-mode: data
 mm-processor-cache-type: shm
 limit-mm-per-prompt:
