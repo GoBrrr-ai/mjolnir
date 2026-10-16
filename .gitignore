@@ -3,6 +3,11 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+# coverage artifacts (the CI test stage writes these; they regenerate)
+.coverage
+.coverage.*
+coverage.xml
+.coverage_html/
 dist/
 build/
 *.egg-info/
