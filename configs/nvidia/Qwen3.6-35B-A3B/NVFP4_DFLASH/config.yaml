@@ -1,0 +1,37 @@
+# NVFP4_DFLASH — native baseline for Qwen3.6-35B-A3B NVFP4 on Thor: the flag set
+# of a live production server on this box (vLLM 0.26.1rc1, measured 2026-10-16
+# on 0.31.0 too), nothing else. vLLM defaults decide batching, compile, the ViT
+# backend and the mamba cache. Serve it on the official image only:
+#   mjolnir serve up --model nvidia/Qwen3.6-35B-A3B --config NVFP4_DFLASH \
+#     --image vllm/vllm-openai:v0.31.0-ubuntu2404
+model: nvidia/Qwen3.6-35B-A3B-NVFP4
+served-model-name: nvidia/Qwen3.6-35B-A3B-NVFP4
+
+# Qwen3_5MoeForConditionalGeneration: 40 layers = 30 Gated-DeltaNet (linear) +
+# 10 full-attention (head_dim 256, GQA 16:2); MoE 256 experts / 8 active (~3B).
+# ModelOpt mixed precision: NVFP4 (W4A16, Marlin on sm_110) experts.
+quantization: modelopt
+trust-remote-code: true
+
+# ── Memory: a single-user agent server sharing Thor with embed / rerank ─────
+# 0.45 x 122 GB leaves room for the pooling servers next to it. A 262K window
+# at one sequence is the production shape.
+max-model-len: 262144
+max-num-seqs: 1
+gpu-memory-utilization: 0.45
+
+kv-cache-dtype: fp8
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Speculative Decoding — DFlash drafter, K=12 ──────────────────────────
+speculative-config:
+  method: dflash
+  model: z-lab/Qwen3.6-35B-A3B-DFlash
+  num_speculative_tokens: 12
+
+# Do NOT add the Qwen3.8 configs' extras here (performance-mode throughput,
+# optimization-level 3, 16K batched tokens, TORCH_SDPA ViT, mamba align): with
+# them this model never became healthy on 0.31.0 (40 min, 2026-10-16).

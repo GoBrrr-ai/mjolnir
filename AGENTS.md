@@ -95,6 +95,13 @@ skipped with a hint — nothing blocks on a password.
   calibrate --config …`) and the kernel's non-causal variant for its block
   steps (`MJOLNIR_ATTN_NONCAUSAL`). DFlash2's sliding-window drafter stays on
   bf16 KV + FlashInfer. Not yet run on a Thor.
+- **Configs** (`configs/nvidia/Qwen3.6-35B-A3B/`, MoE 256x8, hybrid
+  Gated-DeltaNet + 10 full-attention layers): `NVFP4_MJOLNIR_E2M3_LMH8`
+  (Mjolnir, fp6 KV, fp8 lm_head, MTP=5) and `NVFP4_DFLASH` (native baseline:
+  a production server's flags, fp8 KV, DFlash K=12, official image only).
+  Production shape: 262K, one sequence, 0.45. Keep the Qwen3.8 extras
+  (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT, mamba align) out, and
+  no draft vocab: `MJOLNIR_DRAFT_VOCAB` on this model adds ~40 GB at startup.
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
