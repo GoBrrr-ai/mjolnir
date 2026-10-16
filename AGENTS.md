@@ -238,7 +238,8 @@ from the ledger by `mjolnir plot` / every `evaluate`.
 One manual workflow, **Actions → Release** (`release.yml`): it plans the next
 versions from the tag history (`scripts/release_plan.py`), runs the CI gates,
 tags `main` (`mjolnir-kernel-vX.Y.Z`, `mjolnir-cli-vX.Y.Z`, umbrella
-`release-YYYY.MM.DD`), writes the GitHub Release and dispatches the tag-driven
+`release-YYYY.MM.DD`), writes the GitHub Release (`scripts/release_notes.py`: one section per
+shipped artifact, the PRs that touched its paths) and dispatches the tag-driven
 publishers: `release-kernel.yml` / `release-cli.yml` (PyPI, trusted
 publishing; `__version__` is stamped from the tag — never bump it by hand
 unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and

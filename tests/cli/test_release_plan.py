@@ -80,3 +80,90 @@ def test_vllm_pin_mismatch_fails(repo):
     _commit(repo, "docker/vllm-thor/Dockerfile", "ARG BASE_IMAGE=vllm/vllm-openai:v0.32.0-ubuntu2404\n")
     with pytest.raises(SystemExit, match="bump both"):
         rp.plan(repo, "patch", "changed", DAY)
+
+
+def test_bundled_resources_release_the_cli_and_the_title_lists_only_what_ships(repo):
+    _git(repo, "tag", "mjolnir-kernel-v0.1.0")
+    _git(repo, "tag", "mjolnir-cli-v0.2.0")
+    (repo / "docker" / "litellm").mkdir(parents=True)
+    (repo / "docker" / "litellm" / "compose.yml").write_text("x\n")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "litellm")
+    p = rp.plan(repo, "patch", "changed", DAY, image=False)
+    assert p["packages"]["cli"]["release"] and not p["packages"]["kernel"]["release"]  # bundled into the CLI wheel
+    assert p["title"] == "Mjolnir 2026.10.14 — mjolnir-cli 0.2.1"
+    assert rp.plan(repo, "patch", "none", DAY, image=False)["title"].endswith("— no package or image changes")
+
+
+def test_previous_umbrella_orders_same_day_releases(repo):
+    for t in ("release-2026.10.14", "release-2026.10.14.2", "release-2026.10.9"):
+        _git(repo, "tag", t)
+    assert rp.previous_umbrella(repo) == "release-2026.10.14.2"
+
+
+# ── scripts/release_notes.py ─────────────────────────────────────────────────
+
+_nspec = importlib.util.spec_from_file_location("release_notes", ROOT / "scripts" / "release_notes.py")
+rn = importlib.util.module_from_spec(_nspec)
+_nspec.loader.exec_module(rn)
+
+
+def _merge_pr(r: Path, n: int, branch: str, title: str, rel: str, text: str, author: str = "t") -> None:
+    """A PR merged the way GitHub does: a branch commit + a merge commit on main."""
+    _git(r, "checkout", "-q", "-b", branch)
+    (r / rel).parent.mkdir(parents=True, exist_ok=True)
+    (r / rel).write_text(text)
+    _git(r, "add", ".")
+    _git(r, "-c", f"user.name={author}", "-c", "user.email=a@a", "commit", "-qm", f"wip {title}")
+    _git(r, "checkout", "-q", "-")
+    msg = f"Merge pull request #{n} from thor-arena/{branch}\n\n{title}"
+    _git(r, "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff", branch, "-m", msg)
+
+
+def test_notes_list_prs_per_artifact_without_dependabot_or_wip(repo):
+    _git(repo, "branch", "-M", "main")
+    _git(repo, "tag", "mjolnir-kernel-v0.1.0")
+    _git(repo, "tag", "mjolnir-cli-v0.2.0")
+    _git(repo, "tag", "release-2026.10.14")
+    _merge_pr(repo, 21, "perf/ring", "perf: 2-stage KV ring", "src/mjolnir/mjolnir/k.py", "x\n")
+    _merge_pr(repo, 22, "dependabot/pip/torch", "Bump torch", "src/mjolnir/pyproject.toml", "y\n", "dependabot[bot]")
+    _merge_pr(repo, 23, "cli/spec", "feat: verify spec", "src/mjolnir-cli/mjolnir_cli/spec.py", "z\n")
+    _merge_pr(repo, 24, "img/patch", "fix: re-adapt a patch", "docker/vllm-thor/patches/a.patch", "p\n")
+    _merge_pr(repo, 25, "img/docs", "docs: patch inventory", "docker/vllm-thor/PATCHES.md", "d\n")
+    _commit(repo, "configs/a.yaml", "x: 9\n")  # pushed to main directly
+    text = rn.body(
+        repo,
+        vllm="0.31.0",
+        image=True,
+        previous_umbrella="release-2026.10.14",
+        kernel={"version": "0.1.1", "previous": "mjolnir-kernel-v0.1.0"},
+        cli={"version": None, "previous": "mjolnir-cli-v0.2.0"},
+    )
+    kernel = text.split("## mjolnir-kernel 0.1.1")[1].split("##")[0]
+    assert "- perf: 2-stage KV ring (#21)" in kernel
+    assert "Bump torch" not in text and "wip" not in text  # Dependabot and branch commits left out
+    assert "## mjolnir-cli" not in text  # not released: no section
+    assert "| unchanged (0.2.0) |" in text and "uv tool install" not in text
+    image = text.split("## image v0.31.0")[1]
+    assert "- fix: re-adapt a patch (#24)" in image and "patch inventory" not in image  # docs are not in the image
+    assert (
+        "ships mjolnir-kernel 0.1.1 (see above)" in image and "perf: 2-stage" not in image
+    )  # referenced, not repeated
+    assert "- rebuilt on vLLM 0.31.0" in image
+
+
+def test_notes_flag_a_base_bump_and_unreleased_kernel_changes(repo):
+    _git(repo, "tag", "mjolnir-kernel-v0.1.0")
+    _git(repo, "tag", "release-2026.10.14")
+    _commit(repo, "src/mjolnir/mjolnir/__init__.py", '__version__ = "0.1.0"  # changed\n')
+    _commit(repo, "docker/vllm-thor/Dockerfile", "ARG BASE_IMAGE=vllm/vllm-openai:v0.32.0-ubuntu2404\n")
+    text = rn.body(
+        repo,
+        vllm="0.32.0",
+        image=True,
+        previous_umbrella="release-2026.10.14",
+        kernel={"version": None, "previous": "mjolnir-kernel-v0.1.0"},
+        cli={"version": None, "previous": None},
+    )
+    assert "base bumped to vLLM 0.32.0 (from 0.31.0)" in text
+    assert "changes not released" in text  # the image would ship kernel code PyPI does not have
