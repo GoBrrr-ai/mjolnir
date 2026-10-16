@@ -44,8 +44,12 @@ jobs:
               - 'uv.lock'
             readme:
               - 'src/mjolnir-cli/**'
-              - 'README.md*'
-              - 'docker/vllm-thor/README.md*'
+              # every template, wherever it lives (16 today: README.md.j2,
+              # docker/vllm-thor/README.md.j2, docs/kernel/*.md.j2) + the
+              # rendered outputs a hand edit must trip the check on
+              - '**/*.md.j2'
+              - 'README.md'
+              - 'docker/vllm-thor/README.md'
               - 'docs/kernel/**'
               - 'assets/benchmarks/**'
               - 'benchmarks/**'
