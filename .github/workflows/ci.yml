@@ -42,6 +42,8 @@ jobs:
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'
+              # the release planner / notes (tests/cli/test_release_plan.py)
+              - 'scripts/release_*.py'
             readme:
               - 'src/mjolnir-cli/**'
               # every template, wherever it lives (16 today: README.md.j2,
