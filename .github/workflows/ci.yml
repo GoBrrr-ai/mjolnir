@@ -5,14 +5,63 @@ on:
   workflow_dispatch:
   workflow_call:  # the Release workflow runs the same gates before tagging
 
-permissions: {}
+permissions:
+  contents: read
+  pulls: read  # filter: the PR's file list
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Stage scopes: on a pull_request each stage runs only when the PR touches
+  # the files it guards (docs/CI/template-only PRs skip the code gates).
+  # Release (workflow_call) and manual runs always run everything — the
+  # filter does not run there, and the stage conditions fall through.
+  filter:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      lint: ${{ steps.f.outputs.lint }}
+      test: ${{ steps.f.outputs.test }}
+      readme: ${{ steps.f.outputs.readme }}
+      build: ${{ steps.f.outputs.build }}
+      vllm-patch: ${{ steps.f.outputs.vllm-patch }}
+    steps:
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: f
+        with:
+          filters: |
+            lint:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+            test:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            readme:
+              - 'src/mjolnir-cli/**'
+              - 'README.md*'
+              - 'docker/vllm-thor/README.md*'
+              - 'docs/kernel/**'
+              - 'assets/benchmarks/**'
+              - 'benchmarks/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            build:
+              - 'src/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'LICENSE'
+              - 'NOTICE'
+            vllm-patch:
+              - 'docker/vllm-thor/**'
+
   lint:
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.lint == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,6 +75,8 @@ jobs:
         run: uvx ruff@0.14.14 format --check src/ tests/
 
   test:
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.test == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +93,8 @@ jobs:
     # docs/kernel/*.md are rendered from their .md.j2 templates and the
     # committed raw data (benchmarks/raw/verify, history.jsonl) — a hand edit,
     # or raw data committed without re-rendering, fails here.
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.readme == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,6 +108,8 @@ jobs:
           git diff --exit-code -- README.md docker/vllm-thor/README.md docs/ assets/benchmarks/manifest.json
 
   build:
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.build == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,6 +135,8 @@ jobs:
   vllm-patch:
     # The MJOLNIR enum patch must still apply to the vLLM the image is built
     # on (the full patch stack is gated by the image build itself).
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.vllm-patch == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,5 +148,29 @@ jobs:
           v=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' docker/vllm-thor/Dockerfile)
           git clone -q --depth 1 --branch "v${v}" --filter=blob:none --sparse https://github.com/vllm-project/vllm.git "$RUNNER_TEMP/vllm"
           git -C "$RUNNER_TEMP/vllm" sparse-checkout set vllm/v1/attention/backends
-          git -C "$RUNNER_TEMP/vllm" apply --check "$GITHUB_WORKSPACE/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch"
+          git apply --check "$GITHUB_WORKSPACE/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch"
           echo "applies to vLLM v${v}"
+
+  # The only check branch protection should require: a PR's stages skip when
+  # out of scope (see filter), and a skipped required check blocks the merge —
+  # so this aggregates: green iff every in-scope stage succeeded. PR events
+  # only; Release (workflow_call) gates itself on the stages directly.
+  enforce-checks:
+    if: >-
+      github.event_name == 'pull_request' && always() &&
+      needs.filter.result == 'success' &&
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      (needs.readme.result == 'success' || needs.readme.result == 'skipped') &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.vllm-patch.result == 'success' || needs.vllm-patch.result == 'skipped')
+    needs: [filter, lint, test, readme, build, vllm-patch]
+    runs-on: ubuntu-latest
+    steps:
+      - name: In-scope stage results
+        run: |
+          echo "lint:        ${{ needs.lint.result }}"
+          echo "test:        ${{ needs.test.result }}"
+          echo "readme:      ${{ needs.readme.result }}"
+          echo "build:       ${{ needs.build.result }}"
+          echo "vllm-patch:  ${{ needs.vllm-patch.result }}"
