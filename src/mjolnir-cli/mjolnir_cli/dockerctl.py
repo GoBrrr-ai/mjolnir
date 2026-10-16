@@ -105,6 +105,13 @@ def container_running(name: str = CONTAINER_NAME) -> bool:
     return out == "true"
 
 
+def container_exists(name: str = CONTAINER_NAME) -> bool:
+    """Running or not: a stopped container (``--restart no``, left behind when
+    the host crashed or rebooted mid-serve) still holds the name."""
+    code, _ = _run_quiet([_docker(), "inspect", "-f", "{{.State.Status}}", name])
+    return code == 0
+
+
 # Mjolnir reads K/V fastest from head-major pages (each KV head's page is one
 # contiguous block): +11-17% decode at long context in `mjolnir verify
 # hndsweep`. vLLM allocates that layout (LBHNC) with VLLM_KV_CACHE_LAYOUT=HND;
@@ -432,6 +439,9 @@ def serve_up(
     if container_running():
         print("container already running — stopping the old one first")
         serve_down(s)
+    elif container_exists():
+        print("removing a stopped container left by an earlier run")
+        _run_quiet([_docker(), "rm", "-f", CONTAINER_NAME])
     _run(cmd)
     if wait:
         wait_healthy(s, wait_timeout_s)
@@ -439,7 +449,11 @@ def serve_up(
 
 def serve_down(s: Settings, dry_run: bool = False) -> None:
     if not container_running():
-        print("nothing to stop (container not running)")
+        if container_exists() and not dry_run:
+            _run_quiet([_docker(), "rm", "-f", CONTAINER_NAME])
+            print("removed a stopped container (not running)")
+        else:
+            print("nothing to stop (container not running)")
         return
     if dry_run:
         print(f"{_docker()} rm -f {CONTAINER_NAME}")
