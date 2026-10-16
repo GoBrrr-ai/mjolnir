@@ -1,9 +1,10 @@
-# NVFP4_MJOLNIR_E2M3_LMH8 — Qwen3.6-35B-A3B NVFP4 on Mjolnir: NVFP4_DFLASH's
+# NVFP4_MJOLNIR_E2M3 — Qwen3.6-35B-A3B NVFP4 on Mjolnir: NVFP4_DFLASH's
 # flags plus the Mjolnir feature set, nothing else:
 #   MJOLNIR attention on the 10 full-attention layers (head_dim 256, GQA 16:2)
 #   fp6 (e2m3) KV with calibrated per-(layer, KV head) scales (../kv_scales.json)
-#   fp8 lm_head            (.env MJOLNIR_LM_HEAD=fp8)
 #   MTP, 5 drafts          (built-in head; K=5 x GQA 8 = 48 rows: two 32-row kernel tiles)
+# No fp8 lm_head (LMH8): this checkpoint's lm_head is already ModelOpt-quantized,
+# so MJOLNIR_LM_HEAD=fp8 leaves it as is (a no-op).
 # No draft vocab (VT): MJOLNIR_DRAFT_VOCAB on this MoE adds ~40 GB at startup
 # and trips the memory guard (2026-10-16); open until that is fixed.
 model: nvidia/Qwen3.6-35B-A3B-NVFP4
