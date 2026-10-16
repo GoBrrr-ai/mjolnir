@@ -805,17 +805,30 @@ def test_draft_vocab_quantized_head():
     keep = list(range(0, 1000, 3))
 
     saved = lmhead._dequant_weight
+    saved_qr = lmhead.quantize_rows
     lmhead._dequant_weight = lambda h, dt: W.to(dt)  # the helper returns (vocab, hidden)
+    qr_calls = []
+
+    def _qr_spy(w, *a, **kw):  # proves the quantized path re-quantizes to fp8, never bf16
+        qr_calls.append(w.shape)
+        return saved_qr(w, *a, **kw)
+
     try:
+        lmhead.quantize_rows = _qr_spy
         assert lmhead.install_draft_vocab(d, keep)
     finally:
         lmhead._dequant_weight = saved
+        lmhead.quantize_rows = saved_qr
+
+    assert len(qr_calls) == 1, "a quantized head must re-quant the trimmed rows to fp8"
+    assert qr_calls[0] == (len(keep), hidden), "the fp8 rows must be the kept tokens"
 
     h = torch.randn(5, hidden, device=DEV, dtype=torch.bfloat16)
     got = d.compute_logits(h)
     k = torch.tensor(keep, device=DEV)
     ref = (h @ W.t())[:, k]
-    assert torch.allclose(got[:, k].float(), ref.float(), rtol=2e-2, atol=2e-2), "kept logits differ"
+    # fp8 re-quant rounds the kept rows (the spy above proves fp8 is used)
+    assert torch.allclose(got[:, k].float(), ref.float(), rtol=1e-1, atol=1e-1), "kept logits differ"
     drop = torch.ones(vocab, dtype=torch.bool, device=DEV)
     drop[k] = False
     assert torch.isinf(got[:, drop]).all() and (got[:, drop] < 0).all(), "dropped tokens must be -inf"

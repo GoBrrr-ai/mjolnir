@@ -326,9 +326,13 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
             len(ids),
         )
     idx = torch.tensor(sorted(set(ids)), dtype=torch.long, device=w.device)
-    fp8 = getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8"
+    dequantized = qm is not None and "Unquantized" not in type(qm).__name__
+    # A quantized source is dequanted above; keep the trimmed rows quantized
+    # (fp8), never in the wider bf16 container — a bf16 copy of a 4-bit head's
+    # rows is not a memory win (issue #25).
+    fp8 = dequantized or getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8"
     sub = w.index_select(0, idx).contiguous()
-    if qm is not None and "Unquantized" not in type(qm).__name__:
+    if dequantized:
         del w  # the full dequant is dead weight now; sub holds the kept rows
     if fp8:
         sub8, sub_scale = quantize_rows(sub)
