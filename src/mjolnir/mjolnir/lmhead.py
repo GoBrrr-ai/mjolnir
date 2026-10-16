@@ -190,10 +190,25 @@ def install_fp8_head(lm_head, model=None) -> bool:
     if getattr(lm_head, "_mjolnir_fp8", False):
         return True
     qm = getattr(lm_head, "quant_method", None)
+    # Only an unquantized (bf16/fp16) head benefits: this halves a 2-byte weight
+    # to 1-byte FP8. A head that is already quantized (ModelOpt FP8 / NVFP4 /
+    # MXFP8 — any non-Unquantized method) would be dequantized and re-packed at
+    # >= the same width (FP8 is 1 byte vs NVFP4's 0.5) — a pessimization, so a
+    # warning and a skip, never a re-quantization.
     if qm is None or "Unquantized" not in type(qm).__name__:
-        _log.warning("Mjolnir lm_head fp8: %s is not an unquantized head; left as is", type(qm).__name__)
+        _log.warning(
+            "Mjolnir lm_head fp8: %s is not an unquantized head (already FP8/NVFP4?); left as is",
+            type(qm).__name__,
+        )
         return False
     w = lm_head.weight.data
+    if w.dtype not in (torch.bfloat16, torch.float16, torch.float32):
+        _log.warning(
+            "Mjolnir lm_head fp8: %s weight dtype %s is not full precision; left as is",
+            type(qm).__name__,
+            w.dtype,
+        )
+        return False
     w8, scale = quantize_rows(w)
     err = _self_test(w, w8, scale)
     if not err < 0.05:
@@ -254,6 +269,21 @@ def pad_vocab(ids: list[int], size: int | None, vocab: int) -> list[int]:
     return out
 
 
+def _dequant_weight(lm_head, out_dtype) -> torch.Tensor:
+    """A dequantized (vocab, hidden) [out, in] weight for a quantized head.
+
+    vLLM's own helper normalizes the layout for any method: an unquantized
+    weight passes through, per-tensor FP8 dequantizes and transposes its
+    [in, out] storage back to [out, in], and packed methods (NVFP4 / MXFP8 /
+    Marlin) dequantize via an identity-matrix matmul.
+    """
+    from vllm.model_executor.layers.quantization.utils.quant_utils import (
+        get_and_maybe_dequant_weights,
+    )
+
+    return get_and_maybe_dequant_weights(lm_head, out_dtype=out_dtype)
+
+
 def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) -> bool:
     lm_head = getattr(draft_model, "lm_head", None)
     lp = getattr(draft_model, "logits_processor", None)
@@ -263,8 +293,29 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
     if getattr(lp, "scale", 1.0) != 1.0 or getattr(lp, "soft_cap", None) is not None:
         _log.warning("Mjolnir draft vocab: logit scale / soft cap not supported; left as is")
         return False
-    w = lm_head.weight.data
+    qm = getattr(lm_head, "quant_method", None)
+    if qm is None or "Unquantized" in type(qm).__name__:
+        w = lm_head.weight.data  # plain bf16 (vocab, hidden)
+    else:
+        # A quantized head (ModelOpt FP8 / NVFP4 / MXFP8) is not a (vocab, hidden)
+        # matrix: the weight is packed, and per-tensor FP8 is stored transposed
+        # [in, out]. Slicing it directly selects along the wrong axis and yields
+        # a (kept, vocab) matrix (~40 GB). Dequantize to a (vocab, hidden)
+        # [out, in] weight first (install_fp8_head already skips such heads).
+        try:
+            w = _dequant_weight(lm_head, torch.bfloat16)
+        except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+            _log.warning("Mjolnir draft vocab: cannot dequantize the %s head (%r); left as is", type(qm).__name__, e)
+            return False
     vocab = int(getattr(lp, "org_vocab_size", w.shape[0]))
+    if w.ndim != 2 or w.shape[0] < vocab:
+        _log.warning(
+            "Mjolnir draft vocab: head weight %s has no token-per-row axis (rows %d < vocab %d); left as is",
+            tuple(w.shape),
+            w.shape[0],
+            vocab,
+        )
+        return False
     calibrated = len({i for i in ids if 0 <= i < vocab})
     ids = pad_vocab(ids, size, vocab)
     if size and calibrated < size:
@@ -277,6 +328,8 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
     idx = torch.tensor(sorted(set(ids)), dtype=torch.long, device=w.device)
     fp8 = getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8"
     sub = w.index_select(0, idx).contiguous()
+    if qm is not None and "Unquantized" not in type(qm).__name__:
+        del w  # the full dequant is dead weight now; sub holds the kept rows
     if fp8:
         sub8, sub_scale = quantize_rows(sub)
 

@@ -780,6 +780,47 @@ def test_draft_vocab_trim():
     assert lmhead.pad_vocab([5, 3, 1], 2, 10) == [5, 3]
 
 
+def test_draft_vocab_quantized_head():
+    """A quantized head stores its weight transposed (hidden, vocab), not
+    (vocab, hidden); install_draft_vocab dequantizes it to [out, in] first, so
+    it keeps the right rows instead of building a (kept, vocab) matrix.
+    Regression for the ~40 GB / OOM on ModelOpt-quantized heads (issue #25)."""
+    from mjolnir import lmhead
+
+    class _QM:  # a non-"Unquantized" quant_method (e.g. ModelOptLinearMethod)
+        pass
+
+    class _LP:
+        org_vocab_size, scale, soft_cap = 1000, 1.0, None
+
+    class _HeadQ:  # stores the weight transposed (hidden, vocab), like per-tensor FP8
+        def __init__(self, wT):
+            self.weight, self.quant_method = wT, _QM()
+
+    vocab, hidden = 1000, 64
+    W = (torch.randn(vocab, hidden, device=DEV) * 0.1).to(torch.bfloat16)
+    d = torch.nn.Module()
+    d.logits_processor = _LP()
+    d.lm_head = _HeadQ(W.t().contiguous())  # (hidden, vocab) — the layout that used to blow up
+    keep = list(range(0, 1000, 3))
+
+    saved = lmhead._dequant_weight
+    lmhead._dequant_weight = lambda h, dt: W.to(dt)  # the helper returns (vocab, hidden)
+    try:
+        assert lmhead.install_draft_vocab(d, keep)
+    finally:
+        lmhead._dequant_weight = saved
+
+    h = torch.randn(5, hidden, device=DEV, dtype=torch.bfloat16)
+    got = d.compute_logits(h)
+    k = torch.tensor(keep, device=DEV)
+    ref = (h @ W.t())[:, k]
+    assert torch.allclose(got[:, k].float(), ref.float(), rtol=2e-2, atol=2e-2), "kept logits differ"
+    drop = torch.ones(vocab, dtype=torch.bool, device=DEV)
+    drop[k] = False
+    assert torch.isinf(got[:, drop]).all() and (got[:, drop] < 0).all(), "dropped tokens must be -inf"
+
+
 def test_cuda_graph_replay_with_new_plan():
     _graph_replay(pdl=False, kv_evict_first=False)
 
