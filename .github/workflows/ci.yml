@@ -108,8 +108,6 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       # post the report only on same-repo, non-draft PRs (fork tokens are
       # read-only unless write tokens for forks are enabled)
       REPORT: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -117,86 +115,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # the report diffs against the PR's base commit: the merge checkout
-          # at the default depth 1 has no parents, so ask for the merge commit
-          # plus its two (base + head)
-          fetch-depth: 2
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: uv sync
       # the kernel tests need CUDA + the CUTLASS DSL: they run on a Thor via
       # `mjolnir verify vllm`; tests/kernel/conftest.py skips them here — the
-      # kernel package is therefore not measurable in CI, the CLI is
-      - run: uv run --with pytest-cov pytest -q --cov=mjolnir_cli --cov-report=json:coverage.json
-      # Coverage report on the PR, upserted in place by the marker. This stage
-      # is path-gated, so docs/CI-only PRs get neither suite nor report; the
-      # report is informational — a failure to render or post it must not gate
-      # the suite.
-      - name: Render the coverage report
+      # kernel package is therefore not measurable in CI, the CLI is. --cov also
+      # writes the .coverage data file the report action reads; the XML is the
+      # Cobertura form and term-missing is a per-file table in the job log
+      - run: uv run --with pytest-cov pytest -q --tb=short --cov=mjolnir_cli --cov-report=term-missing --cov-report=xml:coverage.xml
+      # Coverage report on the PR: an upserted comment + annotations on the
+      # new lines missing coverage. This stage is path-gated, so docs/CI-only
+      # PRs get neither suite nor report; the report is informational — a
+      # failure to render or post it must not gate the suite. No baseline data
+      # branch is maintained: without a default-branch run the action reports
+      # the current coverage but no up/down delta.
+      - name: Verify coverage data exists
         if: ${{ env.REPORT == 'true' }}
         continue-on-error: true
         run: |
-          python3 - <<'PY'
-          import json, os, subprocess
-
-          cov = json.load(open("coverage.json"))
-          files, totals = cov["files"], cov["totals"]
-          total = totals["percent_covered"]
-
-          # the PR diff (base tip -> this head), restricted to the measured package
-          out = subprocess.run(
-              ["git", "diff", "--name-only", os.environ["BASE_SHA"], "HEAD", "--", "src/mjolnir-cli/"],
-              check=True, capture_output=True, text=True,
-          ).stdout.splitlines()
-          changed = [p for p in sorted(out) if p.endswith(".py")]
-          rows = [(p, files[p]["summary"]["percent_covered"]) for p in changed if p in files]
-
-          def bar(pct, width=20):
-              n = round(pct / 100 * width)
-              return "█" * n + "░" * (width - n)
-
-          L = [
-              "<!-- pr-summary:coverage -->",
-              "## Coverage",
-              "",
-              f"**`mjolnir_cli`: {total:.1f}%** `{bar(total)}` "
-              f"({totals['covered_lines']:,} / {totals['num_statements']:,} statements)",
-              "",
-          ]
-          if rows:
-              L += ["**Changed files**", "", "| file | coverage |", "| --- | ---: |"]
-              L += [f"| `{p}` | {c:.1f}% |" for p, c in rows]
-          unmeasured = [p for p in changed if p not in files]
-          if unmeasured:
-              L += ["", "_Not measured (not exercised by the tests): " +
-                    ", ".join(f"`{p}`" for p in unmeasured) + "_"]
-          if not rows and not unmeasured:
-              L.append("_No Python files under `src/mjolnir-cli/` changed._")
-          L += [
-              "",
-              f"_head `{os.environ['HEAD_SHA'][:7]}` — kernel tests need a Thor and are "
-              "skipped in CI, so only the CLI package is measured; re-runs replace this comment._",
-          ]
-          open("comment.md", "w").write("\n".join(L) + "\n")
-          PY
-      # the marker (first line of the report) locates the previous comment,
-      # so a new push replaces it instead of stacking comments
-      - name: Find the previous report
+          set -euo pipefail
+          test -f .coverage || { echo "::error::.coverage not found — pytest must run with --cov"; exit 1; }
+          uv run --with coverage coverage debug data | head -8
+      - name: Coverage report (comment + annotations)
         if: ${{ env.REPORT == 'true' }}
         continue-on-error: true
-        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
-        id: fc
+        uses: py-cov-action/python-coverage-comment-action@50d15ff8768f6d897b04e5a0805bd1a98f7096c4 # v3
         with:
-          issue-number: ${{ github.event.pull_request.number }}
-          body-includes: '<!-- pr-summary:coverage -->'
-      - name: Post the coverage report
-        if: ${{ env.REPORT == 'true' }}
-        continue-on-error: true
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
-        with:
-          comment-id: ${{ steps.fc.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body-path: comment.md
-          edit-mode: replace
+          GITHUB_TOKEN: ${{ github.token }}
+          # no ACTIVITY override: on a closed (unmerged) PR the action's own
+          # heuristic is a no-op; forcing process_pr would comment on closed PRs
+          ANNOTATE_MISSING_LINES: true
+          ANNOTATION_TYPE: warning
+          # badge colors only (the action never fails on coverage); aspirational
+          # above the current ~61%
+          MINIMUM_GREEN: 80
+          MINIMUM_ORANGE: 70
 
   readme:
     # README.md + docker/vllm-thor/README.md (the Docker Hub description) +
