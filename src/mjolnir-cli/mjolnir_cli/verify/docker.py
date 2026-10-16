@@ -17,6 +17,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mjolnir_cli.config import host_hf_hub
 from mjolnir_cli.verify import ncu
 from mjolnir_cli.verify.legs import FILTERS, Leg
 
@@ -53,6 +54,13 @@ def default_ref_image() -> str:
     from mjolnir_cli.config import STOCK_IMAGE
 
     return os.environ.get("MJOLNIR_REF_IMAGE", STOCK_IMAGE)
+
+
+def _hf_hub_mount() -> list[str]:
+    """$MJOLNIR_HF_CACHE nested over the HF_HOME mount: the smoke models come
+    from the shared hub too (HF_HOME's other state stays in ``hf_home``)."""
+    hub = host_hf_hub()
+    return ["-v", f"{hub}:/root/.cache/huggingface/hub"] if hub is not None else []
 
 
 @dataclass
@@ -319,6 +327,7 @@ class Runner:
             f"{repo / 'tests' / 'kernel'}:/work/tests:ro",
             "-v",
             f"{hf_home}:/root/.cache/huggingface",
+            *_hf_hub_mount(),
             "-e",
             f"PYTHONPATH={_IN_SRC}",
             "-e",

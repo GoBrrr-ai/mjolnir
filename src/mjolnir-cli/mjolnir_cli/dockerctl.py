@@ -18,7 +18,15 @@ import urllib.request
 from pathlib import Path
 
 from mjolnir_cli import cachectl
-from mjolnir_cli.config import CONTAINER_NAME, Settings, config_field, configs_root, user_configs_dir
+from mjolnir_cli.config import (
+    CONTAINER_NAME,
+    HFCacheError,
+    Settings,
+    config_field,
+    configs_root,
+    host_hf_hub,
+    user_configs_dir,
+)
 
 # Container-side env (the Thor-specific knobs from the old vllm.yaml service).
 _CONTAINER_ENV: list[str] = [
@@ -77,6 +85,9 @@ _HOST_MOUNTS = [
     "/etc/localtime",
     "/etc/machine-id",
 ]
+
+
+HF_DOWNLOAD_DIR = "/data/models/huggingface"  # vLLM --download-dir in every container
 
 
 class DockerError(RuntimeError):
@@ -271,6 +282,10 @@ def build_run_args(
     ``command`` writes into host mounts: they are handed to the invoking
     user when it ends (the container runs as root)."""
     image = image or s.image
+    try:
+        hf_hub = host_hf_hub()
+    except HFCacheError as exc:
+        raise DockerError(str(exc)) from exc
     cmd = [
         _docker(),
         "run",
@@ -309,6 +324,9 @@ def build_run_args(
         cmd += ["-e", kv]
     if os.environ.get("HF_TOKEN"):
         cmd += ["-e", f"HF_TOKEN={os.environ['HF_TOKEN']}"]
+    if hf_hub is not None:
+        # config / tokenizer lookups resolve through the hub cache, not --download-dir
+        cmd += ["-e", f"HF_HUB_CACHE={HF_DOWNLOAD_DIR}"]
 
     d = s.data_dir
     mounts = [
@@ -323,6 +341,13 @@ def build_run_args(
         ("/etc/localtime", "/etc/localtime:ro"),
         ("/etc/machine-id", "/etc/machine-id:ro"),
     ]
+    # $MJOLNIR_HF_CACHE: reuse a host HF hub cache as vLLM's --download-dir (and
+    # HF_HUB_CACHE, above) instead of a second copy of every checkpoint under the
+    # data dir; the more-specific mount wins over /data/models. The container
+    # runs as root, so files it adds to the hub are root-owned (as with any
+    # other root container sharing that cache).
+    if hf_hub is not None:
+        mounts.append((str(hf_hub), HF_DOWNLOAD_DIR))
     # A user-local model config (outside the repo's configs/) is mounted as
     # its config dir on top of the /configs mount (the more-specific mount
     # wins): config.yaml + its .env sidecar, and its own scales when it has
