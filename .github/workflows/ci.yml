@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       lint: ${{ steps.f.outputs.lint }}
+      lint-workflows: ${{ steps.f.outputs.lint-workflows }}
       test: ${{ steps.f.outputs.test }}
       readme: ${{ steps.f.outputs.readme }}
       build: ${{ steps.f.outputs.build }}
@@ -58,6 +59,9 @@ jobs:
               - 'NOTICE'
             vllm-patch:
               - 'docker/vllm-thor/**'
+            lint-workflows:
+              - '.github/workflows/**'
+              - '.pre-commit-config.yaml'
 
   lint:
     needs: filter
@@ -73,6 +77,23 @@ jobs:
         run: uvx ruff@0.14.14 check src/ tests/
       - name: ruff format --check
         run: uvx ruff@0.14.14 format --check src/ tests/
+
+  lint-workflows:
+    # actionlint over every workflow file (+ shellcheck on the run: blocks —
+    # it's preinstalled on the runner). Same version as the pre-commit hook.
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.lint-workflows == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          ver=1.7.12
+          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${ver}/actionlint_${ver}_linux_amd64.tar.gz" | tar xz
+          ./actionlint
 
   test:
     needs: filter
@@ -160,17 +181,19 @@ jobs:
       github.event_name == 'pull_request' && always() &&
       needs.filter.result == 'success' &&
       (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
+      (needs.lint-workflows.result == 'success' || needs.lint-workflows.result == 'skipped') &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
       (needs.readme.result == 'success' || needs.readme.result == 'skipped') &&
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
       (needs.vllm-patch.result == 'success' || needs.vllm-patch.result == 'skipped')
-    needs: [filter, lint, test, readme, build, vllm-patch]
+    needs: [filter, lint, lint-workflows, test, readme, build, vllm-patch]
     runs-on: ubuntu-latest
     steps:
       - name: In-scope stage results
         run: |
-          echo "lint:        ${{ needs.lint.result }}"
-          echo "test:        ${{ needs.test.result }}"
-          echo "readme:      ${{ needs.readme.result }}"
-          echo "build:       ${{ needs.build.result }}"
-          echo "vllm-patch:  ${{ needs.vllm-patch.result }}"
+          echo "lint:           ${{ needs.lint.result }}"
+          echo "lint-workflows: ${{ needs.lint-workflows.result }}"
+          echo "test:           ${{ needs.test.result }}"
+          echo "readme:         ${{ needs.readme.result }}"
+          echo "build:          ${{ needs.build.result }}"
+          echo "vllm-patch:     ${{ needs.vllm-patch.result }}"
