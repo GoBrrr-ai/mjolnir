@@ -45,3 +45,9 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# The PR coverage comment (py-cov-action) maps instrumented files onto the
+# PR's changed files, so recorded paths must be repo-relative — coverage.py
+# defaults to absolute, which the action cannot match.
+relative_files = true

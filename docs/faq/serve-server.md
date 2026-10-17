@@ -35,7 +35,13 @@ mjolnir serve up --dry-run     # print the exact docker run, do nothing
 ## What a first launch does
 
 - Downloads the HF checkpoint into `~/.local/share/mjolnir/models/`
-  (`--download-dir /data/models/huggingface` in the container).
+  (`--download-dir /data/models/huggingface` in the container). Already have
+  the model in a host HF cache? `export MJOLNIR_HF_CACHE=~/.cache/huggingface/hub`
+  (the HF_HOME root `~/.cache/huggingface` works too) mounts that hub as the
+  download dir and `HF_HUB_CACHE` instead — no second copy, config and
+  tokenizer included. Serve, calibrate and the verify containers all use it.
+  A path that doesn't exist is an error, never a silent re-download. The
+  containers run as root, so anything they add to that hub is root-owned.
 - Keeps the FlashInfer JIT cache, Triton cache, and kernel cache on the
   persistent `~/.local/share/mjolnir/` volumes, so **restarts are fast** and
   the one-time JIT cost is paid once.

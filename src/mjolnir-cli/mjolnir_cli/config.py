@@ -93,6 +93,32 @@ def scan_configs(configs_dir: Path) -> list[ConfigEntry]:
     return out
 
 
+class HFCacheError(FileNotFoundError):
+    """``$MJOLNIR_HF_CACHE`` is set but does not name a usable HF hub cache."""
+
+
+def host_hf_hub() -> Path | None:
+    """The host HF *hub* cache to reuse (``$MJOLNIR_HF_CACHE``), or None when unset.
+
+    Accepts the hub folder (``~/.cache/huggingface/hub``) or the HF_HOME root
+    above it (``~/.cache/huggingface`` — its ``hub/`` is used). ``~`` and
+    relative paths are resolved. A missing or non-directory path raises
+    :class:`HFCacheError` instead of silently falling back to a fresh download.
+    """
+    raw = os.environ.get("MJOLNIR_HF_CACHE", "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser().resolve()
+    if not path.is_dir():
+        raise HFCacheError(
+            f"MJOLNIR_HF_CACHE={raw}: {path} is not a directory — point it at an HF hub cache "
+            "(e.g. ~/.cache/huggingface/hub) or unset it"
+        )
+    if (path / "hub").is_dir() and not any(path.glob("models--*")):
+        return path / "hub"  # the HF_HOME root was given
+    return path
+
+
 def user_configs_dir() -> Path:
     """The user-local model-config root: ``~/.local/share/mjolnir/configs``
     (under the project data dir ``MJOLNIR_DATA``); override with

@@ -25,6 +25,13 @@ so **a contribution can be as small as one benchmark run from your Thor**.
    `README.md` doesn't reproduce from the committed data. No prose-only results.
    Full rules: [`docs/methodology/benchmarking.md`](../docs/methodology/benchmarking.md).
 
+## Opening a PR
+
+Pick the matching template from the dropdown when creating the PR — it
+collects the provenance CI can't check (run ids, calibration, the stage that
+isolates a change, the patch registration). `default.md` covers everything
+else; dependabot PRs keep their own body.
+
 ## Ways to contribute
 
 ### 1. Run the benchmarks on your Thor

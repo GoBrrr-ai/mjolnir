@@ -18,7 +18,15 @@ import urllib.request
 from pathlib import Path
 
 from mjolnir_cli import cachectl
-from mjolnir_cli.config import CONTAINER_NAME, Settings, config_field, configs_root, user_configs_dir
+from mjolnir_cli.config import (
+    CONTAINER_NAME,
+    HFCacheError,
+    Settings,
+    config_field,
+    configs_root,
+    host_hf_hub,
+    user_configs_dir,
+)
 
 # Container-side env (the Thor-specific knobs from the old vllm.yaml service).
 _CONTAINER_ENV: list[str] = [
@@ -77,6 +85,9 @@ _HOST_MOUNTS = [
     "/etc/localtime",
     "/etc/machine-id",
 ]
+
+
+HF_DOWNLOAD_DIR = "/data/models/huggingface"  # vLLM --download-dir in every container
 
 
 class DockerError(RuntimeError):
@@ -236,7 +247,7 @@ def config_env(s: Settings) -> list[str]:
     side = s.config_path.parent / ".env"
     if not side.exists():
         return []
-    cdir = f"/configs/{s.model}"
+    cdir = config_model_dir(s)
     out = []
     for line in side.read_text().splitlines():
         line = line.split("#", 1)[0].strip()
@@ -246,16 +257,32 @@ def config_env(s: Settings) -> list[str]:
     return out
 
 
+LOCAL_CONFIGS_MOUNT = "/configs-local"
+
+
+def is_local_config(s: Settings) -> bool:
+    """The active config is user-local (not in the repo / bundled configs)."""
+    return s.config_path != configs_root() / s.model / s.quant / "config.yaml" and s.config_path.exists()
+
+
+def config_model_dir(s: Settings) -> str:
+    """The model's config dir as the container sees it: ``/configs/<model>`` for a
+    repo config; for a user-local one its whole model dir is mounted at
+    ``/configs-local/<model>`` — outside the read-only ``/configs`` mount, where
+    Docker cannot create mountpoints for a vendor/model the repo doesn't have."""
+    return f"{LOCAL_CONFIGS_MOUNT}/{s.model}" if is_local_config(s) else f"/configs/{s.model}"
+
+
 def _container_path(s: Settings, host: Path) -> str:
     """A file under the configs dir, as the container sees it."""
     try:
         return "/configs/" + str(Path(host).relative_to(configs_root()))
-    except ValueError:  # user-local file: mirror its position under /configs/<model>/
+    except ValueError:  # user-local file: its position under the mounted model dir
         try:
             rel = str(Path(host).relative_to(user_configs_dir() / s.model))
         except ValueError:
             rel = Path(host).name
-        return f"/configs/{s.model}/{rel}"
+        return f"{LOCAL_CONFIGS_MOUNT}/{s.model}/{rel}"
 
 
 def build_run_args(
@@ -278,6 +305,10 @@ def build_run_args(
     ``command`` writes into host mounts: they are handed to the invoking
     user when it ends (the container runs as root)."""
     image = image or s.image
+    try:
+        hf_hub = host_hf_hub()
+    except HFCacheError as exc:
+        raise DockerError(str(exc)) from exc
     cmd = [
         _docker(),
         "run",
@@ -316,6 +347,9 @@ def build_run_args(
         cmd += ["-e", kv]
     if os.environ.get("HF_TOKEN"):
         cmd += ["-e", f"HF_TOKEN={os.environ['HF_TOKEN']}"]
+    if hf_hub is not None:
+        # config / tokenizer lookups resolve through the hub cache, not --download-dir
+        cmd += ["-e", f"HF_HUB_CACHE={HF_DOWNLOAD_DIR}"]
 
     d = s.data_dir
     mounts = [
@@ -330,17 +364,19 @@ def build_run_args(
         ("/etc/localtime", "/etc/localtime:ro"),
         ("/etc/machine-id", "/etc/machine-id:ro"),
     ]
+    # $MJOLNIR_HF_CACHE: reuse a host HF hub cache as vLLM's --download-dir (and
+    # HF_HUB_CACHE, above) instead of a second copy of every checkpoint under the
+    # data dir; the more-specific mount wins over /data/models. The container
+    # runs as root, so files it adds to the hub are root-owned (as with any
+    # other root container sharing that cache).
+    if hf_hub is not None:
+        mounts.append((str(hf_hub), HF_DOWNLOAD_DIR))
     # A user-local model config (outside the repo's configs/) is mounted as
-    # its config dir on top of the /configs mount (the more-specific mount
-    # wins): config.yaml + its .env sidecar, and its own scales when it has
-    # them.
-    local_cfg = s.config_path
-    repo_cfg = configs_root() / s.model / s.quant / "config.yaml"
-    if local_cfg != repo_cfg and local_cfg.exists():
-        mounts.append((str(local_cfg.parent), f"/configs/{s.model}/{s.quant}:ro"))
-        scales = kv_scales_host_path(s)
-        if scales.exists() and scales.parent != local_cfg.parent:
-            mounts.append((str(scales), f"/configs/{s.model}/{scales.name}:ro"))
+    # its whole model dir at /configs-local/<model> (config dirs + the model's
+    # kv_scales.json / draft_vocab.json), beside — not inside — the read-only
+    # /configs mount; repo files (chat templates) stay reachable under /configs.
+    if is_local_config(s):
+        mounts.append((str(user_configs_dir() / s.model), f"{config_model_dir(s)}:ro"))
     mounts += list(extra_mounts)
     for host, container in mounts:
         if host.startswith("/data") is False and not Path(host).exists() and not host.startswith(("/dev/shm", "/etc/")):
@@ -352,7 +388,7 @@ def build_run_args(
 
     serve = (
         "vllm serve "
-        f"--config /configs/{s.model}/{s.quant}/config.yaml "
+        f"--config {config_model_dir(s)}/{s.quant}/config.yaml "
         "--host 0.0.0.0 "
         "--cpu-offload-gb 0 "
         "--pipeline-parallel-size 1 "
