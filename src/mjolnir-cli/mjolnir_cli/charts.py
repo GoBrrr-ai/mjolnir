@@ -1354,7 +1354,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         mode,
         "Model quality per serving config",
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
-        + (" / ".join(dict.fromkeys(b["label"].replace(" · ", ", ") for b in bases if b is not None)) or "baseline")
+        + (" / ".join(x.replace(" · ", ", ") for x in accuracy.baseline_labels(bases)) or "baseline")
         + " · (±) = points vs it",
     )
     _accuracy_footer(fig, mode, rows)
@@ -1371,6 +1371,8 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     """Tool-call categories × configs: the share of points per cell, colored
     by how far the config falls behind the baseline — green on par (or
     better), then orange, then red the more points it loses."""
+    from mjolnir_cli import accuracy
+
     rows, bases, _ = _accuracy_rows(layout)
     keep = [i for i, r in enumerate(rows) if r.get("categories")]
     rows, bases = [rows[i] for i in keep], [bases[i] for i in keep]
@@ -1422,10 +1424,7 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
         mode,
         "Tool calls by category",
         "cell = share of points, % · green = on par with "
-        + (
-            " / ".join(dict.fromkeys(b["label"].replace(" · ", ", ") for b in bases if b is not None))
-            or "the first row"
-        )
+        + (" / ".join(x.replace(" · ", ", ") for x in accuracy.baseline_labels(bases)) or "the first row")
         + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
     )
     _accuracy_footer(fig, mode, rows)

@@ -823,6 +823,7 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
         if base and fp6:
             f["kv"] = f"+{(fp6['kv_tokens'] / base['kv_tokens'] - 1) * 100:.0f}%"
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
+    rows = [r for r in rows if r.get("model", DEFAULT_MODEL) == DEFAULT_MODEL]  # the hero names one baseline
     if rows:
         deltas = [
             abs(r["suites"][n]["score"] - b["suites"][n]["score"])
@@ -846,7 +847,7 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
         return
     bases = {id(r): b for r, b in zip(rows, accuracy.baselines(rows))}
     names = accuracy.suites_in(rows)
-    ctx.accuracy_baseline = " / ".join(dict.fromkeys(b["label"] for b in bases.values() if b is not None))
+    ctx.accuracy_baseline = " / ".join(accuracy.baseline_labels(list(bases.values())))
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
     for r in rows:

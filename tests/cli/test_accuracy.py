@@ -270,3 +270,13 @@ def test_container_output_is_handed_to_the_host_user(monkeypatch):
     tail = dockerctl.owner_suffix(["/out/draft_vocab.json"])
     assert tail == "; rc=$?; chown -R 1000:1001 /out/draft_vocab.json 2>/dev/null; exit $rc"
     assert dockerctl.owner_suffix([]) == ""
+
+
+def test_a_leg_without_model_never_borrows_another_models_baseline():
+    rows = [
+        _leg(OFFICIAL, "NVFP4", 88.0, 60.0, {}),
+        {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.0, 77.0, {}), "model": None},
+        {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.0, 80.0, {}), "model": None},
+    ]
+    assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
+    assert accuracy.baseline(rows)["config"] == "NVFP4"  # no model given: all rows, as before

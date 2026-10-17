@@ -1134,8 +1134,7 @@ def _print_accuracy(doc: dict) -> None:
     for n in suites:
         t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
     t.add_column("completion", justify="right")
-    for r in rows:
-        base = accuracy.baseline_for(rows, r)  # a run may hold several models: each vs its own
+    for r, base in zip(rows, accuracy.baselines(rows)):  # a run may hold several models: each vs its own
         cells = []
         for n in suites:
             v = (r.get("suites", {}).get(n) or {}).get("score")
@@ -1184,11 +1183,15 @@ def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
 
 
 def _print_compare(
-    layout, mjolnir_config: Optional[str] = None, as_json: bool = False, official_config: Optional[str] = None
+    layout,
+    mjolnir_config: Optional[str] = None,
+    as_json: bool = False,
+    official_config: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> int:
     from mjolnir_cli import e2e
 
-    off, mj = e2e.latest_pair(layout.history_file, mjolnir_config, official_config)
+    off, mj = e2e.latest_pair(layout.history_file, mjolnir_config, official_config, model)
     if not off or not mj:
         missing = "the official vLLM image" if not off else "a Mjolnir image"
         typer.secho(f"no run on {missing} in {layout.history_file} — run: mjolnir bench e2e", fg=typer.colors.YELLOW)
@@ -1343,7 +1346,7 @@ def bench_e2e(
         pp=pp,
         tg=tg,
     )
-    _print_compare(layout, config)
+    _print_compare(layout, config, official_config=official_config, model=s.model)
     measured = [(img, q) for _, img, q, _ in legs if q not in (config, official_config)]
     if measured:
         typer.echo("optional legs — compare them with:")
@@ -1366,11 +1369,13 @@ def bench_compare(
         None, "--official-config", help="official-side config (default: the stock baseline, NVFP4)"
     ),
     as_json: bool = typer.Option(False, "--json", "-j"),
+    model: Optional[str] = typer.Option(None, "--model", help="whose runs to pair (default: the active model)"),
 ):
     """Official vLLM image vs Mjolnir image from the history — no new run.
     `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares
-    the same drafter on both images."""
-    raise typer.Exit(_print_compare(load_layout(), config, as_json, official_config))
+    the same drafter on both images; both sides are runs of one model."""
+    model = _settings(model, None, None, None).model
+    raise typer.Exit(_print_compare(load_layout(), config, as_json, official_config, model))
 
 
 # ── plot / history ──────────────────────────────────────────────────────────

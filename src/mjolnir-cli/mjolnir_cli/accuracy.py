@@ -317,16 +317,21 @@ def latest_legs(docs: list[dict]) -> list[dict]:
     if len(models) > 1:  # rows of several models: keep each model's rows together, say which
         out.sort(key=lambda r: models.index(r.get("model")))
         for r in out:
-            r["label"] = f"{str(r.get('model', '')).split('/')[-1]} · {r['label']}"
+            if r.get("model"):
+                r["label"] = f"{str(r['model']).split('/')[-1]} · {r['label']}"
     return out
 
 
-def baseline(rows: list[dict], model: str | None = None) -> dict | None:
-    """The reference row for deltas, among ``model``'s rows (all rows when
-    None): native FlashInfer on the official image when measured, else the
-    first official-image row, else the first row. Rows of another model are
-    never a baseline — their scores are not comparable."""
-    rows = [r for r in rows if model is None or r.get("model") == model]
+_ANY = object()
+
+
+def baseline(rows: list[dict], model: object = _ANY) -> dict | None:
+    """The reference row for deltas, among ``model``'s rows (all rows when no
+    model is given; ``None`` means rows without a model): native FlashInfer on
+    the official image when measured, else the first official-image row, else
+    the first row. Rows of another model are never a baseline — their scores
+    are not comparable."""
+    rows = [r for r in rows if model is _ANY or r.get("model") == model]
     official = [r for r in rows if not _is_mjolnir(str(r.get("image", "")))]
     for r in official:
         if r.get("config") == "NVFP4":
@@ -343,6 +348,11 @@ def baselines(rows: list[dict]) -> list[dict | None]:
     """:func:`baseline_for` of every row, in row order (one lookup per model)."""
     per_model = {m: baseline(rows, m) for m in dict.fromkeys(r.get("model") for r in rows)}
     return [per_model[r.get("model")] for r in rows]
+
+
+def baseline_labels(bases: list[dict | None]) -> list[str]:
+    """The distinct baseline labels of ``bases``, in first-seen order (captions)."""
+    return list(dict.fromkeys(b["label"] for b in bases if b is not None))
 
 
 def suites_in(rows: list[dict]) -> list[str]:
