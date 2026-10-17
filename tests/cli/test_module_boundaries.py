@@ -15,6 +15,8 @@ import never runs):
   ``readme`` reaches up to ``charts``, ``cli`` or ``clidoc``, and ``charts``
   never imports ``readme`` (the labels both need live in ``mjolnir_cli.labels``,
   the verify data loader in ``verify.latest``), ``cli`` or ``clidoc``;
+* ``ONLY_IMPORTED_BY`` lists the modules only named importers may reach from
+  outside them: nothing but ``__main__`` imports ``cli``;
 * a name with a leading underscore stays inside its module: governed modules
   import none from elsewhere, and nobody imports one from a governed module.
 """
@@ -31,6 +33,7 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "mjolnir-cli"
 PKG = "mjolnir_cli"
 README = "mjolnir_cli.readme"
 CHARTS = "mjolnir_cli.charts"
+CLI = "mjolnir_cli.cli"
 
 # Modules whose private names must not cross a module boundary, in either
 # direction. The file-length split (#33) adds each package here as it is
@@ -145,12 +148,17 @@ FACADES = (CHARTS,)
 # importer package -> the mjolnir_cli packages nothing in it may import
 FORBIDDEN = [
     (README, CHARTS),
-    (README, "mjolnir_cli.cli"),
+    (README, CLI),
     (README, "mjolnir_cli.clidoc"),
     (CHARTS, README),
-    (CHARTS, "mjolnir_cli.cli"),
+    (CHARTS, CLI),
     (CHARTS, "mjolnir_cli.clidoc"),
 ]
+
+# module or package -> the only modules outside it that may import it
+ONLY_IMPORTED_BY = {
+    CLI: {f"{PKG}.__main__"},
+}
 
 
 def test_walker_sees_function_local_and_attribute_uses_but_not_type_checking_blocks():
@@ -199,6 +207,19 @@ def test_package_never_imports_forbidden_package(graph, importer, target):
     mods = [m for m in graph if _in(m, importer)]
     assert mods and any(_in(m, target) for m in graph), (importer, target)
     bad = [(m, u.target, u.line) for m in mods for u in graph[m] if _in(u.target, target)]
+    assert bad == []
+
+
+@pytest.mark.parametrize("target", sorted(ONLY_IMPORTED_BY))
+def test_only_its_named_importers_import_a_module_from_outside_it(graph, target):
+    assert any(_in(m, target) for m in graph) and ONLY_IMPORTED_BY[target] <= set(graph), target
+    bad = [
+        (m, u.target, u.line)
+        for m in graph
+        if not _in(m, target) and m not in ONLY_IMPORTED_BY[target]
+        for u in graph[m]
+        if _in(u.target, target)
+    ]
     assert bad == []
 
 
