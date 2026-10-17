@@ -33,3 +33,12 @@ repos:
         files: ^(src|tests)/
       - id: ruff-format
         files: ^(src|tests)/
+  # whole repo, same script as CI, rules in pyproject.toml
+  - repo: local
+    hooks:
+      - id: file-length
+        name: file-length ratchet
+        entry: uv run scripts/check_file_length.py --base HEAD
+        language: system
+        pass_filenames: false
+        always_run: true
