@@ -1129,13 +1129,13 @@ def _print_accuracy(doc: dict) -> None:
 
     rows = doc.get("legs", [])
     suites = accuracy.suites_in([{"suites": r.get("suites", {})} for r in rows])
-    base = accuracy.baseline(rows)
     t = Table(box=box.SIMPLE_HEAD, title=f"accuracy · run {doc['run_id']} · tool-eval-bench {' '.join(doc['args'])}")
     t.add_column("config")
     for n in suites:
         t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
     t.add_column("completion", justify="right")
     for r in rows:
+        base = accuracy.baseline_for(rows, r)  # a run may hold several models: each vs its own
         cells = []
         for n in suites:
             v = (r.get("suites", {}).get(n) or {}).get("score")

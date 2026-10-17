@@ -152,6 +152,27 @@ def test_baseline_is_per_model(tmp_path):
     assert q36_mj["label"].startswith("Qwen3.6-35B-A3B · Mjolnir")
 
 
+def test_print_accuracy_compares_within_model(capsys):
+    """The end-of-run table: a run with legs of two models never prints a delta
+    across models."""
+    from mjolnir_cli import cli
+
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    doc = {
+        "run_id": "r",
+        "args": ["run"],
+        "legs": [
+            _leg(OFFICIAL, "NVFP4", 97.0, 82.0, {}),
+            {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.0, 77.0, {}), **q36, "label": "q36 official"},
+            {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.0, 80.0, {}), **q36, "label": "q36 mjolnir"},
+        ],
+    }
+    cli._print_accuracy(doc)
+    out = capsys.readouterr().out
+    assert "(-1.0)" in out and "(+3.0)" in out  # vs the Qwen3.6 official leg
+    assert "(-7.0)" not in out  # never vs Qwen3.8's NVFP4
+
+
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"
