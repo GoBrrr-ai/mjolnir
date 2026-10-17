@@ -110,7 +110,9 @@ def latest_pair(
 ) -> tuple[dict | None, dict | None]:
     """(official, mjolnir): each side's runs merged cell by cell, newest run
     first (:func:`_merge`) — a stock config on the official image, and the
-    Mjolnir backend config (default ``DEFAULT_QUANT``) on a Mjolnir image.
+    Mjolnir backend config on a Mjolnir image: ``mjolnir_config``, else
+    ``DEFAULT_QUANT`` when the model has runs of it, else the model's newest
+    Mjolnir-image config (``DEFAULT_QUANT`` exists only for the default model).
 
     The official side is ``official_config`` (default ``BASELINE_QUANT``,
     native FlashInfer) when the history has it, else the newest official
@@ -119,13 +121,19 @@ def latest_pair(
 
     Both sides are runs of one ``model`` (default ``DEFAULT_MODEL``): another
     model's run under the same config name is never paired with them."""
-    want = mjolnir_config or DEFAULT_QUANT
     model = model or DEFAULT_MODEL
     base = official_config or BASELINE_QUANT
+    recs = [r for r in load_records(history_file) if r.get("cells") and model_of(r) == model]
+    want = mjolnir_config
+    if want is None:
+        mine = [r for r in recs if is_mjolnir(r)]
+        want = (
+            DEFAULT_QUANT
+            if any(r.get("config") == DEFAULT_QUANT for r in mine) or not mine
+            else max(mine, key=lambda r: r.get("epoch", 0)).get("config")
+        )
     offs, mjs = [], []
-    for r in load_records(history_file):
-        if not r.get("cells") or model_of(r) != model:
-            continue
+    for r in recs:
         if is_official(r) and r.get("config") != want:
             offs.append(r)
         elif is_mjolnir(r) and r.get("config") == want:

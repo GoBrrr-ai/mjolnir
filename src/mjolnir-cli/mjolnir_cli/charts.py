@@ -17,10 +17,9 @@ import re
 
 import json
 import math
+from itertools import groupby
 from pathlib import Path
 from typing import Callable
-
-from itertools import groupby
 
 from mjolnir_cli import theme
 from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of, model_short
@@ -1365,11 +1364,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
         + (accuracy.baseline_caption(bases, ", ") or "baseline")
         + " · (±) = points vs it"
-        + (
-            " · ‡ = a scenario was excluded on one side, scored as zero"
-            if any((d := accuracy.delta(r, b, s)) and d[1] for r, b in zip(rows, bases) for s in names)
-            else ""
-        ),
+        + (f" · {accuracy.EXCLUDED_NOTE_SHORT}" if accuracy.any_excluded(rows, bases, names) else ""),
     )
     _accuracy_footer(fig, mode, rows)
     return fig
@@ -1387,7 +1382,7 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     better), then orange, then red the more points it loses."""
     from mjolnir_cli import accuracy
 
-    rows, bases, _ = _accuracy_rows(layout)
+    rows, bases, names = _accuracy_rows(layout)
     pairs = [(r, b) for r, b in zip(rows, bases) if r.get("categories")]
     if not pairs:
         return None
@@ -1431,7 +1426,10 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     ax.set_xticks(range(len(cats)))
     ax.set_xticklabels(cats, color=mode.text)
     ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([theme.wrap(r["label"], 24) for r in rows], color=mode.text)
+    marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases)]
+    ax.set_yticklabels(
+        [theme.wrap(r["label"] + (" ‡" if m else ""), 24) for r, m in zip(rows, marked)], color=mode.text
+    )
     ax.set_xlabel("tool-call category (names: the table below)")
     theme.title(
         ax,
@@ -1439,7 +1437,8 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
         "Tool calls by category",
         "cell = share of points, % · green = on par with "
         + (accuracy.baseline_caption(bases, ", ") or "the first row")
-        + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
+        + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind"
+        + (f" · {accuracy.CATEGORY_EXCLUDED_NOTE}" if any(marked) else ""),
     )
     _accuracy_footer(fig, mode, rows)
     return fig

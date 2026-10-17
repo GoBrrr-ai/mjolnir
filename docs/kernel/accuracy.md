@@ -48,7 +48,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 </details><br />
 
-<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; ‡ = the two legs were scored on different maxes (tool-eval-bench excluded a scenario on one endpoint); the delta counts the excluded points as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../benchmarks/raw/accuracy/20261017-131320/accuracy.json).</sub>
+<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; ‡ = tool-eval-bench excluded a scenario on one of the two legs; the delta scores both on the full max, the excluded points counting as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../benchmarks/raw/accuracy/20261017-131320/accuracy.json).</sub>
 
 ### By tool-call category
 
@@ -57,7 +57,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
   <img src="../../assets/benchmarks/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
 </picture>
 
-| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV |
+| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV ‡ |
 |---|--:|--:|--:|--:|--:|--:|
 | A · Tool Selection | 100 | 100 | 100 | 100 | 100 | 100 |
 | B · Parameter Precision | 100 | 100 | 100 | 100 | 100 | 100 |
@@ -75,6 +75,8 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 | N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 |
 | O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 |
 | P · Hard Mode | 82 | 79 | 84 | 82 | 77 | 80 |
+
+<sub>‡ = this leg had a scenario excluded: its category % divides by the smaller max, so one category reads high.</sub>
 
 <sub>Share of points per category, %. A category has 2–10 scenarios: one scenario moving from pass to partial shifts it by 5–25 points — read single cells as anecdotes, the totals as the result.</sub>
 

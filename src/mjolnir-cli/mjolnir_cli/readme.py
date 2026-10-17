@@ -844,7 +844,7 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     bases = accuracy.baselines(rows)
     names = accuracy.suites_in(rows)
     ctx.accuracy_baseline = accuracy.baseline_caption(bases)
-    if any((d := accuracy.delta(r, base, n)) and d[1] for r, base in zip(rows, bases) for n in names):
+    if accuracy.any_excluded(rows, bases, names):
         ctx.accuracy_excluded_note = accuracy.EXCLUDED_NOTE
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
@@ -874,7 +874,8 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     cats = sorted({c for r in rows for c in r.get("categories", {})})
     if cats:
         labels = {c: next(r["categories"][c]["label"] for r in rows if c in r.get("categories", {})) for c in cats}
-        chead = ["category", *[r["label"] for r in rows]]
+        marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases)]
+        chead = ["category", *[r["label"] + (" ‡" if m else "") for r, m in zip(rows, marked)]]
         cbody = []
         for c in cats:
             cbody.append(
@@ -882,6 +883,8 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
                 + [f"{r['categories'][c]['percent']:.0f}" if c in r.get("categories", {}) else "—" for r in rows]
             )
         ctx.accuracy_categories = _table(chead, cbody)
+        if any(marked):
+            ctx.accuracy_categories += f"\n\n<sub>{accuracy.CATEGORY_EXCLUDED_NOTE}.</sub>"
 
     for r, base in zip(rows, bases):
         if base is None or r is base:
@@ -894,10 +897,16 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
         if deltas:
             changed = []
             if r.get("scenarios") and base.get("scenarios"):
-                common = r["scenarios"].keys() & base["scenarios"].keys()
-                worse = sum(1 for k in common if r["scenarios"][k] < base["scenarios"][k])
-                better = sum(1 for k in common if r["scenarios"][k] > base["scenarios"][k])
-                changed = [f"{worse} scenarios scored lower, {better} higher of {len(common)}"]
+                # a scenario one leg excluded counts as zero there, as in the ‡ delta
+                rs, bs = r["scenarios"], base["scenarios"]
+                every = rs.keys() | bs.keys()
+                worse = sum(1 for k in every if rs.get(k, 0.0) < bs.get(k, 0.0))
+                better = sum(1 for k in every if rs.get(k, 0.0) > bs.get(k, 0.0))
+                gone = sorted(every - (rs.keys() & bs.keys()))
+                changed = [
+                    f"{worse} scenarios scored lower, {better} higher of {len(every)}"
+                    + (f"; excluded {', '.join(gone)} counted as zero" if gone else "")
+                ]
             ctx.accuracy_findings.append(
                 f"**{r['label']}** vs {base['label']}: {', '.join(deltas)} points"
                 + (f" ({changed[0]})" if changed else "")

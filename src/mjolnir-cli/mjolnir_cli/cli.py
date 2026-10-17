@@ -1134,17 +1134,15 @@ def _print_accuracy(doc: dict) -> None:
     for n in suites:
         t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
     t.add_column("completion", justify="right")
-    flagged = False
-    for r, base in zip(rows, accuracy.baselines(rows)):  # a run may hold several models: each vs its own
+    bases = accuracy.baselines(rows)  # a run may hold several models: each vs its own
+    for r, base in zip(rows, bases):
         cells = []
         for n in suites:
             v = (r.get("suites", {}).get(n) or {}).get("score")
-            d = accuracy.delta(r, base, n)
-            flagged |= bool(d and d[1])
-            cells.append("—" if v is None else f"{v:.1f}{accuracy.fmt_delta(d)}")
+            cells.append("—" if v is None else f"{v:.1f}{accuracy.fmt_delta(accuracy.delta(r, base, n))}")
         comp = [x.get("completion_rate") for x in r.get("suites", {}).values() if x.get("completion_rate") is not None]
         t.add_row(r.get("label", r.get("id", "")), *cells, f"{min(comp):.0f}%" if comp else "—")
-    if flagged:
+    if accuracy.any_excluded(rows, bases, suites):
         t.caption = accuracy.EXCLUDED_NOTE
     Console().print(t)
 
@@ -1355,7 +1353,7 @@ def bench_e2e(
                 continue
             twin = next((o for o in offs if o.split("_")[-1] == q.split("_")[-1]), None)
             typer.echo(
-                f"  mjolnir bench compare --config {q}"
+                f"  mjolnir bench compare --model {s.model} --config {q}"
                 + (f"   |   --official-config {twin} --config {q}" if twin else "")
             )
     _rerender(layout)

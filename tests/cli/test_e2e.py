@@ -315,3 +315,17 @@ def test_a_run_without_model_is_never_the_default_models(tmp_path):
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
     assert off["epoch"] == 1 and mj is None
+
+
+def test_compare_defaults_to_the_models_own_mjolnir_config(tmp_path):
+    """Without --config, a model that has no DEFAULT_QUANT runs pairs its newest
+    Mjolnir-image config instead of reporting no Mjolnir run."""
+    h = tmp_path / "history.jsonl"
+    q36 = "nvidia/Qwen3.6-35B-A3B"
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4_DFLASH", 1, [_cell(1, 0, 80, 0, 50)], model=q36),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 130, 0, 40)], model=q36),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, model=q36)
+    assert off["config"] == "NVFP4_DFLASH" and mj["config"] == "NVFP4_MJOLNIR_E2M3"

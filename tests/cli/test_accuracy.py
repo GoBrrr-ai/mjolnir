@@ -255,8 +255,9 @@ def test_two_model_page_compares_within_each_model(repo):
 
 def _excluded_pair() -> tuple[dict, dict]:
     """The same-run Qwen3.6 pair: official 125/138, Mjolnir 123/136 (TC-45 excluded)."""
-    off = _leg(OFFICIAL, "NVFP4_DFLASH", 90.58, 76.79, {})
-    mj = _leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.44, 80.36, {})
+    off = _leg(OFFICIAL, "NVFP4_DFLASH", 90.58, 76.79, {"H": 100})
+    mj = _leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.44, 80.36, {"H": 100})
+    off["scenarios"]["TC-45"] = 2.0  # the Mjolnir leg has no TC-45: excluded
     off["suites"]["tools"].update(earned=125, max=138)
     mj["suites"]["tools"].update(earned=123, max=136, completion_rate=99.0)
     off["suites"]["hardmode"].update(earned=43, max=56)
@@ -278,6 +279,32 @@ def test_an_excluded_scenario_never_raises_the_delta():
     assert flagged2 and round(d2, 2) == round((125 - 123) / 138 * 100, 2)
 
 
+def test_different_scenario_sets_give_no_delta():
+    """Different maxes at full completion are not an exclusion (another run's
+    arguments, a subset): no rescaled delta, and no plain one either."""
+    off, mj = _excluded_pair()
+    mj["suites"]["tools"].update(earned=38, max=40, score=95.0, completion_rate=100.0)
+    assert accuracy.delta(mj, off, "tools") is None
+
+
+def test_averaged_trials_rescale_every_trial():
+    """--trials: each trial's own points over the full max, so an exclusion in
+    any trial counts, not just in the last one."""
+    off, mj = _excluded_pair()
+    # trials 1-2 excluded TC-45 (max 136), trial 3 did not (max 138)
+    mj["suites"]["tools"].update(
+        score=round((123 / 136 + 123 / 136 + 125 / 138) / 3 * 100, 2),
+        n=3,
+        earned=125,
+        max=138,
+        earneds=[123, 123, 125],
+        maxes=[136, 136, 138],
+        completion_rate=99.0,
+    )
+    d, flagged = accuracy.delta(mj, off, "tools")
+    assert flagged and round(d, 3) == round(((123 + 123 + 125) / 3 - 125) / 138 * 100, 3)
+
+
 def test_print_accuracy_marks_an_excluded_scenario(capsys):
     from mjolnir_cli import cli
 
@@ -285,7 +312,7 @@ def test_print_accuracy_marks_an_excluded_scenario(capsys):
     cli._print_accuracy({"run_id": "r", "args": ["run"], "legs": [off, mj]})
     out = capsys.readouterr().out
     assert "(-1.4‡)" in out and "(-0.1)" not in out
-    assert "counts the excluded points as zero" in out
+    assert "excluded points counting as zero" in out
 
 
 def test_page_marks_an_excluded_scenario(repo):
@@ -298,7 +325,9 @@ def test_page_marks_an_excluded_scenario(repo):
     page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
     assert "90.4 (-1.4‡)" in page and "80.4 (+3.6)" in page
     assert "Tool calls -1.4‡" in page
-    assert "counts the excluded points as zero" in page
+    assert "excluded points counting as zero" in page
+    assert "excluded TC-45 counted as zero" in page  # the tally counts what the ‡ delta counts
+    assert "Mjolnir · bf16 KV ‡ |" in page and "its category % divides by the smaller max" in page
 
 
 def test_accuracy_page_pending_without_runs(repo):
