@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_QUANT, IMAGE_REPO
+from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, IMAGE_REPO
 from mjolnir_cli.history import load_records
 
 # Older images of this project (kept so history rows still classify).
@@ -103,7 +103,10 @@ def _merge(recs: list[dict]) -> dict | None:
 
 
 def latest_pair(
-    history_file: Path, mjolnir_config: str | None = None, official_config: str | None = None
+    history_file: Path,
+    mjolnir_config: str | None = None,
+    official_config: str | None = None,
+    model: str | None = None,
 ) -> tuple[dict | None, dict | None]:
     """(official, mjolnir): each side's runs merged cell by cell, newest run
     first (:func:`_merge`) — a stock config on the official image, and the
@@ -112,12 +115,16 @@ def latest_pair(
     The official side is ``official_config`` (default ``BASELINE_QUANT``,
     native FlashInfer) when the history has it, else the newest official
     config — so an optional official leg (``bench e2e --optional``: DSpark,
-    DFlash2 on stock vLLM) never replaces the baseline by being newer."""
+    DFlash2 on stock vLLM) never replaces the baseline by being newer.
+
+    Both sides are runs of one ``model`` (default ``DEFAULT_MODEL``): another
+    model's run under the same config name is never paired with them."""
     want = mjolnir_config or DEFAULT_QUANT
+    model = model or DEFAULT_MODEL
     base = official_config or BASELINE_QUANT
     offs, mjs = [], []
     for r in load_records(history_file):
-        if not r.get("cells"):
+        if not r.get("cells") or r.get("model", DEFAULT_MODEL) != model:
             continue
         if is_official(r) and r.get("config") != want:
             offs.append(r)

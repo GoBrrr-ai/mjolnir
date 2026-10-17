@@ -2,11 +2,11 @@
 # flags plus the Mjolnir feature set, nothing else:
 #   MJOLNIR attention on the 10 full-attention layers (head_dim 256, GQA 16:2)
 #   fp6 (e2m3) KV with calibrated per-(layer, KV head) scales (../kv_scales.json)
-#   MTP, 5 drafts          (built-in head; K=5 x GQA 8 = 48 rows: two 32-row kernel tiles)
+#   MTP, 5 drafts          (built-in head; (K+1)=6 x GQA 8 = 48 rows: two 32-row kernel tiles)
 # No fp8 lm_head (LMH8): this checkpoint's lm_head is already ModelOpt-quantized,
 # so MJOLNIR_LM_HEAD=fp8 leaves it as is (a no-op).
-# No draft vocab (VT): MJOLNIR_DRAFT_VOCAB on this MoE adds ~40 GB at startup
-# and trips the memory guard (2026-10-16); open until that is fixed.
+# No draft vocab (VT): MJOLNIR_DRAFT_VOCAB on this MoE adds ~40 GB within 2 s
+# of model load and hung Thor twice (2026-10-16, thor-arena/mjolnir#25).
 model: nvidia/Qwen3.6-35B-A3B-NVFP4
 served-model-name: nvidia/Qwen3.6-35B-A3B-NVFP4
 
@@ -28,10 +28,9 @@ reasoning-parser: qwen3
 attention-backend: MJOLNIR
 
 # ── KV Cache: fp6 e2m3 (25% fewer KV bytes than fp8) ─────────────────────
-# Scales: `mjolnir calibrate` on an fp8-KV MJOLNIR config writes
-# ../kv_scales.json; `mjolnir serve` points MJOLNIR_ATTN_KV_SCALES at it.
+# Scales: `mjolnir calibrate --config NVFP4_MJOLNIR` (the fp8-KV calibration
+# config next to this one) writes ../kv_scales.json; `mjolnir serve` points MJOLNIR_ATTN_KV_SCALES at it.
 kv-cache-dtype: fp6_e2m3
-kv-cache-dtype-skip-layers: sliding_window
 
 # ── Speculative Decoding — MTP (built-in head), K=5 ─────────────────────
 speculative-config:

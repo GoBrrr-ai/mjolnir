@@ -22,6 +22,11 @@ gpu-memory-utilization: 0.45
 
 kv-cache-dtype: fp8
 
+# vLLM auto-selects FlashInfer here (log: "Using FLASHINFER attention backend
+# out of potential backends: ['FLASHINFER', 'TRITON_ATTN']"); pinned so the
+# "FlashInfer + DFlash" label cannot silently change with a vLLM default.
+attention-backend: flashinfer
+
 enable-auto-tool-choice: true
 tool-call-parser: qwen3_coder
 reasoning-parser: qwen3

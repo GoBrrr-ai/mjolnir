@@ -313,7 +313,9 @@ def latest_legs(docs: list[dict]) -> list[dict]:
                 row["categories"] = leg.get("categories") or row["categories"]
                 row["scenarios"] = leg.get("scenarios") or row["scenarios"]
     out = [r for r in rows.values() if r["suites"]]
-    if len({r.get("model") for r in out}) > 1:  # rows of several models: say which
+    models = list(dict.fromkeys(r.get("model") for r in out))
+    if len(models) > 1:  # rows of several models: keep each model's rows together, say which
+        out.sort(key=lambda r: models.index(r.get("model")))
         for r in out:
             r["label"] = f"{str(r.get('model', '')).split('/')[-1]} · {r['label']}"
     return out
@@ -335,6 +337,12 @@ def baseline(rows: list[dict], model: str | None = None) -> dict | None:
 def baseline_for(rows: list[dict], row: dict) -> dict | None:
     """The baseline ``row`` is compared with: its own model's."""
     return baseline(rows, row.get("model"))
+
+
+def baselines(rows: list[dict]) -> list[dict | None]:
+    """:func:`baseline_for` of every row, in row order (one lookup per model)."""
+    per_model = {m: baseline(rows, m) for m in dict.fromkeys(r.get("model") for r in rows)}
+    return [per_model[r.get("model")] for r in rows]
 
 
 def suites_in(rows: list[dict]) -> list[str]:

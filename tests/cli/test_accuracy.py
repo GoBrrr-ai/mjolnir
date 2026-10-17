@@ -173,6 +173,36 @@ def test_print_accuracy_compares_within_model(capsys):
     assert "(-7.0)" not in out  # never vs Qwen3.8's NVFP4
 
 
+def _write_two_model_run(raw: Path) -> None:
+    """One run whose legs interleave two models (Qwen3.8, Qwen3.6, Qwen3.8, Qwen3.6)."""
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    doc = {
+        "format": accuracy.FORMAT,
+        "run_id": "20261017-100000",
+        "args": list(accuracy.DEFAULT_ARGS),
+        "legs": [
+            _leg(OFFICIAL, "NVFP4", 88.0, 60.0, {"A": 90}),
+            {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.3, 76.8, {"A": 95}), **q36},
+            _leg(MJ, "NVFP4_MJOLNIR_E2M3", 86.5, 62.0, {"A": 85}),
+            {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.4, 80.4, {"A": 94}), **q36},
+        ],
+    }
+    p = raw / "accuracy" / doc["run_id"] / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps(doc))
+
+
+def test_rows_of_one_model_stay_together(tmp_path):
+    """Interleaved legs come back grouped by model (first-seen order), so each
+    model's dashed baseline mark spans only its own rows; ``baselines`` matches
+    ``baseline_for`` row by row."""
+    _write_two_model_run(tmp_path)
+    rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
+    assert [r["model"] for r in rows] == ["Qwen/Qwen3.8-27B"] * 2 + ["nvidia/Qwen3.6-35B-A3B"] * 2
+    assert accuracy.baselines(rows) == [accuracy.baseline_for(rows, r) for r in rows]
+    assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
+
+
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"
@@ -206,6 +236,22 @@ def test_accuracy_page_and_charts_render(repo):
     assert "1 scenarios scored lower, 0 higher of 2" in page
     assert "accuracy-suites-dark.png" in page and "20261013-100000/accuracy.json" in page
     assert "[Accuracy](docs/kernel/accuracy.md)" in (repo / "README.md").read_text()
+
+
+def test_two_model_page_compares_within_each_model(repo):
+    pytest.importorskip("matplotlib")
+    layout = load_layout()
+    _write_two_model_run(layout.raw_dir)
+    manifest = charts.render_all(layout)
+    assert "accuracy-suites" in manifest and "accuracy-categories" in manifest
+    readme.render_readme(layout)
+    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    assert "| **Qwen3.8-27B · official vLLM · FlashInfer · bf16 KV** |" in page
+    assert "| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · " in page
+    assert "86.5 (-1.5)" in page  # Qwen3.8 Mjolnir vs Qwen3.8 FlashInfer
+    assert "90.4 (-0.9)" in page and "80.4 (+3.6)" in page  # Qwen3.6 Mjolnir vs Qwen3.6 DFlash
+    assert "90.4 (+2.4)" not in page  # never vs the other model
+    assert "never across models" in page
 
 
 def test_accuracy_page_pending_without_runs(repo):

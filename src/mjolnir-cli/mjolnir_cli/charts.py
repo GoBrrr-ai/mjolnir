@@ -646,13 +646,15 @@ MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M
 def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
     """Latest history record per series: stock configs on the official vLLM
     image, the Mjolnir config on a Mjolnir image. Stock backends measured on
-    the Mjolnir image are ignored (that image patches FlashInfer too)."""
+    the Mjolnir image are ignored (that image patches FlashInfer too). Only
+    the default model's runs: a series is one config of one model."""
     from mjolnir_cli import e2e
+    from mjolnir_cli.config import DEFAULT_MODEL
 
     latest: dict[str, dict] = {}
     for r in load_records(layout.history_file):
         cfg = r.get("config")
-        if not r.get("cells"):
+        if not r.get("cells") or r.get("model", DEFAULT_MODEL) != DEFAULT_MODEL:
             continue
         ok = (cfg in MJOLNIR_E2E_CONFIGS and e2e.is_mjolnir(r)) or (
             cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r)
@@ -1276,7 +1278,7 @@ def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], dict | None, list[st
     from mjolnir_cli import accuracy
 
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
-    return rows, [accuracy.baseline_for(rows, r) for r in rows], accuracy.suites_in(rows)
+    return rows, accuracy.baselines(rows), accuracy.suites_in(rows)
 
 
 def _accuracy_footer(fig, mode: Mode, rows: list[dict]) -> None:

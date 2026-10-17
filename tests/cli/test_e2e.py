@@ -257,3 +257,28 @@ def test_a_newer_optional_official_leg_never_replaces_the_baseline(tmp_path):
     assert off["config"] == "NVFP4"
     off, _ = e2e.latest_pair(h, "NVFP4_MJOLNIR", "NVFP4_DSPARK")
     assert off["config"] == "NVFP4_DSPARK"
+
+
+def test_pair_and_site_rows_never_mix_models(tmp_path):
+    """Another model's run under a Mjolnir config name (Qwen3.6's NVFP4_MJOLNIR_E2M3)
+    never lands next to the default model's runs: not in the README pair, not
+    on the interactive site."""
+    from types import SimpleNamespace
+
+    from mjolnir_cli import charts
+
+    h = tmp_path / "history.jsonl"
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 0, 20, 0, 100)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 30, 0, 90)]),
+        {**_rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 3, [_cell(1, 0, 80, 0, 50)]), **q36},
+        {**_rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 4, [_cell(1, 0, 130, 0, 40)]), **q36},
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
+    assert off["epoch"] == 1 and mj["epoch"] == 2  # the default model's runs only
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3", model="nvidia/Qwen3.6-35B-A3B")
+    assert off["epoch"] == 3 and mj["epoch"] == 4
+    site = charts.e2e_rows(SimpleNamespace(history_file=h))
+    assert {k: v["epoch"] for k, v in site.items()} == {"NVFP4": 1, "NVFP4_MJOLNIR_E2M3": 2}

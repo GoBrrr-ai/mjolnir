@@ -844,9 +844,9 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
     if not rows:
         return
-    bases = {id(r): accuracy.baseline_for(rows, r) for r in rows}
+    bases = {id(r): b for r, b in zip(rows, accuracy.baselines(rows))}
     names = accuracy.suites_in(rows)
-    ctx.accuracy_baseline = ", ".join(dict.fromkeys(b["label"] for r in rows if (b := bases[id(r)]) is not None))
+    ctx.accuracy_baseline = " / ".join(dict.fromkeys(b["label"] for b in bases.values() if b is not None))
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
     for r in rows:
