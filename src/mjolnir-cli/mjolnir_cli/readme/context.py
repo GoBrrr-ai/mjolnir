@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mjolnir_cli import accuracy, config, e2e
 from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout, by_model
 from mjolnir_cli.readme.findings import findings
 from mjolnir_cli.readme.fmt import L_label, fmt_us, md_table
@@ -27,7 +28,7 @@ class ReadmeContext:
     cli_version: str = ""
     ls: str = " ".join(L_label(L) for L in ALL_LS)
     noise_pct: str = f"{NOISE_PCT:.0f}"
-    e2e_noise_pct: str = field(default_factory=lambda: f"{__import__('mjolnir_cli.e2e').e2e.E2E_NOISE_PCT:.0f}")
+    e2e_noise_pct: str = field(default_factory=lambda: f"{e2e.E2E_NOISE_PCT:.0f}")
     # headline (sweep)
     has_sweep: bool = False
     geo_vs_fi: str = ""
@@ -57,11 +58,11 @@ class ReadmeContext:
     vs_vllm_spec: str = ""  # speculative decoding both sides ran with, e.g. "MTP, 3 speculative tokens"
     vs_vllm_missing: str = ""
     e2e_example: dict = field(default_factory=dict)
-    e2e_max_ctx: str = field(default_factory=lambda: L_label(__import__("mjolnir_cli.e2e").e2e.MAX_CTX))
+    e2e_max_ctx: str = field(default_factory=lambda: L_label(e2e.MAX_CTX))
     # the README's Key Features grid: measured numbers, each None when its run is missing
     feat: dict = field(default_factory=dict)
     default_config: str = field(
-        default_factory=lambda: __import__("mjolnir_cli.config").config.DEFAULT_QUANT
+        default_factory=lambda: config.DEFAULT_QUANT
     )  # contexts only one side measured (the command that completes the table)
     # model quality per serving config (mjolnir bench accuracy)
     accuracy_table: str = ""
@@ -172,8 +173,6 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
     if corr:
         cs = corr.get("cases", [])
         ctx.correctness = f"{sum(1 for c in cs if c.get('passed'))} / {len(cs)}"
-    from mjolnir_cli import e2e
-
     off, mj = e2e.latest_pair(layout.history_file)
     if off and mj:
         ctx.vs_vllm = vs_vllm_table(off, mj)
@@ -211,8 +210,6 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
                 if h["itl_ms"][2] is not None
                 else "—",
             }
-    from mjolnir_cli import accuracy
-
     acc_rows = accuracy.latest_legs(accuracy.load_runs(layout))  # read once, for the page and the hero
     _accuracy_context(ctx, acc_rows)
     _features(ctx, data, layout, acc_rows)
@@ -222,8 +219,6 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
 def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list[dict]) -> None:
     """The numbers the Key Features grid quotes — from the same raw results as
     the tables (the grid falls back to plain text where a run is missing)."""
-    from mjolnir_cli import accuracy, e2e
-
     f: dict = {"geo": ctx.geo_vs_fi or None}
     off, mj = e2e.latest_pair(layout.history_file)
     h = e2e.hero(off, mj) if off and mj else None
@@ -256,8 +251,6 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list
 
 
 def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
-    from mjolnir_cli import accuracy
-
     if not rows:
         return
     bases = accuracy.baselines(rows)

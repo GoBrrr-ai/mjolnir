@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import re
 
+from mjolnir_cli import e2e
 from mjolnir_cli.labels import kvcache_label, spec_label
 from mjolnir_cli.readme.fmt import L_label, color, fmt_us, md_table, pct_md, ratio_md, ratio_pct
 from mjolnir_cli.verify import results
+from mjolnir_cli.verify.spec import best_k
 
 
 SHORT = {
@@ -219,8 +221,6 @@ def vs_vllm_table(off: dict, mj: dict) -> str | None:
     """Official vLLM image vs the Mjolnir image, every shared cell: each
     metric as 'official → mjolnir (gain)'; gain is positive when Mjolnir is
     better (faster decode/prefill, lower TTFT/ITL)."""
-    from mjolnir_cli import e2e
-
     rows = []
     for r in e2e.compare(off, mj, every=True):  # a cell one side lacks shows as "not measured", not dropped
         line = [f"{e2e.ctx_label(r['ctx'])}", str(r["conc"])]
@@ -280,8 +280,6 @@ def _kvcache_table(doc: dict) -> str:
 
 
 def _spec_table(doc: dict) -> str:
-    from mjolnir_cli.verify.spec import best_k
-
     rows = [r for r in doc.get("rows", []) if r.get("decode_tps")]
     best = {(cfg, c): r["k"] for (cfg, c), r in best_k(rows).items()}
     kmax = max((len(r.get("per_pos") or []) for r in rows), default=0)

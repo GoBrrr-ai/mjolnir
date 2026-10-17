@@ -6,6 +6,7 @@ from __future__ import annotations
 from mjolnir_cli.labels import kvcache_label, spec_label
 from mjolnir_cli.readme.fmt import L_label
 from mjolnir_cli.verify import results
+from mjolnir_cli.verify.spec import best_k
 from mjolnir_cli.verify.stages import NOISE_PCT
 
 
@@ -13,8 +14,6 @@ def findings(stage: str, doc: dict) -> list[str]:
     """Data-driven one-liners for the docs (no hand-written numbers)."""
     out: list[str] = []
     if stage == "spec":
-        from mjolnir_cli.verify.spec import best_k
-
         rows = [r for r in doc.get("rows", []) if r.get("decode_tps")]
         for (cfg, conc), b in sorted(best_k(rows).items()):
             ref = next((r for r in rows if r["config"] == cfg and r["concurrency"] == conc and r["k"] == 3), None)

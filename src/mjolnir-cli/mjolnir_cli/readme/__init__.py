@@ -43,6 +43,7 @@ from pathlib import Path
 
 import jinja2
 
+from mjolnir_cli import clidoc
 from mjolnir_cli.config import RepoLayout
 from mjolnir_cli.readme.context import ReadmeContext, collect_context
 from mjolnir_cli.readme.fmt import color
@@ -110,7 +111,6 @@ def render_readme(layout: RepoLayout, cli, template: Path | None = None, out: Pa
     if not tpl.exists():
         raise FileNotFoundError(f"README template not found: {tpl}")
     ctx = collect_context(layout)
-    from mjolnir_cli import clidoc
 
     cli_md = root / "docs" / "cli.md"
     cli_md.parent.mkdir(parents=True, exist_ok=True)
