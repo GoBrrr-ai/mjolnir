@@ -68,8 +68,13 @@ mjolnir bench perf          # benchmarks it (targets the served-model-name)
 ```
 
 `serve up --dry-run` is the no-risk way to check the wiring: you should see
-`-v …/configs/Meta/Llama-3.3-70B/NVFP4:/configs/Meta/Llama-3.3-70B/NVFP4:ro`
-in the printed command.
+`-v …/configs/Meta/Llama-3.3-70B:/configs-local/Meta/Llama-3.3-70B:ro` and
+`--config /configs-local/Meta/Llama-3.3-70B/NVFP4/config.yaml` in the printed
+command. A local config's whole model dir is mounted at
+`/configs-local/<vendor>/<model>` (beside the read-only `/configs`, which keeps
+the repo's chat templates reachable), so its model-level files —
+`kv_scales.json`, `draft_vocab.json` — reach the container the same way as a
+repo config's; `{configs}` in its `.env` expands to that dir.
 
 Promote a good local config to the repo when it's worth sharing: copy the
 config dir to `<repo>/configs/<vendor>/<model>/<quant>/` and commit it — the
