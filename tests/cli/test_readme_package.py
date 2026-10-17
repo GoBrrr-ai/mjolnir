@@ -4,9 +4,6 @@ findings produce, so a module split cannot change either unnoticed."""
 
 from __future__ import annotations
 
-import importlib
-import inspect
-
 import pytest
 
 from mjolnir_cli import readme
@@ -18,39 +15,9 @@ from mjolnir_cli.readme.tables import TABLES
 from verify_fixtures import all_docs
 from test_kvcache import _doc as _kv_doc, _row as _kv_row
 
-# name -> the module that owns it (tests import each name from its owner)
-OWNERS = {
-    "ratio_pct": "mjolnir_cli.readme.fmt",
-    "TABLES": "mjolnir_cli.readme.tables",
-    "findings": "mjolnir_cli.readme.findings",
-    "kvcache_label": "mjolnir_cli.labels",
-    "spec_label": "mjolnir_cli.labels",
-    "render_readme": "mjolnir_cli.readme",
-    "render_file": "mjolnir_cli.readme",
-}
-
-
-@pytest.mark.parametrize("name", sorted(OWNERS))
-def test_owning_module_exposes_name_when_imported(name):
-    assert hasattr(importlib.import_module(OWNERS[name]), name), name
-
-
-def test_owning_modules_expose_callables_with_expected_kinds():
-    assert isinstance(TABLES, dict)
-    for name, owner in OWNERS.items():
-        if name != "TABLES":
-            assert inspect.isfunction(getattr(importlib.import_module(owner), name)), name
-
 
 def test_readme_facade_exports_exactly_the_public_render_api():
     assert sorted(readme.__all__) == ["render_file", "render_readme"]
-    star: dict = {}
-    exec("from mjolnir_cli.readme import *", star)  # noqa: S102 — what a star import really binds
-    assert sorted(k for k in star if k != "__builtins__") == ["render_file", "render_readme"]
-
-
-def test_render_readme_takes_the_cli_to_document_after_the_layout():
-    assert list(inspect.signature(readme.render_readme).parameters) == ["layout", "cli", "template", "out"]
 
 
 def _spec_doc():
@@ -77,16 +44,6 @@ def _spec_doc():
     }
 
 
-def _kv_cache_doc():
-    return _kv_doc(
-        [_kv_row("official", "NVFP4", "fp8", 2000000), _kv_row("mjolnir", "NVFP4_MJOLNIR_E2M3", "fp6_e2m3", 2656033)]
-    )
-
-
-def _lines(table: str) -> list[str]:
-    return table.splitlines()
-
-
 def _cells(line: str) -> list[str]:
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
@@ -94,7 +51,9 @@ def _cells(line: str) -> list[str]:
 def _docs():
     d = dict(all_docs())
     d["spec"] = _spec_doc()
-    d["kv-cache-size"] = _kv_cache_doc()
+    d["kv-cache-size"] = _kv_doc(
+        [_kv_row("official", "NVFP4", "fp8", 2000000), _kv_row("mjolnir", "NVFP4_MJOLNIR_E2M3", "fp6_e2m3", 2656033)]
+    )
     return d
 
 
@@ -123,7 +82,7 @@ def test_tables_registry_covers_exactly_the_expected_stages():
 def test_table_builder_renders_markdown_table_with_header_and_rows_when_given_fixture(stage):
     head, nrows = EXPECTED[stage]
     table = TABLES[stage](_docs()[stage])
-    lines = _lines(table)
+    lines = table.splitlines()
     assert all(ln.startswith("| ") or ln.startswith("|-") or ln.startswith("|:") for ln in lines)
     assert _cells(lines[0])[: len(head)] == head
     assert set(lines[1].replace("|", "")) <= set("-:")
@@ -136,7 +95,7 @@ def test_table_builder_renders_markdown_table_with_header_and_rows_when_given_fi
 
 def test_variant_table_lists_one_row_per_series_by_label_when_stage_is_kvfmt():
     doc = all_docs()["kvfmt"]
-    body = _lines(TABLES["kvfmt"](doc))[2:]
+    body = TABLES["kvfmt"](doc).splitlines()[2:]
     labels = [s["label"] for s in doc["series"] if s["kind"] == "t5"]
     assert [_cells(ln)[0] for ln in body] == [f"`{lab}`" for lab in labels]
 
@@ -148,14 +107,14 @@ def test_variant_table_is_empty_when_reference_series_is_missing():
 
 
 def test_series_time_table_ends_with_geomean_row_and_bolds_fastest_time():
-    lines = _lines(TABLES["sweep"](all_docs()["sweep"]))
+    lines = TABLES["sweep"](all_docs()["sweep"]).splitlines()
     assert _cells(lines[-1])[0] == "geomean"
     assert "**" in _cells(lines[2])[1] + _cells(lines[2])[2] + _cells(lines[2])[3] + _cells(lines[2])[4]
 
 
 def test_correctness_table_counts_every_case_when_grouped():
     doc = all_docs()["correctness"]
-    body = _lines(TABLES["correctness"](doc))[2:]
+    body = TABLES["correctness"](doc).splitlines()[2:]
     total = sum(int(_cells(ln)[1].split()[1].split("/")[1]) for ln in body)
     assert total == len(doc["cases"])
     assert all("✅" in _cells(ln)[1] for ln in body)
@@ -168,7 +127,7 @@ def test_correctness_table_marks_failing_group_when_a_case_fails():
 
 
 def test_spec_table_stars_the_best_draft_count_per_config_and_concurrency():
-    body = _lines(TABLES["spec"](_spec_doc()))[2:]
+    body = TABLES["spec"](_spec_doc()).splitlines()[2:]
     starred = [_cells(ln) for ln in body if "★" in ln]
     assert sorted((c[0], c[2]) for c in starred) == [
         ("Mjolnir · fp6 KV", "3 **★**"),

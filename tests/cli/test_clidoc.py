@@ -49,9 +49,7 @@ def test_rst_conversion():
     assert clidoc._rst("``a <b>`` and <c>") == "`a <b>` and &lt;c&gt;"
 
 
-def test_reference_accepts_a_click_command_as_well_as_the_typer_app():
-    import typer.main
-
-    root = typer.main.get_command(app)
-    assert [c.path for c in clidoc.walk(root)] == [c.path for c in clidoc.walk(app)]
-    assert clidoc.reference(root) == clidoc.reference(app)
+def test_write_reference_writes_exactly_the_reference_to_docs_cli_md(tmp_path):
+    path = clidoc.write_reference(tmp_path, app)
+    assert path == tmp_path / "docs" / "cli.md"
+    assert path.read_text() == clidoc.reference(app)

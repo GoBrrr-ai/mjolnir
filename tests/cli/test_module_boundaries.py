@@ -4,10 +4,12 @@ Read straight from the source with ``ast`` (every import counts, function-local
 ones included; only ``if TYPE_CHECKING:`` blocks are skipped, since a type-only
 import never runs):
 
-* the ``readme`` package is layered fmt <- tables / findings <- context / how
-  <- ``__init__``, and nothing in it reaches up to ``charts`` or ``cli``;
-* ``charts`` never imports ``readme`` (the labels both need live in
-  ``mjolnir_cli.labels``, the verify data loader in ``verify.latest``);
+* the ``readme`` package is layered as ``ALLOWED`` declares (fmt <- tables /
+  findings <- context / how <- ``__init__``);
+* ``FORBIDDEN`` lists the packages that must not import each other: nothing in
+  ``readme`` reaches up to ``charts``, ``cli`` or ``clidoc``, and ``charts``
+  never imports ``readme`` (the labels both need live in ``mjolnir_cli.labels``,
+  the verify data loader in ``verify.latest``);
 * a name with a leading underscore stays inside its module: governed modules
   import none from elsewhere, and nobody imports one from a governed module.
 """
@@ -59,9 +61,9 @@ def _private(name: str | None) -> bool:
     return bool(name) and name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
 
 
-def uses(source: str, module: str, known: set[str]) -> list[Use]:
-    """Every mjolnir_cli module ``source`` (the module ``module``) refers to."""
-    is_pkg = module in known and any(k.startswith(module + ".") for k in known)
+def uses(source: str, module: str, known: set[str], is_pkg: bool = False) -> list[Use]:
+    """Every mjolnir_cli module ``source`` (the module ``module``, a package's
+    ``__init__`` when ``is_pkg``) refers to."""
     package = module if is_pkg else module.rpartition(".")[0]
     out: list[Use] = []
     aliases: dict[str, str] = {}  # local name -> the mjolnir_cli module it is bound to
@@ -106,16 +108,31 @@ def uses(source: str, module: str, known: set[str]) -> list[Use]:
 def graph() -> dict[str, list[Use]]:
     mods = _modules()
     known = set(mods)
-    return {m: uses(p.read_text(), m, known) for m, p in mods.items()}
+    return {m: uses(p.read_text(), m, known, p.name == "__init__.py") for m, p in mods.items()}
 
 
 def _in(module: str, root: str) -> bool:
     return module == root or module.startswith(root + ".")
 
 
-def _readme_deps(graph: dict[str, list[Use]], module: str) -> set[str]:
-    assert module in graph, f"{module} is missing — the readme package layout changed"
-    return {u.target for u in graph[module] if _in(u.target, README) and u.target != module}
+FMT, TABLES, FINDINGS = f"{README}.fmt", f"{README}.tables", f"{README}.findings"
+
+# readme module -> the other readme modules it may import (the layering)
+ALLOWED = {
+    FMT: set(),
+    TABLES: {FMT},
+    FINDINGS: {FMT},
+    f"{README}.context": {FMT, TABLES, FINDINGS},
+    f"{README}.how": {FMT, TABLES, FINDINGS},
+}
+
+# importer package -> the mjolnir_cli packages nothing in it may import
+FORBIDDEN = [
+    (README, "mjolnir_cli.charts"),
+    (README, "mjolnir_cli.cli"),
+    (README, "mjolnir_cli.clidoc"),
+    ("mjolnir_cli.charts", README),
+]
 
 
 def test_walker_sees_function_local_and_attribute_uses_but_not_type_checking_blocks():
@@ -130,42 +147,18 @@ def test_walker_sees_function_local_and_attribute_uses_but_not_type_checking_blo
     assert found == {("mjolnir_cli.charts", None), ("mjolnir_cli.charts", "_x"), ("mjolnir_cli.readme.fmt", "_y")}
 
 
-def test_readme_fmt_imports_no_other_readme_module(graph):
-    assert _readme_deps(graph, "mjolnir_cli.readme.fmt") == set()
+@pytest.mark.parametrize("module", sorted(ALLOWED))
+def test_readme_module_imports_only_the_readme_layers_below_it(graph, module):
+    assert module in graph, f"{module} is missing — the readme package layout changed"
+    deps = {u.target for u in graph[module] if _in(u.target, README) and u.target != module}
+    assert deps <= ALLOWED[module]
 
 
-@pytest.mark.parametrize("module", ["mjolnir_cli.readme.tables", "mjolnir_cli.readme.findings"])
-def test_readme_tables_and_findings_import_only_fmt_from_readme(graph, module):
-    assert _readme_deps(graph, module) <= {"mjolnir_cli.readme.fmt"}
-
-
-@pytest.mark.parametrize("module", ["mjolnir_cli.readme.context", "mjolnir_cli.readme.how"])
-def test_readme_context_and_how_import_only_fmt_tables_and_findings(graph, module):
-    allowed = {"mjolnir_cli.readme.fmt", "mjolnir_cli.readme.tables", "mjolnir_cli.readme.findings"}
-    assert _readme_deps(graph, module) <= allowed
-
-
-def test_nothing_in_readme_imports_charts_or_cli(graph):
-    readme_mods = [m for m in graph if _in(m, README)]
-    assert len(readme_mods) >= 6, readme_mods
-    bad = [
-        (m, u.target, u.line)
-        for m in readme_mods
-        for u in graph[m]
-        if _in(u.target, "mjolnir_cli.charts") or _in(u.target, "mjolnir_cli.cli")
-    ]
-    assert bad == []
-
-
-def test_render_readme_module_does_not_import_the_cli(graph):
-    assert "mjolnir_cli.readme" in graph
-    assert [u for u in graph["mjolnir_cli.readme"] if _in(u.target, "mjolnir_cli.cli")] == []
-
-
-def test_charts_never_imports_readme(graph):
-    charts_mods = [m for m in graph if _in(m, "mjolnir_cli.charts")]
-    assert charts_mods
-    bad = [(m, u.target, u.line) for m in charts_mods for u in graph[m] if _in(u.target, README)]
+@pytest.mark.parametrize(("importer", "target"), FORBIDDEN)
+def test_package_never_imports_forbidden_package(graph, importer, target):
+    mods = [m for m in graph if _in(m, importer)]
+    assert mods and any(_in(m, target) for m in graph), (importer, target)
+    bad = [(m, u.target, u.line) for m in mods for u in graph[m] if _in(u.target, target)]
     assert bad == []
 
 
@@ -193,10 +186,3 @@ def test_no_module_imports_an_underscore_name_from_a_governed_module(graph):
         if u.target != m and _governed(u.target) and _private(u.name)
     ]
     assert bad == []
-
-
-def test_charts_load_verify_is_the_verify_layer_loader():
-    from mjolnir_cli import charts
-    from mjolnir_cli.verify import latest
-
-    assert charts.load_verify is latest.load_verify

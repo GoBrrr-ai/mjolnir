@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from mjolnir_cli import charts, interactive, readme
-from mjolnir_cli.cli import app as mjolnir_app
 from mjolnir_cli.config import load_layout
 
 from verify_fixtures import write_all
@@ -59,7 +58,7 @@ def test_full_render_from_fixture_data(repo):
     ):
         assert name in manifest, name
         assert (repo / manifest[name]["light"]).exists() and (repo / manifest[name]["dark"]).exists()
-    readme.render_readme(layout, mjolnir_app)
+    readme.render_readme(layout)
     text = (repo / "README.md").read_text()
     assert "{{" not in text and "{%" not in text
     # the Docker Hub description: rendered too, absolute URLs only (Docker Hub
@@ -83,19 +82,26 @@ def test_full_render_from_fixture_data(repo):
 def test_render_without_verify_data_is_pending(repo):
     layout = load_layout()
     charts.render_all(layout)  # e2e charts only (history), no kernel charts
-    readme.render_readme(layout, mjolnir_app)
+    readme.render_readme(layout)
     text = (repo / "README.md").read_text()
     assert "Pending: `mjolnir verify sweep`" in text
     assert "Pending — run `mjolnir verify ring`" in (repo / "docs" / "kernel" / "ring.md").read_text()
+
+
+def test_render_readme_renders_templates_only_and_leaves_docs_cli_md_alone(repo):
+    layout = load_layout()
+    written = readme.render_readme(layout)
+    assert repo / "docs" / "cli.md" not in written
+    assert not (repo / "docs" / "cli.md").exists()
 
 
 def test_render_is_idempotent(repo):
     layout = load_layout()
     write_all(layout.verify_dir)
     charts.render_all(layout)
-    readme.render_readme(layout, mjolnir_app)
+    readme.render_readme(layout)
     first = (repo / "README.md").read_text()
-    readme.render_readme(layout, mjolnir_app)
+    readme.render_readme(layout)
     assert (repo / "README.md").read_text() == first
 
 
