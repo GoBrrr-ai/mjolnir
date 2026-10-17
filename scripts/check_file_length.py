@@ -4,12 +4,16 @@ Run as ``uv run scripts/check_file_length.py`` from anywhere inside the checkout
 All policy (limit, include globs, exempt globs, grandfathered ceilings) lives in
 ``[tool.mjolnir.file-length]``; nothing is hard-coded here.
 
+``--base REF`` also enforces the history rules against REF (ceilings only go down,
+no new entries); without it only current-state checks run and a stderr note says so.
+
 Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error.
 A clean run prints nothing.
 """
 
 from __future__ import annotations
 
+import argparse
 import fnmatch
 import re
 import subprocess
@@ -136,16 +140,70 @@ def check(root: Path) -> list[str]:
     return problems
 
 
-def main(argv: list[str] | None = None, root: Path | None = None) -> int:
-    # `argv` is accepted now so options such as --base can be added without a signature change.
-    del argv
+def _git_out(root: Path, *args: str) -> subprocess.CompletedProcess:
     try:
-        problems = check(root if root is not None else _repo_root())
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    except OSError as exc:
+        raise EnvError(f"cannot run git: {exc}") from exc
+
+
+def base_grandfathered(root: Path, ref: str) -> dict[str, int] | None:
+    """Grandfathered ceilings at `ref`, or None when that ref has no file-length table (bootstrap)."""
+    if _git_out(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
+        raise EnvError(f"--base {ref!r} does not resolve to a commit")
+    proc = _git_out(root, "show", f"{ref}:pyproject.toml")
+    if proc.returncode != 0:
+        return None  # no pyproject.toml at the base
+    try:
+        node = tomllib.loads(proc.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise EnvError(f"pyproject.toml at {ref!r} is unreadable: {exc}") from exc
+    for key in TABLE:
+        node = node.get(key) if isinstance(node, dict) else None
+    if not isinstance(node, dict):
+        return None
+    grand = node.get("grandfathered", {})
+    if not isinstance(grand, dict) or not all(isinstance(v, int) for v in grand.values()):
+        raise EnvError(f"[tool.mjolnir.file-length.grandfathered] at {ref!r} is malformed")
+    return grand
+
+
+def check_history(root: Path, ref: str) -> tuple[list[str], str | None]:
+    """Compare only the grandfathered sub-table against `ref`: ceilings only go down, no new entries."""
+    base = base_grandfathered(root, ref)
+    if base is None:
+        return (
+            [],
+            f"check_file_length: {ref} has no [tool.mjolnir.file-length] table; history check skipped (bootstrap)",
+        )
+    problems: list[str] = []
+    for path, ceiling in sorted(load_table(root)["grandfathered"].items()):
+        if path not in base:
+            problems.append(f"{path}: new grandfathered entry (ceiling {ceiling}) is not in {ref}; no new entries")
+        elif ceiling > base[path]:
+            problems.append(f"{path}: ceiling raised from {base[path]} in {ref} to {ceiling}; ceilings only go down")
+    return problems, None
+
+
+def main(argv: list[str] | None = None, root: Path | None = None) -> int:
+    parser = argparse.ArgumentParser(description="File-length ratchet.")
+    parser.add_argument("--base", metavar="REF", help="git ref whose grandfathered ceilings the table may not exceed")
+    args = parser.parse_args(argv)
+    try:
+        root = root if root is not None else _repo_root()
+        problems = check(root)
+        if args.base is None:
+            note = "check_file_length: no --base given; history check skipped"
+        else:
+            history, note = check_history(root, args.base)
+            problems += history
     except EnvError as exc:
         print(f"check_file_length: {exc}", file=sys.stderr)
         return 2
     for line in problems:
         print(line, file=sys.stderr)
+    if note:
+        print(note, file=sys.stderr)
     return 1 if problems else 0
 
 
