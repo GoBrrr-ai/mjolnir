@@ -71,12 +71,11 @@ jobs:
             lint-workflows:
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
-            # the file-length ratchet reads every tracked source, script and
-            # doc, plus the rules table in pyproject.toml
+            # the file-length ratchet's covered types, wherever they live
+            # (docker/vllm-thor/*.py too), plus the rules table in pyproject.toml
             file-length:
-              - 'src/**'
-              - 'tests/**'
-              - 'scripts/**'
+              - '**/*.py'
+              - '**/*.sh'
               - '**/*.md'
               - '**/*.j2'
               - 'pyproject.toml'
