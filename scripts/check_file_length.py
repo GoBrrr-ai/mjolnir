@@ -4,8 +4,9 @@ Run as ``uv run scripts/check_file_length.py`` from anywhere inside the checkout
 All policy (limit, include globs, exempt globs, grandfathered ceilings) lives in
 ``[tool.mjolnir.file-length]``; nothing is hard-coded here.
 
-``--base REF`` also enforces the history rules against REF (ceilings only go down,
-no new entries); without it only current-state checks run and a stderr note says so.
+``--base REF`` also enforces the history rules against REF: the table may only tighten
+(no higher limit, no wider exempt, no narrower include, no raised ceiling, no new
+entry); without it only current-state checks run and a stderr note says so.
 
 Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error.
 A clean run prints nothing.
@@ -59,25 +60,41 @@ def glob_match(pattern: str, path: str) -> bool:
     return _glob_regex(pattern).match(path) is not None
 
 
-def load_table(root: Path) -> dict:
+def parse_table(text: str, where: str) -> dict | None:
+    """The validated file-length table from pyproject.toml text, or None when it has none."""
     try:
-        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise EnvError(f"cannot read {root / 'pyproject.toml'}: {exc}") from exc
-    node = data
+        node = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise EnvError(f"pyproject.toml at {where} is unreadable: {exc}") from exc
     for key in TABLE:
         node = node.get(key) if isinstance(node, dict) else None
     if not isinstance(node, dict):
-        raise EnvError("pyproject.toml has no [tool.mjolnir.file-length] table")
+        return None
+    limit, grand = node.get("limit"), node.get("grandfathered", {})
+    include, exempt = node.get("include"), node.get("exempt")
+    bad = [k for k, v in (("include", include), ("exempt", exempt)) if not _str_list(v)]
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        bad.append("limit")
+    if not isinstance(grand, dict) or not all(isinstance(v, int) for v in grand.values()):
+        bad.append("grandfathered")
+    if bad:
+        raise EnvError(f"[tool.mjolnir.file-length] at {where} is malformed: {', '.join(bad)}")
+    return {"limit": limit, "include": include, "exempt": exempt, "grandfathered": dict(grand)}
+
+
+def _str_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+def load_table(root: Path) -> dict:
     try:
-        limit = node["limit"]
-        include, exempt = list(node["include"]), list(node["exempt"])
-        grand = dict(node.get("grandfathered", {}))
-    except (KeyError, TypeError, ValueError) as exc:
-        raise EnvError(f"[tool.mjolnir.file-length] is malformed: {exc!r}") from exc
-    if not isinstance(limit, int) or not all(isinstance(v, int) for v in grand.values()):
-        raise EnvError("[tool.mjolnir.file-length] limit and ceilings must be integers")
-    return {"limit": limit, "include": include, "exempt": exempt, "grandfathered": grand}
+        text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError as exc:
+        raise EnvError(f"cannot read {root / 'pyproject.toml'}: {exc}") from exc
+    table = parse_table(text, "the work tree")
+    if table is None:
+        raise EnvError("pyproject.toml has no [tool.mjolnir.file-length] table")
+    return table
 
 
 def tracked_files(root: Path) -> list[str]:
@@ -85,8 +102,9 @@ def tracked_files(root: Path) -> list[str]:
         proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", b"") or b""
-        raise EnvError(f"git ls-files failed in {root}: {exc} {detail.decode().strip()}") from exc
-    return [p for p in proc.stdout.decode("utf-8").split("\0") if p]
+        raise EnvError(f"git ls-files failed in {root}: {exc} {detail.decode(errors='replace').strip()}") from exc
+    # surrogateescape: a non-UTF-8 name round-trips to the same bytes on open()
+    return [p for p in proc.stdout.decode("utf-8", "surrogateescape").split("\0") if p]
 
 
 def is_covered(path: str, table: dict) -> bool:
@@ -117,7 +135,9 @@ def check(root: Path) -> list[str]:
             )
     for path in covered:
         n = measure(root, path)
-        if n is None:
+        if n is None:  # tracked but deleted from the work tree without `git rm`
+            if path in grand:
+                problems.append(f"{path}: grandfathered file is missing from the work tree; remove the entry")
             continue
         if path in grand:
             ceiling = grand[path]
@@ -147,41 +167,40 @@ def _git_out(root: Path, *args: str) -> subprocess.CompletedProcess:
         raise EnvError(f"cannot run git: {exc}") from exc
 
 
-def base_grandfathered(root: Path, ref: str) -> dict[str, int] | None:
-    """Grandfathered ceilings at `ref`, or None when that ref has no file-length table (bootstrap)."""
+def base_table(root: Path, ref: str) -> dict | None:
+    """The file-length table at `ref`, or None when that ref has none (bootstrap)."""
     if _git_out(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
         raise EnvError(f"--base {ref!r} does not resolve to a commit")
     proc = _git_out(root, "show", f"{ref}:pyproject.toml")
     if proc.returncode != 0:
         return None  # no pyproject.toml at the base
-    try:
-        node = tomllib.loads(proc.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        raise EnvError(f"pyproject.toml at {ref!r} is unreadable: {exc}") from exc
-    for key in TABLE:
-        node = node.get(key) if isinstance(node, dict) else None
-    if not isinstance(node, dict):
-        return None
-    grand = node.get("grandfathered", {})
-    if not isinstance(grand, dict) or not all(isinstance(v, int) for v in grand.values()):
-        raise EnvError(f"[tool.mjolnir.file-length.grandfathered] at {ref!r} is malformed")
-    return grand
+    return parse_table(proc.stdout.decode("utf-8", "replace"), repr(ref))
 
 
 def check_history(root: Path, ref: str) -> tuple[list[str], str | None]:
-    """Compare only the grandfathered sub-table against `ref`: ceilings only go down, no new entries."""
-    base = base_grandfathered(root, ref)
+    """The table may only tighten against `ref`: no higher limit, no wider exempt, no narrower
+    include, no raised ceiling, no new grandfathered entry."""
+    base = base_table(root, ref)
     if base is None:
         return (
             [],
             f"check_file_length: {ref} has no [tool.mjolnir.file-length] table; history check skipped (bootstrap)",
         )
+    now, tighten = load_table(root), "the ratchet only tightens"
     problems: list[str] = []
-    for path, ceiling in sorted(load_table(root)["grandfathered"].items()):
-        if path not in base:
+    if now["limit"] > base["limit"]:
+        problems.append(f"pyproject.toml: limit raised from {base['limit']} in {ref} to {now['limit']}; {tighten}")
+    for pat in sorted(set(now["exempt"]) - set(base["exempt"])):
+        problems.append(f"pyproject.toml: exempt pattern {pat!r} added (not in {ref}); {tighten}")
+    for pat in sorted(set(base["include"]) - set(now["include"])):
+        problems.append(f"pyproject.toml: include pattern {pat!r} removed (it is in {ref}); {tighten}")
+    for path, ceiling in sorted(now["grandfathered"].items()):
+        if path not in base["grandfathered"]:
             problems.append(f"{path}: new grandfathered entry (ceiling {ceiling}) is not in {ref}; no new entries")
-        elif ceiling > base[path]:
-            problems.append(f"{path}: ceiling raised from {base[path]} in {ref} to {ceiling}; ceilings only go down")
+        elif ceiling > base["grandfathered"][path]:
+            problems.append(
+                f"{path}: ceiling raised from {base['grandfathered'][path]} in {ref} to {ceiling}; ceilings only go down"
+            )
     return problems, None
 
 
@@ -200,8 +219,8 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     except EnvError as exc:
         print(f"check_file_length: {exc}", file=sys.stderr)
         return 2
-    for line in problems:
-        print(line, file=sys.stderr)
+    for line in problems:  # a non-UTF-8 path prints with U+FFFD rather than raising
+        print(line.encode("utf-8", "surrogateescape").decode("utf-8", "replace"), file=sys.stderr)
     if note:
         print(note, file=sys.stderr)
     return 1 if problems else 0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 from pathlib import Path
 
@@ -24,9 +25,18 @@ def lines(n: int, *, newline: bool = True) -> str:
     return "\n".join(f"x{i}" for i in range(n)) + ("\n" if newline and n else "")
 
 
-def table(grand: dict[str, int] | None = None, exempt: list[str] | None = None) -> str:
-    out = "[tool.mjolnir.file-length]\nlimit = %d\n" % LIMIT
-    out += 'include = ["*.py", "*.sh", "*.md"]\n'
+INCLUDE = ["*.py", "*.sh", "*.md"]
+
+
+def table(
+    grand: dict[str, int] | None = None,
+    exempt: list[str] | None = None,
+    *,
+    limit: int = LIMIT,
+    include: list[str] | None = None,
+) -> str:
+    out = "[tool.mjolnir.file-length]\nlimit = %d\n" % limit
+    out += "include = [%s]\n" % ", ".join(f'"{i}"' for i in (INCLUDE if include is None else include))
     out += "exempt = [%s]\n" % ", ".join(f'"{e}"' for e in (exempt or []))
     out += "[tool.mjolnir.file-length.grandfathered]\n"
     for path, ceiling in (grand or {}).items():
@@ -300,6 +310,71 @@ def test_unresolvable_base_is_environment_error(tmp_path, capsys):
     commit_base(r, table())
     code, out, err = run_base(r, capsys, base="no-such-ref")
     assert code == 2 and out == "" and "no-such-ref" in err
+
+
+def tightened_repo(tmp_path, base_toml, pr_toml, files=None):
+    r = make_repo(tmp_path, files or {"a.py": lines(3)}, toml=base_toml)
+    commit_base(r, base_toml)
+    (r / "pyproject.toml").write_text(pr_toml)
+    return r
+
+
+@pytest.mark.parametrize(
+    "pr_kwargs, words",
+    [
+        ({"limit": LIMIT + 1}, ["limit raised", f"{LIMIT} in HEAD to {LIMIT + 1}"]),
+        ({"exempt": ["a.py"]}, ["exempt", "a.py", "added"]),
+        ({"include": ["*.sh", "*.md"]}, ["include", "*.py", "removed"]),
+    ],
+)
+def test_loosening_the_rules_against_base_fails(tmp_path, capsys, pr_kwargs, words):
+    # raising the limit, exempting a file or narrowing include would bypass the ceilings
+    r = tightened_repo(tmp_path, table(), table(**pr_kwargs))
+    code, out, err = run_base(r, capsys)
+    assert code == 1 and out == "" and "the ratchet only tightens" in err
+    for w in words:
+        assert w in err
+
+
+@pytest.mark.parametrize(
+    "pr_kwargs",
+    [{"limit": LIMIT - 1}, {"include": INCLUDE + ["*.j2"]}],
+)
+def test_tightening_the_rules_against_base_passes(tmp_path, capsys, pr_kwargs):
+    r = tightened_repo(tmp_path, table(), table(**pr_kwargs), files={"a.py": lines(1)})
+    assert run_base(r, capsys) == (0, "", "")
+
+
+def test_removing_an_exempt_pattern_passes(tmp_path, capsys):
+    r = tightened_repo(tmp_path, table(exempt=["b.md"]), table())
+    assert run_base(r, capsys) == (0, "", "")
+
+
+def test_tracked_grandfathered_file_missing_from_worktree_fails(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(8)}, toml=table({"a.py": 8}))
+    (r / "a.py").unlink()  # deleted without `git rm`: still tracked
+    code, _, err = run(r, capsys)
+    assert code == 1 and "a.py" in err and "remove the entry" in err
+
+
+@pytest.mark.parametrize("size, expected", [(1, 0), (LIMIT + 1, 1)])
+def test_non_utf8_filename_is_checked_not_a_crash(tmp_path, capsys, size, expected):
+    r = make_repo(tmp_path, {})
+    name = b"caf\xe9.py"
+    with open(os.path.join(os.fsencode(r), name), "w") as f:
+        f.write(lines(size))
+    subprocess.run([b"git", b"-C", os.fsencode(r), b"add", name], check=True, capture_output=True)
+    code, out, err = run(r, capsys)
+    assert (code, out) == (expected, "")
+    assert ("caf" in err) == bool(expected)
+
+
+@pytest.mark.parametrize("key", ["include", "exempt"])
+def test_string_instead_of_list_is_malformed(tmp_path, capsys, key):
+    toml = table().replace(f"{key} = [", f'{key} = "*.py" #[')
+    r = make_repo(tmp_path, {"a.py": lines(1)}, toml=toml)
+    code, out, err = run(r, capsys)
+    assert code == 2 and out == "" and key in err
 
 
 def test_script_is_single_short_stdlib_file():
