@@ -101,7 +101,8 @@ skipped with a hint — nothing blocks on a password.
   a production server's flags, fp8 KV, DFlash K=12, official image only).
   Production shape: 262K, one sequence, 0.45. Keep the Qwen3.8 extras
   (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT, mamba align) out, and
-  no draft vocab: `MJOLNIR_DRAFT_VOCAB` on this model adds ~40 GB at startup.
+  no draft vocab: `MJOLNIR_DRAFT_VOCAB` on this model adds ~40 GB at startup
+  (#25). Open: a silent Thor hard hang with the E2M3 worker idle (#27).
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
