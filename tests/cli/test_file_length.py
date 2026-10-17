@@ -117,12 +117,59 @@ def test_grandfathered_stale_high_fails_with_lower_the_ceiling(tmp_path, capsys)
     assert "lower the ceiling to 7" in err
 
 
-def test_grandfathered_at_or_under_limit_fails_remove_entry(tmp_path, capsys):
-    r = make_repo(tmp_path, {"a.py": lines(LIMIT)}, toml=table({"a.py": 8}))
+@pytest.mark.parametrize("size", [LIMIT, LIMIT - 2])
+def test_grandfathered_within_limit_asks_to_set_ceiling_to_limit(tmp_path, capsys, size):
+    r = make_repo(tmp_path, {"a.py": lines(size)}, toml=table({"a.py": 8}))
     code, out, err = run(r, capsys)
     assert code == 1 and out == ""
     assert len(err.splitlines()) == 1
-    assert "a.py" in err and "remove the entry" in err and str(LIMIT) in err
+    assert "a.py" in err and f"set its ceiling to the limit ({LIMIT})" in err
+
+
+@pytest.mark.parametrize("size", [LIMIT, LIMIT - 2])
+def test_grandfathered_within_limit_at_limit_ceiling_passes(tmp_path, capsys, size):
+    # an entry parked at the limit is equivalent to no entry; a maintainer retires it
+    r = make_repo(tmp_path, {"a.py": lines(size)}, toml=table({"a.py": LIMIT}))
+    assert run(r, capsys) == (0, "", "")
+
+
+def run_fix(repo, capsys):
+    code = cfl.main(["--fix"], root=repo)
+    cap = capsys.readouterr()
+    return code, cap.out, cap.err, (repo / "pyproject.toml").read_text()
+
+
+def test_fix_retires_only_entries_parked_at_the_limit(tmp_path, capsys):
+    toml = table({"a.py": LIMIT, "b.py": 8}).replace('"a.py"', '# keep this comment\n"a.py"')
+    r = make_repo(tmp_path, {"a.py": lines(LIMIT - 2), "b.py": lines(8)}, toml=toml)
+    code, out, err, after = run_fix(r, capsys)
+    assert code == 0 and out == ""
+    assert '"a.py"' not in after and '"b.py" = 8' in after and "# keep this comment" in after
+    assert "a.py" in err and "retired" in err and "pyproject.toml" in err
+    assert cfl.parse_table(after, "test")["grandfathered"] == {"b.py": 8}
+
+
+@pytest.mark.parametrize(
+    "size, ceiling",
+    [(LIMIT - 2, 8), (LIMIT + 1, LIMIT + 1)],  # not parked at the limit / file above the limit
+)
+def test_fix_leaves_other_entries_alone(tmp_path, capsys, size, ceiling):
+    toml = table({"a.py": ceiling})
+    r = make_repo(tmp_path, {"a.py": lines(size)}, toml=toml)
+    _, _, err, after = run_fix(r, capsys)
+    assert after == toml and "retired" not in err
+
+
+def test_without_fix_nothing_is_written(tmp_path, capsys):
+    toml = table({"a.py": LIMIT})
+    r = make_repo(tmp_path, {"a.py": lines(1)}, toml=toml)
+    assert run(r, capsys) == (0, "", "")
+    assert (r / "pyproject.toml").read_text() == toml
+
+
+def test_ceiling_lowered_to_limit_against_base_passes(tmp_path, capsys):
+    r = history_repo(tmp_path, 8, LIMIT, LIMIT - 1)
+    assert run_base(r, capsys) == (0, "", "")
 
 
 def test_entry_for_missing_path_fails(tmp_path, capsys):

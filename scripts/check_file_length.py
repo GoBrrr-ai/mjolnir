@@ -6,7 +6,8 @@ All policy (limit, include globs, exempt globs, grandfathered ceilings) lives in
 
 ``--base REF`` also enforces the history rules against REF: the table may only tighten
 (no higher limit, no wider exempt, no narrower include, no raised ceiling, no new
-entry); without it only current-state checks run and a stderr note says so.
+entry); without it only current-state checks run and a stderr note says so. ``--fix``
+retires grandfathered entries parked at the limit (the pre-commit hook passes it).
 
 Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error.
 A clean run prints nothing.
@@ -34,25 +35,12 @@ def count_lines(data: bytes) -> int:
     return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
 
 
+_GLOB = {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}  # "**/" also matches zero dirs
+
+
 def _glob_regex(pattern: str) -> re.Pattern[str]:
-    out, i = [], 0
-    while i < len(pattern):
-        if pattern.startswith("**/", i):
-            out.append("(?:.*/)?")  # zero or more leading directories
-            i += 3
-        elif pattern.startswith("**", i):
-            out.append(".*")
-            i += 2
-        elif pattern[i] == "*":
-            out.append("[^/]*")
-            i += 1
-        elif pattern[i] == "?":
-            out.append("[^/]")
-            i += 1
-        else:
-            out.append(re.escape(pattern[i]))
-            i += 1
-    return re.compile("".join(out) + r"\Z")
+    parts = re.split(r"(\*\*/|\*\*|\*|\?)", pattern)
+    return re.compile("".join(_GLOB.get(p, re.escape(p)) for p in parts) + r"\Z")
 
 
 def glob_match(pattern: str, path: str) -> bool:
@@ -127,37 +115,50 @@ def check(root: Path) -> list[str]:
     tracked = set(tracked_files(root))
     covered = sorted(p for p in tracked if is_covered(p, table))
     problems: list[str] = []
+    bad = problems.append
     for path in sorted(grand):
         if path not in covered:
-            problems.append(
-                f"{path}: grandfathered entry (ceiling {grand[path]}) names no covered tracked "
-                f"file (lines n/a, limit {limit}); remove the entry"
-            )
+            bad(f"{path}: grandfathered entry names no covered tracked file; remove the entry")
     for path in covered:
         n = measure(root, path)
         if n is None:  # tracked but deleted from the work tree without `git rm`
             if path in grand:
-                problems.append(f"{path}: grandfathered file is missing from the work tree; remove the entry")
+                bad(f"{path}: grandfathered file is missing from the work tree; remove the entry")
             continue
-        if path in grand:
-            ceiling = grand[path]
-            if n <= limit:
-                problems.append(f"{path}: {n} lines is within the limit {limit} (ceiling {ceiling}); remove the entry")
-            elif n > ceiling:
-                problems.append(
-                    f"{path}: {n} lines exceeds its ceiling {ceiling} (limit {limit}); "
-                    "split the file, do not raise the ceiling"
-                )
-            elif n < ceiling:
-                problems.append(
-                    f"{path}: {n} lines is below its ceiling {ceiling} (limit {limit}); lower the ceiling to {n}"
-                )
-        elif n > limit:
-            problems.append(
-                f"{path}: {n} lines exceeds the limit {limit}; split the file "
-                "(or, if it is generated or data, add it to exempt)"
-            )
+        ceiling = grand.get(path)
+        if ceiling is not None and n <= limit:  # parked at the limit is fine; --fix retires it
+            if ceiling != limit:
+                bad(f"{path}: {n} lines is within the limit {limit}; set its ceiling to the limit ({limit})")
+        elif ceiling is not None and n > ceiling:
+            bad(f"{path}: {n} lines exceeds its ceiling {ceiling} (limit {limit}); split the file, keep the ceiling")
+        elif ceiling is not None and n < ceiling:
+            bad(f"{path}: {n} lines is below its ceiling {ceiling} (limit {limit}); lower the ceiling to {n}")
+        elif ceiling is None and n > limit:
+            bad(f"{path}: {n} lines exceeds the limit {limit}; split the file (generated or data: exempt it)")
     return problems
+
+
+def retire(root: Path) -> list[str]:
+    """--fix: drop grandfathered entries parked at the limit whose file is within it. Edits only
+    those lines of the grandfathered section, and writes only if the result re-parses to exactly
+    the old table minus those entries."""
+    table, head = load_table(root), "[tool.mjolnir.file-length.grandfathered]"
+    limit, grand = table["limit"], table["grandfathered"]
+    done = [p for p, c in sorted(grand.items()) if c == limit and (measure(root, p) or limit + 1) <= limit]
+    text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    if not done or text.count(head) != 1:
+        return []
+    start = text.index(head) + len(head)
+    end = text.find("\n[", start) + 1 or len(text)
+    body = text[start:end]
+    for p in done:
+        body = re.sub(rf'^"{re.escape(p)}"[ \t]*=[ \t]*{limit}[ \t]*(#.*)?\n', "", body, count=1, flags=re.M)
+    new = text[:start] + body + text[end:]
+    expected = {**table, "grandfathered": {p: c for p, c in grand.items() if p not in done}}
+    if parse_table(new, "the fixed work tree") != expected:
+        return []  # an unexpected layout: change nothing, the check below still reports
+    (root / "pyproject.toml").write_text(new, encoding="utf-8")
+    return [f"{p}: retired the grandfathered entry (within the limit {limit}); stage pyproject.toml" for p in done]
 
 
 def _git_out(root: Path, *args: str) -> subprocess.CompletedProcess:
@@ -194,22 +195,24 @@ def check_history(root: Path, ref: str) -> tuple[list[str], str | None]:
         problems.append(f"pyproject.toml: exempt pattern {pat!r} added (not in {ref}); {tighten}")
     for pat in sorted(set(base["include"]) - set(now["include"])):
         problems.append(f"pyproject.toml: include pattern {pat!r} removed (it is in {ref}); {tighten}")
+    was = base["grandfathered"]
     for path, ceiling in sorted(now["grandfathered"].items()):
-        if path not in base["grandfathered"]:
+        if path not in was:
             problems.append(f"{path}: new grandfathered entry (ceiling {ceiling}) is not in {ref}; no new entries")
-        elif ceiling > base["grandfathered"][path]:
-            problems.append(
-                f"{path}: ceiling raised from {base['grandfathered'][path]} in {ref} to {ceiling}; ceilings only go down"
-            )
+        elif ceiling > was[path]:
+            problems.append(f"{path}: ceiling raised from {was[path]} in {ref} to {ceiling}; ceilings only go down")
     return problems, None
 
 
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="File-length ratchet.")
     parser.add_argument("--base", metavar="REF", help="git ref whose grandfathered ceilings the table may not exceed")
+    parser.add_argument("--fix", action="store_true", help="retire grandfathered entries parked at the limit")
     args = parser.parse_args(argv)
     try:
         root = root if root is not None else _repo_root()
+        for line in retire(root) if args.fix else []:
+            print(line, file=sys.stderr)
         problems = check(root)
         if args.base is None:
             note = "check_file_length: no --base given; history check skipped"
@@ -227,16 +230,10 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
 
 
 def _repo_root() -> Path:
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            check=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise EnvError(f"not inside a git checkout: {exc}") from exc
-    return Path(out.stdout.strip())
+    out = _git_out(Path(__file__).resolve().parent, "rev-parse", "--show-toplevel")
+    if out.returncode != 0:
+        raise EnvError(f"not inside a git checkout: {out.stderr.decode(errors='replace').strip()}")
+    return Path(out.stdout.decode().strip())
 
 
 if __name__ == "__main__":
