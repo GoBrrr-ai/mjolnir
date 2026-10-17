@@ -47,3 +47,11 @@ mjolnir verify <stage>                # w
 
 def test_rst_conversion():
     assert clidoc._rst("``a <b>`` and <c>") == "`a <b>` and &lt;c&gt;"
+
+
+def test_reference_accepts_a_click_command_as_well_as_the_typer_app():
+    import typer.main
+
+    root = typer.main.get_command(app)
+    assert [c.path for c in clidoc.walk(root)] == [c.path for c in clidoc.walk(app)]
+    assert clidoc.reference(root) == clidoc.reference(app)

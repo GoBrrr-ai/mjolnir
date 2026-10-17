@@ -1,30 +1,56 @@
-"""Pins what mjolnir_cli.readme exposes and what its table builders / findings
-produce, so a module split cannot change either unnoticed."""
+"""Pins what the mjolnir_cli.readme package exposes (each name from the module
+that owns it, the facade only the render API) and what its table builders /
+findings produce, so a module split cannot change either unnoticed."""
 
 from __future__ import annotations
 
+import importlib
 import inspect
 
 import pytest
 
 from mjolnir_cli import readme
+from mjolnir_cli.labels import kvcache_label, spec_label
+from mjolnir_cli.readme.findings import findings
+from mjolnir_cli.readme.fmt import L_label, color, fmt_us, pct_md, ratio_md, ratio_pct
+from mjolnir_cli.readme.tables import TABLES
 
 from verify_fixtures import all_docs
 from test_kvcache import _doc as _kv_doc, _row as _kv_row
 
-SURFACE = ("ratio_pct", "TABLES", "_findings", "kvcache_label", "spec_label", "render_readme", "render_file")
+# name -> the module that owns it (tests import each name from its owner)
+OWNERS = {
+    "ratio_pct": "mjolnir_cli.readme.fmt",
+    "TABLES": "mjolnir_cli.readme.tables",
+    "findings": "mjolnir_cli.readme.findings",
+    "kvcache_label": "mjolnir_cli.labels",
+    "spec_label": "mjolnir_cli.labels",
+    "render_readme": "mjolnir_cli.readme",
+    "render_file": "mjolnir_cli.readme",
+}
 
 
-@pytest.mark.parametrize("name", SURFACE)
-def test_readme_module_exposes_name_when_imported(name):
-    assert hasattr(readme, name), name
+@pytest.mark.parametrize("name", sorted(OWNERS))
+def test_owning_module_exposes_name_when_imported(name):
+    assert hasattr(importlib.import_module(OWNERS[name]), name), name
 
 
-def test_readme_module_exposes_callables_with_expected_kinds():
-    assert isinstance(readme.TABLES, dict)
-    for name in SURFACE:
+def test_owning_modules_expose_callables_with_expected_kinds():
+    assert isinstance(TABLES, dict)
+    for name, owner in OWNERS.items():
         if name != "TABLES":
-            assert inspect.isfunction(getattr(readme, name)), name
+            assert inspect.isfunction(getattr(importlib.import_module(owner), name)), name
+
+
+def test_readme_facade_exports_exactly_the_public_render_api():
+    assert sorted(readme.__all__) == ["render_file", "render_readme"]
+    star: dict = {}
+    exec("from mjolnir_cli.readme import *", star)  # noqa: S102 — what a star import really binds
+    assert sorted(k for k in star if k != "__builtins__") == ["render_file", "render_readme"]
+
+
+def test_render_readme_takes_the_cli_to_document_after_the_layout():
+    assert list(inspect.signature(readme.render_readme).parameters) == ["layout", "cli", "template", "out"]
 
 
 def _spec_doc():
@@ -90,13 +116,13 @@ EXPECTED = {
 
 
 def test_tables_registry_covers_exactly_the_expected_stages():
-    assert set(readme.TABLES) == set(EXPECTED)
+    assert set(TABLES) == set(EXPECTED)
 
 
 @pytest.mark.parametrize("stage", sorted(EXPECTED))
 def test_table_builder_renders_markdown_table_with_header_and_rows_when_given_fixture(stage):
     head, nrows = EXPECTED[stage]
-    table = readme.TABLES[stage](_docs()[stage])
+    table = TABLES[stage](_docs()[stage])
     lines = _lines(table)
     assert all(ln.startswith("| ") or ln.startswith("|-") or ln.startswith("|:") for ln in lines)
     assert _cells(lines[0])[: len(head)] == head
@@ -110,7 +136,7 @@ def test_table_builder_renders_markdown_table_with_header_and_rows_when_given_fi
 
 def test_variant_table_lists_one_row_per_series_by_label_when_stage_is_kvfmt():
     doc = all_docs()["kvfmt"]
-    body = _lines(readme.TABLES["kvfmt"](doc))[2:]
+    body = _lines(TABLES["kvfmt"](doc))[2:]
     labels = [s["label"] for s in doc["series"] if s["kind"] == "t5"]
     assert [_cells(ln)[0] for ln in body] == [f"`{lab}`" for lab in labels]
 
@@ -118,18 +144,18 @@ def test_variant_table_lists_one_row_per_series_by_label_when_stage_is_kvfmt():
 def test_variant_table_is_empty_when_reference_series_is_missing():
     doc = all_docs()["ring"]
     doc = {**doc, "series": [s for s in doc["series"] if s["id"] != "fi"]}
-    assert readme.TABLES["ring"](doc) == ""
+    assert TABLES["ring"](doc) == ""
 
 
 def test_series_time_table_ends_with_geomean_row_and_bolds_fastest_time():
-    lines = _lines(readme.TABLES["sweep"](all_docs()["sweep"]))
+    lines = _lines(TABLES["sweep"](all_docs()["sweep"]))
     assert _cells(lines[-1])[0] == "geomean"
     assert "**" in _cells(lines[2])[1] + _cells(lines[2])[2] + _cells(lines[2])[3] + _cells(lines[2])[4]
 
 
 def test_correctness_table_counts_every_case_when_grouped():
     doc = all_docs()["correctness"]
-    body = _lines(readme.TABLES["correctness"](doc))[2:]
+    body = _lines(TABLES["correctness"](doc))[2:]
     total = sum(int(_cells(ln)[1].split()[1].split("/")[1]) for ln in body)
     assert total == len(doc["cases"])
     assert all("✅" in _cells(ln)[1] for ln in body)
@@ -138,11 +164,11 @@ def test_correctness_table_counts_every_case_when_grouped():
 def test_correctness_table_marks_failing_group_when_a_case_fails():
     doc = all_docs()["correctness"]
     doc = {**doc, "cases": [{**c, "passed": False} if i == 0 else c for i, c in enumerate(doc["cases"])]}
-    assert "❌" in readme.TABLES["correctness"](doc)
+    assert "❌" in TABLES["correctness"](doc)
 
 
 def test_spec_table_stars_the_best_draft_count_per_config_and_concurrency():
-    body = _lines(readme.TABLES["spec"](_spec_doc()))[2:]
+    body = _lines(TABLES["spec"](_spec_doc()))[2:]
     starred = [_cells(ln) for ln in body if "★" in ln]
     assert sorted((c[0], c[2]) for c in starred) == [
         ("Mjolnir · fp6 KV", "3 **★**"),
@@ -151,25 +177,25 @@ def test_spec_table_stars_the_best_draft_count_per_config_and_concurrency():
 
 
 def test_spec_label_maps_known_configs_and_passes_unknown_through():
-    assert readme.spec_label("NVFP4") == "official vLLM · FlashInfer fp8"
-    assert readme.spec_label("NVFP4_MJOLNIR") == "Mjolnir · fp8 KV"
-    assert readme.spec_label("custom_cfg") == "custom_cfg"
+    assert spec_label("NVFP4") == "official vLLM · FlashInfer fp8"
+    assert spec_label("NVFP4_MJOLNIR") == "Mjolnir · fp8 KV"
+    assert spec_label("custom_cfg") == "custom_cfg"
 
 
 def test_kvcache_label_names_official_and_mjolnir_sides_with_extras():
-    assert readme.kvcache_label({"side": "official", "backend": "flashinfer", "kv_dtype": "fp8"}) == (
+    assert kvcache_label({"side": "official", "backend": "flashinfer", "kv_dtype": "fp8"}) == (
         "official vLLM · FlashInfer · fp8 KV"
     )
-    assert readme.kvcache_label({"side": "mjolnir", "kv_dtype": "fp6_e2m3", "config": "A_LMH8_VT64K"}) == (
+    assert kvcache_label({"side": "mjolnir", "kv_dtype": "fp6_e2m3", "config": "A_LMH8_VT64K"}) == (
         "Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab"
     )
 
 
 def test_ratio_pct_colors_by_noise_band_and_flips_sign_for_latency():
-    assert "#16a34a" in readme.ratio_pct(10.0) and "+10.0" in readme.ratio_pct(10.0)
-    assert "#dc2626" in readme.ratio_pct(-10.0) and "−10.0" in readme.ratio_pct(-10.0)
-    assert "−10.0" in readme.ratio_pct(10.0, higher_better=False)
-    assert readme.ratio_pct(None) == "—"
+    assert "#16a34a" in ratio_pct(10.0) and "+10.0" in ratio_pct(10.0)
+    assert "#dc2626" in ratio_pct(-10.0) and "−10.0" in ratio_pct(-10.0)
+    assert "−10.0" in ratio_pct(10.0, higher_better=False)
+    assert ratio_pct(None) == "—"
 
 
 # stage -> substrings that must each appear in some finding sentence
@@ -191,54 +217,54 @@ FINDINGS = {
 
 @pytest.mark.parametrize("stage", sorted(FINDINGS))
 def test_findings_returns_sentences_for_fixture_run(stage):
-    found = readme._findings(stage, _docs()[stage])
+    found = findings(stage, _docs()[stage])
     assert found and all(isinstance(f, str) and f.endswith((".", ")")) for f in found)
     for needle in FINDINGS[stage]:
         assert any(needle in f for f in found), (stage, needle, found)
 
 
 def test_findings_is_empty_when_stage_has_no_data():
-    assert readme._findings("quant", {"rows": []}) == []
-    assert readme._findings("unknown-stage", {}) == []
+    assert findings("quant", {"rows": []}) == []
+    assert findings("unknown-stage", {}) == []
 
 
 def test_fmt_us_formats_none_submillisecond_and_millisecond_values_exactly():
-    assert readme.fmt_us(None) == "—"
-    assert readme.fmt_us(0.5) == "0.5&nbsp;µs"
-    assert readme.fmt_us(12.34) == "12.3&nbsp;µs"
-    assert readme.fmt_us(999.9) == "999.9&nbsp;µs"
-    assert readme.fmt_us(1234.5) == "1.23&nbsp;ms"
-    assert readme.fmt_us(64200) == "64.20&nbsp;ms"
+    assert fmt_us(None) == "—"
+    assert fmt_us(0.5) == "0.5&nbsp;µs"
+    assert fmt_us(12.34) == "12.3&nbsp;µs"
+    assert fmt_us(999.9) == "999.9&nbsp;µs"
+    assert fmt_us(1234.5) == "1.23&nbsp;ms"
+    assert fmt_us(64200) == "64.20&nbsp;ms"
 
 
 def test_l_label_uses_k_suffix_only_for_whole_kibibyte_values():
-    assert readme.L_label(128) == "128"
-    assert readme.L_label(1500) == "1500"
-    assert readme.L_label(1024) == "1K"
-    assert readme.L_label(131072) == "128K"
+    assert L_label(128) == "128"
+    assert L_label(1500) == "1500"
+    assert L_label(1024) == "1K"
+    assert L_label(131072) == "128K"
 
 
 def test_ratio_md_renders_exact_latex_for_win_noise_and_loss():
-    assert readme.ratio_md(None) == "—"
-    assert readme.ratio_md(1.5) == "$\\color{#16a34a}{\\mathbf{1.50\\times}}$"
-    assert readme.ratio_md(1.5, bold_wins=False) == "$\\color{#16a34a}{1.50\\times}$"
-    assert readme.ratio_md(1.0) == "$\\color{grey}{1.00\\times}$"
-    assert readme.ratio_md(0.9) == "$\\color{#dc2626}{0.90\\times}$"
+    assert ratio_md(None) == "—"
+    assert ratio_md(1.5) == "$\\color{#16a34a}{\\mathbf{1.50\\times}}$"
+    assert ratio_md(1.5, bold_wins=False) == "$\\color{#16a34a}{1.50\\times}$"
+    assert ratio_md(1.0) == "$\\color{grey}{1.00\\times}$"
+    assert ratio_md(0.9) == "$\\color{#dc2626}{0.90\\times}$"
 
 
 def test_pct_md_renders_exact_latex_and_flips_color_with_direction():
-    assert readme.pct_md(None) == "—"
-    assert readme.pct_md(-3.0) == "$\\color{#16a34a}{\\text{−3.0\\\\%}}$"
-    assert readme.pct_md(3.0) == "$\\color{#dc2626}{\\text{+3.0\\\\%}}$"
-    assert readme.pct_md(3.0, lower_is_better=False) == "$\\color{#16a34a}{\\text{+3.0\\\\%}}$"
-    assert readme.pct_md(0.5) == "$\\color{grey}{\\text{+0.5\\\\%}}$"
+    assert pct_md(None) == "—"
+    assert pct_md(-3.0) == "$\\color{#16a34a}{\\text{−3.0\\\\%}}$"
+    assert pct_md(3.0) == "$\\color{#dc2626}{\\text{+3.0\\\\%}}$"
+    assert pct_md(3.0, lower_is_better=False) == "$\\color{#16a34a}{\\text{+3.0\\\\%}}$"
+    assert pct_md(0.5) == "$\\color{grey}{\\text{+0.5\\\\%}}$"
 
 
 def test_color_wraps_text_in_grey_scriptstyle_latex_by_default():
-    assert readme.color("x") == "$\\color{grey}\\scriptstyle\\text{x}$"
-    assert readme.color("x", "red") == "$\\color{red}\\scriptstyle\\text{x}$"
+    assert color("x") == "$\\color{grey}\\scriptstyle\\text{x}$"
+    assert color("x", "red") == "$\\color{red}\\scriptstyle\\text{x}$"
 
 
 def test_series_time_table_renders_exact_markdown_for_hndsweep_fixture():
     expected = "| L | FlashInfer | FlashInfer HND | Mjolnir fp8 | fp8 vs FI | fp8 vs FI-HND |\n|---|--:|--:|--:|--:|--:|\n| **128** | 25.4&nbsp;µs | 25.3&nbsp;µs | **13.6&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.87\\times}}$ | $\\color{#16a34a}{\\mathbf{1.86\\times}}$ |\n| **4K** | 64.2&nbsp;µs | 61.0&nbsp;µs | **55.1&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.17\\times}}$ | $\\color{#16a34a}{\\mathbf{1.11\\times}}$ |\n| **8K** | 103.0&nbsp;µs | 96.0&nbsp;µs | **87.7&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.17\\times}}$ | $\\color{#16a34a}{\\mathbf{1.09\\times}}$ |\n| **16K** | 191.5&nbsp;µs | 175.4&nbsp;µs | **169.6&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.13\\times}}$ | $\\color{#16a34a}{\\mathbf{1.03\\times}}$ |\n| **32K** | 371.9&nbsp;µs | **344.8&nbsp;µs** | 354.7&nbsp;µs | $\\color{#16a34a}{\\mathbf{1.05\\times}}$ | $\\color{grey}{0.97\\times}$ |\n| **64K** | 763.4&nbsp;µs | 716.9&nbsp;µs | **676.3&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.13\\times}}$ | $\\color{#16a34a}{\\mathbf{1.06\\times}}$ |\n| **128K** | 1.37&nbsp;ms | 1.31&nbsp;ms | **1.27&nbsp;ms** | $\\color{#16a34a}{\\mathbf{1.08\\times}}$ | $\\color{#16a34a}{\\mathbf{1.03\\times}}$ |\n| **256K** | 2.56&nbsp;ms | 2.53&nbsp;ms | **2.40&nbsp;ms** | $\\color{#16a34a}{\\mathbf{1.07\\times}}$ | $\\color{#16a34a}{\\mathbf{1.05\\times}}$ |\n| geomean |  |  |  | $\\color{#16a34a}{\\mathbf{1.19\\times}}$ | $\\color{#16a34a}{\\mathbf{1.13\\times}}$ |"
-    assert readme.TABLES["hndsweep"](all_docs()["hndsweep"]) == expected
+    assert TABLES["hndsweep"](all_docs()["hndsweep"]) == expected

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from mjolnir_cli import accuracy, charts, dockerctl, readme
+from mjolnir_cli.cli import app as mjolnir_app
 from mjolnir_cli.config import load_layout
 
 REPO = Path(__file__).resolve().parents[2]
@@ -227,7 +228,7 @@ def test_accuracy_page_and_charts_render(repo):
     manifest = charts.render_all(layout)
     for name in ("accuracy-suites", "accuracy-categories"):
         assert name in manifest and (repo / manifest[name]["dark"]).exists()
-    readme.render_readme(layout)
+    readme.render_readme(layout, mjolnir_app)
     page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
     assert "{{" not in page and "{%" not in page
     assert "| **official vLLM · FlashInfer · bf16 KV** |" in page
@@ -243,7 +244,7 @@ def test_two_model_page_compares_within_each_model(repo):
     _write_two_model_run(layout.raw_dir)
     manifest = charts.render_all(layout)
     assert "accuracy-suites" in manifest and "accuracy-categories" in manifest
-    readme.render_readme(layout)
+    readme.render_readme(layout, mjolnir_app)
     page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
     assert "| **Qwen3.8-27B · official vLLM · FlashInfer · bf16 KV** |" in page
     assert "| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · " in page
@@ -321,7 +322,7 @@ def test_page_marks_an_excluded_scenario(repo):
     p = layout.raw_dir / "accuracy" / "20261017-131320" / "accuracy.json"
     p.parent.mkdir(parents=True)
     p.write_text(json.dumps({"format": accuracy.FORMAT, "run_id": "20261017-131320", "args": [], "legs": [off, mj]}))
-    readme.render_readme(layout)
+    readme.render_readme(layout, mjolnir_app)
     page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
     assert "90.4 (-1.4‡)" in page and "80.4 (+3.6)" in page
     assert "Tool calls -1.4‡" in page
@@ -332,7 +333,7 @@ def test_page_marks_an_excluded_scenario(repo):
 
 def test_accuracy_page_pending_without_runs(repo):
     layout = load_layout()
-    readme.render_readme(layout)
+    readme.render_readme(layout, mjolnir_app)
     assert "Pending — run `mjolnir bench accuracy`" in (repo / "docs" / "kernel" / "accuracy.md").read_text()
 
 
