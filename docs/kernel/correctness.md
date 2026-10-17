@@ -1,6 +1,6 @@
 # Correctness matrix
 
-> kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype · `mjolnir verify correctness` · run `20261017-204010`
+> kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype · `mjolnir verify correctness` · run `20261017-214527`
 
 ## The question
 
@@ -15,18 +15,18 @@ Before any speed number counts, the kernel has to compute the same thing as atte
 
 ## Result
 
-- **97 / 97** checks pass (kernel output and LSE vs the bit-faithful emulator, poisoned unused pages must stay NaN-free).
+- **94 / 94** checks pass (kernel output and LSE vs the bit-faithful emulator, poisoned unused pages must stay NaN-free).
 
 | case group | passed | Q dtypes |
 |---|--:|---|
-| shapes / batches | ✅ 29/29 | bf16, fp8 |
+| shapes / batches | ✅ 28/28 | bf16, fp8 |
 | scheduling / paging | ✅ 14/14 | bf16, fp8 |
-| KV layouts / strides | ✅ 19/19 | bf16, fp8 |
+| KV layouts / strides | ✅ 18/18 | bf16, fp8 |
 | launch options | ✅ 14/14 | bf16, fp8 |
-| KV formats | ✅ 11/11 | fp8 |
+| KV formats | ✅ 10/10 | fp8 |
 | default config | ✅ 10/10 | bf16, fp8 |
 
-<sub>Rendered from [`benchmarks/raw/verify/correctness/20261017-204010.json`](../../benchmarks/raw/verify/correctness/20261017-204010.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/correctness/20261017-214527.json`](../../benchmarks/raw/verify/correctness/20261017-214527.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

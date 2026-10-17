@@ -296,9 +296,10 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       ≥64K only) and **not the 16K–32K hole** — that was an ncu artifact
       (identical launches flip ±25% under replay; fp6prof averaged 2–3 of them;
       fixed 2026-10-17: fastest-launch snapshot, wall shows a flat 0.84–0.86×
-      fp8 at every L) and not the block table (E2a `--bt_lookahead`: no win).
-      What remains is a uniform ~10–17% latency floor vs the byte ratio at
-      every L (`docs/kernel/fp6prof.md`, ranked ideas in `research/program.md`).
+      fp8 at every L) and not the block table (E2a readahead: no win, impl in
+      git history `39fa326`). What remains is a uniform ~10–17% latency floor
+      vs the byte ratio at every L (`docs/kernel/fp6prof.md`, ranked ideas in
+      `research/program.md`).
 - [x] Fuse the split-KV merge into the last CTA per sequence — tried
       (autoresearch run 1): 0.56× at 4K; retired in favour of a cheaper merge.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).

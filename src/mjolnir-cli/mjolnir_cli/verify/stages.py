@@ -482,14 +482,6 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
         "--descale per_tensor --pad_work_to 40",
         BOTH,
     ),
-    # E2a block-table readahead (PS=128 path; fp8-Q only — narrow KV needs it)
-    ("bt_lookahead 8, e2m3 HND varlen", "@default --batches 2 --seqlen 16384 --varlen --bt_lookahead 8", FP8),
-    ("bt_lookahead 8, L=65536 (window wrap)", "@default --seqlen 65536 --bt_lookahead 8", FP8),
-    (
-        "bt_lookahead 8, fp8 HND q_len=2",
-        "--batches 3 --seqlen 9000 --varlen --q_len 2 --kv_layout hnd --bt_lookahead 8",
-        FP8,
-    ),
 ]
 
 
@@ -509,7 +501,6 @@ QUICK_CASES = (
     "default: varlen 6x<=20000",
     "evict + PDL q_len=3 + pad",
     "non-causal q_len=8 (drafter block)",
-    "bt_lookahead 8, e2m3 HND varlen",
 )
 
 

@@ -2,7 +2,7 @@
 
 > How a paged fp8 decode-attention kernel was built for one GPU — the Jetson AGX Thor (`sm_110`, 20 SMs, 32 MiB L2, ~273 GB/s LPDDR5X) — and measured step by step against FlashInfer and FlashAttention 2. Every chart and table on these pages is rendered from raw results in [`benchmarks/raw/verify/`](../../benchmarks/raw/verify/) by `mjolnir plot --readme`; every chapter ends with the command that reproduces it.
 
-**Where it stands:** 1.24× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.00× FlashAttention 2, 97 / 97 correctness checks — run `20261012-202029`.
+**Where it stands:** 1.24× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.00× FlashAttention 2, 94 / 94 correctness checks — run `20261012-202029`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -62,7 +62,7 @@ flowchart LR
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261017-204010` |
+| 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261017-214527` |
 | 2 | [Headline L-sweep](sweep.md) | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L | ✅ run `20261012-202029` |
 | 3 | [Head-major pages](hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261012-203356` |
 | 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261012-203801` |
