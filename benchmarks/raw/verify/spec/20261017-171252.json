@@ -1,0 +1,229 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "spec",
+ "run_id": "20261017-171252",
+ "ts": "2026-10-17T17:34:06+00:00",
+ "default": false,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.31.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "bb96b82",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "legs": "mjolnir:NVFP4_MJOLNIR_E2M3",
+  "drafts": "1 5",
+  "concurrency": "1 4",
+  "max_tokens": 256,
+  "long_words": 6000,
+  "prompts": 13,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.31.0-ubuntu2404",
+ "rows": [
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3-k1",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 1,
+   "concurrency": 1,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 37.69,
+   "decode_tps": 97.82,
+   "agg_tps": 88.293,
+   "ttft_ms": 289.4,
+   "ttft_p50_ms": 133.8,
+   "ttft_list_ms": [
+    131.6,
+    137.5,
+    472.7,
+    132.9,
+    518.7,
+    133.1,
+    138.5,
+    128.8,
+    147.4,
+    128.8,
+    133.8,
+    131.9,
+    1426.6
+   ],
+   "acceptance_length": 1.886,
+   "acceptance_rate": 0.8864,
+   "per_pos": [
+    0.8864
+   ],
+   "drafts": 1761,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3-k1",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 1,
+   "concurrency": 4,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 37.04,
+   "decode_tps": 96.283,
+   "agg_tps": 89.85,
+   "ttft_ms": 7301.0,
+   "ttft_p50_ms": 8504.0,
+   "ttft_list_ms": [
+    146.7,
+    2940.5,
+    5686.9,
+    8450.1,
+    8386.4,
+    8472.9,
+    8529.6,
+    8692.2,
+    8661.1,
+    8649.5,
+    8545.8,
+    8504.0,
+    9246.8
+   ],
+   "acceptance_length": 1.887,
+   "acceptance_rate": 0.8874,
+   "per_pos": [
+    0.8874
+   ],
+   "drafts": 1759,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3-k5",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 5,
+   "concurrency": 1,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 33.91,
+   "decode_tps": 109.606,
+   "agg_tps": 98.153,
+   "ttft_ms": 264.3,
+   "ttft_p50_ms": 160.1,
+   "ttft_list_ms": [
+    145.4,
+    172.0,
+    160.1,
+    144.9,
+    210.9,
+    149.1,
+    171.6,
+    157.5,
+    163.7,
+    154.8,
+    141.5,
+    161.3,
+    1502.6
+   ],
+   "acceptance_length": 3.916,
+   "acceptance_rate": 0.5833,
+   "per_pos": [
+    0.8565,
+    0.7059,
+    0.5612,
+    0.4388,
+    0.3541
+   ],
+   "drafts": 850,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3-k5",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 5,
+   "concurrency": 4,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 32.61,
+   "decode_tps": 112.357,
+   "agg_tps": 102.055,
+   "ttft_ms": 6477.2,
+   "ttft_p50_ms": 7352.7,
+   "ttft_list_ms": [
+    154.2,
+    3088.8,
+    5797.6,
+    8334.0,
+    8096.3,
+    7685.8,
+    7556.4,
+    7352.7,
+    7742.1,
+    7257.0,
+    7051.6,
+    6370.9,
+    7715.9
+   ],
+   "acceptance_length": 3.671,
+   "acceptance_rate": 0.5342,
+   "per_pos": [
+    0.8328,
+    0.6447,
+    0.505,
+    0.3861,
+    0.3025
+   ],
+   "drafts": 909,
+   "preemptions": 0
+  }
+ ],
+ "cases": [
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3-k1",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-171252/spec/mjolnir-NVFP4_MJOLNIR_E2M3-k1.log"
+  },
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3-k5",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-171252/spec/mjolnir-NVFP4_MJOLNIR_E2M3-k5.log"
+  }
+ ],
+ "summary": {
+  "NVFP4_MJOLNIR_E2M3 c=1": {
+   "k": 5,
+   "decode_tps": 109.606,
+   "acceptance_length": 3.916
+  },
+  "NVFP4_MJOLNIR_E2M3 c=4": {
+   "k": 5,
+   "decode_tps": 112.357,
+   "acceptance_length": 3.671
+  }
+ }
+}

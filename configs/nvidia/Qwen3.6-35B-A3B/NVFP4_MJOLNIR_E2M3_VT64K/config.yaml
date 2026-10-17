@@ -1,0 +1,38 @@
+# NVFP4_MJOLNIR_E2M3_VT64K — the VT-only cell of the drafter-head decomposition on
+# top of NVFP4_MJOLNIR_E2M3: same serving flags, plus (via the .env sidecar) the
+# calibrated 64K draft vocab (../draft_vocab.json, 2026-10-17: 165,888 generated
+# tokens, 9,831 distinct; top-65536 covers 96.11% of held-out generations). The
+# drafter's kept rows stay bf16 — no MJOLNIR_LM_HEAD here, unlike
+# NVFP4_MJOLNIR_E2M3_LMH8_VT64K. Running both spec legs splits the acceptance cost
+# of trimming (missing 75% of the vocab) from the e4m3 re-round of the kept rows.
+# The target verifies with its own full logits, so spec decode stays lossless and
+# target quality is untouched. The #25 blowup (VT on a quantized head adding
+# ~40 GB within 2 s of model load, Thor hung twice) predates the native-quant VT
+# path; the LMH8_VT64K retest came up healthy — this is the second cell.
+model: nvidia/Qwen3.6-35B-A3B-NVFP4
+served-model-name: nvidia/Qwen3.6-35B-A3B-NVFP4
+
+quantization: modelopt
+trust-remote-code: true
+
+# ── Memory: same shape as NVFP4_DFLASH (single user, embed/rerank alongside) ─
+max-model-len: 262144
+max-num-seqs: 1
+gpu-memory-utilization: 0.45
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention ────────────────────────────────────────────────────────────
+# Mjolnir decode kernel on decode steps, FlashAttention 4 for prefill / mixed
+# steps; `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs.
+attention-backend: MJOLNIR
+
+# ── KV Cache: fp6 e2m3 (25% fewer KV bytes than fp8) ─────────────────────
+kv-cache-dtype: fp6_e2m3
+
+# ── Speculative Decoding — MTP (built-in head), K=5 ─────────────────────
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 5

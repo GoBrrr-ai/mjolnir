@@ -1,0 +1,269 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "vllm",
+ "run_id": "20261017-133018",
+ "ts": "2026-10-17T13:40:36+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.31.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "ecd05a2",
+  "dirty": true
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "smoke_modes": "graph eager e2m3 lmh8",
+  "model": "Qwen/Qwen3-0.6B",
+  "tokens": 128,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.31.0-ubuntu2404",
+ "cases": [
+  {
+   "label": "runner test_cuda_graph_replay_pdl_evict_first",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_cuda_graph_replay_with_new_plan",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_draft_vocab_dispatch",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_draft_vocab_native_head",
+   "passed": false,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_draft_vocab_quantized_head",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_draft_vocab_trim",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_flash_attn_layout_q2_bf16",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_flash_attn_layout_q2_fp8",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_flashinfer_hnd_page128",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_flashinfer_nhd_per_head_fp8",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp6_expand_is_exact",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp6_expand_with_ratio",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp6_runner_per_channel",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp6_runner_vs_emulator",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp6_write_matches_reference",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp6_write_per_channel",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fp8_native_slice",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_full_wave_no_split",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_fused_qpack_matches_torch",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_head_dim_128",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_kernel_disk_cache_roundtrip",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_kv_evict_first",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_l2_prefetch_page128_bf16_pdl",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_l2_prefetch_page16",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_layout_detection",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_lmhead_fp8_is_faster_than_bf16",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_lmhead_fp8_matches_reference",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_lmhead_quantize_rows_chunked_matches_whole",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_mtp_verify_shape_fp8",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_padding_rows_are_zero",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_pdl",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_plan_margin_covers_draft_steps",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_single_kv_head",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_vllm_main_layout_bf16",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_vllm_main_layout_fp8",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/test_runner.log"
+  },
+  {
+   "label": "smoke graph",
+   "passed": true,
+   "mean_match": 0.19,
+   "worst_prefix": 4,
+   "mean_dlp": 0.032,
+   "max_dlp": 0.234,
+   "near_ties": 8,
+   "divergences": 8,
+   "worst_gap": 0.25,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/smoke-graph.log"
+  },
+  {
+   "label": "smoke eager",
+   "passed": true,
+   "mean_match": 0.31,
+   "worst_prefix": 3,
+   "mean_dlp": 0.024,
+   "max_dlp": 0.315,
+   "near_ties": 7,
+   "divergences": 7,
+   "worst_gap": 0.5,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/smoke-eager.log"
+  },
+  {
+   "label": "smoke e2m3",
+   "passed": true,
+   "mean_match": 0.25,
+   "worst_prefix": 1,
+   "mean_dlp": 0.026,
+   "max_dlp": 0.362,
+   "near_ties": 7,
+   "divergences": 7,
+   "worst_gap": 0.375,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/smoke-e2m3.log"
+  },
+  {
+   "label": "smoke lmh8",
+   "passed": true,
+   "mean_match": 0.2,
+   "worst_prefix": 5,
+   "mean_dlp": 0.042,
+   "max_dlp": 0.33,
+   "near_ties": 8,
+   "divergences": 8,
+   "worst_gap": 0.375,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-133018/vllm/smoke-lmh8.log"
+  }
+ ],
+ "summary": {
+  "passed": 38,
+  "failed": 1
+ }
+}
