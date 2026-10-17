@@ -109,6 +109,11 @@ and the `logs …` path the harness printed.
   not start, or edit anything except through `@python-engineer`/`@debugger`. The
   shell is open for reading and for the harness; the permission list closes the
   rest — if a command is denied, it is denied on purpose, don't route around it.
+- **Respect the file-length limit.** `[tool.mjolnir.file-length]` in
+  `pyproject.toml` caps hand-written files; the rule is in `AGENTS.md`
+  ("Critical rules"). Before a commit, have
+  `uv run scripts/check_file_length.py --base origin/main` pass, and reject a
+  hypothesis diff that would grow a file past the cap instead of splitting it.
 - **Read the per-L line, not just the geomean.** The decision is per L; so is your
   next hypothesis (short L and long L are different bottlenecks — program.md).
 - **noisy** is not a verdict: evaluate the same commit again.
