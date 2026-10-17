@@ -153,7 +153,7 @@ skipped with a hint — nothing blocks on a password.
     `results.py` (the `mjolnir.verify/1` schema), `report.py`, `cli.py`.
   - `drivers/` — the FlashInfer (NHD/HND) and FA2 benchmark drivers run in the
     image.
-  - `charts.py` + `theme.py` (every chart; the design system), `readme.py`
+  - `charts.py` + `theme.py` (every chart; the design system), `readme.py` + `readme_tables.py` + `readme_context.py` + `readme_fmt.py`
     (README/docs rendering: tables, findings, `chart()`), `interactive.py`
     (the Plotly site), `autoresearch.py`.
   - `hatch_build.py` bundles `configs/`, `docker/litellm`, `docker/perses`,
@@ -209,8 +209,8 @@ uv run mjolnir plot --site _site          # the interactive page (pages.yml publ
 ```
 New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir
 orange, FlashInfer blue, FA2 aqua — never ad-hoc colors; light + dark variants),
-registered in `render_all`; new table → `readme.py` `TABLES`; reference both from
-the template. Sentences that state a result come from `readme.py` findings,
+registered in `render_all`; new table → `readme_tables.py` `TABLES`; reference both from
+the template. Sentences that state a result come from `readme_tables.py` findings,
 not hand-typed numbers.
 
 ### End to end
@@ -389,7 +389,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   reduction, never the reciprocal speedup); × is a ratio of times (kernel:
   reference ÷ Mjolnir) or of throughputs (≥ +100% on the infographic). Every
   table / figure with % or × gets a `{{ how("<kind>") }}` panel
-  (`readme.py` `_HOW`) that states the formula.
+  (`readme_context.py` `_HOW`) that states the formula.
 - **Lint:** `uvx ruff@0.14.14 check src/ tests/` + `format` (pre-commit runs it).
 - **Container output:** containers run as root; a file one writes into a host
   mount (the checkout) is handed back with `build_run_args(..., chown=...)` /
