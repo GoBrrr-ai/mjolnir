@@ -63,9 +63,6 @@ exempt = [
     "docs/kernel/*.md",
     "docs/cli.md",
     "assets/benchmarks/**",
-    "**/*.json",
-    "**/*.jsonl",
-    "uv.lock",
     "docker/vllm-thor/patches/**",
 ]
 
