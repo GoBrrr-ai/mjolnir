@@ -1,6 +1,6 @@
 # Accuracy
 
-> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-131320`, `20261017-180105`
+> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-131320`, `20261017-180105`, `20261017-210613`
 
 ## The question
 
@@ -28,7 +28,8 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 - **Qwen3.8-27B · Mjolnir · fp8 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
 - **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
 - **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls -0.7, Hard Mode +3.6 points (3 scenarios scored lower, 3 higher of 97).
-- **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls -1.4‡, Hard Mode +3.6 points (4 scenarios scored lower, 3 higher of 97).
+- **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls +0.0, Hard Mode +0.0 points (3 scenarios scored lower, 2 higher of 97).
+- **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls +0.7, Hard Mode -3.6 points (4 scenarios scored lower, 3 higher of 97).
 
 | config | KV | Tool calls % | Hard Mode % | completion |
 |---|---|--:|--:|--:|
@@ -37,7 +38,8 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
 | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 96.4 (-0.7) | 85.7 (+3.6) | 100% |
 | **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV** | fp8 | 90.6 | 76.8 | 100% |
-| Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 90.4 (-1.4‡) | 80.4 (+3.6) | 99% |
+| Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 90.6 (+0.0) | 76.8 (+0.0) | 100% |
+| Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 91.3 (+0.7) | 73.2 (-3.6) | 100% |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -48,7 +50,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 </details><br />
 
-<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; ‡ = tool-eval-bench excluded a scenario on one of the two legs; the delta scores both on the full max, the excluded points counting as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../benchmarks/raw/accuracy/20261017-131320/accuracy.json), [`benchmarks/raw/accuracy/20261017-180105/accuracy.json`](../../benchmarks/raw/accuracy/20261017-180105/accuracy.json).</sub>
+<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../benchmarks/raw/accuracy/20261017-131320/accuracy.json), [`benchmarks/raw/accuracy/20261017-180105/accuracy.json`](../../benchmarks/raw/accuracy/20261017-180105/accuracy.json), [`benchmarks/raw/accuracy/20261017-210613/accuracy.json`](../../benchmarks/raw/accuracy/20261017-210613/accuracy.json).</sub>
 
 ### By tool-call category
 
@@ -57,26 +59,24 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
   <img src="../../assets/benchmarks/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
 </picture>
 
-| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV ‡ |
-|---|--:|--:|--:|--:|--:|--:|
-| A · Tool Selection | 100 | 100 | 100 | 100 | 100 | 100 |
-| B · Parameter Precision | 100 | 100 | 100 | 100 | 100 | 100 |
-| C · Multi-Step Chains | 100 | 100 | 100 | 100 | 100 | 100 |
-| D · Restraint & Refusal | 100 | 100 | 100 | 100 | 83 | 83 |
-| E · Error Recovery | 100 | 100 | 100 | 100 | 83 | 83 |
-| F · Localization | 100 | 100 | 100 | 100 | 100 | 100 |
-| G · Structured Reasoning | 100 | 100 | 100 | 100 | 100 | 100 |
-| H · Instruction Following | 100 | 100 | 100 | 100 | 100 | 100 |
-| I · Context & State | 90 | 95 | 100 | 90 | 85 | 80 |
-| J · Code Patterns | 100 | 100 | 100 | 100 | 100 | 83 |
-| K · Safety & Boundaries | 100 | 88 | 100 | 96 | 85 | 92 |
-| L · Toolset Scale | 100 | 100 | 100 | 100 | 88 | 88 |
-| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 83 |
-| N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 |
-| O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 |
-| P · Hard Mode | 82 | 79 | 84 | 86 | 77 | 80 |
-
-<sub>‡ = this leg had a scenario excluded: its category % divides by the smaller max, so one category reads high.</sub>
+| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| A · Tool Selection | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| B · Parameter Precision | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| C · Multi-Step Chains | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| D · Restraint & Refusal | 100 | 100 | 100 | 100 | 83 | 100 | 83 |
+| E · Error Recovery | 100 | 100 | 100 | 100 | 83 | 83 | 83 |
+| F · Localization | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| G · Structured Reasoning | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| H · Instruction Following | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| I · Context & State | 90 | 95 | 100 | 90 | 85 | 70 | 75 |
+| J · Code Patterns | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| K · Safety & Boundaries | 100 | 88 | 100 | 96 | 85 | 92 | 92 |
+| L · Toolset Scale | 100 | 100 | 100 | 100 | 88 | 88 | 88 |
+| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 83 | 100 |
+| N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 | 83 |
+| P · Hard Mode | 82 | 79 | 84 | 86 | 77 | 77 | 73 |
 
 <sub>Share of points per category, %. A category has 2–10 scenarios: one scenario moving from pass to partial shifts it by 5–25 points — read single cells as anecdotes, the totals as the result.</sub>
 
