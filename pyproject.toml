@@ -13,7 +13,7 @@
 name = "mjolnir-workspace"
 version = "0"
 description = "Mjolnir monorepo root — not published (see src/mjolnir and src/mjolnir-cli)."
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "mjolnir-cli[plot]",
     "mjolnir-kernel",
@@ -36,7 +36,7 @@ mjolnir-kernel = { workspace = true }
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint.per-file-ignores]
 # The CuTe-DSL kernel follows CUTLASS/FlashAttention conventions: the DSL's
@@ -51,3 +51,25 @@ testpaths = ["tests"]
 # PR's changed files, so recorded paths must be repo-relative — coverage.py
 # defaults to absolute, which the action cannot match.
 relative_files = true
+
+# File-length ratchet: covered files may not exceed `limit` lines. Ceilings only
+# go down; an entry is removed once its file is <= limit; see AGENTS.md.
+[tool.mjolnir.file-length]
+limit = 1000
+include = ["*.py", "*.sh", "*.j2", "*.md"]
+exempt = [
+    "README.md",
+    "docker/vllm-thor/README.md",
+    "docs/kernel/*.md",
+    "docs/cli.md",
+    "assets/benchmarks/**",
+    "docker/vllm-thor/patches/**",
+]
+
+[tool.mjolnir.file-length.grandfathered]
+"src/mjolnir/mjolnir/t5_decode.py" = 2990
+"src/mjolnir-cli/mjolnir_cli/charts.py" = 1714
+"src/mjolnir-cli/mjolnir_cli/cli.py" = 1482
+"scripts/hw/setup-thor.sh" = 1287
+"src/mjolnir-cli/mjolnir_cli/readme.py" = 1064
+"tests/kernel/test_runner.py" = 1081

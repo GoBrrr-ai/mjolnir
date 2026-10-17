@@ -57,6 +57,18 @@ it is removed — gated on a
 rule; `mjolnir drop-caches` clears on demand). Without the grant the clear is
 skipped with a hint — nothing blocks on a password.
 
+### Keep hand-written files under the length limit
+
+**Keep every hand-written file within the `limit` in `[tool.mjolnir.file-length]`
+(root `pyproject.toml`); every line counts.**
+
+- When a file nears the limit, split it along its natural seam in a
+  **separate commit** first.
+- A grandfathered file keeps its ceiling equal to its line count, so the
+  ceiling moves down as the file shrinks. Once the file is within the limit,
+  set its ceiling to the limit; the pre-commit hook retires the entry.
+- Before committing, run `uv run scripts/check_file_length.py --base origin/main`.
+
 ## Current state
 
 - **The kernel** (`src/mjolnir/`, PyPI `mjolnir-kernel`): CuTe-DSL paged decode

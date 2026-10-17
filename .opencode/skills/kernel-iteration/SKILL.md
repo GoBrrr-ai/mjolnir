@@ -18,6 +18,10 @@ Use this when changing the kernel or its defaults by hand (the autonomous loop i
 - Same-run ratio differences under ±3% are noise (`NOISE_PCT`; L=16K is
   bimodal — never decide on it alone); compare legs
   measured *in the same run*.
+- Keep hand-written files under the length limit in `[tool.mjolnir.file-length]`
+  (root `pyproject.toml`); split before you grow a file near it, and run
+  `uv run scripts/check_file_length.py --base origin/main` before committing.
+  The rule is in `AGENTS.md`, "Critical rules".
 
 ## The loop
 

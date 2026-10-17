@@ -33,3 +33,13 @@ repos:
         files: ^(src|tests)/
       - id: ruff-format
         files: ^(src|tests)/
+  # whole repo, same script as CI, rules in pyproject.toml; --fix retires
+  # grandfathered entries parked at the limit (stage pyproject.toml, commit again)
+  - repo: local
+    hooks:
+      - id: file-length
+        name: file-length ratchet
+        entry: uv run scripts/check_file_length.py --base HEAD --fix
+        language: system
+        pass_filenames: false
+        always_run: true
