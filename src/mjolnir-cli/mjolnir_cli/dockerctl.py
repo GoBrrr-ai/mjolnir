@@ -22,6 +22,7 @@ from mjolnir_cli.config import (
     CONTAINER_NAME,
     HFCacheError,
     Settings,
+    _env_int,
     config_field,
     configs_root,
     host_hf_hub,
@@ -262,6 +263,28 @@ def _container_path(s: Settings, host: Path) -> str:
         return f"/configs/{s.model}/{rel}"
 
 
+BOOT_DELAY_S = 120
+
+
+def boot_delay_prefix() -> str:
+    """Shell head for every vLLM container: wait until the *host* has been up
+    ``$MJOLNIR_BOOT_DELAY_S`` seconds (default 120; 0 disables) before vLLM
+    starts. ``/proc/uptime`` is not namespaced, so inside the container it is
+    the host's uptime. A box that hangs while serving and is power-cycled
+    then boots with the GPU idle for two minutes — long enough to ssh in and
+    stop a container that a restart policy would otherwise bring straight
+    back into the same hang (Thor, thor-arena/mjolnir#27). No wait at all
+    once the host is past the delay."""
+    delay = max(_env_int("MJOLNIR_BOOT_DELAY_S", BOOT_DELAY_S), 0)
+    if delay == 0:
+        return ""
+    return (
+        f'up=$(cut -d. -f1 /proc/uptime); if [ "$up" -lt {delay} ]; then '
+        f'echo "mjolnir: host up ${{up}}s, holding vLLM until {delay}s (MJOLNIR_BOOT_DELAY_S)"; '
+        f"sleep $(({delay} - up)); fi; "
+    )
+
+
 def build_run_args(
     s: Settings,
     image: str | None = None,
@@ -365,10 +388,10 @@ def build_run_args(
             continue  # optional host files (e.g. /etc/nv_tegra_release)
         cmd += ["-v", f"{host}:{container}"]
     if command is not None:
-        return [*cmd, image, "-lc", command + owner_suffix(chown)]
+        return [*cmd, image, "-lc", boot_delay_prefix() + command + owner_suffix(chown)]
     cmd += ["-p", f"{s.port}:8000"]
 
-    serve = (
+    serve = boot_delay_prefix() + (
         "vllm serve "
         f"--config /configs/{s.model}/{s.quant}/config.yaml "
         "--host 0.0.0.0 "

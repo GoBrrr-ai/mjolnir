@@ -48,6 +48,11 @@ mjolnir serve up --dry-run     # print the exact docker run, do nothing
 - Mounts `configs/` read-only at `/configs` inside the container; the serve
   command is `vllm serve --config /configs/<model>/<quant>/config.yaml …`
   (add your local config: [new-model-config.md](new-model-config.md)).
+- Holds vLLM until the **host** has been up 2 minutes (`MJOLNIR_BOOT_DELAY_S`,
+  default `120`, `0` turns it off). Mid-session there is no wait. After a hang
+  and a power cycle, it leaves time to `ssh` in and stop a container that a
+  restart policy would bring straight back
+  ([#27](https://github.com/thor-arena/mjolnir/issues/27)).
 
 ## Sanity check after up
 
