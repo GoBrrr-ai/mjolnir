@@ -80,7 +80,7 @@ def test_vocab_sidecar_env_with_configs_expansion(tmp_path, monkeypatch):
     # {configs} expands to the model's dir (the sidecar's parent in the container)
     (cfg / ".env").write_text("MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json\nMJOLNIR_DRAFT_VOCAB_SIZE=32768\n")
     env = dockerctl.config_env(Settings(model=model, quant=quant))
-    assert "MJOLNIR_DRAFT_VOCAB=/configs/Vend/Test/draft_vocab.json" in env
+    assert "MJOLNIR_DRAFT_VOCAB=/configs-local/Vend/Test/draft_vocab.json" in env
     assert "MJOLNIR_DRAFT_VOCAB_SIZE=32768" in env
 
 

@@ -116,6 +116,13 @@ def container_running(name: str = CONTAINER_NAME) -> bool:
     return out == "true"
 
 
+def container_exists(name: str = CONTAINER_NAME) -> bool:
+    """Running or not: a stopped container (``--restart no``, left behind when
+    the host crashed or rebooted mid-serve) still holds the name."""
+    code, _ = _run_quiet([_docker(), "inspect", "-f", "{{.State.Status}}", name])
+    return code == 0
+
+
 # Mjolnir reads K/V fastest from head-major pages (each KV head's page is one
 # contiguous block): +11-17% decode at long context in `mjolnir verify
 # hndsweep`. vLLM allocates that layout (LBHNC) with VLLM_KV_CACHE_LAYOUT=HND;
@@ -240,7 +247,7 @@ def config_env(s: Settings) -> list[str]:
     side = s.config_path.parent / ".env"
     if not side.exists():
         return []
-    cdir = f"/configs/{s.model}"
+    cdir = config_model_dir(s)
     out = []
     for line in side.read_text().splitlines():
         line = line.split("#", 1)[0].strip()
@@ -250,16 +257,32 @@ def config_env(s: Settings) -> list[str]:
     return out
 
 
+LOCAL_CONFIGS_MOUNT = "/configs-local"
+
+
+def is_local_config(s: Settings) -> bool:
+    """The active config is user-local (not in the repo / bundled configs)."""
+    return s.config_path != configs_root() / s.model / s.quant / "config.yaml" and s.config_path.exists()
+
+
+def config_model_dir(s: Settings) -> str:
+    """The model's config dir as the container sees it: ``/configs/<model>`` for a
+    repo config; for a user-local one its whole model dir is mounted at
+    ``/configs-local/<model>`` — outside the read-only ``/configs`` mount, where
+    Docker cannot create mountpoints for a vendor/model the repo doesn't have."""
+    return f"{LOCAL_CONFIGS_MOUNT}/{s.model}" if is_local_config(s) else f"/configs/{s.model}"
+
+
 def _container_path(s: Settings, host: Path) -> str:
     """A file under the configs dir, as the container sees it."""
     try:
         return "/configs/" + str(Path(host).relative_to(configs_root()))
-    except ValueError:  # user-local file: mirror its position under /configs/<model>/
+    except ValueError:  # user-local file: its position under the mounted model dir
         try:
             rel = str(Path(host).relative_to(user_configs_dir() / s.model))
         except ValueError:
             rel = Path(host).name
-        return f"/configs/{s.model}/{rel}"
+        return f"{LOCAL_CONFIGS_MOUNT}/{s.model}/{rel}"
 
 
 def build_run_args(
@@ -349,16 +372,11 @@ def build_run_args(
     if hf_hub is not None:
         mounts.append((str(hf_hub), HF_DOWNLOAD_DIR))
     # A user-local model config (outside the repo's configs/) is mounted as
-    # its config dir on top of the /configs mount (the more-specific mount
-    # wins): config.yaml + its .env sidecar, and its own scales when it has
-    # them.
-    local_cfg = s.config_path
-    repo_cfg = configs_root() / s.model / s.quant / "config.yaml"
-    if local_cfg != repo_cfg and local_cfg.exists():
-        mounts.append((str(local_cfg.parent), f"/configs/{s.model}/{s.quant}:ro"))
-        scales = kv_scales_host_path(s)
-        if scales.exists() and scales.parent != local_cfg.parent:
-            mounts.append((str(scales), f"/configs/{s.model}/{scales.name}:ro"))
+    # its whole model dir at /configs-local/<model> (config dirs + the model's
+    # kv_scales.json / draft_vocab.json), beside — not inside — the read-only
+    # /configs mount; repo files (chat templates) stay reachable under /configs.
+    if is_local_config(s):
+        mounts.append((str(user_configs_dir() / s.model), f"{config_model_dir(s)}:ro"))
     mounts += list(extra_mounts)
     for host, container in mounts:
         if host.startswith("/data") is False and not Path(host).exists() and not host.startswith(("/dev/shm", "/etc/")):
@@ -370,7 +388,7 @@ def build_run_args(
 
     serve = (
         "vllm serve "
-        f"--config /configs/{s.model}/{s.quant}/config.yaml "
+        f"--config {config_model_dir(s)}/{s.quant}/config.yaml "
         "--host 0.0.0.0 "
         "--cpu-offload-gb 0 "
         "--pipeline-parallel-size 1 "
@@ -457,6 +475,9 @@ def serve_up(
     if container_running():
         print("container already running — stopping the old one first")
         serve_down(s)
+    elif container_exists():
+        print("removing a stopped container left by an earlier run")
+        _run_quiet([_docker(), "rm", "-f", CONTAINER_NAME])
     _run(cmd)
     if wait:
         wait_healthy(s, wait_timeout_s)
@@ -464,7 +485,11 @@ def serve_up(
 
 def serve_down(s: Settings, dry_run: bool = False) -> None:
     if not container_running():
-        print("nothing to stop (container not running)")
+        if container_exists() and not dry_run:
+            _run_quiet([_docker(), "rm", "-f", CONTAINER_NAME])
+            print("removed a stopped container (not running)")
+        else:
+            print("nothing to stop (container not running)")
         return
     if dry_run:
         print(f"{_docker()} rm -f {CONTAINER_NAME}")
