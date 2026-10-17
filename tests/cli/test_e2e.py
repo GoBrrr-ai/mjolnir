@@ -18,8 +18,8 @@ def _cell(conc, ctx, tg, pp, ttfr):
     }
 
 
-def _rec(image, config, epoch, cells):
-    return {"image": image, "config": config, "epoch": epoch, "backend": "x", "cells": cells}
+def _rec(image, config, epoch, cells, model="Qwen/Qwen3.8-27B"):
+    return {"model": model, "image": image, "config": config, "epoch": epoch, "backend": "x", "cells": cells}
 
 
 def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
@@ -303,3 +303,15 @@ def test_compare_pairs_the_requested_models_runs(tmp_path, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["cells"][0]["tg_tps"][:2] == [80.0, 130.0]  # Qwen3.6's pair, not Qwen3.8's 20 vs 30
     assert "NVFP4_DFLASH" in out["official"]
+
+
+def test_a_run_without_model_is_never_the_default_models(tmp_path):
+    """No default model: a history record without `model` pairs with nothing."""
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 0, 20, 0, 100)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 30, 0, 90)], model=None),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
+    assert off["epoch"] == 1 and mj is None

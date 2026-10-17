@@ -39,7 +39,7 @@ from pathlib import Path
 
 import jinja2
 
-from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout, by_model
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import ALL_LS, NOISE_PCT, STAGES
 
@@ -791,12 +791,15 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
                 if h["itl_ms"][2] is not None
                 else "—",
             }
-    _accuracy_context(ctx, layout)
-    _features(ctx, data, layout)
+    from mjolnir_cli import accuracy
+
+    acc_rows = accuracy.latest_legs(accuracy.load_runs(layout))  # read once, for the page and the hero
+    _accuracy_context(ctx, acc_rows)
+    _features(ctx, data, layout, acc_rows)
     return ctx
 
 
-def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
+def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list[dict]) -> None:
     """The numbers the Key Features grid quotes — from the same raw results as
     the tables (the grid falls back to plain text where a run is missing)."""
     from mjolnir_cli import accuracy, e2e
@@ -822,15 +825,13 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
         )
         if base and fp6:
             f["kv"] = f"+{(fp6['kv_tokens'] / base['kv_tokens'] - 1) * 100:.0f}%"
-    rows = accuracy.latest_legs(accuracy.load_runs(layout))
-    rows = [r for r in rows if r.get("model", DEFAULT_MODEL) == DEFAULT_MODEL]  # the hero names one baseline
-    if rows:
+    rows = by_model(acc_rows).get(DEFAULT_MODEL, [])  # the hero names one model's baseline
+    b = accuracy.baseline(rows)
+    if b:
+        mine = [r for r in rows if r is not b and str(r.get("config", "")).startswith("NVFP4_MJOLNIR")]
         deltas = [
             abs(r["suites"][n]["score"] - b["suites"][n]["score"])
-            for r in rows
-            if str(r.get("config", "")).startswith("NVFP4_MJOLNIR")
-            and (b := accuracy.baseline_for(rows, r)) is not None
-            and b is not r
+            for r in mine
             for n in ("tools", "hardmode")
             if n in r["suites"] and n in b["suites"]
         ]
@@ -839,15 +840,14 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
     ctx.feat = f
 
 
-def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
+def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     from mjolnir_cli import accuracy
 
-    rows = accuracy.latest_legs(accuracy.load_runs(layout))
     if not rows:
         return
-    bases = {id(r): b for r, b in zip(rows, accuracy.baselines(rows))}
+    bases = accuracy.baselines(rows)
     names = accuracy.suites_in(rows)
-    ctx.accuracy_baseline = " / ".join(accuracy.baseline_labels(list(bases.values())))
+    ctx.accuracy_baseline = accuracy.baseline_caption(bases)
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
     for r in rows:
@@ -855,11 +855,10 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
             args.setdefault(n, " ".join(v.get("args") or []))
     ctx.accuracy_args = [(accuracy.suite_label(n), args[n]) for n in names if n in args]
 
-    def cell(r: dict, n: str) -> str:
+    def cell(r: dict, base: dict | None, n: str) -> str:
         v = (r["suites"].get(n) or {}).get("score")
         if v is None:
             return "—"
-        base = bases[id(r)]
         b = (base["suites"].get(n) or {}).get("score") if base else None
         out = f"{v:.1f}"
         if (r.get("suites", {}).get(n) or {}).get("n", 1) > 1:
@@ -870,11 +869,11 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
 
     head = ["config", "KV", *[f"{accuracy.suite_label(n)} %" for n in names], "completion"]
     body = []
-    for r in rows:
+    for r, base in zip(rows, bases):
         comp = [x.get("completion_rate") for x in r["suites"].values() if x.get("completion_rate") is not None]
-        label = f"**{r['label']}**" if r is bases[id(r)] else r["label"]
+        label = f"**{r['label']}**" if r is base else r["label"]
         kv = str(r.get("kv_cache_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3").replace("auto", "bf16")
-        body.append([label, kv, *[cell(r, n) for n in names], f"{min(comp):.0f}%" if comp else "—"])
+        body.append([label, kv, *[cell(r, base, n) for n in names], f"{min(comp):.0f}%" if comp else "—"])
     ctx.accuracy_table = _table(head, body, ["---", "---"] + ["--:"] * (len(head) - 2))
 
     cats = sorted({c for r in rows for c in r.get("categories", {})})
@@ -889,8 +888,7 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
             )
         ctx.accuracy_categories = _table(chead, cbody)
 
-    for r in rows:
-        base = bases[id(r)]
+    for r, base in zip(rows, bases):
         if base is None or r is base:
             continue
         deltas = []

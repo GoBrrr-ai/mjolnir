@@ -31,6 +31,8 @@ import time
 from pathlib import Path
 from statistics import mean
 
+from mjolnir_cli.config import by_model, model_of, model_short
+
 FORMAT = "mjolnir.accuracy/1"
 TOOL_REPO = "https://github.com/SeraphimSerapis/tool-eval-bench"
 # pinned: a score is only comparable to one produced by the same scenario set
@@ -298,7 +300,7 @@ def latest_legs(docs: list[dict]) -> list[dict]:
     rows: dict[tuple, dict] = {}
     for d in docs:
         for leg in d.get("legs", []):
-            key = (leg.get("model"), leg.get("image"), leg.get("config"))
+            key = (model_of(leg), leg.get("image"), leg.get("config"))
             row = rows.setdefault(
                 key,
                 {k: leg.get(k) for k in ("id", "model", "image", "config", "label", "kv_cache_dtype", "env")}
@@ -312,26 +314,17 @@ def latest_legs(docs: list[dict]) -> list[dict]:
             if (leg.get("suites") or {}).keys() & {"tools", "hardmode"}:
                 row["categories"] = leg.get("categories") or row["categories"]
                 row["scenarios"] = leg.get("scenarios") or row["scenarios"]
-    out = [r for r in rows.values() if r["suites"]]
-    models = list(dict.fromkeys(r.get("model") for r in out))
-    if len(models) > 1:  # rows of several models: keep each model's rows together, say which
-        out.sort(key=lambda r: models.index(r.get("model")))
-        for r in out:
-            if r.get("model"):
-                r["label"] = f"{str(r['model']).split('/')[-1]} · {r['label']}"
-    return out
+    groups = by_model(r for r in rows.values() if r["suites"])
+    if len(groups) > 1:  # rows of several models: each model's rows together, labels say which
+        for r in (r for g in groups.values() for r in g):
+            r["label"] = f"{model_short(r)} · {r['label']}"
+    return [r for g in groups.values() for r in g]
 
 
-_ANY = object()
-
-
-def baseline(rows: list[dict], model: object = _ANY) -> dict | None:
-    """The reference row for deltas, among ``model``'s rows (all rows when no
-    model is given; ``None`` means rows without a model): native FlashInfer on
-    the official image when measured, else the first official-image row, else
-    the first row. Rows of another model are never a baseline — their scores
-    are not comparable."""
-    rows = [r for r in rows if model is _ANY or r.get("model") == model]
+def baseline(rows: list[dict]) -> dict | None:
+    """The reference row for deltas among ONE model's rows: native FlashInfer
+    on the official image when measured, else the first official-image row,
+    else the first row. For mixed rows use :func:`baselines`."""
     official = [r for r in rows if not _is_mjolnir(str(r.get("image", "")))]
     for r in official:
         if r.get("config") == "NVFP4":
@@ -339,20 +332,18 @@ def baseline(rows: list[dict], model: object = _ANY) -> dict | None:
     return (official or rows or [None])[0]
 
 
-def baseline_for(rows: list[dict], row: dict) -> dict | None:
-    """The baseline ``row`` is compared with: its own model's."""
-    return baseline(rows, row.get("model"))
-
-
 def baselines(rows: list[dict]) -> list[dict | None]:
-    """:func:`baseline_for` of every row, in row order (one lookup per model)."""
-    per_model = {m: baseline(rows, m) for m in dict.fromkeys(r.get("model") for r in rows)}
-    return [per_model[r.get("model")] for r in rows]
+    """Each row's baseline, in row order: its own model's :func:`baseline`.
+    Rows of another model are never a baseline — their scores are not comparable."""
+    per_model = {m: baseline(group) for m, group in by_model(rows).items()}
+    return [per_model[model_of(r)] for r in rows]
 
 
-def baseline_labels(bases: list[dict | None]) -> list[str]:
-    """The distinct baseline labels of ``bases``, in first-seen order (captions)."""
-    return list(dict.fromkeys(b["label"] for b in bases if b is not None))
+def baseline_caption(bases: list[dict | None], item_sep: str = " · ") -> str:
+    """The distinct baseline labels, first-seen order, ' / '-joined ('' if none);
+    ``item_sep`` replaces the label's own ' · ' separator."""
+    labels = dict.fromkeys(b["label"].replace(" · ", item_sep) for b in bases if b is not None)
+    return " / ".join(labels)
 
 
 def suites_in(rows: list[dict]) -> list[str]:

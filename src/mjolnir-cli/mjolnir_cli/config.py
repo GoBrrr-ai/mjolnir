@@ -22,6 +22,29 @@ import yaml
 
 # ── Model / config ───────────────────────────────────────────────────────────
 DEFAULT_MODEL = "Qwen/Qwen3.8-27B"
+
+
+def model_of(rec: dict) -> str | None:
+    """The model a history / accuracy record belongs to; None when the record
+    does not say. There is deliberately no default: a guessed model is how runs
+    of two models get compared, so a model-less record matches no model."""
+    return rec.get("model") or None
+
+
+def by_model(recs) -> dict[str | None, list[dict]]:
+    """Records grouped by :func:`model_of`, models and records in first-seen order."""
+    groups: dict[str, list[dict]] = {}
+    for r in recs:
+        groups.setdefault(model_of(r), []).append(r)
+    return groups
+
+
+def model_short(rec: dict) -> str:
+    """'Qwen3.8-27B' for 'Qwen/Qwen3.8-27B': the model as labels show it."""
+    m = model_of(rec)
+    return m.split("/")[-1] if m else "unknown model"
+
+
 # context depths every end-to-end bench (perf / ab / e2e) measures by default:
 # up to 128K (the ncu kernel stages keep their 256K top: verify ALL_LS)
 E2E_DEPTHS: tuple[int, ...] = (0, 4096, 8192, 16384, 32768, 65536, 131072)

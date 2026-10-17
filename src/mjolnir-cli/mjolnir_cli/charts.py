@@ -20,8 +20,10 @@ import math
 from pathlib import Path
 from typing import Callable
 
+from itertools import groupby
+
 from mjolnir_cli import theme
-from mjolnir_cli.config import RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of, model_short
 from mjolnir_cli.history import load_records
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
@@ -643,18 +645,17 @@ E2E_SERIES = (
 MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
 
 
-def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
+def e2e_rows(layout: RepoLayout, model: str = DEFAULT_MODEL) -> dict[str, dict]:
     """Latest history record per series: stock configs on the official vLLM
     image, the Mjolnir config on a Mjolnir image. Stock backends measured on
-    the Mjolnir image are ignored (that image patches FlashInfer too). Only
-    the default model's runs: a series is one config of one model."""
+    the Mjolnir image are ignored (that image patches FlashInfer too). One
+    model's runs: a series is one config of one model."""
     from mjolnir_cli import e2e
-    from mjolnir_cli.config import DEFAULT_MODEL
 
     latest: dict[str, dict] = {}
     for r in load_records(layout.history_file):
         cfg = r.get("config")
-        if not r.get("cells") or r.get("model", DEFAULT_MODEL) != DEFAULT_MODEL:
+        if not r.get("cells") or model_of(r) != model:
             continue
         ok = (cfg in MJOLNIR_E2E_CONFIGS and e2e.is_mjolnir(r)) or (
             cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r)
@@ -989,7 +990,7 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     white, dim, faint = "#ffffff", "#b4bfcc", "#7f8a97"
     c_off, c_mj = theme.DARK.flashinfer, theme.LIGHT.mjolnir
     ver = str(off.get("image", "")).split(":")[-1].split("-")[0].lstrip("v")
-    model = str(mj.get("model", "")).split("/")[-1]
+    model = model_short(mj)
     quant = str(mj.get("config", "")).split("_")[0]
     kv = "fp6 KV" if "E2M3" in str(mj.get("config", "")) else "fp8 KV"
 
@@ -1274,7 +1275,7 @@ def _accuracy_series(r: dict) -> str:
     return "NVFP4_MJOLNIR_E2M3"
 
 
-def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], dict | None, list[str]]:
+def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], list[dict | None], list[str]]:
     from mjolnir_cli import accuracy
 
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
@@ -1319,11 +1320,19 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         lo, hi = min(got + refs), max(got + refs)
         pad = max(4.0, (hi - lo) * 0.35)
         ax.set_xlim(max(0, lo - pad), min(100, hi + pad) + pad * 0.6)
-        for base in {id(b): b for b in bases if b is not None}.values():  # one dashed mark per model
-            b = (base["suites"].get(name) or {}).get("score")
-            span = [y for y, r, base_r in zip(ys, rows, bases) if base_r is base]
-            if b is not None and span:
-                ax.vlines(b, min(span) - 0.4, max(span) + 0.4, color=mode.text_dim, lw=1.2, ls=(0, (4, 3)), zorder=2)
+        # one dashed mark per model, spanning its rows (latest_legs keeps them together)
+        for _, group in groupby(zip(ys, bs, bases), key=lambda t: id(t[2])):
+            span = list(group)
+            if span[0][1] is not None:
+                ax.vlines(
+                    span[0][1],
+                    span[-1][0] - 0.4,
+                    span[0][0] + 0.4,
+                    color=mode.text_dim,
+                    lw=1.2,
+                    ls=(0, (4, 3)),
+                    zorder=2,
+                )
         for (y, r, v, b), base in zip(vals, bases):
             if v is None:
                 continue
@@ -1354,7 +1363,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         mode,
         "Model quality per serving config",
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
-        + (" / ".join(x.replace(" · ", ", ") for x in accuracy.baseline_labels(bases)) or "baseline")
+        + (accuracy.baseline_caption(bases, ", ") or "baseline")
         + " · (±) = points vs it",
     )
     _accuracy_footer(fig, mode, rows)
@@ -1374,10 +1383,10 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     from mjolnir_cli import accuracy
 
     rows, bases, _ = _accuracy_rows(layout)
-    keep = [i for i, r in enumerate(rows) if r.get("categories")]
-    rows, bases = [rows[i] for i in keep], [bases[i] for i in keep]
-    if not rows:
+    pairs = [(r, b) for r, b in zip(rows, bases) if r.get("categories")]
+    if not pairs:
         return None
+    rows, bases = (list(t) for t in zip(*pairs))
     import numpy as np
     from matplotlib.colors import Normalize
 
@@ -1424,7 +1433,7 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
         mode,
         "Tool calls by category",
         "cell = share of points, % · green = on par with "
-        + (" / ".join(x.replace(" · ", ", ") for x in accuracy.baseline_labels(bases)) or "the first row")
+        + (accuracy.baseline_caption(bases, ", ") or "the first row")
         + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
     )
     _accuracy_footer(fig, mode, rows)

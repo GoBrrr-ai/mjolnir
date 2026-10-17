@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, IMAGE_REPO
+from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, IMAGE_REPO, model_of
 from mjolnir_cli.history import load_records
 
 # Older images of this project (kept so history rows still classify).
@@ -124,7 +124,7 @@ def latest_pair(
     base = official_config or BASELINE_QUANT
     offs, mjs = [], []
     for r in load_records(history_file):
-        if not r.get("cells") or r.get("model", DEFAULT_MODEL) != model:
+        if not r.get("cells") or model_of(r) != model:
             continue
         if is_official(r) and r.get("config") != want:
             offs.append(r)

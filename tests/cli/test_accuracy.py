@@ -147,8 +147,9 @@ def test_baseline_is_per_model(tmp_path):
     rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
     by = {(r["model"], r["config"]): r for r in rows}
     q36_mj = by[("nvidia/Qwen3.6-35B-A3B", "NVFP4_MJOLNIR_E2M3")]
-    assert accuracy.baseline_for(rows, q36_mj)["config"] == "NVFP4_DFLASH"  # no NVFP4 row: first official one
-    assert accuracy.baseline_for(rows, by[("Qwen/Qwen3.8-27B", "NVFP4_MJOLNIR_E2M3")])["config"] == "NVFP4"
+    base = dict(zip(map(id, rows), accuracy.baselines(rows)))
+    assert base[id(q36_mj)]["config"] == "NVFP4_DFLASH"  # no NVFP4 row: first official one
+    assert base[id(by[("Qwen/Qwen3.8-27B", "NVFP4_MJOLNIR_E2M3")])]["config"] == "NVFP4"
     assert q36_mj["label"].startswith("Qwen3.6-35B-A3B · Mjolnir")
 
 
@@ -194,12 +195,10 @@ def _write_two_model_run(raw: Path) -> None:
 
 def test_rows_of_one_model_stay_together(tmp_path):
     """Interleaved legs come back grouped by model (first-seen order), so each
-    model's dashed baseline mark spans only its own rows; ``baselines`` matches
-    ``baseline_for`` row by row."""
+    model's dashed baseline mark spans only its own rows."""
     _write_two_model_run(tmp_path)
     rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
     assert [r["model"] for r in rows] == ["Qwen/Qwen3.8-27B"] * 2 + ["nvidia/Qwen3.6-35B-A3B"] * 2
-    assert accuracy.baselines(rows) == [accuracy.baseline_for(rows, r) for r in rows]
     assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
 
 
@@ -279,4 +278,5 @@ def test_a_leg_without_model_never_borrows_another_models_baseline():
         {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.0, 80.0, {}), "model": None},
     ]
     assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
-    assert accuracy.baseline(rows)["config"] == "NVFP4"  # no model given: all rows, as before
+    labels = [r["label"] for r in accuracy.latest_legs([{"run_id": "r", "legs": rows}])]
+    assert sum(label.startswith("unknown model · ") for label in labels) == 2  # never shown as the default model
