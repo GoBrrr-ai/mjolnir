@@ -72,3 +72,4 @@ exempt = [
 "src/mjolnir-cli/mjolnir_cli/cli.py" = 1482
 "scripts/hw/setup-thor.sh" = 1287
 "src/mjolnir-cli/mjolnir_cli/readme.py" = 1064
+"tests/kernel/test_runner.py" = 1081
