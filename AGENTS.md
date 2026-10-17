@@ -131,10 +131,12 @@ skipped with a hint — nothing blocks on a password.
 ## Repo layout
 
 - `src/mjolnir/` — **the kernel package** (`mjolnir-kernel`, import `mjolnir`):
-  - `mjolnir/t5_decode.py` — the CuTe-DSL kernel, split-KV merge, standalone
-    harness (`python -m mjolnir.t5_decode --help`) and `emulate_decode`, the
-    bit-faithful correctness reference. The single source of truth for the
-    kernel; `mjolnir verify` mounts it over the image's copy.
+  - `mjolnir/t5_decode.py` — the CuTe-DSL kernel, split-KV merge and the host
+    helpers a vLLM backend calls; the single source of truth for the kernel;
+    `mjolnir verify` mounts it over the image's copy.
+  - `mjolnir/t5_harness.py` — the standalone harness (`emulate_decode`, the
+    benchmark driver, CLI; `python -m mjolnir.t5_decode --help` still works via
+    a shim) and `emulate_decode`, the bit-faithful correctness reference.
   - `mjolnir/runner.py` — plan buffers, compile cache, launch, KV views (no vLLM).
   - `mjolnir/backend.py` — the vLLM backend / builder / impl / metadata.
   - `mjolnir/__init__.py` — `register()` (the plugin entry point), `BACKEND_NAME`.
