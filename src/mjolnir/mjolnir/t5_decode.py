@@ -86,6 +86,8 @@ from cutlass.cute.nvgpu import tcgen05, OperandMajorMode
 import cutlass.utils as utils
 import cutlass.pipeline as pipeline
 import cutlass.utils.blackwell_helpers as sm100_utils
+
+from mjolnir.quant import NVFP4_GROUP, NVFP4_SHIFT
 import cutlass.cute.testing as testing
 from cutlass.cute.typing import *
 
@@ -133,9 +135,6 @@ HARNESS_KV_LAYOUT = "hnd"
 # NVFP4 conversion computes e4m3(code * scale * 2^-3): with codes <= 6 and
 # e4m3 scales <= 448 the product stays <= 336 (< 448, no saturation). The
 # host folds the 2^3 back into the K/V descale.
-NVFP4_SHIFT = 0.125
-NVFP4_GROUP = 16
-
 # Math helpers
 log2_e = math.log2(math.e)  # change exponential base
 fadd2 = cute.arch.add_packed_f32x2
@@ -174,6 +173,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         kv_evict_first=False,  # TMA K/V loads with an L2 EVICT_FIRST cache policy
         kv_format="fp8",  # KV cache format, see KV_FORMATS
         causal=True,  # False: every query token sees all seq_len keys (parallel-drafter blocks)
+        fused_merge=False,  # E1: last CTA per (seq, q tile, kv head) merges the splits in-kernel
     ):
         self.causal = bool(causal)
         self.max_kv_stages = max_kv_stages
@@ -213,6 +213,10 @@ class MixedInputFusedMultiHeadAttentionDecode:
         assert grouped_head_tile in (8, 16, 32), "grouped_head_tile must be 8, 16 or 32"
         assert convert_warpgroups >= 0
         assert q_len >= 1 and max_splits >= 1
+        self.fused_merge = bool(fused_merge)
+        if self.fused_merge:
+            assert max_splits > 1, "fused_merge needs split capacity (max_splits > 1)"
+            assert hasattr(cute.arch, "atomic_add"), "fused_merge needs cute.arch.atomic_add"
         assert ctas_per_sm in (1, 2)
 
         warpgroup_id = 0
@@ -591,7 +595,13 @@ class MixedInputFusedMultiHeadAttentionDecode:
         )
         seq_lens = cute.make_tensor(seq_lens_iter, cute.make_layout((b,)))
         work = cute.make_tensor(work_iter, cute.make_layout((num_work, 4), stride=(4, 1)))
-        n_splits = cute.make_tensor(n_splits_iter, cute.make_layout((b,)))
+        if cutlass.const_expr(self.fused_merge):
+            # + the appended counter region (see SplitPlan.n_splits_tensor),
+            # laid out (q tiles, kv heads, seq) after the per-seq n_splits
+            n_tiles_c = cute.ceil_div(n_q, self.grouped_head_tile)
+            n_splits = cute.make_tensor(n_splits_iter, cute.make_layout((b + n_tiles_c * h_k * b,)))
+        else:
+            n_splits = cute.make_tensor(n_splits_iter, cute.make_layout((b,)))
         # Descales indexed by coord_hb = (kv head, seq); stride 0 broadcasts
         # a per-tensor scale (vLLM layer._k_scale) with no copy.
         q_descale = cute.make_tensor(q_descale_iter, cute.make_layout(((h_k, b),), stride=((qd_head, qd_seq),)))
@@ -738,6 +748,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
             l_partial,
             h_k,
             n_q,
+            b,  # num_seqs: the counter region base offset
             num_pages,
             scale_qs,
             scale_qs_log2_e,
@@ -825,6 +836,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         # Scalars
         h_k: cutlass.Int32,
         n_q: cutlass.Int32,
+        num_seqs: cutlass.Int32,
         num_pages: cutlass.Int32,
         scale_qs: cutlass.Float32,
         scale_qs_log2_e: cutlass.Float32,
@@ -852,6 +864,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         FP8 = cutlass.const_expr(mma_dtype.width == 8)
         NVFP4 = cutlass.const_expr(self.kv_format == "nvfp4")
         SINGLE_SPLIT = cutlass.const_expr(self.max_splits == 1)
+        MAX_SPLITS = self.max_splits  # plain int: loop bounds in the fused merge
         PS = self.page_size
         p_scale = FP8_P_SCALE if FP8 else 1.0
 
@@ -925,6 +938,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         s_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.sp_stages * 2)
         p_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.sp_stages * 2)
         o_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.o_stages * 2)
+        merge_flag_ptr = smem.allocate_array(cutlass.Int32, 1)  # E1 last-CTA election flag
 
         # Named barriers
         softmax_nbar = pipeline.NamedBarrier(barrier_id=1, num_threads=warpgroup_threads)
@@ -1953,6 +1967,60 @@ class MixedInputFusedMultiHeadAttentionDecode:
                         if n_base + i < n_q:
                             mO_partial[d_idx, n_base + i, coord_hb, split_slot] = tSrO_dm[i] * part_scale
 
+                # E1 fused last-CTA merge: after every softmax thread issued its
+                # partial stores, one elected thread increments this group's
+                # counter (acq_rel, gpu scope: publishes the stores, acquires
+                # the other CTAs'); the last CTA combines all splits' partials
+                # for its rows and writes the final O + LSE itself — no
+                # reduction launch, one DRAM round trip (FlashInfer D128
+                # producer structure; the counter self-reset keeps it
+                # graph-safe, and the next grid's griddepcontrol_wait orders
+                # after this grid completes).
+                if cutlass.const_expr(self.fused_merge):
+                    softmax_nbar.arrive_and_wait()
+                    cnt_idx = num_seqs + (coord_hr * h_k + h_k_idx) * num_seqs + b_idx
+                    if warpgroup_tidx == 0:
+                        merge_flag_ptr[0] = 0
+                        old = cute.arch.atomic_add(
+                            mNSplits.iterator + mNSplits.layout(cnt_idx),
+                            cutlass.Int32(1),
+                            sem="acq_rel",
+                            scope="gpu",
+                        )
+                        if old == n_splits_seq - 1:
+                            merge_flag_ptr[0] = 1
+                            mNSplits[cnt_idx] = 0  # self-reset for the next launch
+                    softmax_nbar.arrive_and_wait()
+                    if merge_flag_ptr[0]:
+                        for i in cutlass.range_constexpr(cute.size(tSrO[cpy_dice + (0, 0)])):
+                            if n_base + i < n_q:
+                                m_max = -cutlass.Float32.inf
+                                for j in cutlass.range_constexpr(MAX_SPLITS):
+                                    if j < n_splits_seq:
+                                        m_max = cute.arch.fmax(m_max, mM_partial[n_base + i, coord_hb, j])
+                                l_acc = cutlass.Float32(0)
+                                o_acc = cute.make_rmem_tensor((tiles_dm,), cutlass.Float32)
+                                for dm in cutlass.range_constexpr(tiles_dm):
+                                    o_acc[dm] = cutlass.Float32(0)
+                                for j in cutlass.range_constexpr(MAX_SPLITS):
+                                    if j < n_splits_seq:
+                                        m_j = mM_partial[n_base + i, coord_hb, j]
+                                        w = cutlass.Float32(0)
+                                        if m_j != -cutlass.Float32.inf:
+                                            w = exp2(log2_e * (m_j - m_max))
+                                        l_acc += w * mL_partial[n_base + i, coord_hb, j]
+                                        for dm in cutlass.range_constexpr(tiles_dm):
+                                            d_idx = dm * mma_tile_m + warpgroup_tidx
+                                            o_acc[dm] += w * mO_partial[d_idx, n_base + i, coord_hb, j]
+                                inv_l_m = cutlass.Float32(0)
+                                if l_acc > cutlass.Float32(0):
+                                    inv_l_m = 1.0 / l_acc
+                                for dm in cutlass.range_constexpr(tiles_dm):
+                                    d_idx = dm * mma_tile_m + warpgroup_tidx
+                                    mO[d_idx, n_base + i, coord_hb] = mO.element_type(scale_o * o_acc[dm] * inv_l_m)
+                                if warpgroup_tidx == 0:
+                                    mLSE[n_base + i, coord_hb] = m_max + cute.math.log(l_acc, fastmath=False)
+
         return
 
     @staticmethod
@@ -2034,11 +2102,12 @@ class MixedInputFusedMultiHeadAttentionDecode:
 class SplitPlan:
     """Host-side occupancy-pinned split-KV plan (see plan_split_kv)."""
 
-    def __init__(self, work, n_splits, chunk_tiles, slots):
+    def __init__(self, work, n_splits, chunk_tiles, slots, counter_len=0):
         self.work = work  # list of (seq, tile_begin, tile_end, split_slot)
         self.n_splits = n_splits  # chunks per sequence
         self.chunk_tiles = chunk_tiles  # tiles per chunk (last chunk may be short)
         self.slots = slots  # work items that fit one wave
+        self.counter_len = counter_len  # fused-merge counter slots appended to n_splits
 
     @property
     def num_work(self):
@@ -2049,7 +2118,13 @@ class SplitPlan:
         return t.reshape(-1, 4).contiguous().to(device)
 
     def n_splits_tensor(self, device="cpu"):
-        return torch.tensor(self.n_splits, dtype=torch.int32).to(device)
+        t = torch.tensor(self.n_splits, dtype=torch.int32)
+        if self.counter_len:
+            # Fused-merge election counters, one per (q tile, kv head, seq);
+            # zeroed once at plan build, self-reset by the last CTA afterwards
+            # (graph-safe: a replayed launch must not re-zero).
+            t = torch.cat([t, torch.zeros(self.counter_len, dtype=torch.int32)])
+        return t.to(device)
 
     def __repr__(self):
         real = sum(1 for w in self.work if w[2] > w[1])
@@ -2070,6 +2145,7 @@ def plan_split_kv(
     force_splits=0,
     min_chunk_tiles=1,
     pad_to=0,
+    with_counter=False,
 ):
     """Occupancy-pinned split-KV plan (the FlashInfer PrefillPlan / FlashDecoding
     scheme), in units of 128-row KV tiles.
@@ -2116,7 +2192,8 @@ def plan_split_kv(
         assert pad_to >= len(work), f"pad_to {pad_to} < {len(work)} work items"
         work += [(0, 0, 0, 0)] * (pad_to - len(work))
     assert max(n_splits) <= max_splits
-    return SplitPlan(work, n_splits, chunk, slots)
+    counter_len = n_q_tiles * heads_k * len(seq_lens) if with_counter else 0
+    return SplitPlan(work, n_splits, chunk, slots, counter_len)
 
 
 STRIDE_FIELDS = (
@@ -2209,118 +2286,6 @@ def kernel_strides(q, o, k_cache, v_cache, q_descale, k_descale, v_descale, kv_b
 
 
 # ----------------------------------------------------------------------------
-# Narrow KV formats: value tables, quantization and bit packing
-# ----------------------------------------------------------------------------
-_MINIFLOAT = {  # format: (exponent bits, mantissa bits, bias); no inf / nan
-    "e3m2": (3, 2, 3),
-    "e2m3": (2, 3, 1),
-    "e2m1": (2, 1, 1),
-}
-
-
-def minifloat_table(fmt):
-    """Values of every code of an fp6 / fp4 format (code = sign|exp|mant)."""
-    eb, mb, bias = _MINIFLOAT[fmt]
-    vals = []
-    for code in range(1 << (1 + eb + mb)):
-        sign = -1.0 if code >> (eb + mb) else 1.0
-        e = (code >> mb) & ((1 << eb) - 1)
-        m = code & ((1 << mb) - 1)
-        if e == 0:
-            v = (m / (1 << mb)) * 2.0 ** (1 - bias)
-        else:
-            v = (1 + m / (1 << mb)) * 2.0 ** (e - bias)
-        vals.append(sign * v)
-    return torch.tensor(vals, dtype=torch.float32)
-
-
-def minifloat_quantize(x, fmt):
-    """Round-to-nearest (saturating) codes of x in an fp6 / fp4 format.
-    Returns (codes uint8, decoded float values)."""
-    table = minifloat_table(fmt)
-    pos = table[: len(table) // 2]  # non-negative half, ascending
-    ax = x.abs().clamp(max=float(pos[-1]))
-    idx = torch.bucketize(ax, pos)  # first pos >= ax
-    lo = (idx - 1).clamp(min=0)
-    hi = idx.clamp(max=len(pos) - 1)
-    pick_lo = (ax - pos[lo]) <= (pos[hi] - ax)
-    mag = torch.where(pick_lo, lo, hi)
-    neg = (x < 0) & (pos[mag] > 0)
-    codes = (mag + neg.to(mag.dtype) * (len(table) // 2)).to(torch.uint8)
-    return codes, table[codes.long()]
-
-
-def pack_subbyte(codes, bits):
-    """Pack codes (..., d) into bytes (..., d * bits / 8): little-endian
-    bitstream, element i at bits [bits*i, bits*i + bits) (fp4: element 2i in
-    the low nibble)."""
-    c = codes.to(torch.int64)
-    d = c.shape[-1]
-    if bits == 8:
-        return codes.to(torch.uint8)
-    if bits == 4:
-        c = c.reshape(*c.shape[:-1], d // 2, 2)
-        return (c[..., 0] | (c[..., 1] << 4)).to(torch.uint8)
-    assert bits == 6 and d % 4 == 0
-    c = c.reshape(*c.shape[:-1], d // 4, 4)
-    w = c[..., 0] | (c[..., 1] << 6) | (c[..., 2] << 12) | (c[..., 3] << 18)
-    out = torch.stack([w & 0xFF, (w >> 8) & 0xFF, (w >> 16) & 0xFF], dim=-1)
-    return out.reshape(*c.shape[:-2], d // 4 * 3).to(torch.uint8)
-
-
-def nvfp4_quantize(x, group=NVFP4_GROUP):
-    """NVFP4: e2m1 codes, one e4m3 scale per `group` elements of the last dim
-    and one fp32 global scale. Returns (codes uint8, scales e4m3, global
-    scale, values the T5 kernel feeds its fp8 MMA, descale to pass).
-    Kernel value = e4m3(e2m1 * scale * 2^-3); descale = global * 2^3."""
-    *lead, d = x.shape
-    xg = x.reshape(*lead, d // group, group)
-    amax_g = xg.abs().amax(dim=-1)
-    gs = float(x.abs().amax().clamp(min=1e-12)) / (6.0 * 448.0)
-    sc = (amax_g / 6.0 / gs).clamp(max=448.0).to(torch.float8_e4m3fn)
-    scf = sc.float()
-    denom = (scf * gs).unsqueeze(-1)
-    q = torch.where(denom > 0, xg / denom.clamp(min=1e-30), torch.zeros_like(xg))
-    codes, _ = minifloat_quantize(q, "e2m1")
-    lut = minifloat_table("e2m1")
-    kern = (lut[codes.long()] * scf.unsqueeze(-1) * NVFP4_SHIFT).to(torch.float8_e4m3fn)
-    return (codes.reshape(*lead, d), sc, gs, kern.float().reshape(*lead, d), gs / NVFP4_SHIFT)
-
-
-def pack_q(q, num_seqs, q_len, heads_k):
-    """vLLM q (num_seqs * q_len, h_q, d) -> kernel q (b, h_k, q_len * h_r, d).
-    A free view for q_len == 1."""
-    _, h_q, d = q.shape
-    h_r = h_q // heads_k
-    if q_len == 1:
-        return q.view(num_seqs, heads_k, h_r, d)
-    return (
-        q.view(num_seqs, q_len, heads_k, h_r, d)
-        .permute(0, 2, 1, 3, 4)
-        .reshape(num_seqs, heads_k, q_len * h_r, d)
-        .contiguous()
-    )
-
-
-def unpack_o(o, num_seqs, q_len, heads_k):
-    """kernel o (b, h_k, q_len * h_r, d) -> vLLM (num_seqs * q_len, h_q, d)."""
-    b, h_k, n_q, d = o.shape
-    h_r = n_q // q_len
-    if q_len == 1:
-        return o.view(num_seqs, h_k * h_r, d)
-    return o.view(b, h_k, q_len, h_r, d).permute(0, 2, 1, 3, 4).reshape(b * q_len, h_k * h_r, d)
-
-
-def quantize_q_fp8(q, num_seqs, q_len, heads_k):
-    """Per-(seq, kv head) e4m3 quantization of q (num_seqs * q_len, h_q, d).
-    Returns (q_fp8 same shape, q_descale (num_seqs, h_k) fp32)."""
-    _, h_q, d = q.shape
-    h_r = h_q // heads_k
-    qg = q.float().view(num_seqs, q_len, heads_k, h_r, d)
-    amax = qg.abs().amax(dim=(1, 3, 4)).clamp(min=1e-6)  # (b, h_k)
-    q_descale = (amax / 448.0).contiguous()
-    q8 = (qg / q_descale[:, None, :, None, None]).to(torch.float8_e4m3fn)
-    return q8.view(num_seqs * q_len, h_q, d), q_descale
 
 
 if __name__ == "__main__":  # the standalone harness lives in mjolnir.t5_harness

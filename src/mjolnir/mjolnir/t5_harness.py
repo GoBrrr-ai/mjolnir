@@ -16,26 +16,28 @@ import cutlass.cute as cute
 import cutlass.torch as cutlass_torch
 from cutlass.cute.runtime import from_dlpack
 
+from mjolnir.quant import (
+    NVFP4_GROUP,
+    minifloat_quantize,
+    minifloat_table,
+    nvfp4_quantize,
+    pack_q,
+    pack_subbyte,
+    quantize_q_fp8,
+    unpack_o,
+)
 from mjolnir.t5_decode import (
     FP8_P_SCALE,
     HARNESS_KV_FORMAT_FP8Q,
     HARNESS_KV_LAYOUT,
     KV_FORMAT_BITS,
     KV_FORMATS,
-    NVFP4_GROUP,
     STRIDE_FIELDS,
     MixedInputFusedMultiHeadAttentionDecode,
     kernel_strides,
     log2_e,
-    minifloat_quantize,
-    minifloat_table,
-    nvfp4_quantize,
-    pack_q,
-    pack_subbyte,
     plan_split_kv,
-    quantize_q_fp8,
     tile_s_rows,
-    unpack_o,
 )
 
 
@@ -164,6 +166,7 @@ def run(
     kv_format: str = "fp8",
     kv_from_float: bool = False,
     non_causal: bool = False,
+    fused_merge: bool = False,
     **kwargs,
 ):
     if not torch.cuda.is_available():
@@ -233,6 +236,7 @@ def run(
         max_splits=max_splits,
         force_splits=kv_splits,
         pad_to=pad_work_to,
+        with_counter=fused_merge,
     )
 
     print("Paged FMHA decode (sm_110) with:")
@@ -256,12 +260,13 @@ def run(
         max_splits=max_splits,
         ctas_per_sm=ctas_per_sm,
         max_kv_stages=kv_stages,
-        with_reduction=max(plan.n_splits) > 1,
+        with_reduction=max(plan.n_splits) > 1 and not fused_merge,
         pdl=pdl,
         l2_prefetch=l2_prefetch,
         kv_evict_first=bool(kv_evict_first),
         kv_format=kv_format,
         causal=not non_causal,
+        fused_merge=fused_merge,
     )
     fmha.can_implement(num_seqs, heads_q, heads_k, headdim, q_dtype, kv_dtype)
 
@@ -696,6 +701,11 @@ def main():
     )
     # Accepted for old command lines; paging is always on now.
     parser.add_argument("--paged", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--fused_merge",
+        action="store_true",
+        help="E1: the last CTA per (seq, q tile, kv head) merges the split partials in-kernel",
+    )
 
     kwargs = vars(parser.parse_args())
     if kwargs["kv_format"] == "auto":  # sub-8-bit formats need fp8 Q

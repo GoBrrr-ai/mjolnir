@@ -234,7 +234,7 @@ class VariantKey:
 
 
 # KV formats the vLLM path serves: e4m3 bytes, or e2m3 codes packed 4 per 3
-# bytes (little-endian bitstream, mjolnir.t5_decode.pack_subbyte).
+# bytes (little-endian bitstream, mjolnir.quant.pack_subbyte).
 RUNNER_KV_FORMATS = {"fp8": 8, "e2m3": 6}
 
 
