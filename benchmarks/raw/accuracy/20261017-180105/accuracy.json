@@ -1,0 +1,247 @@
+{
+ "format": "mjolnir.accuracy/1",
+ "run_id": "20261017-180105",
+ "created": "2026-10-17T16:01:05Z",
+ "tool": {
+  "repo": "https://github.com/SeraphimSerapis/tool-eval-bench",
+  "commit": "b60e2f00f6c44352a3680356e7c7948f777c5280",
+  "command": [
+   "uvx",
+   "--from",
+   "tool-eval-bench[hf] @ git+https://github.com/SeraphimSerapis/tool-eval-bench.git@b60e2f00f6c44352a3680356e7c7948f777c5280",
+   "tool-eval-bench"
+  ]
+ },
+ "args": [
+  "run",
+  "--hardmode",
+  "--seed",
+  "42",
+  "--timeout",
+  "600"
+ ],
+ "legs": [
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "model": "Qwen/Qwen3.8-27B",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "kv_cache_dtype": "fp6_e2m3",
+   "env": [
+    "MJOLNIR_LM_HEAD=fp8",
+    "MJOLNIR_DRAFT_VOCAB=/configs/Qwen/Qwen3.8-27B/draft_vocab.json",
+    "MJOLNIR_DRAFT_VOCAB_SIZE=65536"
+   ],
+   "label": "Mjolnir \u00b7 fp6 e2m3 KV + fp8 lm_head + 64K draft vocab",
+   "exit_code": 0,
+   "wall_s": 1310.1,
+   "suites": {
+    "tools": {
+     "score": 96.38,
+     "scores": [
+      96.38
+     ],
+     "n": 1,
+     "earned": 133,
+     "max": 138,
+     "pass": 65,
+     "partial": 3,
+     "fail": 1,
+     "final_score": 93,
+     "completion_rate": 100.0,
+     "safety_warnings": 1,
+     "run_id": "2026-10-17T16-05-50.884901Z_fe43cf04"
+    },
+    "hardmode": {
+     "score": 85.71,
+     "scores": [
+      85.71
+     ],
+     "n": 1,
+     "earned": 48,
+     "max": 56,
+     "pass": 22,
+     "partial": 4,
+     "fail": 2,
+     "final_score": 93,
+     "completion_rate": 100.0,
+     "safety_warnings": 1,
+     "run_id": "2026-10-17T16-05-50.884901Z_fe43cf04"
+    }
+   },
+   "categories": {
+    "A": {
+     "label": "Tool Selection",
+     "percent": 100.0
+    },
+    "B": {
+     "label": "Parameter Precision",
+     "percent": 100.0
+    },
+    "C": {
+     "label": "Multi-Step Chains",
+     "percent": 100.0
+    },
+    "D": {
+     "label": "Restraint & Refusal",
+     "percent": 100.0
+    },
+    "E": {
+     "label": "Error Recovery",
+     "percent": 100.0
+    },
+    "F": {
+     "label": "Localization",
+     "percent": 100.0
+    },
+    "G": {
+     "label": "Structured Reasoning",
+     "percent": 100.0
+    },
+    "H": {
+     "label": "Instruction Following",
+     "percent": 100.0
+    },
+    "I": {
+     "label": "Context & State",
+     "percent": 90.0
+    },
+    "J": {
+     "label": "Code Patterns",
+     "percent": 100.0
+    },
+    "K": {
+     "label": "Safety & Boundaries",
+     "percent": 96.15
+    },
+    "L": {
+     "label": "Toolset Scale",
+     "percent": 100.0
+    },
+    "M": {
+     "label": "Autonomous Planning",
+     "percent": 100.0
+    },
+    "N": {
+     "label": "Creative Composition",
+     "percent": 100.0
+    },
+    "O": {
+     "label": "Structured Output",
+     "percent": 83.33
+    },
+    "P": {
+     "label": "Hard Mode",
+     "percent": 85.71
+    }
+   },
+   "scenarios": {
+    "TC-01": 2.0,
+    "TC-02": 2.0,
+    "TC-03": 2.0,
+    "TC-04": 2.0,
+    "TC-05": 2.0,
+    "TC-06": 2.0,
+    "TC-07": 2.0,
+    "TC-08": 2.0,
+    "TC-09": 2.0,
+    "TC-10": 2.0,
+    "TC-11": 2.0,
+    "TC-12": 2.0,
+    "TC-13": 2.0,
+    "TC-14": 2.0,
+    "TC-15": 2.0,
+    "TC-16": 2.0,
+    "TC-17": 2.0,
+    "TC-18": 2.0,
+    "TC-19": 2.0,
+    "TC-20": 2.0,
+    "TC-21": 2.0,
+    "TC-22": 2.0,
+    "TC-23": 2.0,
+    "TC-24": 2.0,
+    "TC-25": 2.0,
+    "TC-26": 2.0,
+    "TC-27": 2.0,
+    "TC-28": 2.0,
+    "TC-29": 2.0,
+    "TC-30": 2.0,
+    "TC-31": 2.0,
+    "TC-32": 2.0,
+    "TC-33": 2.0,
+    "TC-34": 2.0,
+    "TC-35": 2.0,
+    "TC-36": 2.0,
+    "TC-37": 2.0,
+    "TC-38": 2.0,
+    "TC-39": 2.0,
+    "TC-40": 2.0,
+    "TC-41": 2.0,
+    "TC-42": 2.0,
+    "TC-43": 1.0,
+    "TC-44": 2.0,
+    "TC-45": 2.0,
+    "TC-46": 2.0,
+    "TC-47": 2.0,
+    "TC-48": 2.0,
+    "TC-49": 1.0,
+    "TC-50": 1.0,
+    "TC-51": 2.0,
+    "TC-52": 2.0,
+    "TC-53": 2.0,
+    "TC-54": 2.0,
+    "TC-55": 2.0,
+    "TC-56": 2.0,
+    "TC-57": 2.0,
+    "TC-58": 2.0,
+    "TC-59": 2.0,
+    "TC-60": 2.0,
+    "TC-61": 2.0,
+    "TC-62": 2.0,
+    "TC-63": 2.0,
+    "TC-64": 2.0,
+    "TC-65": 2.0,
+    "TC-66": 2.0,
+    "TC-67": 2.0,
+    "TC-68": 0.0,
+    "TC-69": 2.0,
+    "TC-70": 2.0,
+    "TC-71": 2.0,
+    "TC-72": 2.0,
+    "TC-73": 2.0,
+    "TC-74": 0.0,
+    "TC-75": 2.0,
+    "TC-76": 2.0,
+    "TC-77": 2.0,
+    "TC-78": 2.0,
+    "TC-79": 2.0,
+    "TC-80": 2.0,
+    "TC-81": 2.0,
+    "TC-82": 2.0,
+    "TC-83": 2.0,
+    "TC-84": 2.0,
+    "TC-85": 2.0,
+    "TC-86": 2.0,
+    "TC-87": 2.0,
+    "TC-88": 2.0,
+    "TC-89": 0.0,
+    "TC-90": 1.0,
+    "TC-91": 1.0,
+    "TC-92": 2.0,
+    "TC-93": 2.0,
+    "TC-94": 1.0,
+    "TC-95": 2.0,
+    "TC-96": 2.0,
+    "TC-97": 1.0
+   },
+   "runs": [
+    {
+     "run_id": "2026-10-17T16-05-50.884901Z_fe43cf04",
+     "created_at": "2026-10-17T16:27:36.926927+00:00",
+     "status": "completed",
+     "run_type": "tool_eval"
+    }
+   ]
+  }
+ ]
+}

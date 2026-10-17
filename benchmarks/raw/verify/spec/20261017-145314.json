@@ -1,0 +1,229 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "spec",
+ "run_id": "20261017-145314",
+ "ts": "2026-10-17T15:08:30+00:00",
+ "default": false,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.31.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "ecd05a2",
+  "dirty": true
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "legs": "mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+  "drafts": "1 5",
+  "concurrency": "1 4",
+  "max_tokens": 256,
+  "long_words": 6000,
+  "prompts": 13,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.31.0-ubuntu2404",
+ "rows": [
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k1",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 1,
+   "concurrency": 1,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 132.58,
+   "decode_tps": 26.302,
+   "agg_tps": 25.101,
+   "ttft_ms": 490.2,
+   "ttft_p50_ms": 164.0,
+   "ttft_list_ms": [
+    163.3,
+    164.5,
+    163.7,
+    164.0,
+    160.1,
+    164.0,
+    163.8,
+    164.6,
+    152.9,
+    162.6,
+    2708.3,
+    164.0,
+    1877.4
+   ],
+   "acceptance_length": 1.879,
+   "acceptance_rate": 0.879,
+   "per_pos": [
+    0.879
+   ],
+   "drafts": 1768,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k1",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 1,
+   "concurrency": 4,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 47.52,
+   "decode_tps": 23.441,
+   "agg_tps": 70.029,
+   "ttft_ms": 1398.6,
+   "ttft_p50_ms": 469.6,
+   "ttft_list_ms": [
+    3034.8,
+    3045.0,
+    3041.5,
+    3037.8,
+    469.6,
+    326.9,
+    305.3,
+    299.2,
+    300.2,
+    3184.2,
+    304.3,
+    296.8,
+    536.1
+   ],
+   "acceptance_length": 1.872,
+   "acceptance_rate": 0.872,
+   "per_pos": [
+    0.872
+   ],
+   "drafts": 1774,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 5,
+   "concurrency": 1,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 92.52,
+   "decode_tps": 39.535,
+   "agg_tps": 35.971,
+   "ttft_ms": 565.5,
+   "ttft_p50_ms": 289.9,
+   "ttft_list_ms": [
+    195.4,
+    295.5,
+    292.0,
+    203.1,
+    289.9,
+    293.0,
+    204.5,
+    202.3,
+    289.2,
+    296.5,
+    2735.9,
+    204.2,
+    1850.0
+   ],
+   "acceptance_length": 3.684,
+   "acceptance_rate": 0.5369,
+   "per_pos": [
+    0.8245,
+    0.6545,
+    0.511,
+    0.3951,
+    0.2991
+   ],
+   "drafts": 906,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.31.0",
+   "k": 5,
+   "concurrency": 4,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 32.02,
+   "decode_tps": 34.298,
+   "agg_tps": 103.93,
+   "ttft_ms": 1271.7,
+   "ttft_p50_ms": 453.2,
+   "ttft_list_ms": [
+    3153.0,
+    3009.7,
+    3147.0,
+    3150.0,
+    454.8,
+    421.4,
+    428.2,
+    448.9,
+    450.3,
+    393.7,
+    347.9,
+    674.2,
+    453.2
+   ],
+   "acceptance_length": 3.738,
+   "acceptance_rate": 0.5475,
+   "per_pos": [
+    0.8442,
+    0.6827,
+    0.5123,
+    0.3935,
+    0.3049
+   ],
+   "drafts": 892,
+   "preemptions": 0
+  }
+ ],
+ "cases": [
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k1",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-145314/spec/mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k1.log"
+  },
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5",
+   "passed": true,
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-145314/spec/mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5.log"
+  }
+ ],
+ "summary": {
+  "NVFP4_MJOLNIR_E2M3_LMH8_VT64K c=1": {
+   "k": 5,
+   "decode_tps": 39.535,
+   "acceptance_length": 3.684
+  },
+  "NVFP4_MJOLNIR_E2M3_LMH8_VT64K c=4": {
+   "k": 5,
+   "decode_tps": 34.298,
+   "acceptance_length": 3.738
+  }
+ }
+}

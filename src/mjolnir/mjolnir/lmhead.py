@@ -15,7 +15,10 @@ in through the ``.env`` sidecar inside its config dir, see
   for the drafter: its logits are computed only over the most frequent
   target tokens (``mjolnir calibrate --draft-vocab``), the rest are -inf.
   Verification still uses the full vocabulary, so the output distribution is
-  unchanged (rejection sampling stays exact); only acceptance can drop.
+  unchanged (rejection sampling stays exact); only acceptance can drop. The
+  kept head stays in the drafter's *native* quant (NVFP4 4-bit in-kernel, FP8
+  row-slice) with no dequant->bf16 up-scale; the one exception is a bf16 head,
+  which goes to fp8 only when ``MJOLNIR_LM_HEAD=fp8`` is set.
 
 The hooks wrap ``GPUModelRunner.load_model`` (installed by
 ``mjolnir.register`` when either variable is set) and run after the target
@@ -42,6 +45,11 @@ _log = logging.getLogger("vllm.mjolnir")
 ENV_LM_HEAD = "MJOLNIR_LM_HEAD"
 ENV_DRAFT_VOCAB = "MJOLNIR_DRAFT_VOCAB"
 ENV_DRAFT_VOCAB_SIZE = "MJOLNIR_DRAFT_VOCAB_SIZE"
+# Native VT is automatic while the VT env is set: a quantized head keeps its
+# native format (NVFP4 4-bit in-kernel, FP8 row-slice) instead of dequating to
+# bf16/fp8. Set to 0/off to force the dequant->fp8 fallback (the A/B control).
+# The NVFP4 in-kernel GEMM is CUDA-only and self-checked; A/B on the Thor.
+ENV_DRAFT_VOCAB_NATIVE = "MJOLNIR_DRAFT_VOCAB_NATIVE"
 FP8_MAX = 448.0
 SMALL_M = 64  # beyond this many rows (prompt logprobs) the dequantized chunks win
 
@@ -190,10 +198,25 @@ def install_fp8_head(lm_head, model=None) -> bool:
     if getattr(lm_head, "_mjolnir_fp8", False):
         return True
     qm = getattr(lm_head, "quant_method", None)
+    # Only an unquantized (bf16/fp16) head benefits: this halves a 2-byte weight
+    # to 1-byte FP8. A head that is already quantized (ModelOpt FP8 / NVFP4 /
+    # MXFP8 — any non-Unquantized method) would be dequantized and re-packed at
+    # >= the same width (FP8 is 1 byte vs NVFP4's 0.5) — a pessimization, so a
+    # warning and a skip, never a re-quantization.
     if qm is None or "Unquantized" not in type(qm).__name__:
-        _log.warning("Mjolnir lm_head fp8: %s is not an unquantized head; left as is", type(qm).__name__)
+        _log.warning(
+            "Mjolnir lm_head fp8: %s is not an unquantized head (already FP8/NVFP4?); left as is",
+            type(qm).__name__,
+        )
         return False
     w = lm_head.weight.data
+    if w.dtype not in (torch.bfloat16, torch.float16, torch.float32):
+        _log.warning(
+            "Mjolnir lm_head fp8: %s weight dtype %s is not full precision; left as is",
+            type(qm).__name__,
+            w.dtype,
+        )
+        return False
     w8, scale = quantize_rows(w)
     err = _self_test(w, w8, scale)
     if not err < 0.05:
@@ -254,6 +277,202 @@ def pad_vocab(ids: list[int], size: int | None, vocab: int) -> list[int]:
     return out
 
 
+def _dequant_weight(lm_head, out_dtype) -> torch.Tensor:
+    """A dequantized (vocab, hidden) [out, in] weight for a quantized head.
+
+    vLLM's own helper normalizes the layout for any method: an unquantized
+    weight passes through, per-tensor FP8 dequantizes and transposes its
+    [in, out] storage back to [out, in], and packed methods (NVFP4 / MXFP8 /
+    Marlin) dequantize via an identity-matrix matmul.
+    """
+    from vllm.model_executor.layers.quantization.utils.quant_utils import (
+        get_and_maybe_dequant_weights,
+    )
+
+    return get_and_maybe_dequant_weights(lm_head, out_dtype=out_dtype)
+
+
+# ── native VT: keep the trimmed rows in the source quant format ─────────────
+#
+# Prototype. A dequanted 4-bit head kept in bf16/fp8 wastes the calibration
+# (the per-16 block scales) and stores 8/16 bits. Native VT instead slices the
+# packed 4-bit rows + their block scales and dequants the kept subset in the
+# GEMM, so the kept head stays 4-bit (~0.19 GB for 64K x 5120) and is
+# bit-exact to the source head. The in-kernel GEMM is CUDA-only and UNTESTED
+# here; it self-checks against the torch reference below on first use and
+# falls back to the fp8 path if it disagrees, so it never serves wrong.
+
+
+# OCP fp4 e2m1 code -> value. VERIFY against the model's head on the Thor
+# (nibble order / LUT / global-scale application): if any is off the whole
+# native path is off.
+_NVFP4_LUT = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0])
+
+
+def _nvfp4_dequant_rows(w, bs, gs, idx):
+    """Reference dequant of the kept NVFP4 rows -> (kept, in) bf16.
+
+    w   (out, in//2) uint8   2 fp4 nibbles/byte, low nibble = even input dim
+    bs  (out, in//16) e4m3   the calibrated per-16 block scales
+    gs  scalar              weight_global_scale
+    """
+    w = w.index_select(0, idx)
+    bs = bs.index_select(0, idx)
+    lo = w & 0xF
+    hi = (w >> 4) & 0xF
+    codes = torch.stack((lo, hi), dim=-1).reshape(w.shape[0], w.shape[1] * 2).to(torch.int32)
+    lut = _NVFP4_LUT.to(codes.device)
+    vals = lut[codes].to(torch.float32)
+    kept, inp = w.shape[0], w.shape[1] * 2
+    vals = (vals.reshape(kept, inp // 16, 16) * bs.float()[:, :, None]).reshape(kept, inp)
+    return (vals * float(gs.item())).to(torch.bfloat16)
+
+
+def _nvfp4_native_gemm(x, w, bs, gs):
+    """CUDA in-kernel GEMM: x [M,K] bf16 @ dequant(w,bs,gs).T -> [M,kept] bf16.
+
+    Dequants the 4-bit B operand in-kernel (nibbles -> e2m1, x per-16 block
+    scale, x global) so the kept head stays 4-bit. Modeled on vLLM's
+    nvfp4_gathered_bias. UNTESTED — see the self-check in _nvfp4_native_head.
+    Returns None if triton is unavailable (caller falls back).
+    """
+    if triton is None:
+        return None
+    M, K = x.shape
+    N = w.shape[0]
+    out = torch.empty(M, N, dtype=x.dtype, device=x.device)
+    BM = 64 if M < 64 else 128
+    BN, BK = 128, 64
+
+    @triton.jit
+    def _k(X, W, BS, OUT, gs, M, N, K, sxm, swn, sbsn, BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
+        pm, pn = tl.program_id(0), tl.program_id(1)
+        rm = pm * BM + tl.arange(0, BM)
+        rn = pn * BN + tl.arange(0, BN)
+        acc = tl.zeros((BM, BN), dtype=tl.float32)
+        for k0 in range(0, K, BK):
+            x = tl.load(X + rm[:, None] * sxm + (k0 + tl.arange(0, BK))[None, :], mask=(rm[:, None] < M), other=0.0)
+            wb = tl.load(
+                W + rn[:, None] * swn + (k0 // 2 + tl.arange(0, BK // 2))[None, :], mask=(rn[:, None] < N), other=0
+            )
+            code = tl.reshape(tl.join(wb & 0xF, (wb >> 4) & 0xF), (BN, BK))
+            e, m, s = (code >> 1) & 3, code & 1, (code >> 3) & 1
+            mf = m.to(tl.float32)
+            mag = tl.where(e == 0, 0.5 * mf, (1.0 + 0.5 * mf) * tl.exp2((e.to(tl.int32) - 1).to(tl.float32)))
+            val = tl.where(s == 1, -mag, mag)
+            bsc = tl.load(
+                BS + rn[:, None] * sbsn + (k0 // 16 + tl.arange(0, BK // 16))[None, :],
+                mask=(rn[:, None] < N),
+                other=0.0,
+            ).to(tl.float32)
+            b = (tl.reshape(val, (BN, BK // 16, 16)) * bsc[:, :, None]).reshape(BN, BK) * gs
+            acc += tl.dot(x.to(tl.bfloat16), tl.trans(b.to(tl.bfloat16)))
+        tl.store(
+            OUT + rm[:, None] * N + rn[None, :],
+            acc.to(OUT.dtype.element_ty),
+            mask=(rm[:, None] < M) & (rn[None, :] < N),
+        )
+
+    _k[(triton.cdiv(M, BM), triton.cdiv(N, BN))](
+        x, w, bs, out, float(gs.item()), M, N, K, K, w.shape[1], bs.shape[1], BM=BM, BN=BN, BK=BK, num_warps=4
+    )
+    return out
+
+
+def _nvfp4_native_head(lm_head, idx):
+    """Build a native 4-bit kept head for the kept token ids. Returns a
+    `head(h) -> [M,kept]` callable, or None if the head isn't a W4A16 NVFP4
+    ModelOpt head / the self-check fails (caller uses the fp8 path).
+
+    Two gates before the path is trusted (both run on the Thor): the torch
+    reference is validated against vLLM's own dequant (the source of truth — a
+    shared LUT/nibble-order error in the reference would otherwise pass the
+    kernel-vs-reference self-check), and the in-kernel GEMM is self-checked
+    against the reference at serving shapes (multi-tile, not just M=1). The
+    reference validation does one full dequant (freed immediately) — the same
+    transient the fp8 path pays; the steady-state kept head stays 4-bit.
+    """
+    packed = getattr(lm_head, "weight", None)
+    bs = getattr(lm_head, "weight_scale", None)
+    gs = getattr(lm_head, "weight_global_scale", None)
+    if packed is None or bs is None or gs is None or packed.dtype != torch.uint8:
+        return None
+    inp = packed.shape[1] * 2
+    # the K loop reads full 64-wide blocks (BK=64), so the input dim must divide
+    # 64 (the per-16 block scale divides 16); anything else would read OOB
+    if inp % 64 or (
+        getattr(lm_head, "input_size_per_partition", None) is not None and inp != lm_head.input_size_per_partition
+    ):
+        return None  # not the [out, in/2] packed NVFP4 layout
+    # A1: validate the torch reference against vLLM's own dequant (source of
+    # truth) on sample rows. One full dequant, freed right after.
+    sample = torch.randint(0, packed.shape[0], (min(8, packed.shape[0]),), device=packed.device)
+    wfull = _dequant_weight(lm_head, torch.bfloat16)
+    try:
+        if not torch.allclose(
+            _nvfp4_dequant_rows(packed, bs, gs, sample).float(),
+            wfull.index_select(0, sample).float(),
+            rtol=2e-2,
+            atol=2e-2,
+        ):
+            return None
+    finally:
+        del wfull
+    # A2: self-check the in-kernel GEMM vs the reference at serving-shaped M —
+    # the BM=64/128 switch, a tiling boundary, and the multi-tile loop — not just M=1.
+    w_k = packed.index_select(0, idx)
+    bs_k = bs.index_select(0, idx)
+    deq = _nvfp4_dequant_rows(packed, bs, gs, idx)
+    for m in (1, 64, 65, 130):
+        x = torch.randn(m, inp, dtype=torch.bfloat16, device=packed.device)
+        ref = (x.float() @ deq.float().t()).to(x.dtype)
+        got = _nvfp4_native_gemm(x, w_k, bs_k, gs)
+        if got is None or not torch.allclose(got, ref, rtol=5e-2, atol=5e-2):
+            return None
+
+    def head(h):
+        return _nvfp4_native_gemm(h.reshape(-1, h.shape[-1]), w_k, bs_k, gs).reshape(*h.shape[:-1], w_k.shape[0])
+
+    return head
+
+
+def _fp8_native_slice(lm_head, idx):
+    """Native row-slice of an already-fp8 head: keep the kept rows' e4m3 bytes +
+    their scale (no dequant->bf16->re-quant round trip). Returns
+    ``(w8[kept,in], scale[kept])`` for ``fp8_linear``, or None when the scale is
+    not row-aligned (a block-scale MXFP8 / unknown layout) so the caller dequants.
+    """
+    w = getattr(lm_head, "weight", None)
+    if w is None or w.dtype != torch.float8_e4m3fn or w.ndim != 2:
+        return None
+    scale = getattr(lm_head, "weight_scale", None)
+    if scale is None:
+        return None
+    kept = w.index_select(0, idx)
+    # per-row (N,) scale: row-aligned with the weights -> slice it too
+    if scale.ndim == 1 and scale.shape[0] == w.shape[0]:
+        return kept.contiguous(), scale.index_select(0, idx).float().contiguous()
+    # per-tensor scalar: broadcast to a per-row scale (still the native bytes)
+    if scale.numel() == 1:
+        return kept.contiguous(), scale.float().expand(kept.shape[0]).contiguous()
+    return None  # block-scale / 2-D: not row-aligned; dequant is the safe path
+
+
+def _kept_fp8_head(lm_head, qm, idx):
+    """The bf16/fp8 kept head: a fresh full dequant, slice the kept rows,
+    re-quantize to fp8 when the source was quantized. Shared by the fp8 path
+    and the native path's serving-time fallback (built only on first failure)."""
+    quantized = qm is not None and "Unquantized" not in type(qm).__name__
+    w = _dequant_weight(lm_head, torch.bfloat16) if quantized else lm_head.weight.data
+    fp8 = quantized or getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8"
+    sub = w.index_select(0, idx).contiguous()
+    del w
+    if fp8:
+        sub8, sub_scale = quantize_rows(sub)
+        return lambda h: fp8_linear(h, sub8, sub_scale)
+    return lambda h: torch.nn.functional.linear(h, sub)
+
+
 def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) -> bool:
     lm_head = getattr(draft_model, "lm_head", None)
     lp = getattr(draft_model, "logits_processor", None)
@@ -263,8 +482,26 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
     if getattr(lp, "scale", 1.0) != 1.0 or getattr(lp, "soft_cap", None) is not None:
         _log.warning("Mjolnir draft vocab: logit scale / soft cap not supported; left as is")
         return False
-    w = lm_head.weight.data
-    vocab = int(getattr(lp, "org_vocab_size", w.shape[0]))
+    qm = getattr(lm_head, "quant_method", None)
+    quantized = qm is not None and "Unquantized" not in type(qm).__name__
+    device = lm_head.weight.device
+    vocab = int(getattr(lp, "org_vocab_size", 0) or 0)
+    # a quantized head's row count (the vocab) needs a dequant when org_vocab_size
+    # is unset; recover it then, reusing the dequant the fp8 path needs. A
+    # successful native install never reaches here (B1: no forced dequant).
+    w = None
+    if not vocab:
+        if quantized:
+            try:
+                w = _dequant_weight(lm_head, torch.bfloat16)
+            except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+                _log.warning(
+                    "Mjolnir draft vocab: cannot dequantize the %s head (%r); left as is", type(qm).__name__, e
+                )
+                return False
+        else:
+            w = lm_head.weight.data
+        vocab = int(w.shape[0])
     calibrated = len({i for i in ids if 0 <= i < vocab})
     ids = pad_vocab(ids, size, vocab)
     if size and calibrated < size:
@@ -274,18 +511,90 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
             calibrated,
             len(ids),
         )
-    idx = torch.tensor(sorted(set(ids)), dtype=torch.long, device=w.device)
-    fp8 = getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8"
-    sub = w.index_select(0, idx).contiguous()
-    if fp8:
-        sub8, sub_scale = quantize_rows(sub)
+    idx = torch.tensor(sorted(set(ids)), dtype=torch.long, device=device)
+    # ── build the kept head, staying in the source's native quant ────────────
+    # VT never up-scales to bf16 first: the kept rows come straight from the
+    # head's own storage. Dispatch on the original precision. The single
+    # precision-changing exception is bf16 -> fp8, and only when the fp8 env is
+    # set (a 4-bit/8-bit head is never widened):
+    #   NVFP4 (packed 4-bit + block/global scales) -> 4-bit in-kernel GEMM,
+    #       self-checked; automatic while the VT env is set (0/off -> fp8 fallback)
+    #   FP8 (e4m3 weight + row-aligned scale)       -> native row-slice of the 8-bit
+    #       bytes + scales (the fp8 GEMM is unchanged)
+    #   bf16 (unquantized)                          -> fp8 when the fp8 env is set, else bf16
+    #   any other quant (MXFP8 block scales, ...)   -> safe dequant->fp8 fallback
+    native_off = os.environ.get(ENV_DRAFT_VOCAB_NATIVE, "").strip().lower() in ("0", "off", "false", "no")
+    packed = getattr(lm_head, "weight", None)
+    head = None
+    label = None
+    if not native_off and packed is not None and packed.dtype == torch.uint8:  # NVFP4 packed 4-bit
+        try:
+            native = _nvfp4_native_head(lm_head, idx)
+        except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+            _log.warning("Mjolnir draft vocab: native 4-bit self-check failed (%r); fp8 fallback", e)
+            native = None
+        if native is not None:
+            if w is not None:
+                del w  # the vocab-recovery dequant is unused by a native path
+            fb = {}
 
-        def head(h):
-            return fp8_linear(h, sub8, sub_scale)
-    else:
+            def head(h):
+                try:
+                    return native(h)
+                except Exception as e:  # noqa: BLE001 - a serving failure switches to fp8 for good
+                    if not fb:
+                        _log.warning("Mjolnir draft vocab: native 4-bit serving failure (%r); fp8 kept head", e)
+                        fb["h"] = _kept_fp8_head(lm_head, qm, idx)
+                    return fb["h"](h)
 
-        def head(h):
-            return torch.nn.functional.linear(h, sub)
+            label = "4-bit (nvfp4, native)"
+    if head is None and packed is not None and packed.dtype == torch.float8_e4m3fn:  # FP8 / MXFP8
+        sliced = _fp8_native_slice(lm_head, idx)
+        if sliced is not None:
+            w8, sc = sliced
+
+            def head(h):
+                return fp8_linear(h, w8, sc)
+
+            label = "fp8 (native)"
+    if head is None:
+        # fallback: dequant a quant source to bf16, then fp8 or bf16. A bf16 source
+        # is the one precision exception (-> fp8 only when the fp8 env is set); a
+        # quant source we could not slice natively dequants and re-quants to fp8.
+        if w is None:
+            if quantized:
+                try:
+                    w = _dequant_weight(lm_head, torch.bfloat16)
+                except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+                    _log.warning(
+                        "Mjolnir draft vocab: cannot dequantize the %s head (%r); left as is", type(qm).__name__, e
+                    )
+                    return False
+            else:
+                w = lm_head.weight.data
+        if w.ndim != 2 or w.shape[0] < vocab:
+            _log.warning(
+                "Mjolnir draft vocab: head weight %s has no token-per-row axis (rows %d < vocab %d); left as is",
+                tuple(w.shape),
+                w.shape[0],
+                vocab,
+            )
+            return False
+        sub = w.index_select(0, idx).contiguous()
+        del w  # the full dequant / bf16 weight is dead weight now; sub holds the kept rows
+        if quantized or getattr(lm_head, "_mjolnir_fp8", False) or os.environ.get(ENV_LM_HEAD, "").strip() == "fp8":
+            sub8, sub_scale = quantize_rows(sub)
+
+            def head(h):
+                return fp8_linear(h, sub8, sub_scale)
+
+            label = "fp8 (dequant)" if quantized else "fp8"
+        else:
+
+            def head(h):
+                return torch.nn.functional.linear(h, sub)
+
+            label = "bf16"
 
     # row chunks bound the temporaries when a caller (vLLM's startup memory
     # profile) passes thousands of rows at once
@@ -305,13 +614,7 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
     if hasattr(draft_model, "get_top_tokens"):
         draft_model.get_top_tokens = get_top_tokens
     draft_model._mjolnir_draft_vocab = int(idx.numel())
-    _log.info(
-        "Mjolnir draft vocab: drafter logits over %d of %d tokens (%s head, %.0f MB)",
-        idx.numel(),
-        vocab,
-        "fp8" if fp8 else "bf16",
-        sub.numel() * (1 if fp8 else sub.element_size()) / 2**20,
-    )
+    _log.info("Mjolnir draft vocab: %d of %d tokens, %s head", idx.numel(), vocab, label)
     return True
 
 
