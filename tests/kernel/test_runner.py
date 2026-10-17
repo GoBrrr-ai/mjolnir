@@ -918,7 +918,7 @@ def test_fp8_native_slice():
     assert _fp8_native_slice(h4, idx) is None
 
 
-def test_draft_vocab_dispatch(monkeypatch):
+def test_draft_vocab_dispatch():
     """VT dispatches on the drafter head's original precision (no bf16 upscale):
     a bf16 head stays bf16, but the single precision exception (bf16 -> fp8)
     engages only when the fp8 env is set. The kept logits match the source
@@ -952,24 +952,35 @@ def test_draft_vocab_dispatch(monkeypatch):
     def kept(out):
         return out.index_select(1, idx)
 
-    # no fp8 env -> a bf16 head stays bf16 (bit-exact to the source head's kept rows)
-    d = _Draft()
-    assert install_draft_vocab(d, ids)
-    out = d.compute_logits(h)
-    assert torch.isinf(out.index_select(1, drop)).all(), "non-kept tokens must be -inf"
-    assert torch.allclose(kept(out), kept_ref, rtol=5e-2, atol=5e-2), "bf16 VT must equal the source head's kept rows"
-    # the single exception: bf16 -> fp8 when the fp8 env is set (a tiny re-round)
-    monkeypatch.setenv(ENV_LM_HEAD, "fp8")
-    d2 = _Draft()
-    assert install_draft_vocab(d2, ids)
-    out8 = d2.compute_logits(h)
-    assert torch.isinf(out8.index_select(1, drop)).all(), "non-kept tokens must be -inf"
-    # the fp8 re-round is ~2-6% per element (e4m3); compare mean error to the
-    # logits' own magnitude so the check is scale-robust (a broken re-round would
-    # blow this up), and confirm it actually differs from the bit-exact bf16 VT
-    diff8 = (kept(out8) - kept_ref).abs()
-    assert diff8.mean() < 0.1 * kept_ref.abs().mean(), "bf16->fp8 VT should be a close re-round of the source head"
-    assert not torch.equal(kept(out8), kept(out)), "the fp8 VT re-rounds (a bit-exact bf16 VT would not)"
+    # no fp8 env -> a bf16 head stays bf16 (bit-exact to the source head's kept rows).
+    # This runner is a plain script (not pytest), so the env var is managed by hand.
+    saved = os.environ.get(ENV_LM_HEAD)
+    try:
+        os.environ.pop(ENV_LM_HEAD, None)
+        d = _Draft()
+        assert install_draft_vocab(d, ids)
+        out = d.compute_logits(h)
+        assert torch.isinf(out.index_select(1, drop)).all(), "non-kept tokens must be -inf"
+        assert torch.allclose(kept(out), kept_ref, rtol=5e-2, atol=5e-2), (
+            "bf16 VT must equal the source head's kept rows"
+        )
+        # the single exception: bf16 -> fp8 when the fp8 env is set (a tiny re-round)
+        os.environ[ENV_LM_HEAD] = "fp8"
+        d2 = _Draft()
+        assert install_draft_vocab(d2, ids)
+        out8 = d2.compute_logits(h)
+        assert torch.isinf(out8.index_select(1, drop)).all(), "non-kept tokens must be -inf"
+        # the fp8 re-round is ~2-6% per element (e4m3); compare mean error to the
+        # logits' own magnitude so the check is scale-robust (a broken re-round would
+        # blow this up), and confirm it actually differs from the bit-exact bf16 VT
+        diff8 = (kept(out8) - kept_ref).abs()
+        assert diff8.mean() < 0.1 * kept_ref.abs().mean(), "bf16->fp8 VT should be a close re-round of the source head"
+        assert not torch.equal(kept(out8), kept(out)), "the fp8 VT re-rounds (a bit-exact bf16 VT would not)"
+    finally:
+        if saved is None:
+            os.environ.pop(ENV_LM_HEAD, None)
+        else:
+            os.environ[ENV_LM_HEAD] = saved
 
 
 def test_cuda_graph_replay_with_new_plan():

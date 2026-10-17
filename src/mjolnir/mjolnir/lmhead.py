@@ -361,9 +361,11 @@ def _nvfp4_native_gemm(x, w, bs, gs):
             mag = tl.where(e == 0, 0.5 * mf, (1.0 + 0.5 * mf) * tl.exp2((e.to(tl.int32) - 1).to(tl.float32)))
             val = tl.where(s == 1, -mag, mag)
             bsc = tl.load(
-                BS + rn[:, None] * sbsn + (k0 // 16 + tl.arange(0, BK // 16))[None, :], mask=(rn[:, None] < N), other=0
+                BS + rn[:, None] * sbsn + (k0 // 16 + tl.arange(0, BK // 16))[None, :],
+                mask=(rn[:, None] < N),
+                other=0.0,
             ).to(tl.float32)
-            b = val * tl.reshape(bsc[:, :, None], (BN, BK)) * gs
+            b = (tl.reshape(val, (BN, BK // 16, 16)) * bsc[:, :, None]).reshape(BN, BK) * gs
             acc += tl.dot(x.to(tl.bfloat16), tl.trans(b.to(tl.bfloat16)))
         tl.store(
             OUT + rm[:, None] * N + rn[None, :],
