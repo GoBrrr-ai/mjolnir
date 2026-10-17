@@ -93,3 +93,24 @@ def test_root_command_help_exits_zero_and_shows_its_options(name):
     assert re.search(rf"Usage: \S+ {name} \[OPTIONS\]", out)
     for opt in ROOT_COMMAND_OPTIONS[name]:
         assert opt in out
+
+
+def test_root_help_exits_zero_and_lists_top_level_commands_in_current_order():
+    assert _listed_commands(_invoke_help()) == [
+        "gate",
+        "calibrate",
+        "grant-permissions",
+        "drop-caches",
+        "plot",
+        "history",
+        "version",
+        "serve",
+        "bench",
+        "model",
+        "image",
+        "verify",
+        "autoresearch",
+        "litellm",
+        "perses",
+        "hw",
+    ]
