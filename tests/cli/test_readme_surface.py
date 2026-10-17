@@ -200,3 +200,45 @@ def test_findings_returns_sentences_for_fixture_run(stage):
 def test_findings_is_empty_when_stage_has_no_data():
     assert readme._findings("quant", {"rows": []}) == []
     assert readme._findings("unknown-stage", {}) == []
+
+
+def test_fmt_us_formats_none_submillisecond_and_millisecond_values_exactly():
+    assert readme.fmt_us(None) == "—"
+    assert readme.fmt_us(0.5) == "0.5&nbsp;µs"
+    assert readme.fmt_us(12.34) == "12.3&nbsp;µs"
+    assert readme.fmt_us(999.9) == "999.9&nbsp;µs"
+    assert readme.fmt_us(1234.5) == "1.23&nbsp;ms"
+    assert readme.fmt_us(64200) == "64.20&nbsp;ms"
+
+
+def test_l_label_uses_k_suffix_only_for_whole_kibibyte_values():
+    assert readme.L_label(128) == "128"
+    assert readme.L_label(1500) == "1500"
+    assert readme.L_label(1024) == "1K"
+    assert readme.L_label(131072) == "128K"
+
+
+def test_ratio_md_renders_exact_latex_for_win_noise_and_loss():
+    assert readme.ratio_md(None) == "—"
+    assert readme.ratio_md(1.5) == "$\\color{#16a34a}{\\mathbf{1.50\\times}}$"
+    assert readme.ratio_md(1.5, bold_wins=False) == "$\\color{#16a34a}{1.50\\times}$"
+    assert readme.ratio_md(1.0) == "$\\color{grey}{1.00\\times}$"
+    assert readme.ratio_md(0.9) == "$\\color{#dc2626}{0.90\\times}$"
+
+
+def test_pct_md_renders_exact_latex_and_flips_color_with_direction():
+    assert readme.pct_md(None) == "—"
+    assert readme.pct_md(-3.0) == "$\\color{#16a34a}{\\text{−3.0\\\\%}}$"
+    assert readme.pct_md(3.0) == "$\\color{#dc2626}{\\text{+3.0\\\\%}}$"
+    assert readme.pct_md(3.0, lower_is_better=False) == "$\\color{#16a34a}{\\text{+3.0\\\\%}}$"
+    assert readme.pct_md(0.5) == "$\\color{grey}{\\text{+0.5\\\\%}}$"
+
+
+def test_color_wraps_text_in_grey_scriptstyle_latex_by_default():
+    assert readme.color("x") == "$\\color{grey}\\scriptstyle\\text{x}$"
+    assert readme.color("x", "red") == "$\\color{red}\\scriptstyle\\text{x}$"
+
+
+def test_series_time_table_renders_exact_markdown_for_hndsweep_fixture():
+    expected = "| L | FlashInfer | FlashInfer HND | Mjolnir fp8 | fp8 vs FI | fp8 vs FI-HND |\n|---|--:|--:|--:|--:|--:|\n| **128** | 25.4&nbsp;µs | 25.3&nbsp;µs | **13.6&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.87\\times}}$ | $\\color{#16a34a}{\\mathbf{1.86\\times}}$ |\n| **4K** | 64.2&nbsp;µs | 61.0&nbsp;µs | **55.1&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.17\\times}}$ | $\\color{#16a34a}{\\mathbf{1.11\\times}}$ |\n| **8K** | 103.0&nbsp;µs | 96.0&nbsp;µs | **87.7&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.17\\times}}$ | $\\color{#16a34a}{\\mathbf{1.09\\times}}$ |\n| **16K** | 191.5&nbsp;µs | 175.4&nbsp;µs | **169.6&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.13\\times}}$ | $\\color{#16a34a}{\\mathbf{1.03\\times}}$ |\n| **32K** | 371.9&nbsp;µs | **344.8&nbsp;µs** | 354.7&nbsp;µs | $\\color{#16a34a}{\\mathbf{1.05\\times}}$ | $\\color{grey}{0.97\\times}$ |\n| **64K** | 763.4&nbsp;µs | 716.9&nbsp;µs | **676.3&nbsp;µs** | $\\color{#16a34a}{\\mathbf{1.13\\times}}$ | $\\color{#16a34a}{\\mathbf{1.06\\times}}$ |\n| **128K** | 1.37&nbsp;ms | 1.31&nbsp;ms | **1.27&nbsp;ms** | $\\color{#16a34a}{\\mathbf{1.08\\times}}$ | $\\color{#16a34a}{\\mathbf{1.03\\times}}$ |\n| **256K** | 2.56&nbsp;ms | 2.53&nbsp;ms | **2.40&nbsp;ms** | $\\color{#16a34a}{\\mathbf{1.07\\times}}$ | $\\color{#16a34a}{\\mathbf{1.05\\times}}$ |\n| geomean |  |  |  | $\\color{#16a34a}{\\mathbf{1.19\\times}}$ | $\\color{#16a34a}{\\mathbf{1.13\\times}}$ |"
+    assert readme.TABLES["hndsweep"](all_docs()["hndsweep"]) == expected
