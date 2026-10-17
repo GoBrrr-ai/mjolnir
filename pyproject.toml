@@ -13,7 +13,7 @@
 name = "mjolnir-workspace"
 version = "0"
 description = "Mjolnir monorepo root — not published (see src/mjolnir and src/mjolnir-cli)."
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "mjolnir-cli[plot]",
     "mjolnir-kernel",
@@ -36,7 +36,7 @@ mjolnir-kernel = { workspace = true }
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint.per-file-ignores]
 # The CuTe-DSL kernel follows CUTLASS/FlashAttention conventions: the DSL's
