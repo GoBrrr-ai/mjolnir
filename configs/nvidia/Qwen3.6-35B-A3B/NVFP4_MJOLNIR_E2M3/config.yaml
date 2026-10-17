@@ -1,0 +1,46 @@
+# NVFP4_MJOLNIR_E2M3 — Qwen3.6-35B-A3B NVFP4 on Mjolnir: NVFP4_DFLASH's
+# flags plus the Mjolnir feature set, nothing else:
+#   MJOLNIR attention on the 10 full-attention layers (head_dim 256, GQA 16:2)
+#   fp6 (e2m3) KV with calibrated per-(layer, KV head) scales (../kv_scales.json)
+#   MTP, 5 drafts          (built-in head; (K+1)=6 x GQA 8 = 48 rows: two 32-row kernel tiles)
+#                          (K=5 is carried over from Qwen3.8, not swept here: K=3 fits one
+#                          tile exactly; K=3/5/7 sweep: #32)
+# No fp8 lm_head (LMH8): this checkpoint's lm_head is already ModelOpt-quantized,
+# so MJOLNIR_LM_HEAD=fp8 leaves it as is (a no-op).
+# No draft vocab (VT): MJOLNIR_DRAFT_VOCAB on this MoE adds ~40 GB within 2 s
+# of model load and hung Thor twice (2026-10-16, thor-arena/mjolnir#25).
+model: nvidia/Qwen3.6-35B-A3B-NVFP4
+served-model-name: nvidia/Qwen3.6-35B-A3B-NVFP4
+
+quantization: modelopt
+trust-remote-code: true
+
+# ── Memory: same shape as NVFP4_DFLASH (single user, embed/rerank alongside) ─
+max-model-len: 262144
+max-num-seqs: 1
+gpu-memory-utilization: 0.45
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention ────────────────────────────────────────────────────────────
+# Mjolnir decode kernel on decode steps, FlashAttention 4 for prefill / mixed
+# steps; `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs.
+attention-backend: MJOLNIR
+
+# ── KV Cache: fp6 e2m3 (25% fewer KV bytes than fp8) ─────────────────────
+# Scales: `mjolnir calibrate --config NVFP4_MJOLNIR` (the fp8-KV calibration
+# config next to this one; it runs MTP K=3 and the Qwen3.8 scheduler extras,
+# which should change scheduling, not the K/V ranges recorded; not verified
+# by a second calibration) writes ../kv_scales.json; `mjolnir serve` points MJOLNIR_ATTN_KV_SCALES at it.
+kv-cache-dtype: fp6_e2m3
+
+# ── Speculative Decoding — MTP (built-in head), K=5 ─────────────────────
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 5
+
+# Keep the Qwen3.8 configs' extras out (performance-mode throughput,
+# optimization-level 3, 16K batched tokens, TORCH_SDPA ViT, mamba align):
+# NVFP4_DFLASH did not come up with them, and they are untested here.
