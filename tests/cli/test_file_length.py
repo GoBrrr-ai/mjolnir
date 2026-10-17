@@ -47,10 +47,28 @@ def make_repo(tmp_path, files, *, toml=None, untracked=()):
     return r
 
 
+NOTE = "history check skipped"
+
+
 def run(repo, capsys):
+    """Current-state run (no --base); the 'history check skipped' note is stripped from stderr."""
     code = cfl.main([], root=repo)
     cap = capsys.readouterr()
+    err = "".join(ln + "\n" for ln in cap.err.splitlines() if NOTE not in ln)
+    return code, cap.out, err
+
+
+def run_base(repo, capsys, base="HEAD"):
+    code = cfl.main(["--base", base], root=repo)
+    cap = capsys.readouterr()
     return code, cap.out, cap.err
+
+
+def commit_base(repo, toml):
+    """Commit `toml` as the pyproject.toml of a base commit, then return to the caller to edit it."""
+    (repo / "pyproject.toml").write_text(toml)
+    _git(repo, "add", "pyproject.toml")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base")
 
 
 def test_under_limit_passes_and_is_silent(tmp_path, capsys):
@@ -197,6 +215,91 @@ def test_not_a_git_repo_is_environment_error(tmp_path, capsys):
     (tmp_path / "pyproject.toml").write_text(table())
     code, out, err = run(tmp_path, capsys)
     assert code == 2 and out == "" and err.strip()
+
+
+def test_no_base_notes_skipped_history_check(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(1)})
+    code = cfl.main([], root=r)
+    cap = capsys.readouterr()
+    assert code == 0 and cap.out == ""
+    assert NOTE in cap.err and len(cap.err.splitlines()) == 1
+
+
+def history_repo(tmp_path, base_ceiling, pr_ceiling, size, path="a.py", pr_path=None):
+    r = make_repo(tmp_path, {path: lines(size)}, toml=table({path: base_ceiling}))
+    commit_base(r, table({path: base_ceiling}))
+    (r / "pyproject.toml").write_text(table({(pr_path or path): pr_ceiling}))
+    return r
+
+
+def test_base_ceiling_raised_fails(tmp_path, capsys):
+    r = history_repo(tmp_path, 1287, 1288, 1288)
+    code, out, err = run_base(r, capsys)
+    assert code == 1 and out == ""
+    assert "ceilings only go down" in err and "a.py" in err and "1287" in err and "1288" in err
+
+
+def test_base_ceiling_lowered_with_file_shrunk_passes(tmp_path, capsys):
+    r = history_repo(tmp_path, 1287, 1250, 1250)
+    assert run_base(r, capsys) == (0, "", "")
+
+
+def test_base_ceiling_unchanged_passes(tmp_path, capsys):
+    r = history_repo(tmp_path, 8, 8, 8)
+    assert run_base(r, capsys) == (0, "", "")
+
+
+def test_new_entry_not_in_base_fails(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(8), "b.py": lines(8)}, toml=table({"a.py": 8}))
+    commit_base(r, table({"a.py": 8}))
+    (r / "pyproject.toml").write_text(table({"a.py": 8, "b.py": 8}))
+    code, _, err = run_base(r, capsys)
+    assert code == 1 and "no new entries" in err and "b.py" in err and "a.py" not in err
+
+
+def test_rename_of_grandfathered_path_fails(tmp_path, capsys):
+    r = history_repo(tmp_path, 8, 8, 8, pr_path="b.py")
+    _git(r, "mv", "a.py", "b.py")
+    code, _, err = run_base(r, capsys)
+    assert code == 1 and "no new entries" in err and "b.py" in err
+
+
+def test_removing_entry_passes(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(3)}, toml=table({"a.py": 8}))
+    commit_base(r, table({"a.py": 8}))
+    (r / "pyproject.toml").write_text(table())
+    assert run_base(r, capsys) == (0, "", "")
+
+
+def test_base_without_table_bootstraps_with_note(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(8)}, toml=table({"a.py": 8}))
+    commit_base(r, "[project]\nname = 'x'\n")
+    (r / "pyproject.toml").write_text(table({"a.py": 8}))
+    code, out, err = run_base(r, capsys)
+    assert code == 0 and out == ""
+    assert "file-length" in err and "skip" in err and len(err.splitlines()) == 1
+
+
+def test_base_without_pyproject_bootstraps(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(1)})
+    _git(r, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x", "--", "a.py")
+    code, _, err = run_base(r, capsys)
+    assert code == 0 and "skip" in err
+
+
+def test_bootstrap_still_reports_current_state_problems(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(9)})
+    commit_base(r, "[project]\nname = 'x'\n")
+    (r / "pyproject.toml").write_text(table())
+    code, _, err = run_base(r, capsys)
+    assert code == 1 and "a.py" in err
+
+
+def test_unresolvable_base_is_environment_error(tmp_path, capsys):
+    r = make_repo(tmp_path, {"a.py": lines(1)})
+    commit_base(r, table())
+    code, out, err = run_base(r, capsys, base="no-such-ref")
+    assert code == 2 and out == "" and "no-such-ref" in err
 
 
 def test_script_is_single_short_stdlib_file():
