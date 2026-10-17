@@ -28,6 +28,7 @@ jobs:
       readme: ${{ steps.f.outputs.readme }}
       build: ${{ steps.f.outputs.build }}
       vllm-patch: ${{ steps.f.outputs.vllm-patch }}
+      file-length: ${{ steps.f.outputs.file-length }}
     steps:
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: f
@@ -44,6 +45,8 @@ jobs:
               - 'uv.lock'
               # the release planner / notes (tests/cli/test_release_plan.py)
               - 'scripts/release_*.py'
+              # the file-length checker's own tests (tests/cli)
+              - 'scripts/check_file_length.py'
             readme:
               - 'src/mjolnir-cli/**'
               # every template, wherever it lives (16 today: README.md.j2,
@@ -68,6 +71,15 @@ jobs:
             lint-workflows:
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
+            # the file-length ratchet reads every tracked source, script and
+            # doc, plus the rules table in pyproject.toml
+            file-length:
+              - 'src/**'
+              - 'tests/**'
+              - 'scripts/**'
+              - '**/*.md'
+              - '**/*.j2'
+              - 'pyproject.toml'
 
   lint:
     needs: filter
@@ -100,6 +112,34 @@ jobs:
           ver=1.7.12
           curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${ver}/actionlint_${ver}_linux_amd64.tar.gz" | tar xz
           ./actionlint
+
+  file-length:
+    # per-file line limits + the history ratchet (scripts/check_file_length.py,
+    # rules in [tool.mjolnir.file-length] in pyproject.toml). On a PR it also
+    # compares against the base branch; Release / manual runs check the tree only.
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.file-length == 'true')
+    runs-on: ubuntu-latest
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Fetch the base branch
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "$BASE_REF"
+      - name: Check file lengths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            uv run scripts/check_file_length.py --base FETCH_HEAD
+          else
+            uv run scripts/check_file_length.py
+          fi
 
   test:
     needs: filter
@@ -229,8 +269,9 @@ jobs:
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
       (needs.readme.result == 'success' || needs.readme.result == 'skipped') &&
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
-      (needs.vllm-patch.result == 'success' || needs.vllm-patch.result == 'skipped')
-    needs: [filter, lint, lint-workflows, test, readme, build, vllm-patch]
+      (needs.vllm-patch.result == 'success' || needs.vllm-patch.result == 'skipped') &&
+      (needs.file-length.result == 'success' || needs.file-length.result == 'skipped')
+    needs: [filter, lint, lint-workflows, file-length, test, readme, build, vllm-patch]
     runs-on: ubuntu-latest
     steps:
       - name: In-scope stage results
@@ -241,3 +282,4 @@ jobs:
           echo "readme:         ${{ needs.readme.result }}"
           echo "build:          ${{ needs.build.result }}"
           echo "vllm-patch:     ${{ needs.vllm-patch.result }}"
+          echo "file-length:    ${{ needs.file-length.result }}"
