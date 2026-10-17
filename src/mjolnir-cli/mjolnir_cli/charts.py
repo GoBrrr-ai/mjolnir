@@ -17,11 +17,12 @@ import re
 
 import json
 import math
+from itertools import groupby
 from pathlib import Path
 from typing import Callable
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of, model_short
 from mjolnir_cli.history import load_records
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
@@ -643,16 +644,17 @@ E2E_SERIES = (
 MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
 
 
-def e2e_rows(layout: RepoLayout) -> dict[str, dict]:
+def e2e_rows(layout: RepoLayout, model: str = DEFAULT_MODEL) -> dict[str, dict]:
     """Latest history record per series: stock configs on the official vLLM
     image, the Mjolnir config on a Mjolnir image. Stock backends measured on
-    the Mjolnir image are ignored (that image patches FlashInfer too)."""
+    the Mjolnir image are ignored (that image patches FlashInfer too). One
+    model's runs: a series is one config of one model."""
     from mjolnir_cli import e2e
 
     latest: dict[str, dict] = {}
     for r in load_records(layout.history_file):
         cfg = r.get("config")
-        if not r.get("cells"):
+        if not r.get("cells") or model_of(r) != model:
             continue
         ok = (cfg in MJOLNIR_E2E_CONFIGS and e2e.is_mjolnir(r)) or (
             cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r)
@@ -987,7 +989,7 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     white, dim, faint = "#ffffff", "#b4bfcc", "#7f8a97"
     c_off, c_mj = theme.DARK.flashinfer, theme.LIGHT.mjolnir
     ver = str(off.get("image", "")).split(":")[-1].split("-")[0].lstrip("v")
-    model = str(mj.get("model", "")).split("/")[-1]
+    model = model_short(mj)
     quant = str(mj.get("config", "")).split("_")[0]
     kv = "fp6 KV" if "E2M3" in str(mj.get("config", "")) else "fp8 KV"
 
@@ -1272,11 +1274,11 @@ def _accuracy_series(r: dict) -> str:
     return "NVFP4_MJOLNIR_E2M3"
 
 
-def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], dict | None, list[str]]:
+def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], list[dict | None], list[str]]:
     from mjolnir_cli import accuracy
 
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
-    return rows, accuracy.baseline(rows), accuracy.suites_in(rows)
+    return rows, accuracy.baselines(rows), accuracy.suites_in(rows)
 
 
 def _accuracy_footer(fig, mode: Mode, rows: list[dict]) -> None:
@@ -1296,7 +1298,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
     dashed line, the difference printed next to the dot."""
     from mjolnir_cli import accuracy
 
-    rows, base, names = _accuracy_rows(layout)
+    rows, bases, names = _accuracy_rows(layout)
     if not rows:
         return None
     plt = _plt()
@@ -1306,18 +1308,31 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
     theme.apply(fig, axes, mode)
     ys = list(range(len(rows)))[::-1]
     for ax, name in zip(axes, names):
-        vals = [(y, r, (r["suites"].get(name) or {}).get("score")) for y, r in zip(ys, rows)]
-        got = [v for _, _, v in vals if v is not None]
+        # each row's baseline score: its own model's baseline row
+        bs = [(base["suites"].get(name) or {}).get("score") if base else None for base in bases]
+        vals = [(y, r, (r["suites"].get(name) or {}).get("score"), b) for y, r, b in zip(ys, rows, bs)]
+        got = [v for _, _, v, _ in vals if v is not None]
         if not got:
             ax.set_visible(False)
             continue
-        b = (base["suites"].get(name) or {}).get("score") if base else None
-        lo, hi = min(got + ([b] if b is not None else [])), max(got + ([b] if b is not None else []))
+        refs = [b for b in bs if b is not None]
+        lo, hi = min(got + refs), max(got + refs)
         pad = max(4.0, (hi - lo) * 0.35)
         ax.set_xlim(max(0, lo - pad), min(100, hi + pad) + pad * 0.6)
-        if b is not None:
-            ax.axvline(b, color=mode.text_dim, lw=1.2, ls=(0, (4, 3)), zorder=2)
-        for y, r, v in vals:
+        # one dashed mark per model, spanning its rows (latest_legs keeps them together)
+        for _, group in groupby(zip(ys, bs, bases), key=lambda t: id(t[2])):
+            span = list(group)
+            if span[0][1] is not None:
+                ax.vlines(
+                    span[0][1],
+                    span[-1][0] - 0.4,
+                    span[0][0] + 0.4,
+                    color=mode.text_dim,
+                    lw=1.2,
+                    ls=(0, (4, 3)),
+                    zorder=2,
+                )
+        for (y, r, v, b), base in zip(vals, bases):
             if v is None:
                 continue
             sid = _accuracy_series(r)
@@ -1327,7 +1342,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
             ax.plot(
                 [v], [y], ls="none", **{k: kw[k] for k in ("color", "marker", "mfc", "mec", "mew")}, ms=10, zorder=5
             )
-            txt = f"{v:.1f}" if r is base or b is None else f"{v:.1f} ({v - b:+.1f})"
+            txt = f"{v:.1f}{accuracy.fmt_delta(accuracy.delta(r, base, name))}"
             ax.annotate(
                 txt,
                 (v if b is None else max(v, b), y),
@@ -1347,8 +1362,9 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         mode,
         "Model quality per serving config",
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
-        + (base["label"].replace(" · ", ", ") if base else "baseline")
-        + " · (±) = points vs it",
+        + (accuracy.baseline_caption(bases, ", ") or "baseline")
+        + " · (±) = points vs it"
+        + (f" · {accuracy.EXCLUDED_NOTE_SHORT}" if accuracy.any_excluded(rows, bases, names) else ""),
     )
     _accuracy_footer(fig, mode, rows)
     return fig
@@ -1364,21 +1380,28 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     """Tool-call categories × configs: the share of points per cell, colored
     by how far the config falls behind the baseline — green on par (or
     better), then orange, then red the more points it loses."""
-    rows, base, _ = _accuracy_rows(layout)
-    rows = [r for r in rows if r.get("categories")]
-    if not rows:
+    from mjolnir_cli import accuracy
+
+    rows, bases, names = _accuracy_rows(layout)
+    pairs = [(r, b) for r, b in zip(rows, bases) if r.get("categories")]
+    if not pairs:
         return None
+    rows, bases = (list(t) for t in zip(*pairs))
     import numpy as np
     from matplotlib.colors import Normalize
 
     cats = sorted({c for r in rows for c in r["categories"]})
     pct = np.array([[r["categories"].get(c, {}).get("percent", np.nan) for c in cats] for r in rows], dtype=float)
-    ref = (
-        np.array([base["categories"].get(c, {}).get("percent", np.nan) for c in cats], dtype=float)
-        if base and base.get("categories")
-        else np.full(len(cats), np.nan)
+    ref = np.array(  # per row: its own model's baseline
+        [
+            [b["categories"].get(c, {}).get("percent", np.nan) for c in cats]
+            if b and b.get("categories")
+            else [np.nan] * len(cats)
+            for b in bases
+        ],
+        dtype=float,
     )
-    delta = pct - ref[None, :]
+    delta = pct - ref
     loss = np.where(np.isfinite(delta), np.clip(-delta, 0, None), 0.0)  # points behind the baseline; ahead = 0
     span = max(ACC_RED_POINTS, float(loss.max()) if loss.size else ACC_RED_POINTS)
     plt = _plt()
@@ -1403,15 +1426,19 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     ax.set_xticks(range(len(cats)))
     ax.set_xticklabels(cats, color=mode.text)
     ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([theme.wrap(r["label"], 24) for r in rows], color=mode.text)
+    marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases)]
+    ax.set_yticklabels(
+        [theme.wrap(r["label"] + (" ‡" if m else ""), 24) for r, m in zip(rows, marked)], color=mode.text
+    )
     ax.set_xlabel("tool-call category (names: the table below)")
     theme.title(
         ax,
         mode,
         "Tool calls by category",
         "cell = share of points, % · green = on par with "
-        + (base["label"].replace(" · ", ", ") if base else "the first row")
-        + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
+        + (accuracy.baseline_caption(bases, ", ") or "the first row")
+        + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind"
+        + (f" · {accuracy.CATEGORY_EXCLUDED_NOTE}" if any(marked) else ""),
     )
     _accuracy_footer(fig, mode, rows)
     return fig

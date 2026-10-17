@@ -39,7 +39,7 @@ from pathlib import Path
 
 import jinja2
 
-from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout, by_model
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import ALL_LS, NOISE_PCT, STAGES
 
@@ -649,6 +649,7 @@ class ReadmeContext:
     accuracy_runs: list = field(default_factory=list)  # run ids the table draws on
     accuracy_args: list = field(default_factory=list)  # (suite label, tool-eval-bench args)
     accuracy_baseline: str = ""
+    accuracy_excluded_note: str = ""
     # the image's patch inventory (docker/vllm-thor/PATCHES.md) — verbatim table + row counts
     patches_table: str = ""
     patches_total: int = 0
@@ -791,12 +792,15 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
                 if h["itl_ms"][2] is not None
                 else "—",
             }
-    _accuracy_context(ctx, layout)
-    _features(ctx, data, layout)
+    from mjolnir_cli import accuracy
+
+    acc_rows = accuracy.latest_legs(accuracy.load_runs(layout))  # read once, for the page and the hero
+    _accuracy_context(ctx, acc_rows)
+    _features(ctx, data, layout, acc_rows)
     return ctx
 
 
-def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
+def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list[dict]) -> None:
     """The numbers the Key Features grid quotes — from the same raw results as
     the tables (the grid falls back to plain text where a run is missing)."""
     from mjolnir_cli import accuracy, e2e
@@ -822,30 +826,26 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
         )
         if base and fp6:
             f["kv"] = f"+{(fp6['kv_tokens'] / base['kv_tokens'] - 1) * 100:.0f}%"
-    rows = accuracy.latest_legs(accuracy.load_runs(layout))
+    rows = by_model(acc_rows).get(DEFAULT_MODEL, [])  # the hero names one model's baseline
     b = accuracy.baseline(rows)
     if b:
         mine = [r for r in rows if r is not b and str(r.get("config", "")).startswith("NVFP4_MJOLNIR")]
-        deltas = [
-            abs(r["suites"][n]["score"] - b["suites"][n]["score"])
-            for r in mine
-            for n in ("tools", "hardmode")
-            if n in r["suites"] and n in b["suites"]
-        ]
+        deltas = [abs(d[0]) for r in mine for n in ("tools", "hardmode") if (d := accuracy.delta(r, b, n))]
         if deltas:
             f["acc"] = f"{max(deltas):.1f}"
     ctx.feat = f
 
 
-def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
+def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     from mjolnir_cli import accuracy
 
-    rows = accuracy.latest_legs(accuracy.load_runs(layout))
     if not rows:
         return
-    base = accuracy.baseline(rows)
+    bases = accuracy.baselines(rows)
     names = accuracy.suites_in(rows)
-    ctx.accuracy_baseline = base["label"] if base else ""
+    ctx.accuracy_baseline = accuracy.baseline_caption(bases)
+    if accuracy.any_excluded(rows, bases, names):
+        ctx.accuracy_excluded_note = accuracy.EXCLUDED_NOTE
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
     for r in rows:
@@ -853,31 +853,29 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
             args.setdefault(n, " ".join(v.get("args") or []))
     ctx.accuracy_args = [(accuracy.suite_label(n), args[n]) for n in names if n in args]
 
-    def cell(r: dict, n: str) -> str:
+    def cell(r: dict, base: dict | None, n: str) -> str:
         v = (r["suites"].get(n) or {}).get("score")
         if v is None:
             return "—"
-        b = ((base or {})["suites"].get(n) or {}).get("score") if base else None
         out = f"{v:.1f}"
         if (r.get("suites", {}).get(n) or {}).get("n", 1) > 1:
             out += f" <sub>n={r['suites'][n]['n']}</sub>"
-        if r is not base and b is not None:
-            out += f" ({v - b:+.1f})"
-        return out
+        return out + accuracy.fmt_delta(accuracy.delta(r, base, n))
 
     head = ["config", "KV", *[f"{accuracy.suite_label(n)} %" for n in names], "completion"]
     body = []
-    for r in rows:
+    for r, base in zip(rows, bases):
         comp = [x.get("completion_rate") for x in r["suites"].values() if x.get("completion_rate") is not None]
         label = f"**{r['label']}**" if r is base else r["label"]
         kv = str(r.get("kv_cache_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3").replace("auto", "bf16")
-        body.append([label, kv, *[cell(r, n) for n in names], f"{min(comp):.0f}%" if comp else "—"])
+        body.append([label, kv, *[cell(r, base, n) for n in names], f"{min(comp):.0f}%" if comp else "—"])
     ctx.accuracy_table = _table(head, body, ["---", "---"] + ["--:"] * (len(head) - 2))
 
     cats = sorted({c for r in rows for c in r.get("categories", {})})
     if cats:
         labels = {c: next(r["categories"][c]["label"] for r in rows if c in r.get("categories", {})) for c in cats}
-        chead = ["category", *[r["label"] for r in rows]]
+        marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases)]
+        chead = ["category", *[r["label"] + (" ‡" if m else "") for r, m in zip(rows, marked)]]
         cbody = []
         for c in cats:
             cbody.append(
@@ -885,28 +883,35 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
                 + [f"{r['categories'][c]['percent']:.0f}" if c in r.get("categories", {}) else "—" for r in rows]
             )
         ctx.accuracy_categories = _table(chead, cbody)
+        if any(marked):
+            ctx.accuracy_categories += f"\n\n<sub>{accuracy.CATEGORY_EXCLUDED_NOTE}.</sub>"
 
-    if base:
-        for r in rows:
-            if r is base:
-                continue
-            deltas = []
-            for n in names:
-                v, b = (r["suites"].get(n) or {}).get("score"), (base["suites"].get(n) or {}).get("score")
-                if v is not None and b is not None:
-                    deltas.append(f"{accuracy.suite_label(n)} {v - b:+.1f}")
-            if deltas:
-                changed = []
-                if r.get("scenarios") and base.get("scenarios"):
-                    common = r["scenarios"].keys() & base["scenarios"].keys()
-                    worse = sum(1 for k in common if r["scenarios"][k] < base["scenarios"][k])
-                    better = sum(1 for k in common if r["scenarios"][k] > base["scenarios"][k])
-                    changed = [f"{worse} scenarios scored lower, {better} higher of {len(common)}"]
-                ctx.accuracy_findings.append(
-                    f"**{r['label']}** vs {base['label']}: {', '.join(deltas)} points"
-                    + (f" ({changed[0]})" if changed else "")
-                    + "."
-                )
+    for r, base in zip(rows, bases):
+        if base is None or r is base:
+            continue
+        deltas = [
+            f"{accuracy.suite_label(n)} {d[0]:+.1f}{'‡' if d[1] else ''}"
+            for n in names
+            if (d := accuracy.delta(r, base, n))
+        ]
+        if deltas:
+            changed = []
+            if r.get("scenarios") and base.get("scenarios"):
+                # a scenario one leg excluded counts as zero there, as in the ‡ delta
+                rs, bs = r["scenarios"], base["scenarios"]
+                every = rs.keys() | bs.keys()
+                worse = sum(1 for k in every if rs.get(k, 0.0) < bs.get(k, 0.0))
+                better = sum(1 for k in every if rs.get(k, 0.0) > bs.get(k, 0.0))
+                gone = sorted(every - (rs.keys() & bs.keys()))
+                changed = [
+                    f"{worse} scenarios scored lower, {better} higher of {len(every)}"
+                    + (f"; excluded {', '.join(gone)} counted as zero" if gone else "")
+                ]
+            ctx.accuracy_findings.append(
+                f"**{r['label']}** vs {base['label']}: {', '.join(deltas)} points"
+                + (f" ({changed[0]})" if changed else "")
+                + "."
+            )
 
 
 # ── "how is this calculated" panels (one under every table / figure with % or ×) ──

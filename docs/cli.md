@@ -21,7 +21,7 @@
 | [`mjolnir bench ab`](#mjolnir-bench-ab) | Headline A/B: restart the server per leg, gated perf bench for each, one history row-set per leg. |
 | [`mjolnir bench accuracy`](#mjolnir-bench-accuracy) | Model quality per serving config with tool-eval-bench: does fp6 KV / the fp8 lm_head keep the model's answers? |
 | [`mjolnir bench e2e`](#mjolnir-bench-e2e) | Official vLLM image vs the Mjolnir image, end to end: decode and prefill throughput, time to first token and inter-token latency per context x concurrency. Serves each image in turn (the server is restarted per leg), benchmarks it with llama-benchy, then prints the comparison and re-renders the README (infographic + table). |
-| [`mjolnir bench compare`](#mjolnir-bench-compare) | Official vLLM image vs Mjolnir image from the history — no new run. `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares the same drafter on both images. |
+| [`mjolnir bench compare`](#mjolnir-bench-compare) | Official vLLM image vs Mjolnir image from the history — no new run. `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares the same drafter on both images; both sides are runs of one model. |
 | [`mjolnir model`](#mjolnir-model) | Pick the active model / config. |
 | [`mjolnir model use`](#mjolnir-model-use) | Remember the active model/config (bare `mjolnir model` or no args here = arrow-key picker over configs: repo configs/ + user-local ~/.local/share/mjolnir/configs). |
 | [`mjolnir model list`](#mjolnir-model-list) | List every config (repo configs/ + the user-local dir; ● = the active one; the state file is printed below the table). |
@@ -374,13 +374,14 @@ the README (infographic + table).
 
 Official vLLM image vs Mjolnir image from the history — no new run.
 `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares
-the same drafter on both images.
+the same drafter on both images; both sides are runs of one model.
 
 | option | description | default |
 |---|---|---|
 | `--config` | Mjolnir-side config (default: the Mjolnir backend) |  |
 | `--official-config` | official-side config (default: the stock baseline, NVFP4) |  |
 | `--json` / `-j` |  | off |
+| `--model` | whose runs to pair (default: the active model) |  |
 
 
 <a id="mjolnir-model"></a>

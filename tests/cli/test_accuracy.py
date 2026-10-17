@@ -128,6 +128,80 @@ def test_latest_legs_merge_suites_across_runs(tmp_path):
     assert rows[0]["label"].startswith("official vLLM")
 
 
+def test_baseline_is_per_model(tmp_path):
+    """A second model's run never borrows the first model's baseline: each row is
+    compared with its own model's official-image row, and labels name the model."""
+    _write_runs(tmp_path)
+    other = {
+        "format": accuracy.FORMAT,
+        "run_id": "20261017-100000",
+        "args": list(accuracy.DEFAULT_ARGS),
+        "legs": [
+            {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.3, 76.8, {"A": 100}), "model": "nvidia/Qwen3.6-35B-A3B"},
+            {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.4, 80.4, {"A": 100}), "model": "nvidia/Qwen3.6-35B-A3B"},
+        ],
+    }
+    p = tmp_path / "accuracy" / other["run_id"] / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps(other))
+    rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
+    by = {(r["model"], r["config"]): r for r in rows}
+    q36_mj = by[("nvidia/Qwen3.6-35B-A3B", "NVFP4_MJOLNIR_E2M3")]
+    base = dict(zip(map(id, rows), accuracy.baselines(rows)))
+    assert base[id(q36_mj)]["config"] == "NVFP4_DFLASH"  # no NVFP4 row: first official one
+    assert base[id(by[("Qwen/Qwen3.8-27B", "NVFP4_MJOLNIR_E2M3")])]["config"] == "NVFP4"
+    assert q36_mj["label"].startswith("Qwen3.6-35B-A3B · Mjolnir")
+
+
+def test_print_accuracy_compares_within_model(capsys):
+    """The end-of-run table: a run with legs of two models never prints a delta
+    across models."""
+    from mjolnir_cli import cli
+
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    doc = {
+        "run_id": "r",
+        "args": ["run"],
+        "legs": [
+            _leg(OFFICIAL, "NVFP4", 97.0, 82.0, {}),
+            {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.0, 77.0, {}), **q36, "label": "q36 official"},
+            {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.0, 80.0, {}), **q36, "label": "q36 mjolnir"},
+        ],
+    }
+    cli._print_accuracy(doc)
+    out = capsys.readouterr().out
+    assert "(-1.0)" in out and "(+3.0)" in out  # vs the Qwen3.6 official leg
+    assert "(-7.0)" not in out  # never vs Qwen3.8's NVFP4
+
+
+def _write_two_model_run(raw: Path) -> None:
+    """One run whose legs interleave two models (Qwen3.8, Qwen3.6, Qwen3.8, Qwen3.6)."""
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    doc = {
+        "format": accuracy.FORMAT,
+        "run_id": "20261017-100000",
+        "args": list(accuracy.DEFAULT_ARGS),
+        "legs": [
+            _leg(OFFICIAL, "NVFP4", 88.0, 60.0, {"A": 90}),
+            {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.3, 76.8, {"A": 95}), **q36},
+            _leg(MJ, "NVFP4_MJOLNIR_E2M3", 86.5, 62.0, {"A": 85}),
+            {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.4, 80.4, {"A": 94}), **q36},
+        ],
+    }
+    p = raw / "accuracy" / doc["run_id"] / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps(doc))
+
+
+def test_rows_of_one_model_stay_together(tmp_path):
+    """Interleaved legs come back grouped by model (first-seen order), so each
+    model's dashed baseline mark spans only its own rows."""
+    _write_two_model_run(tmp_path)
+    rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
+    assert [r["model"] for r in rows] == ["Qwen/Qwen3.8-27B"] * 2 + ["nvidia/Qwen3.6-35B-A3B"] * 2
+    assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
+
+
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"
@@ -163,6 +237,99 @@ def test_accuracy_page_and_charts_render(repo):
     assert "[Accuracy](docs/kernel/accuracy.md)" in (repo / "README.md").read_text()
 
 
+def test_two_model_page_compares_within_each_model(repo):
+    pytest.importorskip("matplotlib")
+    layout = load_layout()
+    _write_two_model_run(layout.raw_dir)
+    manifest = charts.render_all(layout)
+    assert "accuracy-suites" in manifest and "accuracy-categories" in manifest
+    readme.render_readme(layout)
+    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    assert "| **Qwen3.8-27B · official vLLM · FlashInfer · bf16 KV** |" in page
+    assert "| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · " in page
+    assert "86.5 (-1.5)" in page  # Qwen3.8 Mjolnir vs Qwen3.8 FlashInfer
+    assert "90.4 (-0.9)" in page and "80.4 (+3.6)" in page  # Qwen3.6 Mjolnir vs Qwen3.6 DFlash
+    assert "90.4 (+2.4)" not in page  # never vs the other model
+    assert "never across models" in page
+
+
+def _excluded_pair() -> tuple[dict, dict]:
+    """The same-run Qwen3.6 pair: official 125/138, Mjolnir 123/136 (TC-45 excluded)."""
+    off = _leg(OFFICIAL, "NVFP4_DFLASH", 90.58, 76.79, {"H": 100})
+    mj = _leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.44, 80.36, {"H": 100})
+    off["scenarios"]["TC-45"] = 2.0  # the Mjolnir leg has no TC-45: excluded
+    off["suites"]["tools"].update(earned=125, max=138)
+    mj["suites"]["tools"].update(earned=123, max=136, completion_rate=99.0)
+    off["suites"]["hardmode"].update(earned=43, max=56)
+    mj["suites"]["hardmode"].update(earned=45, max=56)
+    return off, mj
+
+
+def test_an_excluded_scenario_never_raises_the_delta():
+    """A leg whose endpoint had a scenario excluded scores on a smaller max; the
+    delta counts the excluded points as zero (123/138 vs 125/138), and says so."""
+    off, mj = _excluded_pair()
+    d, flagged = accuracy.delta(mj, off, "tools")
+    assert flagged and round(d, 2) == round((123 - 125) / 138 * 100, 2)  # -1.45, not -0.14
+    assert accuracy.delta(mj, off, "hardmode") == pytest.approx((80.36 - 76.79, False))
+    assert accuracy.delta(off, off, "tools") is None
+    assert accuracy.fmt_delta((d, flagged)) == " (-1.4‡)"
+    # the other way round: an excluded scenario on the baseline does not flatter it either
+    d2, flagged2 = accuracy.delta(off, mj, "tools")
+    assert flagged2 and round(d2, 2) == round((125 - 123) / 138 * 100, 2)
+
+
+def test_different_scenario_sets_give_no_delta():
+    """Different maxes at full completion are not an exclusion (another run's
+    arguments, a subset): no rescaled delta, and no plain one either."""
+    off, mj = _excluded_pair()
+    mj["suites"]["tools"].update(earned=38, max=40, score=95.0, completion_rate=100.0)
+    assert accuracy.delta(mj, off, "tools") is None
+
+
+def test_averaged_trials_rescale_every_trial():
+    """--trials: each trial's own points over the full max, so an exclusion in
+    any trial counts, not just in the last one."""
+    off, mj = _excluded_pair()
+    # trials 1-2 excluded TC-45 (max 136), trial 3 did not (max 138)
+    mj["suites"]["tools"].update(
+        score=round((123 / 136 + 123 / 136 + 125 / 138) / 3 * 100, 2),
+        n=3,
+        earned=125,
+        max=138,
+        earneds=[123, 123, 125],
+        maxes=[136, 136, 138],
+        completion_rate=99.0,
+    )
+    d, flagged = accuracy.delta(mj, off, "tools")
+    assert flagged and round(d, 3) == round(((123 + 123 + 125) / 3 - 125) / 138 * 100, 3)
+
+
+def test_print_accuracy_marks_an_excluded_scenario(capsys):
+    from mjolnir_cli import cli
+
+    off, mj = _excluded_pair()
+    cli._print_accuracy({"run_id": "r", "args": ["run"], "legs": [off, mj]})
+    out = capsys.readouterr().out
+    assert "(-1.4‡)" in out and "(-0.1)" not in out
+    assert "excluded points counting as zero" in out
+
+
+def test_page_marks_an_excluded_scenario(repo):
+    layout = load_layout()
+    off, mj = _excluded_pair()
+    p = layout.raw_dir / "accuracy" / "20261017-131320" / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"format": accuracy.FORMAT, "run_id": "20261017-131320", "args": [], "legs": [off, mj]}))
+    readme.render_readme(layout)
+    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    assert "90.4 (-1.4‡)" in page and "80.4 (+3.6)" in page
+    assert "Tool calls -1.4‡" in page
+    assert "excluded points counting as zero" in page
+    assert "excluded TC-45 counted as zero" in page  # the tally counts what the ‡ delta counts
+    assert "Mjolnir · bf16 KV ‡ |" in page and "its category % divides by the smaller max" in page
+
+
 def test_accuracy_page_pending_without_runs(repo):
     layout = load_layout()
     readme.render_readme(layout)
@@ -179,3 +346,14 @@ def test_container_output_is_handed_to_the_host_user(monkeypatch):
     tail = dockerctl.owner_suffix(["/out/draft_vocab.json"])
     assert tail == "; rc=$?; chown -R 1000:1001 /out/draft_vocab.json 2>/dev/null; exit $rc"
     assert dockerctl.owner_suffix([]) == ""
+
+
+def test_a_leg_without_model_never_borrows_another_models_baseline():
+    rows = [
+        _leg(OFFICIAL, "NVFP4", 88.0, 60.0, {}),
+        {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.0, 77.0, {}), "model": None},
+        {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.0, 80.0, {}), "model": None},
+    ]
+    assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
+    labels = [r["label"] for r in accuracy.latest_legs([{"run_id": "r", "legs": rows}])]
+    assert sum(label.startswith("unknown model · ") for label in labels) == 2  # never shown as the default model

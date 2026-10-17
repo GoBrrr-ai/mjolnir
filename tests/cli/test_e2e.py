@@ -18,8 +18,8 @@ def _cell(conc, ctx, tg, pp, ttfr):
     }
 
 
-def _rec(image, config, epoch, cells):
-    return {"image": image, "config": config, "epoch": epoch, "backend": "x", "cells": cells}
+def _rec(image, config, epoch, cells, model="Qwen/Qwen3.8-27B"):
+    return {"model": model, "image": image, "config": config, "epoch": epoch, "backend": "x", "cells": cells}
 
 
 def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
@@ -257,3 +257,75 @@ def test_a_newer_optional_official_leg_never_replaces_the_baseline(tmp_path):
     assert off["config"] == "NVFP4"
     off, _ = e2e.latest_pair(h, "NVFP4_MJOLNIR", "NVFP4_DSPARK")
     assert off["config"] == "NVFP4_DSPARK"
+
+
+def test_pair_and_site_rows_never_mix_models(tmp_path):
+    """Another model's run under a Mjolnir config name (Qwen3.6's NVFP4_MJOLNIR_E2M3)
+    never lands next to the default model's runs: not in the README pair, not
+    on the interactive site."""
+    from types import SimpleNamespace
+
+    from mjolnir_cli import charts
+
+    h = tmp_path / "history.jsonl"
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 0, 20, 0, 100)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 30, 0, 90)]),
+        {**_rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 3, [_cell(1, 0, 80, 0, 50)]), **q36},
+        {**_rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 4, [_cell(1, 0, 130, 0, 40)]), **q36},
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
+    assert off["epoch"] == 1 and mj["epoch"] == 2  # the default model's runs only
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3", model="nvidia/Qwen3.6-35B-A3B")
+    assert off["epoch"] == 3 and mj["epoch"] == 4
+    site = charts.e2e_rows(SimpleNamespace(history_file=h))
+    assert {k: v["epoch"] for k, v in site.items()} == {"NVFP4": 1, "NVFP4_MJOLNIR_E2M3": 2}
+
+
+def test_compare_pairs_the_requested_models_runs(tmp_path, monkeypatch, capsys):
+    """`bench compare --model` (and `bench e2e`, which passes its own model) show
+    that model's pair, not the default model's."""
+    from mjolnir_cli import cli
+
+    h = tmp_path / "history.jsonl"
+    q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 0, 20, 0, 100)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 30, 0, 90)]),
+        {**_rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4_DFLASH", 3, [_cell(1, 0, 80, 0, 50)]), **q36},
+        {**_rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 4, [_cell(1, 0, 130, 0, 40)]), **q36},
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    layout = type("L", (), {"history_file": h})()
+    assert cli._print_compare(layout, "NVFP4_MJOLNIR_E2M3", True, "NVFP4_DFLASH", q36["model"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["cells"][0]["tg_tps"][:2] == [80.0, 130.0]  # Qwen3.6's pair, not Qwen3.8's 20 vs 30
+    assert "NVFP4_DFLASH" in out["official"]
+
+
+def test_a_run_without_model_is_never_the_default_models(tmp_path):
+    """No default model: a history record without `model` pairs with nothing."""
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 0, 20, 0, 100)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 30, 0, 90)], model=None),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
+    assert off["epoch"] == 1 and mj is None
+
+
+def test_compare_defaults_to_the_models_own_mjolnir_config(tmp_path):
+    """Without --config, a model that has no DEFAULT_QUANT runs pairs its newest
+    Mjolnir-image config instead of reporting no Mjolnir run."""
+    h = tmp_path / "history.jsonl"
+    q36 = "nvidia/Qwen3.6-35B-A3B"
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4_DFLASH", 1, [_cell(1, 0, 80, 0, 50)], model=q36),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 130, 0, 40)], model=q36),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, model=q36)
+    assert off["config"] == "NVFP4_DFLASH" and mj["config"] == "NVFP4_MJOLNIR_E2M3"
