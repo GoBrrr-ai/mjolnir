@@ -25,8 +25,8 @@ version-bump commit on `main`.
 | input | default | meaning |
 |---|---|---|
 | `bump` | `patch` | `patch` / `minor` / `major` for each package that is released |
-| `packages` | `changed` | `changed` releases a package only if its source changed since its last tag (`src/mjolnir/` for the kernel; `src/mjolnir-cli/` + `configs/` for the CLI); `both` / `cli` / `kernel` / `none` force it |
-| `image` | on | build and push the Docker image |
+| `packages` | `changed` | `changed` releases a package only if its source changed since its last tag (`src/mjolnir/` for the kernel; `src/mjolnir-cli/` plus everything its wheel bundles — `configs/`, `docker/litellm`, `docker/perses`, `scripts/hw` — for the CLI); `both` / `cli` / `kernel` / `none` force it |
+| `image` | on | build and push the Docker image (switch it off for a CLI-only release: the image does not ship the CLI) |
 | `pages` | on | rebuild the interactive site |
 | `dry_run` | off | plan + checks only — see what *would* be released |
 
@@ -38,15 +38,55 @@ The run:
    exists yet: the first release);
 2. **checks** — the same lint, tests, README reproducibility and package-build
    gates as a pull request ([`ci.yml`](../../.github/workflows/ci.yml));
-3. **tags** the current `main` and creates the GitHub Release (install lines +
-   notes generated from the pull requests merged since the previous release);
+3. **tags** the commit the checks ran on and creates the GitHub Release
+   (below) — nothing is committed to `main`, which stays protected;
 4. **publishes** by dispatching the tag-driven workflows on the new tags:
    [`release-kernel.yml`](../../.github/workflows/release-kernel.yml),
    [`release-cli.yml`](../../.github/workflows/release-cli.yml) (PyPI, trusted
    publishing), [`docker-image.yml`](../../.github/workflows/docker-image.yml)
    (Docker Hub) and [`pages.yml`](../../.github/workflows/pages.yml).
 
-Preview locally: `python3 scripts/release_plan.py --bump minor --packages changed`.
+Preview locally: `python3 scripts/release_plan.py --bump minor --packages changed`
+(the plan) and `python3 scripts/release_notes.py --vllm 0.31.0 --cli-version 0.2.1
+--cli-previous mjolnir-cli-v0.2.0 --previous-umbrella release-2026.10.15` (the
+notes). A dry run shows both in the plan job's summary.
+
+## The release notes
+
+One GitHub Release per run, on the umbrella tag, titled with only what it
+ships (`Mjolnir 2026.10.20 — mjolnir-kernel 0.1.1 · image v0.31.0`).
+[`scripts/release_notes.py`](../../scripts/release_notes.py) writes the body:
+
+- **Install** lines and a table of all three artifacts (unreleased ones as
+  `unchanged (<version>)`);
+- one section per shipped artifact, each listing what changed in the files
+  that artifact is built from, since that artifact's own previous release:
+
+| section | paths | since |
+|---|---|---|
+| `mjolnir-kernel X.Y.Z` | `src/mjolnir` | its last `mjolnir-kernel-v*` tag |
+| `mjolnir-cli X.Y.Z` | `src/mjolnir-cli`, `configs`, `docker/litellm`, `docker/perses`, `scripts/hw` | its last `mjolnir-cli-v*` tag |
+| `image vX.Y.Z` | what the Dockerfile copies: `Dockerfile`, `patches/`, the patch and check scripts, `LICENSE`, `NOTICE` (not `README.md` / `PATCHES.md`) | the previous umbrella tag |
+
+An entry is a pull request — its title and `#number`, from the merge commit
+on `main` — or a commit pushed to `main` directly. Dependabot PRs and the
+branch commits inside a PR are left out. A PR that touched two artifacts
+appears under both. The image section also says which vLLM it is built on
+(and flags a base bump) and which kernel it ships. Kernel changes appear once,
+under the kernel; if the kernel is not released but changed, the image
+section warns that it ships unreleased kernel code.
+
+PyPI users find the notes through each project's *Changelog* link (the
+GitHub Releases page).
+
+## When a run fails
+
+Re-running the Release workflow is safe: a tag that already exists on the
+same commit is kept, and an existing release gets its notes rewritten. The
+plan then sees those tags as the latest ones, though, so it releases nothing
+new. To retry a failed publish, dispatch that publisher on its tag instead:
+`gh workflow run release-kernel.yml --ref mjolnir-kernel-v0.1.1` (or
+`release-cli.yml`, `docker-image.yml -f push=true`, `pages.yml`).
 
 Pushing a `mjolnir-kernel-v*`, `mjolnir-cli-v*` or `release-*` tag by hand
 runs the matching workflow too — the manual workflow only saves the

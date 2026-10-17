@@ -51,7 +51,8 @@ gpu-memory-utilization: 0.88
 The two fields that matter to the CLI:
 
 - `model` — the HF checkpoint vLLM loads (downloads into
-  `~/.local/share/mjolnir/models/` on first launch).
+  `~/.local/share/mjolnir/models/` on first launch, or reuses a host HF hub
+  cache with `MJOLNIR_HF_CACHE`).
 - `served-model-name` — the name `mjolnir bench perf` targets in the
   OpenAI API. If you omit it, the `model:` field is used (that's vLLM's
   default served name).

@@ -19,6 +19,12 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+  # workflow files only (the hook filters on .github/workflows/ itself);
+  # version pinned with the actionlint binary in .github/workflows/ci.yml
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.14
     hooks:
