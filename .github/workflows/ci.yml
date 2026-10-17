@@ -42,6 +42,8 @@ jobs:
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'
+              # the release planner / notes (tests/cli/test_release_plan.py)
+              - 'scripts/release_*.py'
             readme:
               - 'src/mjolnir-cli/**'
               # every template, wherever it lives (16 today: README.md.j2,
@@ -103,6 +105,14 @@ jobs:
     needs: filter
     if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.test == 'true')
     runs-on: ubuntu-latest
+    # the coverage report below is a PR comment
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      # post the report only on same-repo, non-draft PRs (fork tokens are
+      # read-only unless write tokens for forks are enabled)
+      REPORT: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,8 +120,38 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: uv sync
       # the kernel tests need CUDA + the CUTLASS DSL: they run on a Thor via
-      # `mjolnir verify vllm`; tests/kernel/conftest.py skips them here
-      - run: uv run pytest -q
+      # `mjolnir verify vllm`; tests/kernel/conftest.py skips them here — the
+      # kernel package is therefore not measurable in CI, the CLI is. --cov also
+      # writes the .coverage data file the report action reads; the XML is the
+      # Cobertura form and term-missing is a per-file table in the job log
+      - run: uv run --with pytest-cov pytest -q --tb=short --cov=mjolnir_cli --cov-report=term-missing --cov-report=xml:coverage.xml
+      # Coverage report on the PR: an upserted comment + annotations on the
+      # new lines missing coverage. This stage is path-gated, so docs/CI-only
+      # PRs get neither suite nor report; the report is informational — a
+      # failure to render or post it must not gate the suite. No baseline data
+      # branch is maintained: without a default-branch run the action reports
+      # the current coverage but no up/down delta.
+      - name: Verify coverage data exists
+        if: ${{ env.REPORT == 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f .coverage || { echo "::error::.coverage not found — pytest must run with --cov"; exit 1; }
+          uv run --with coverage coverage debug data | head -8
+      - name: Coverage report (comment + annotations)
+        if: ${{ env.REPORT == 'true' }}
+        continue-on-error: true
+        uses: py-cov-action/python-coverage-comment-action@50d15ff8768f6d897b04e5a0805bd1a98f7096c4 # v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          # no ACTIVITY override: on a closed (unmerged) PR the action's own
+          # heuristic is a no-op; forcing process_pr would comment on closed PRs
+          ANNOTATE_MISSING_LINES: true
+          ANNOTATION_TYPE: warning
+          # badge colors only (the action never fails on coverage); aspirational
+          # above the current ~61%
+          MINIMUM_GREEN: 80
+          MINIMUM_ORANGE: 70
 
   readme:
     # README.md + docker/vllm-thor/README.md (the Docker Hub description) +

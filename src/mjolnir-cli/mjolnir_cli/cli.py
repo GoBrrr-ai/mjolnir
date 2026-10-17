@@ -812,7 +812,7 @@ def calibrate(
         pass
     cmd = (
         f"python3 -m mjolnir.{'draftvocab' if draft_vocab else 'calibrate'} "
-        f"--config /configs/{s.model}/{s.quant}/config.yaml --out /out/{target.name} "
+        f"--config {dockerctl.config_model_dir(s)}/{s.quant}/config.yaml --out /out/{target.name} "
         f"--download-dir /data/models/huggingface --max-model-len {max_model_len} "
         f"--prompts {prompts} --long {long}"
     )
