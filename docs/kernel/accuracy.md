@@ -1,6 +1,6 @@
 # Accuracy
 
-> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · run `20261013-112727`
+> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-131320`
 
 ## The question
 
@@ -16,7 +16,7 @@ Speculative decoding (MTP) does not enter here: the draft only proposes tokens a
 - **Hard Mode** — the 28 adversarial, stateful and transactional scenarios (category P), scored the same way.
 - **GSM8K, MMLU, IFEval** — the same adapter's accuracy plugins, when the run forwards them (accuracy in %, IFEval at prompt level).
 
-Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors) are dropped from the score instead of counted as zero — the **completion** column; compare rows only at equal completion.
+Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors, or a feature its pre-run probe found missing) are dropped from that leg's score instead of counted as zero — the **completion** column. A delta between two legs that dropped different scenarios scores both on the larger max, the dropped points counting as zero, and is marked ‡.
 
 ## Result
 
@@ -25,16 +25,19 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
   <img src="../../assets/benchmarks/accuracy-suites.png" alt="Score per suite and serving config" width="100%">
 </picture>
 
-- **Mjolnir · fp8 KV** vs official vLLM · FlashInfer · fp8 KV: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
-- **Mjolnir · fp6 e2m3 KV** vs official vLLM · FlashInfer · fp8 KV: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
-- **Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs official vLLM · FlashInfer · fp8 KV: Tool calls +0.0, Hard Mode +0.0 points (1 scenarios scored lower, 1 higher of 97).
+- **Qwen3.8-27B · Mjolnir · fp8 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
+- **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
+- **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls +0.0, Hard Mode +0.0 points (1 scenarios scored lower, 1 higher of 97).
+- **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls -1.4‡, Hard Mode +3.6 points (4 scenarios scored lower, 3 higher of 97).
 
 | config | KV | Tool calls % | Hard Mode % | completion |
 |---|---|--:|--:|--:|
-| **official vLLM · FlashInfer · fp8 KV** | fp8 | 97.1 | 82.1 | 100% |
-| Mjolnir · fp8 KV | fp8 | 95.7 (-1.4) | 78.6 (-3.6) | 100% |
-| Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
-| Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 97.1 (+0.0) | 82.1 (+0.0) | 100% |
+| **Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV** | fp8 | 97.1 | 82.1 | 100% |
+| Qwen3.8-27B · Mjolnir · fp8 KV | fp8 | 95.7 (-1.4) | 78.6 (-3.6) | 100% |
+| Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
+| Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 97.1 (+0.0) | 82.1 (+0.0) | 100% |
+| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV** | fp8 | 90.6 | 76.8 | 100% |
+| Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 90.4 (-1.4‡) | 80.4 (+3.6) | 99% |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -45,7 +48,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 </details><br />
 
-<sub>Score in %, (±) = points vs **official vLLM · FlashInfer · fp8 KV**; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json).</sub>
+<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; ‡ = tool-eval-bench excluded a scenario on one of the two legs; the delta scores both on the full max, the excluded points counting as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../benchmarks/raw/accuracy/20261017-131320/accuracy.json).</sub>
 
 ### By tool-call category
 
@@ -54,24 +57,26 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
   <img src="../../assets/benchmarks/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
 </picture>
 
-| category | official vLLM · FlashInfer · fp8 KV | Mjolnir · fp8 KV | Mjolnir · fp6 e2m3 KV | Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab |
-|---|--:|--:|--:|--:|
-| A · Tool Selection | 100 | 100 | 100 | 100 |
-| B · Parameter Precision | 100 | 100 | 100 | 100 |
-| C · Multi-Step Chains | 100 | 100 | 100 | 100 |
-| D · Restraint & Refusal | 100 | 100 | 100 | 100 |
-| E · Error Recovery | 100 | 100 | 100 | 100 |
-| F · Localization | 100 | 100 | 100 | 100 |
-| G · Structured Reasoning | 100 | 100 | 100 | 100 |
-| H · Instruction Following | 100 | 100 | 100 | 100 |
-| I · Context & State | 90 | 95 | 100 | 90 |
-| J · Code Patterns | 100 | 100 | 100 | 100 |
-| K · Safety & Boundaries | 100 | 88 | 100 | 100 |
-| L · Toolset Scale | 100 | 100 | 100 | 100 |
-| M · Autonomous Planning | 100 | 100 | 100 | 100 |
-| N · Creative Composition | 100 | 100 | 100 | 100 |
-| O · Structured Output | 83 | 83 | 83 | 83 |
-| P · Hard Mode | 82 | 79 | 84 | 82 |
+| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV ‡ |
+|---|--:|--:|--:|--:|--:|--:|
+| A · Tool Selection | 100 | 100 | 100 | 100 | 100 | 100 |
+| B · Parameter Precision | 100 | 100 | 100 | 100 | 100 | 100 |
+| C · Multi-Step Chains | 100 | 100 | 100 | 100 | 100 | 100 |
+| D · Restraint & Refusal | 100 | 100 | 100 | 100 | 83 | 83 |
+| E · Error Recovery | 100 | 100 | 100 | 100 | 83 | 83 |
+| F · Localization | 100 | 100 | 100 | 100 | 100 | 100 |
+| G · Structured Reasoning | 100 | 100 | 100 | 100 | 100 | 100 |
+| H · Instruction Following | 100 | 100 | 100 | 100 | 100 | 100 |
+| I · Context & State | 90 | 95 | 100 | 90 | 85 | 80 |
+| J · Code Patterns | 100 | 100 | 100 | 100 | 100 | 83 |
+| K · Safety & Boundaries | 100 | 88 | 100 | 100 | 85 | 92 |
+| L · Toolset Scale | 100 | 100 | 100 | 100 | 88 | 88 |
+| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 83 |
+| N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 |
+| O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 |
+| P · Hard Mode | 82 | 79 | 84 | 82 | 77 | 80 |
+
+<sub>‡ = this leg had a scenario excluded: its category % divides by the smaller max, so one category reads high.</sub>
 
 <sub>Share of points per category, %. A category has 2–10 scenarios: one scenario moving from pass to partial shifts it by 5–25 points — read single cells as anecdotes, the totals as the result.</sub>
 

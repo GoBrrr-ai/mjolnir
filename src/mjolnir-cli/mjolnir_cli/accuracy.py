@@ -31,6 +31,8 @@ import time
 from pathlib import Path
 from statistics import mean
 
+from mjolnir_cli.config import by_model, model_of, model_short
+
 FORMAT = "mjolnir.accuracy/1"
 TOOL_REPO = "https://github.com/SeraphimSerapis/tool-eval-bench"
 # pinned: a score is only comparable to one produced by the same scenario set
@@ -160,6 +162,11 @@ def summarize_db(db: Path) -> dict:
             continue
         last = dict(items[-1])
         last.pop("score", None)
+        if all("max" in i for i in items):  # every trial's points: deltas rescale each trial exactly
+            last["earneds"], last["maxes"] = [i["earned"] for i in items], [i["max"] for i in items]
+        comps = [i["completion_rate"] for i in items if i.get("completion_rate") is not None]
+        if comps:
+            last["completion_rate"] = min(comps)  # the worst trial: an exclusion in any trial shows
         suites[name] = {"score": round(mean(scores), 2), "scores": scores, "n": len(scores), **last}
     return {
         "suites": suites,
@@ -298,7 +305,7 @@ def latest_legs(docs: list[dict]) -> list[dict]:
     rows: dict[tuple, dict] = {}
     for d in docs:
         for leg in d.get("legs", []):
-            key = (leg.get("model"), leg.get("image"), leg.get("config"))
+            key = (model_of(leg), leg.get("image"), leg.get("config"))
             row = rows.setdefault(
                 key,
                 {k: leg.get(k) for k in ("id", "model", "image", "config", "label", "kv_cache_dtype", "env")}
@@ -312,16 +319,102 @@ def latest_legs(docs: list[dict]) -> list[dict]:
             if (leg.get("suites") or {}).keys() & {"tools", "hardmode"}:
                 row["categories"] = leg.get("categories") or row["categories"]
                 row["scenarios"] = leg.get("scenarios") or row["scenarios"]
-    return [r for r in rows.values() if r["suites"]]
+    groups = by_model(r for r in rows.values() if r["suites"])
+    if len(groups) > 1:  # rows of several models: each model's rows together, labels say which
+        for r in (r for g in groups.values() for r in g):
+            r["label"] = f"{model_short(r)} · {r['label']}"
+    return [r for g in groups.values() for r in g]
 
 
 def baseline(rows: list[dict]) -> dict | None:
-    """The reference row for deltas: native FlashInfer on the official image
-    when measured, else the first row."""
-    for r in rows:
-        if not _is_mjolnir(str(r.get("image", ""))) and r.get("config") == "NVFP4":
+    """The reference row for deltas among ONE model's rows: native FlashInfer
+    on the official image when measured, else the first official-image row,
+    else the first row. For mixed rows use :func:`baselines`."""
+    official = [r for r in rows if not _is_mjolnir(str(r.get("image", "")))]
+    for r in official:
+        if r.get("config") == "NVFP4":
             return r
-    return rows[0] if rows else None
+    return (official or rows or [None])[0]
+
+
+def baselines(rows: list[dict]) -> list[dict | None]:
+    """Each row's baseline, in row order: its own model's :func:`baseline`.
+    Rows of another model are never a baseline — their scores are not comparable."""
+    per_model = {m: baseline(group) for m, group in by_model(rows).items()}
+    return [per_model[model_of(r)] for r in rows]
+
+
+def _maxes(s: dict) -> list:
+    """Every trial's max for a suite (older records keep only the last trial's)."""
+    return list(s.get("maxes") or ([s["max"]] if s.get("max") else []))
+
+
+def _on_max(s: dict, m: float) -> float:
+    """The suite's score with every trial's points over ``m``: exact from the
+    per-trial points when recorded, else from the one run's points, else from
+    the mean % (an older averaged record, which keeps only the last max)."""
+    if s.get("earneds"):
+        return mean(e / m * 100 for e in s["earneds"])
+    if s.get("n", 1) == 1 and "earned" in s:
+        return s["earned"] / m * 100
+    return s["score"] * s["max"] / m
+
+
+def delta(r: dict, base: dict | None, name: str) -> tuple[float, bool] | None:
+    """Points ``r`` scored over ``base`` on suite ``name``, and whether an
+    excluded scenario was scored as zero (None when ``r`` is the baseline,
+    either lacks the suite, or the two measured different scenario sets).
+
+    tool-eval-bench drops a scenario it judged the endpoint unable to serve
+    (TC-45 when its ``tool_choice=required`` probe fails, a timeout, an error),
+    which shrinks that trial's max and lowers its completion rate, so its %
+    divides by less. Then every trial of both legs is scored on the largest
+    max, the excluded points counting as zero: an exclusion never raises a
+    delta. Different maxes at full completion mean different scenario sets
+    (another run's arguments), which no rescaling makes comparable."""
+    if base is None or r is base:
+        return None
+    v, b = r.get("suites", {}).get(name) or {}, base.get("suites", {}).get(name) or {}
+    if v.get("score") is None or b.get("score") is None:
+        return None
+    maxes = _maxes(v) + _maxes(b)
+    if len(set(maxes)) > 1:
+        if all(x.get("completion_rate", 100.0) >= 100.0 for x in (v, b)):
+            return None
+        m = max(maxes)
+        return _on_max(v, m) - _on_max(b, m), True
+    return v["score"] - b["score"], False
+
+
+def fmt_delta(d: tuple[float, bool] | None) -> str:
+    """' (+1.2)', ' (-1.4‡)' when an excluded scenario was scored as zero, '' for no delta."""
+    return f" ({d[0]:+.1f}{'‡' if d[1] else ''})" if d else ""
+
+
+def leg_excluded(r: dict, base: dict | None, names: list[str]) -> bool:
+    """Whether any of ``r``'s suite deltas scored an excluded scenario as zero."""
+    return any((d := delta(r, base, n)) and d[1] for n in names)
+
+
+def any_excluded(rows: list[dict], bases: list[dict | None], names: list[str]) -> bool:
+    return any(leg_excluded(r, b, names) for r, b in zip(rows, bases))
+
+
+EXCLUDED_NOTE = (
+    "‡ = tool-eval-bench excluded a scenario on one of the two legs; the delta scores both on the full max, "
+    "the excluded points counting as zero"
+)
+EXCLUDED_NOTE_SHORT = "‡ = a scenario was excluded on one side, scored as zero"
+CATEGORY_EXCLUDED_NOTE = (
+    "‡ = this leg had a scenario excluded: its category % divides by the smaller max, so one category reads high"
+)
+
+
+def baseline_caption(bases: list[dict | None], item_sep: str = " · ") -> str:
+    """The distinct baseline labels, first-seen order, ' / '-joined ('' if none);
+    ``item_sep`` replaces the label's own ' · ' separator."""
+    labels = dict.fromkeys(b["label"].replace(" · ", item_sep) for b in bases if b is not None)
+    return " / ".join(labels)
 
 
 def suites_in(rows: list[dict]) -> list[str]:

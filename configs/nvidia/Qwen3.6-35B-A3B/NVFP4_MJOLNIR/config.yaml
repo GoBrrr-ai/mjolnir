@@ -1,0 +1,55 @@
+# CALIBRATION CONFIG — not a serving recommendation. This is the exact config
+# that produced ../kv_scales.json (2026-10-16, 54,597 tokens):
+#   mjolnir calibrate --model nvidia/Qwen3.6-35B-A3B --config NVFP4_MJOLNIR
+# It carries the Qwen3.8-style extras (16K batching, TORCH_SDPA ViT, mamba
+# align) that NVFP4_DFLASH had to drop; calibration ran with them, so they stay
+# here to keep the scales reproducible. Serve NVFP4_MJOLNIR_E2M3 instead.
+#
+# NVFP4_MJOLNIR — the Mjolnir decode kernel on the 10 hd256 full-attention
+# layers (FA4 for prefill / mixed steps), fp8 KV, built-in MTP head K=3.
+# First bring-up step: no calibration needed (fp6 needs `mjolnir calibrate`).
+# (K+1)=4 query rows x GQA 8 = 32 rows = exactly one kernel tile; deeper K spans 2 tiles.
+model: nvidia/Qwen3.6-35B-A3B-NVFP4
+served-model-name: nvidia/Qwen3.6-35B-A3B-NVFP4
+
+# Qwen3_5MoeForConditionalGeneration: 40 layers = 30 Gated-DeltaNet (linear) +
+# 10 full-attention (head_dim 256, GQA 16:2), MoE 256 experts / 8 active.
+# ModelOpt MIXED_PRECISION: NVFP4 (W4A16) experts, FP8 linear-attn projections,
+# FP8 KV by design (hf_quant_config.json).
+quantization: modelopt
+dtype: bfloat16
+trust-remote-code: true
+enforce-eager: false
+
+# ── Memory: the PRODUCTION shape on this Thor (model-gear-vllm-worker:
+# --max-num-seqs=1 --max-model-len=262144 --gpu-memory-utilization=0.45), so an
+# A/B against production is 1:1. Needs production stopped (it holds 0.45 itself).
+max-num-seqs: 1
+max-model-len: 262144
+max-num-batched-tokens: 16K
+gpu-memory-utilization: 0.45
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+mm-encoder-attn-backend: TORCH_SDPA   # SM110 ViT PTX-crash workaround (vLLM issue #38411)
+linear-backend: auto
+
+mamba-cache-mode: align
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+enable-prefix-caching: true
+enable-chunked-prefill: true
+async-scheduling: true
+# Chat template: the checkpoint's own chat_template.jinja (not Qwen3.8's).
+
+attention-backend: MJOLNIR
+enable-flashinfer-autotune: true
+kv-cache-dtype: fp8
+kv-cache-dtype-skip-layers: sliding_window
+
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
