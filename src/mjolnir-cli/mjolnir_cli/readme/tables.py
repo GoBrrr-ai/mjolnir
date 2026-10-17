@@ -1,22 +1,14 @@
-"""README per-stage tables and data-driven findings."""
+"""The per-stage markdown tables of the README / docs, each built from one
+verify run's raw document (``TABLES[stage](doc)``), plus the wall-clock and
+official-vs-Mjolnir e2e tables."""
 
 from __future__ import annotations
 
 import re
 
-from mjolnir_cli.readme_fmt import (
-    kvcache_label,
-    spec_label,
-    L_label,
-    _table,
-    color,
-    fmt_us,
-    pct_md,
-    ratio_md,
-    ratio_pct,
-)
+from mjolnir_cli.labels import kvcache_label, spec_label
+from mjolnir_cli.readme.fmt import L_label, color, fmt_us, md_table, pct_md, ratio_md, ratio_pct
 from mjolnir_cli.verify import results
-from mjolnir_cli.verify.stages import NOISE_PCT
 
 
 SHORT = {
@@ -61,7 +53,7 @@ def _series_time_table(doc: dict, ref_ids: tuple[str, ...] = ("fi",)) -> str:
         g = results.geomean(results.speedup(ref, o).values())
         geo.append(ratio_md(g) if g else "—")
     rows.append(geo)
-    return _table(header, rows)
+    return md_table(header, rows)
 
 
 def _variant_table(doc: dict, ref_id: str = "fi") -> str:
@@ -91,10 +83,10 @@ def _variant_table(doc: dict, ref_id: str = "fi") -> str:
             + cells
             + [ratio_md(g) if g else "—"]
         )
-    return _table(header, rows, ["---", "---"] + ["--:"] * (len(Ls) + 1))
+    return md_table(header, rows, ["---", "---"] + ["--:"] * (len(Ls) + 1))
 
 
-def _wall_table(doc: dict) -> str | None:
+def wall_table(doc: dict) -> str | None:
     rows = [r for r in doc.get("rows", []) if r.get("median_us")]
     if not rows:
         return None
@@ -116,7 +108,7 @@ def _wall_table(doc: dict) -> str | None:
             else:
                 cells.append(f"{fmt_us(v)} {pct_md((v - m[base]) / m[base] * 100)}")
         out.append(cells)
-    return _table(header, out)
+    return md_table(header, out)
 
 
 def _quant_table(doc: dict) -> str:
@@ -137,7 +129,7 @@ def _quant_table(doc: dict) -> str:
             + [f"{vals[L]:.4f}" if L in vals else "—" for L in Ls]
             + [f"**{sum(vals.values()) / len(vals):.4f}**"]
         )
-    return _table(header, rows, ["---", "--:"] + ["--:"] * (len(Ls) + 1))
+    return md_table(header, rows, ["---", "--:"] + ["--:"] * (len(Ls) + 1))
 
 
 def _pdl_table(doc: dict) -> str:
@@ -149,7 +141,7 @@ def _pdl_table(doc: dict) -> str:
     for q, b in keys:
         m = {r["L"]: r for r in rows if r["q"] == q and r["batches"] == b}
         out.append([q, str(b)] + [pct_md(m[L]["delta_pct"]) if L in m else "—" for L in Ls])
-    return _table(header, out, ["---", "--:"] + ["--:"] * len(Ls))
+    return md_table(header, out, ["---", "--:"] + ["--:"] * len(Ls))
 
 
 def _fp6prof_table(doc: dict) -> str:
@@ -192,7 +184,7 @@ def _fp6prof_table(doc: dict) -> str:
                     f"{st[0]} {st[1]:.1f}" if st else "—",
                 ]
             )
-    return _table(header, rows, ["---", "---"] + ["--:"] * 6 + ["---"])
+    return md_table(header, rows, ["---", "---"] + ["--:"] * 6 + ["---"])
 
 
 def _correctness_table(doc: dict) -> str:
@@ -220,10 +212,10 @@ def _correctness_table(doc: dict) -> str:
         mark = "✅" if ok == len(items) else "❌"
         qs = sorted({c.get("q", "") for c in items})
         rows.append([g, f"{mark} {ok}/{len(items)}", ", ".join(q for q in qs if q)])
-    return _table(["case group", "passed", "Q dtypes"], rows, ["---", "--:", "---"])
+    return md_table(["case group", "passed", "Q dtypes"], rows, ["---", "--:", "---"])
 
 
-def _vs_vllm_table(off: dict, mj: dict) -> str | None:
+def vs_vllm_table(off: dict, mj: dict) -> str | None:
     """Official vLLM image vs the Mjolnir image, every shared cell: each
     metric as 'official → mjolnir (gain)'; gain is positive when Mjolnir is
     better (faster decode/prefill, lower TTFT/ITL)."""
@@ -251,146 +243,7 @@ def _vs_vllm_table(off: dict, mj: dict) -> str | None:
         + color("throughput change" if m.higher_better else "latency change")
         for m in e2e.METRICS
     ]
-    return _table(head, rows, ["--:", "--:"] + ["--:"] * len(e2e.METRICS))
-
-
-def _findings(stage: str, doc: dict) -> list[str]:
-    """Data-driven one-liners for the docs (no hand-written numbers)."""
-    out: list[str] = []
-    if stage == "spec":
-        from mjolnir_cli.verify.spec import best_k
-
-        rows = [r for r in doc.get("rows", []) if r.get("decode_tps")]
-        for (cfg, conc), b in sorted(best_k(rows).items()):
-            ref = next((r for r in rows if r["config"] == cfg and r["concurrency"] == conc and r["k"] == 3), None)
-            vs = (
-                f", {(b['decode_tps'] / ref['decode_tps'] - 1) * 100:+.1f}% vs 3 drafts" if ref and b is not ref else ""
-            )
-            out.append(
-                f"{spec_label(cfg)}, {conc} request{'s' if conc > 1 else ''}: best with **{b['k']} draft"
-                f"{'s' if b['k'] > 1 else ''}** — {b['decode_tps']:.1f} t/s per request, "
-                f"{b['acceptance_length']:.2f} tokens per step{vs}."
-            )
-        by_cfg: dict = {}
-        for r in rows:
-            if r["k"] == 3 and r["concurrency"] == 1 and r.get("acceptance_length"):
-                by_cfg[r["config"]] = r["acceptance_length"]
-        if "NVFP4" in by_cfg:
-            for cfg, a in by_cfg.items():
-                if cfg != "NVFP4":
-                    out.append(
-                        f"Acceptance, 3 drafts, 1 request: {spec_label(cfg)} {a:.2f} vs official "
-                        f"{by_cfg['NVFP4']:.2f} tokens/step ({(a / by_cfg['NVFP4'] - 1) * 100:+.1f}%) — "
-                        "same prompts, temperature 0."
-                    )
-        return out
-    if stage == "kv-cache-size":
-        rows = {r["id"]: r for r in doc.get("rows", []) if r.get("kv_tokens")}
-        e2m3 = next((r for r in rows.values() if str(r.get("kv_dtype", "")).startswith("fp6")), None)
-        for other in rows.values():
-            if e2m3 and other is not e2m3:
-                gain = e2m3["kv_tokens"] / other["kv_tokens"] - 1
-                out.append(
-                    f"**{kvcache_label(e2m3)}** holds **{e2m3['kv_tokens']:,} tokens**, "
-                    f"{gain * 100:+.0f}% vs {kvcache_label(other)} ({other['kv_tokens']:,})."
-                )
-        for r in rows.values():
-            if r.get("max_concurrency"):
-                out.append(
-                    f"{kvcache_label(r)}: {r['max_concurrency']:.1f} requests at the full "
-                    f"{L_label(r.get('max_model_len') or 0)} context (vLLM's own estimate)."
-                )
-        return out
-    by = results.series_by_id(doc)
-    noise = NOISE_PCT / 100
-    if stage in ("sweep", "hndsweep"):
-        base = by.get("fi")
-        for sid in ("mjolnir", "mjolnir-fp8", "fi-hnd", "fa2"):
-            if base and sid in by:
-                sp = results.speedup(base, by[sid])
-                if not sp:
-                    continue
-                g = results.geomean(sp.values())
-                lo, hi = min(sp, key=sp.get), max(sp, key=sp.get)
-                beats = sum(1 for v in sp.values() if v >= 1 + noise)
-                out.append(
-                    f"**{by[sid]['label']}** vs {base['label']}: geomean **{g:.2f}×**, "
-                    f"from {sp[lo]:.2f}× (L={L_label(lo)}) to {sp[hi]:.2f}× (L={L_label(hi)}); "
-                    f"faster beyond the ±{NOISE_PCT:.0f}% noise band at {beats} of {len(sp)} context lengths."
-                )
-    if stage in ("ring", "prefetch", "ab", "kvfmt") and "fi" in by:
-        variants = [s for s in doc.get("series", []) if s.get("kind") == "t5"]
-        if variants:
-            Ls = sorted(results.point_map(by["fi"]))
-            winners = {}
-            for L in Ls:
-                best = min(variants, key=lambda s: results.point_map(s).get(L, float("inf")))
-                winners[L] = best["label"]
-            counts: dict[str, int] = {}
-            for w in winners.values():
-                counts[w] = counts.get(w, 0) + 1
-            top = max(counts, key=counts.get)
-            out.append(f"Fastest variant at the most context lengths: **`{top}`** ({counts[top]} of {len(Ls)}).")
-            geo = {s["label"]: results.geomean(results.speedup(by["fi"], s).values()) for s in variants}
-            geo = {k: v for k, v in geo.items() if v}
-            if geo:
-                g_top = max(geo, key=geo.get)
-                g_low = min(geo, key=geo.get)
-                out.append(
-                    f"Best geomean vs FlashInfer: **`{g_top}`** ({geo[g_top]:.2f}×); "
-                    f"worst: `{g_low}` ({geo[g_low]:.2f}×)."
-                )
-                spread = geo[g_top] / geo[g_low] - 1
-                if spread < noise:
-                    out.append(f"All variants sit within {spread * 100:.0f}% of each other — inside the noise band.")
-    if stage == "quant":
-        by_f: dict[str, list[float]] = {}
-        for r in doc.get("rows", []):
-            if r.get("rel_l2") is not None:
-                by_f.setdefault(r["format"], []).append(r["rel_l2"])
-        if "fp8" in by_f:
-            fp8 = sum(by_f["fp8"]) / len(by_f["fp8"])
-            for f, v in sorted(by_f.items(), key=lambda kv: sum(kv[1]) / len(kv[1])):
-                m = sum(v) / len(v)
-                out.append(f"`{f}`: mean relative L2 error **{m:.3f}** ({m / fp8:.1f}× fp8's {fp8:.3f}).")
-    if stage == "pdl":
-        ds = [r["delta_pct"] for r in doc.get("rows", []) if r.get("delta_pct") is not None]
-        if ds:
-            inside = sum(1 for d in ds if abs(d) < NOISE_PCT)
-            out.append(
-                f"{inside} of {len(ds)} measurements move by less than the ±{NOISE_PCT:.0f}% noise band "
-                f"(range {min(ds):+.1f}% … {max(ds):+.1f}%)."
-            )
-    if stage == "fp6prof":
-        profs = [p for p in doc.get("profiles", []) if p.get("ok")]
-        by_lab: dict[str, list[tuple[float, float, float]]] = {}
-        by_L: dict[int, dict[str, dict]] = {}
-        for p in profs:
-            by_L.setdefault(p["L"], {})[p["label"]] = p
-        for L, ps in by_L.items():
-            labs = list(ps)
-            b = ps[labs[0]]
-            for lab in labs[1:]:
-                p = ps[lab]
-                t = p["metrics"]["gpu__time_duration.sum"] / b["metrics"]["gpu__time_duration.sum"]
-                ideal = p["kv_bits"] / b["kv_bits"]
-                by_lab.setdefault(lab, []).append((t, ideal, L))
-        for lab, xs in by_lab.items():
-            t = sum(x[0] for x in xs) / len(xs)
-            ideal = xs[0][1]
-            realized = (1 - t) / (1 - ideal) if ideal < 1 else 0
-            out.append(
-                f"`{lab}`: kernel time **{t:.2f}×** the baseline for {ideal:.2f}× the bytes — "
-                f"{realized * 100:.0f}% of the byte saving becomes speed (mean over L)."
-            )
-    if stage == "correctness":
-        cs = doc.get("cases", [])
-        ok = sum(1 for c in cs if c.get("passed"))
-        out.append(
-            f"**{ok} / {len(cs)}** checks pass (kernel output and LSE vs the bit-faithful emulator, "
-            "poisoned unused pages must stay NaN-free)."
-        )
-    return out
+    return md_table(head, rows, ["--:", "--:"] + ["--:"] * len(e2e.METRICS))
 
 
 KVCACHE_CTXS = (4096, 8192, 16384, 32768, 65536, 131072)
@@ -423,7 +276,7 @@ def _kvcache_table(doc: dict) -> str:
         head += [f"{names[k]} {color('GiB')}" for k in mem]
         for r, line in zip(rows, out):
             line += [f"{r[k]:.1f}" if r.get(k) else "—" for k in mem]
-    return _table(head, out, ["---", "---"] + ["--:"] * (len(head) - 2))
+    return md_table(head, out, ["---", "---"] + ["--:"] * (len(head) - 2))
 
 
 def _spec_table(doc: dict) -> str:
@@ -450,7 +303,7 @@ def _spec_table(doc: dict) -> str:
         )
     head = ["config", "c", "drafts", "tokens/step", *(f"accept @{i + 1}" for i in range(kmax))]
     head += ["decode t/s/req", "aggregate t/s", "TTFT"]
-    return _table(head, out, ["---"] + ["--:"] * (len(head) - 1))
+    return md_table(head, out, ["---"] + ["--:"] * (len(head) - 1))
 
 
 TABLES = {

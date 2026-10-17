@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from typing import Any
 
 try:  # typer >= 0.20 vendors its own click
-    from typer._click import Context
+    from typer._click import Command, Context
 except ImportError:  # pragma: no cover
-    from click import Context
+    from click import Command, Context
 
 
 @dataclass
@@ -63,10 +63,11 @@ def _short(cmd: Any) -> str:
 
 
 def walk(app) -> list[Cmd]:
-    """Every command, depth first, in the order the CLI lists them."""
+    """Every command, depth first, in the order the CLI lists them. ``app`` is
+    the typer app or an already-built click command (the running root)."""
     import typer.main
 
-    root = typer.main.get_command(app)
+    root = app if isinstance(app, Command) else typer.main.get_command(app)
     out: list[Cmd] = []
 
     def visit(cmd: Any, path: str, ctx: Any) -> None:

@@ -172,12 +172,23 @@ def _execute(*a, **kw) -> int:
     return execute(*a, **kw)[0]
 
 
+def _root_command():
+    """The command tree being run (what docs/cli.md documents); raises
+    RuntimeError outside a running command."""
+    try:  # typer >= 0.20 vendors its own click
+        from typer._click.globals import get_current_context
+    except ImportError:  # pragma: no cover
+        from click import get_current_context
+
+    return get_current_context().find_root().command
+
+
 def _replot(layout) -> None:
     try:
         from mjolnir_cli import charts, readme
 
         charts.render_all(layout)
-        readme.render_readme(layout)
+        readme.render_readme(layout, _root_command())
     except Exception as e:  # noqa: BLE001 — charts are a convenience here
         console.print(f"[yellow]   (charts/README not re-rendered: {e})[/yellow]")
 

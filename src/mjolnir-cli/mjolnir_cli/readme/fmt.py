@@ -1,7 +1,10 @@
-"""README formatters: label, ratio, percent and markdown-table helpers."""
+"""Pure markdown formatting for the README / docs: context-length labels,
+µs/ms times, colored ratios and percentages (LaTeX GitHub renders), and the
+markdown table. No domain data, no labels for configs — that is ``labels``."""
 
 from __future__ import annotations
 
+from mjolnir_cli import e2e
 from mjolnir_cli.verify.stages import NOISE_PCT
 
 _GREEN = "#16a34a"
@@ -50,7 +53,7 @@ def pct_md(p: float | None, lower_is_better: bool = True) -> str:
     return f"$\\color{{{color}}}{{\\text{{{sign}{abs(p):.1f}\\\\%}}}}$"
 
 
-def _table(header: list[str], rows: list[list[str]], align: list[str] | None = None) -> str:
+def md_table(header: list[str], rows: list[list[str]], align: list[str] | None = None) -> str:
     align = align or ["---"] + ["--:"] * (len(header) - 1)
     out = ["| " + " | ".join(header) + " |", "|" + "|".join(align) + "|"]
     out += ["| " + " | ".join(r) + " |" for r in rows]
@@ -65,8 +68,6 @@ def ratio_pct(g: float | None, higher_better: bool = True) -> str:
     ±E2E_NOISE_PCT band, grey = within it, red = worse beyond it."""
     if g is None:
         return "—"
-    from mjolnir_cli import e2e
-
     noise = e2e.E2E_NOISE_PCT
     color = _GREEN if g >= noise else (_RED if g <= -noise else _GREY)
     shown = g if higher_better else -g
@@ -74,26 +75,3 @@ def ratio_pct(g: float | None, higher_better: bool = True) -> str:
     g = shown
     # We need to double-escape the `\\\%` as Github refuses to render the `%` symbol otherwise
     return f"$\\color{{{color}}}{{\\text{{{sign}{abs(g):.1f}\\\\%}}}}$"
-
-
-def kvcache_label(r: dict) -> str:
-    """'official · FlashInfer fp8', 'Mjolnir · fp6 e2m3', ..."""
-    kv = str(r.get("kv_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3")
-    if r.get("side") != "official":
-        extra = "".join(
-            f" + {name}"
-            for tag, name in (("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab"), ("VT32K", "32K draft vocab"))
-            if tag in str(r.get("config", "")).split("_")
-        )
-        return f"Mjolnir · {kv} KV{extra}"
-    be = {"flashinfer": "FlashInfer", "flash_attn": "FlashAttention"}.get(str(r.get("backend") or "").lower())
-    return f"official vLLM · {be or r.get('backend') or '?'} · {kv} KV"
-
-
-def spec_label(cfg: str, side: str | None = None) -> str:
-    return {
-        "NVFP4": "official vLLM · FlashInfer fp8",
-        "NVFP4_MJOLNIR": "Mjolnir · fp8 KV",
-        "NVFP4_MJOLNIR_E2M3": "Mjolnir · fp6 KV",
-        "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": "Mjolnir · fp6 KV + fp8 lm_head + 64K draft vocab",
-    }.get(cfg, cfg)

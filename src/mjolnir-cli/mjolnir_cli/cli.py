@@ -931,7 +931,7 @@ def bench_perf(
         except RuntimeError as e:
             typer.secho(f"(plots skipped: {e})", fg=typer.colors.YELLOW, err=True)
         try:
-            readme.render_readme(layout)
+            readme.render_readme(layout, app)
         except (RuntimeError, FileNotFoundError) as e:
             typer.secho(f"(readme skipped: {e})", fg=typer.colors.YELLOW, err=True)
 
@@ -1153,7 +1153,7 @@ def _rerender(layout) -> None:
     except RuntimeError as e:
         typer.secho(f"(plots skipped: {e})", fg=typer.colors.YELLOW, err=True)
     try:
-        readme.render_readme(layout)
+        readme.render_readme(layout, app)
     except (RuntimeError, FileNotFoundError) as e:
         typer.secho(f"(readme skipped: {e})", fg=typer.colors.YELLOW, err=True)
 
@@ -1412,7 +1412,7 @@ def plot(
         autoresearch._render_progress(layout.repo_root, autoresearch.latest_rows(layout.repo_root))
     if render_readme:
         try:
-            readme.render_readme(layout, template=readme_template, out=readme_out)
+            readme.render_readme(layout, app, template=readme_template, out=readme_out)
         except (RuntimeError, FileNotFoundError, OSError) as e:
             typer.secho(str(e), fg=typer.colors.RED, err=True)
             raise typer.Exit(1)

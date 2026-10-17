@@ -28,6 +28,12 @@ Template contract (Jinja2, StrictUndefined — a typo fails loud):
                        manifest, ``""`` when the chart has no data yet
 * ``has(stage)``     — the stage has a saved run
 * ``root``           — relative path from the rendered file to the repo root
+
+This package's one job per module (each layer imports only the ones above it;
+``tests/cli/test_module_boundaries.py`` pins it): ``fmt`` formats numbers,
+``tables`` and ``findings`` turn a verify run into a table / sentences,
+``context`` collects the template context, ``how`` writes the formula panels,
+and this ``__init__`` renders the templates.
 """
 
 from __future__ import annotations
@@ -38,35 +44,12 @@ from pathlib import Path
 import jinja2
 
 from mjolnir_cli.config import RepoLayout
-from mjolnir_cli.readme_context import ReadmeContext, collect_context, how
-from mjolnir_cli.readme_fmt import (
-    L_label,
-    color,
-    fmt_us,
-    kvcache_label,
-    pct_md,
-    ratio_md,
-    ratio_pct,
-    spec_label,
-)
-from mjolnir_cli.readme_tables import TABLES, _findings
+from mjolnir_cli.readme.context import ReadmeContext, collect_context
+from mjolnir_cli.readme.fmt import color
+from mjolnir_cli.readme.how import how
 from mjolnir_cli.verify.stages import STAGES
 
-__all__ = [
-    "L_label",
-    "TABLES",
-    "_findings",
-    "fmt_us",
-    "kvcache_label",
-    "pct_md",
-    "ratio_md",
-    "ratio_pct",
-    "spec_label",
-    "ReadmeContext",
-    "collect_context",
-    "render_file",
-    "render_readme",
-]
+__all__ = ["render_file", "render_readme"]
 
 
 # ── rendering ───────────────────────────────────────────────────────────────
@@ -118,8 +101,9 @@ def render_file(layout: RepoLayout, tpl: Path, out: Path, ctx: ReadmeContext) ->
     return out
 
 
-def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | None = None) -> list[Path]:
-    """Render README.md + every docs ``*.md.j2`` (checkout only)."""
+def render_readme(layout: RepoLayout, cli, template: Path | None = None, out: Path | None = None) -> list[Path]:
+    """Render README.md + every docs ``*.md.j2`` (checkout only). ``cli`` is the
+    command tree ``docs/cli.md`` documents: the typer app or a click command."""
     root = layout.require_repo("rendering the README")
     tpl = Path(template) if template else root / "README.md.j2"
     dest = Path(out) if out else root / "README.md"
@@ -127,11 +111,10 @@ def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | 
         raise FileNotFoundError(f"README template not found: {tpl}")
     ctx = collect_context(layout)
     from mjolnir_cli import clidoc
-    from mjolnir_cli.cli import app as cli_app
 
     cli_md = root / "docs" / "cli.md"
     cli_md.parent.mkdir(parents=True, exist_ok=True)
-    cli_md.write_text(clidoc.reference(cli_app))
+    cli_md.write_text(clidoc.reference(cli))
     written = [render_file(layout, tpl, dest, ctx), cli_md]
     docker_tpl = root / "docker" / "vllm-thor" / "README.md.j2"
     if docker_tpl.exists():
