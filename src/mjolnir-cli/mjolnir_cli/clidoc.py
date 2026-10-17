@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 try:  # typer >= 0.20 vendors its own click
-    from typer._click import Command, Context
+    from typer._click import Context
 except ImportError:  # pragma: no cover
-    from click import Command, Context
+    from click import Context
 
 
 @dataclass
@@ -63,11 +64,10 @@ def _short(cmd: Any) -> str:
 
 
 def walk(app) -> list[Cmd]:
-    """Every command, depth first, in the order the CLI lists them. ``app`` is
-    the typer app or an already-built click command (the running root)."""
+    """Every command, depth first, in the order the CLI lists them."""
     import typer.main
 
-    root = app if isinstance(app, Command) else typer.main.get_command(app)
+    root = typer.main.get_command(app)
     out: list[Cmd] = []
 
     def visit(cmd: Any, path: str, ctx: Any) -> None:
@@ -141,6 +141,14 @@ def reference(app) -> str:
                                                      for s in cmds if s.path.rsplit(" ", 1)[0] == c.path) + ".")  # fmt: skip
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def write_reference(root: Path, app) -> Path:
+    """Write :func:`reference` to ``<root>/docs/cli.md``; returns the path."""
+    path = root / "docs" / "cli.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(reference(app))
+    return path
 
 
 def block_commands(block: str) -> list[str]:

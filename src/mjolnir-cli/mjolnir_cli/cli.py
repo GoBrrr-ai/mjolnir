@@ -55,7 +55,7 @@ from mjolnir_cli.config import (
     scan_all_configs,
     user_configs_dir,
 )
-from mjolnir_cli import benchy, cachectl, charts, dockerctl, litellm, perses, picker, readme, tasks, thor
+from mjolnir_cli import benchy, cachectl, charts, clidoc, dockerctl, litellm, perses, picker, readme, tasks, thor
 from mjolnir_cli.verify.cli import app as verify_app
 from mjolnir_cli.autoresearch import app as autoresearch_app
 
@@ -931,7 +931,7 @@ def bench_perf(
         except RuntimeError as e:
             typer.secho(f"(plots skipped: {e})", fg=typer.colors.YELLOW, err=True)
         try:
-            readme.render_readme(layout, app)
+            readme.render_readme(layout)
         except (RuntimeError, FileNotFoundError) as e:
             typer.secho(f"(readme skipped: {e})", fg=typer.colors.YELLOW, err=True)
 
@@ -1153,7 +1153,7 @@ def _rerender(layout) -> None:
     except RuntimeError as e:
         typer.secho(f"(plots skipped: {e})", fg=typer.colors.YELLOW, err=True)
     try:
-        readme.render_readme(layout, app)
+        readme.render_readme(layout)
     except (RuntimeError, FileNotFoundError) as e:
         typer.secho(f"(readme skipped: {e})", fg=typer.colors.YELLOW, err=True)
 
@@ -1384,8 +1384,7 @@ def plot(
         False,
         "--readme",
         help="also render README.md from the README.md.j2 template "
-        "(every table + number computed from the committed raw "
-        "data)",
+        "(every table + number computed from the committed raw data)",
     ),
     readme_template: Optional[Path] = typer.Option(
         None, "--readme-template", help="template override (default: <repo>/README.md.j2)"
@@ -1412,7 +1411,8 @@ def plot(
         autoresearch._render_progress(layout.repo_root, autoresearch.latest_rows(layout.repo_root))
     if render_readme:
         try:
-            readme.render_readme(layout, app, template=readme_template, out=readme_out)
+            readme.render_readme(layout, template=readme_template, out=readme_out)
+            print(f"[mjolnir] wrote {clidoc.write_reference(layout.repo_root, app)}")
         except (RuntimeError, FileNotFoundError, OSError) as e:
             typer.secho(str(e), fg=typer.colors.RED, err=True)
             raise typer.Exit(1)

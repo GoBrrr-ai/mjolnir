@@ -18,7 +18,7 @@ def kvcache_label(r: dict) -> str:
     return f"official vLLM · {be or r.get('backend') or '?'} · {kv} KV"
 
 
-def spec_label(cfg: str, side: str | None = None) -> str:
+def spec_label(cfg: str) -> str:
     return {
         "NVFP4": "official vLLM · FlashInfer fp8",
         "NVFP4_MJOLNIR": "Mjolnir · fp8 KV",
