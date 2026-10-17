@@ -295,9 +295,9 @@ class Runner:
         if rc != 0 or self.dry_run:
             return rc, {}
         try:
-            raw, units = ncu.parse_raw_csv((outdir / f"{name}.raw.csv").read_text(errors="replace"))
+            raw, units, best_id = ncu.parse_raw_csv((outdir / f"{name}.raw.csv").read_text(errors="replace"))
             det_p = outdir / f"{name}.details.csv"
-            details = ncu.parse_details_csv(det_p.read_text(errors="replace")) if det_p.exists() else {}
+            details = ncu.parse_details_csv(det_p.read_text(errors="replace"), best_id) if det_p.exists() else {}
         except (OSError, ValueError, ZeroDivisionError) as e:  # a bad export loses one profile, not the run
             print(f"  ! {name}: could not parse the ncu export ({e}) — see {outdir}", file=sys.stderr)
             return 1, {}

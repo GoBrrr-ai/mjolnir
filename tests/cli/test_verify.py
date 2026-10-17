@@ -129,9 +129,25 @@ def test_raw_csv_with_text_only_columns_does_not_crash():
         '"0","decode","12.5","n/a"\n'
         '"1","decode","13.5","n/a"\n'
     )
-    mean, units = ncu.parse_raw_csv(text)
-    assert mean["gpu__time_duration.sum"] == 13000.0  # µs -> ns, averaged
+    mean, units, best_id = ncu.parse_raw_csv(text)
+    # identical launches flip up to ~25% under replay: the fastest launch is
+    # the reported snapshot, not the mean
+    assert mean["gpu__time_duration.sum"] == 12500.0  # µs -> ns, fastest launch
+    assert best_id == 0
     assert "note" not in mean and "Kernel Name" not in mean
+
+
+def test_details_csv_keeps_only_the_fastest_launch():
+    from mjolnir_cli.verify import ncu
+
+    text = (
+        '"ID","Section Name","Metric Name","Metric Unit","Metric Value"\n'
+        '"0","Warp State Statistics","Stall Long Scoreboard","cycle/instruction","10"\n'
+        '"1","Warp State Statistics","Stall Long Scoreboard","cycle/instruction","40"\n'
+    )
+    d = ncu.parse_details_csv(text, best_id=0)
+    assert d["Warp State Statistics"]["Stall Long Scoreboard (cycle/instruction)"] == 10.0
+    assert ncu.parse_details_csv(text)["Warp State Statistics"]["Stall Long Scoreboard (cycle/instruction)"] == 25.0
 
 
 def test_sweep_batch_and_q_len_reach_both_drivers(tmp_path):

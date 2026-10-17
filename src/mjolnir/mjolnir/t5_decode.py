@@ -175,6 +175,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         pdl=False,  # programmatic dependent launch for decode + reduction
         l2_prefetch=0,  # TMA-prefetch K/V tiles this many tiles ahead into L2 (0 = off)
         kv_evict_first=False,  # TMA K/V loads with an L2 EVICT_FIRST cache policy
+        bt_lookahead=0,  # E2a: block-table readahead, tiles ahead of use (0 = off; PS==128 path only)
         kv_format="fp8",  # KV cache format, see KV_FORMATS
         causal=True,  # False: every query token sees all seq_len keys (parallel-drafter blocks)
     ):
@@ -187,6 +188,8 @@ class MixedInputFusedMultiHeadAttentionDecode:
         self.launch_extra = {"use_pdl": True} if self.pdl else {}
         self.l2_prefetch = int(l2_prefetch)
         self.kv_evict_first = bool(kv_evict_first)
+        self.bt_lookahead = int(bt_lookahead)
+        assert 0 <= self.bt_lookahead <= 16, "bt_lookahead: 0..16 tiles"
         assert kv_format in KV_FORMATS, f"kv_format must be one of {KV_FORMATS}"
         self.kv_format = kv_format
         if kv_format == "nvfp4":
@@ -264,6 +267,15 @@ class MixedInputFusedMultiHeadAttentionDecode:
 
         self.sp_stages = 2
         self.o_stages = 1
+
+        # E2a block-table readahead: a rolling window of pages in SMEM,
+        # refilled bt_lookahead tiles ahead of use — the page for the tile
+        # being issued is no longer a dependent gmem load on the TMA path
+        # (the long_scoreboard stall behind the e2m3 16K-32K hole). The
+        # window must hold lookahead + prefetch_iters + 1 entries
+        # (prefetch_iters = sp_stages - 1, see the KV loop), rounded up to
+        # a power of two so the rotating index is an AND.
+        self._bt_window_len = 1 << (self.bt_lookahead + self.sp_stages).bit_length() if self.bt_lookahead > 0 else 0
 
     def _kv_types(self, kv_dtype, mma_dtype):
         """KV-format type plumbing, kept OUT of the traced __call__ (the DSL
@@ -924,6 +936,10 @@ class MixedInputFusedMultiHeadAttentionDecode:
         q_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.q_stages * 2)
         pk_pipeline_ptr = smem.allocate_array(cutlass.Int64, max(1, self.packed_stages) * 2)
         kv_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.kv_stages * 2)
+        if cutlass.const_expr(self.bt_lookahead > 0):
+            # Rolling page window for the TMA KV warp (see _bt_window_len);
+            # only the PS == blk_tile_s path consumes it today.
+            bt_window = smem.allocate_array(cutlass.Int32, self._bt_window_len)
         cvt_pipeline_ptr = smem.allocate_array(cutlass.Int64, max(1, self.cvt_stages * 2))
         s_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.sp_stages * 2)
         p_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.sp_stages * 2)
@@ -1246,53 +1262,98 @@ class MixedInputFusedMultiHeadAttentionDecode:
                     gmem_tensor=cute.group_modes(tAgV, 0, 3),
                 )  # (TMA, stages), (TMA, #TILE_DM, #TILE_SK, L)
 
-                for s in cutlass.range(iters_s + prefetch_iters):
-                    # L2 prefetch: K+V of tile s + L2P (and, on the first step,
-                    # s + 1 .. s + L2P - 1) so DRAM streams ahead of the ring.
-                    if cutlass.const_expr(L2P > 0):
-                        for pp in cutlass.range_constexpr(1, L2P + 1):
-                            if s + pp < iters_s:
-                                if cutlass.const_expr(pp == L2P):
-                                    page_p = mBlockTable[b_idx, tile_begin + s + pp]
-                                    l_p = h_k_idx + h_k * page_p
-                                    for dk in cutlass.range_constexpr(tiles_dk):
-                                        cute.prefetch(tma_atom_k, tGSgK[None, 0, dk, l_p])
-                                    for dm in cutlass.range_constexpr(tiles_dm):
-                                        cute.prefetch(tma_atom_v, tGSgV[None, dm, 0, l_p])
-                                else:
-                                    if s == 0:
-                                        page_p = mBlockTable[b_idx, tile_begin + pp]
+                if cutlass.const_expr(self.bt_lookahead > 0):
+                    # E2a: the page for the tile being issued comes from a
+                    # rolling SMEM window refilled N tiles ahead of use — the
+                    # block-table load no longer sits on the TMA issue path
+                    # (the long_scoreboard stall behind the e2m3 16K-32K
+                    # hole). Same K-ahead-of-V order as below; the window
+                    # holds N + prefetch_iters + 1 entries (_bt_window_len).
+                    N = self.bt_lookahead
+                    W = self._bt_window_len
+                    wmask = W - 1
+                    for t in cutlass.range_constexpr(W):
+                        if t < iters_s:
+                            bt_window[t] = mBlockTable[b_idx, tile_begin + t]
+                    for s in cutlass.range(iters_s + prefetch_iters):
+                        # Refill first: tile s + N's page loads while this
+                        # iteration stalls on its ring barriers.
+                        if s + N < iters_s:
+                            bt_window[(s + N) & wmask] = mBlockTable[b_idx, tile_begin + s + N]
+                        # Load K (tile tile_begin + s)
+                        if s < iters_s:
+                            page = bt_window[s & wmask]
+                            l_idx = h_k_idx + h_k * page
+                            for dk in cutlass.range_constexpr(tiles_dk):
+                                k_handle = kv_producer.acquire_and_advance()
+                                cute.copy(
+                                    tma_atom_k,
+                                    tGSgK[None, 0, dk, l_idx],
+                                    tGSsK[None, k_handle.index],
+                                    tma_bar_ptr=k_handle.barrier,
+                                    **kv_hint,
+                                )
+                        # Load V (tile tile_begin + s - prefetch_iters)
+                        if s >= prefetch_iters:
+                            page = bt_window[(s - prefetch_iters) & wmask]
+                            l_idx = h_k_idx + h_k * page
+                            for dm in cutlass.range_constexpr(tiles_dm):
+                                v_handle = kv_producer.acquire_and_advance()
+                                cute.copy(
+                                    tma_atom_v,
+                                    tGSgV[None, dm, 0, l_idx],
+                                    tGSsV[None, v_handle.index],
+                                    tma_bar_ptr=v_handle.barrier,
+                                    **kv_hint,
+                                )
+                else:
+                    for s in cutlass.range(iters_s + prefetch_iters):
+                        # L2 prefetch: K+V of tile s + L2P (and, on the first step,
+                        # s + 1 .. s + L2P - 1) so DRAM streams ahead of the ring.
+                        if cutlass.const_expr(L2P > 0):
+                            for pp in cutlass.range_constexpr(1, L2P + 1):
+                                if s + pp < iters_s:
+                                    if cutlass.const_expr(pp == L2P):
+                                        page_p = mBlockTable[b_idx, tile_begin + s + pp]
                                         l_p = h_k_idx + h_k * page_p
                                         for dk in cutlass.range_constexpr(tiles_dk):
                                             cute.prefetch(tma_atom_k, tGSgK[None, 0, dk, l_p])
                                         for dm in cutlass.range_constexpr(tiles_dm):
                                             cute.prefetch(tma_atom_v, tGSgV[None, dm, 0, l_p])
-                    # Load K (tile tile_begin + s)
-                    if s < iters_s:
-                        page = mBlockTable[b_idx, tile_begin + s]
-                        l_idx = h_k_idx + h_k * page
-                        for dk in cutlass.range_constexpr(tiles_dk):
-                            k_handle = kv_producer.acquire_and_advance()
-                            cute.copy(
-                                tma_atom_k,
-                                tGSgK[None, 0, dk, l_idx],
-                                tGSsK[None, k_handle.index],
-                                tma_bar_ptr=k_handle.barrier,
-                                **kv_hint,
-                            )
-                    # Load V (tile tile_begin + s - prefetch_iters)
-                    if s >= prefetch_iters:
-                        page = mBlockTable[b_idx, tile_begin + s - prefetch_iters]
-                        l_idx = h_k_idx + h_k * page
-                        for dm in cutlass.range_constexpr(tiles_dm):
-                            v_handle = kv_producer.acquire_and_advance()
-                            cute.copy(
-                                tma_atom_v,
-                                tGSgV[None, dm, 0, l_idx],
-                                tGSsV[None, v_handle.index],
-                                tma_bar_ptr=v_handle.barrier,
-                                **kv_hint,
-                            )
+                                    else:
+                                        if s == 0:
+                                            page_p = mBlockTable[b_idx, tile_begin + pp]
+                                            l_p = h_k_idx + h_k * page_p
+                                            for dk in cutlass.range_constexpr(tiles_dk):
+                                                cute.prefetch(tma_atom_k, tGSgK[None, 0, dk, l_p])
+                                            for dm in cutlass.range_constexpr(tiles_dm):
+                                                cute.prefetch(tma_atom_v, tGSgV[None, dm, 0, l_p])
+                        # Load K (tile tile_begin + s)
+                        if s < iters_s:
+                            page = mBlockTable[b_idx, tile_begin + s]
+                            l_idx = h_k_idx + h_k * page
+                            for dk in cutlass.range_constexpr(tiles_dk):
+                                k_handle = kv_producer.acquire_and_advance()
+                                cute.copy(
+                                    tma_atom_k,
+                                    tGSgK[None, 0, dk, l_idx],
+                                    tGSsK[None, k_handle.index],
+                                    tma_bar_ptr=k_handle.barrier,
+                                    **kv_hint,
+                                )
+                        # Load V (tile tile_begin + s - prefetch_iters)
+                        if s >= prefetch_iters:
+                            page = mBlockTable[b_idx, tile_begin + s - prefetch_iters]
+                            l_idx = h_k_idx + h_k * page
+                            for dm in cutlass.range_constexpr(tiles_dm):
+                                v_handle = kv_producer.acquire_and_advance()
+                                cute.copy(
+                                    tma_atom_v,
+                                    tGSgV[None, dm, 0, l_idx],
+                                    tGSsV[None, v_handle.index],
+                                    tma_bar_ptr=v_handle.barrier,
+                                    **kv_hint,
+                                )
             else:
                 # PS < 128: pages_per_tile boxes per stage. Logical views of
                 # the ring: K (s, d, stage), V (d, s, stage).
@@ -2448,6 +2509,7 @@ def run(
     pdl: bool = False,
     l2_prefetch: int = 0,
     kv_evict_first: int = -1,  # -1 auto: on for fp8 Q (vLLM default), off for bf16 Q
+    bt_lookahead: int = 0,
     kv_format: str = "fp8",
     kv_from_float: bool = False,
     non_causal: bool = False,
@@ -2529,6 +2591,7 @@ def run(
     grid_ctas = plan.num_work * heads_k * n_tiles
     print(
         f"\tpage_size: {PS}, sm_count: {sm_count}, ctas_per_sm: {ctas_per_sm}, "
+        f"bt_lookahead: {bt_lookahead}, "
         f"grid: {grid_ctas} CTAs, pages: {'contiguous' if contiguous_pages else 'shuffled'}"
     )
     print(f"\tplan: {plan}")
@@ -2547,6 +2610,7 @@ def run(
         pdl=pdl,
         l2_prefetch=l2_prefetch,
         kv_evict_first=bool(kv_evict_first),
+        bt_lookahead=bt_lookahead,
         kv_format=kv_format,
         causal=not non_causal,
     )
@@ -2947,6 +3011,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--l2_prefetch", type=int, default=0, help="TMA-prefetch K/V this many 128-row tiles ahead into L2 (0 = off)"
+    )
+    parser.add_argument(
+        "--bt_lookahead",
+        type=int,
+        default=0,
+        help="block-table readahead: refill a rolling page window this many tiles "
+        "ahead of the TMA issue (0 = off; page 128 path only)",
     )
     parser.add_argument(
         "--kv_evict_first",

@@ -91,43 +91,74 @@ def parse_file(path: Path, main, merge, L: int, kv_bytes: float) -> dict | None:
 # ── full-profile (fp6prof) CSV pages ─────────────────────────────────────────
 
 
-def parse_raw_csv(text: str) -> tuple[dict[str, float], dict[str, str]]:
-    """``ncu --import x --page raw --csv`` → (metric → mean over launches,
-    metric → unit)."""
+def parse_raw_csv(text: str) -> tuple[dict[str, float], dict[str, str], int | None]:
+    """``ncu --import x --page raw --csv`` → (fastest launch's metrics,
+    metric → unit, that launch's ID).
+
+    Identical launches of the decode kernel flip up to ~25% in kernel time
+    under replay (CTA-residency modes; fp6prof 20261017-210232: 299 vs
+    372 µs on the same 40-CTA grid, at every L and format), so a mean over
+    ``count`` launches mixes the modes and the ratios between legs land
+    anywhere in between. The fastest launch is one self-consistent
+    snapshot — time, stalls and bytes from the same replay — and matches
+    what the wall-clock harness medians see."""
     import csv
     import io
 
     rows = list(csv.reader(io.StringIO(text)))
     hi = next((i for i, r in enumerate(rows) if "Kernel Name" in r or "ID" in r), None)
     if hi is None or len(rows) < hi + 3:
-        return {}, {}
+        return {}, {}, None
     hdr, unit, data = rows[hi], rows[hi + 1], rows[hi + 2 :]
+
+    def fnum(x: str) -> float | None:
+        try:
+            return float(str(x).replace(",", ""))
+        except ValueError:
+            return None
+
+    id_col = hdr.index("ID") if "ID" in hdr else None
+    best: dict[str, float] = {}
+    best_id: int | None = None
+    best_t: float | None = None
     acc: dict[str, list[float]] = {}
     for r in data:
+        vals = {k: fnum(v) for k, v in zip(hdr, r)}
         for k, v in zip(hdr, r):
-            try:
-                x = float(str(v).replace(",", ""))
-            except ValueError:
-                continue  # text columns, "n/a" — never create an empty bucket
-            acc.setdefault(k, []).append(x)
-    units = dict(zip(hdr, unit))
-    mean = {k: sum(v) / len(v) for k, v in acc.items() if v}
+            x = fnum(v)
+            if x is not None:
+                acc.setdefault(k, []).append(x)
+        if id_col is not None:
+            t = vals.get("gpu__time_duration.sum")
+            if t is not None and (best_t is None or t < best_t):
+                best_t, best_id = t, int(vals.get("ID"))  # type: ignore[arg-type]
+                best = {k: v for k, v in vals.items() if v is not None}
+    if best:
+        mean = best
+    else:  # no ID/time columns — degenerate export, fall back to the mean
+        mean = {k: sum(v) / len(v) for k, v in acc.items() if v}
     # durations -> ns whatever unit this ncu prints
+    units = dict(zip(hdr, unit))
     tu = units.get("gpu__time_duration.sum", "nsecond").strip().lower()
     k_ns = {"nsecond": 1, "ns": 1, "usecond": 1e3, "us": 1e3, "msecond": 1e6, "ms": 1e6, "second": 1e9, "s": 1e9}
     if "gpu__time_duration.sum" in mean:
         mean["gpu__time_duration.sum"] *= k_ns.get(tu, 1)
         units["gpu__time_duration.sum"] = "ns"
-    return mean, units
+    return mean, units, best_id
 
 
-def parse_details_csv(text: str) -> dict[str, dict[str, float]]:
-    """``--page details --csv`` → {section: {"metric (unit)": mean}}."""
+def parse_details_csv(text: str, best_id: int | None = None) -> dict[str, dict[str, float]]:
+    """``--page details --csv`` → {section: {"metric (unit)": mean}}.
+
+    With ``best_id``, only that launch's rows are kept (the fastest launch
+    of parse_raw_csv) so details and raw describe the same replay."""
     import csv
     import io
 
     acc: dict[tuple[str, str], list[float]] = {}
     for r in csv.DictReader(io.StringIO(text)):
+        if best_id is not None and r.get("ID", "") not in ("", str(best_id)):
+            continue
         try:
             x = float(str(r.get("Metric Value", "")).replace(",", ""))
         except ValueError:
