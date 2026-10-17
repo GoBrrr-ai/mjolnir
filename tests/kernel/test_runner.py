@@ -834,6 +834,144 @@ def test_draft_vocab_quantized_head():
     assert torch.isinf(got[:, drop]).all() and (got[:, drop] < 0).all(), "dropped tokens must be -inf"
 
 
+def test_draft_vocab_native_head():
+    """VT a native-quant (NVFP4) drafter head keeps the kept rows bit-exact to the
+    source head — no dequant->bf16->fp8 re-rounding. That's what lets a 4-bit
+    drafter head be vocab-trimmed without perturbing its logits (acceptance) and
+    keeps the draft step a 4-bit GEMM. The fp8 path re-rounds the kept rows.
+    CUDA-only (the in-kernel GEMM is Triton)."""
+    from mjolnir import lmhead
+    from mjolnir.lmhead import _nvfp4_native_gemm
+
+    torch.manual_seed(0)
+    vocab, hidden = 96, 64  # hidden must divide 64 (the GEMM's K-block tiling)
+    packed_cpu = torch.randint(0, 256, (vocab, hidden // 2), dtype=torch.uint8)
+    bs_f = (torch.rand(vocab, hidden // 16) + 0.5).to(torch.float8_e4m3fn).float()  # the e4m3 block scales
+    bs = bs_f.to(torch.float8_e4m3fn).to(DEV)
+    packed = packed_cpu.to(DEV)
+    gs = torch.tensor(1.0, device=DEV)
+    LUT = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0]
+    # exact dequant BY CONSTRUCTION (independent of the torch reference): the
+    # source head's rows, nibble -> e2m1 -> * block scale -> * global
+    W = torch.empty(vocab, hidden)
+    for i in range(vocab):
+        for j in range(hidden):
+            c = packed_cpu[i, j // 2].item()
+            c = (c & 0xF) if j % 2 == 0 else (c >> 4) & 0xF
+            W[i, j] = LUT[c] * bs_f[i, j // 16].item() * 1.0
+    idx = torch.tensor(sorted(set(range(0, vocab, 3))), device=DEV)
+    h = torch.randn(3, hidden, device=DEV, dtype=torch.bfloat16)
+    ref = (h.float() @ W.to(DEV).index_select(0, idx).float().t()).to(torch.bfloat16)
+    # native VT = the source head's kept rows, bit-exact (the capability we need)
+    got = _nvfp4_native_gemm(h, packed.index_select(0, idx), bs.index_select(0, idx), gs)
+    assert got is not None, "native in-kernel GEMM unavailable (triton?)"
+    assert torch.allclose(got.float(), ref.float(), rtol=5e-2, atol=5e-2), (
+        "native VT must equal the source head's kept rows"
+    )
+    # the fp8 VT re-rounds the kept rows -> that perturbation is what native avoids
+    sub8, sub_scale = lmhead.quantize_rows(W.to(DEV).index_select(0, idx))
+    fp8_deq = sub8.float() * sub_scale[:, None]
+    assert not torch.equal(fp8_deq, W.to(DEV).index_select(0, idx).float()), (
+        "fp8 re-quant of a 4-bit head is expected to round (why native is needed)"
+    )
+
+
+def test_fp8_native_slice():
+    """VT of an already-fp8 head keeps the kept rows' e4m3 bytes + scale (no
+    dequant->re-quant). Per-row and per-tensor scales slice natively; a
+    block-scale (2-D) scale is not row-aligned -> None (the caller dequants).
+    CPU."""
+    from mjolnir.lmhead import _fp8_native_slice
+
+    torch.manual_seed(0)
+    vocab, hidden = 64, 32
+    idx = torch.tensor(sorted(set(range(0, vocab, 3))))
+    w8 = torch.randn(vocab, hidden).to(torch.float8_e4m3fn)
+
+    class _H:
+        pass
+
+    # per-row (N,) scale: row-aligned with the weights -> sliced too
+    h = _H()
+    h.weight = w8
+    h.weight_scale = torch.rand(vocab)
+    k8, ksc = _fp8_native_slice(h, idx)
+    assert k8 is not None and k8.shape[0] == idx.numel()
+    assert torch.equal(k8, w8.index_select(0, idx).contiguous())
+    assert torch.equal(ksc, h.weight_scale.index_select(0, idx).float().contiguous())
+    # per-tensor scalar scale: broadcast to a per-row scale (still the native bytes)
+    h2 = _H()
+    h2.weight = w8
+    h2.weight_scale = torch.tensor(1.5)
+    k8b, kscb = _fp8_native_slice(h2, idx)
+    assert k8b is not None and k8b.shape[0] == idx.numel()
+    assert kscb.shape[0] == idx.numel() and (kscb == 1.5).all()
+    # block-scale (2-D) scale: not row-aligned -> None (the dequant fallback)
+    h3 = _H()
+    h3.weight = w8
+    h3.weight_scale = torch.rand(vocab, hidden // 16)
+    assert _fp8_native_slice(h3, idx) is None
+    # a bf16 weight is not fp8-native
+    h4 = _H()
+    h4.weight = torch.randn(vocab, hidden)
+    h4.weight_scale = torch.rand(vocab)
+    assert _fp8_native_slice(h4, idx) is None
+
+
+def test_draft_vocab_dispatch(monkeypatch):
+    """VT dispatches on the drafter head's original precision (no bf16 upscale):
+    a bf16 head stays bf16, but the single precision exception (bf16 -> fp8)
+    engages only when the fp8 env is set. The kept logits match the source
+    head's kept rows (bit-exact for bf16, a tiny re-round for fp8). CPU (the fp8
+    path uses the dequant-slab GEMM at M > 64)."""
+    from mjolnir.lmhead import ENV_LM_HEAD, install_draft_vocab
+
+    torch.manual_seed(0)
+    vocab, hidden = 256, 64
+    ids = sorted(set(range(0, vocab, 3)))
+    W = torch.randn(vocab, hidden)
+    idx = torch.tensor(ids)
+    drop = torch.tensor(sorted(set(range(vocab)) - set(ids)))
+    h = torch.randn(70, hidden)  # 70 rows: > SMALL_M so the fp8 path uses the dequant slab
+    kept_ref = h.float() @ W.index_select(0, idx).float().t()
+
+    class _LP:
+        org_vocab_size, scale, soft_cap = vocab, 1.0, None
+
+    class _Head:
+        def __init__(self):
+            self.weight = W
+            self.quant_method = None
+            self.device = W.device
+
+    class _Draft:
+        def __init__(self):
+            self.lm_head = _Head()
+            self.logits_processor = _LP()
+
+    def kept(out):
+        return out.index_select(1, idx)
+
+    # no fp8 env -> a bf16 head stays bf16 (bit-exact to the source head's kept rows)
+    d = _Draft()
+    assert install_draft_vocab(d, ids)
+    out = d.compute_logits(h)
+    assert torch.isinf(out.index_select(1, drop)).all(), "non-kept tokens must be -inf"
+    assert torch.allclose(kept(out), kept_ref, rtol=5e-2, atol=5e-2), "bf16 VT must equal the source head's kept rows"
+    # the single exception: bf16 -> fp8 when the fp8 env is set (a tiny re-round)
+    monkeypatch.setenv(ENV_LM_HEAD, "fp8")
+    d2 = _Draft()
+    assert install_draft_vocab(d2, ids)
+    out8 = d2.compute_logits(h)
+    assert torch.isinf(out8.index_select(1, drop)).all(), "non-kept tokens must be -inf"
+    # the fp8 re-round is ~2-6% per element (e4m3); compare mean error to the
+    # logits' own magnitude so the check is scale-robust (a broken re-round would
+    # blow this up), and confirm it actually differs from the bit-exact bf16 VT
+    diff8 = (kept(out8) - kept_ref).abs()
+    assert diff8.mean() < 0.1 * kept_ref.abs().mean(), "bf16->fp8 VT should be a close re-round of the source head"
+    assert not torch.equal(kept(out8), kept(out)), "the fp8 VT re-rounds (a bit-exact bf16 VT would not)"
+
+
 def test_cuda_graph_replay_with_new_plan():
     _graph_replay(pdl=False, kv_evict_first=False)
 
