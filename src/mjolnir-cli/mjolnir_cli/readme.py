@@ -649,6 +649,7 @@ class ReadmeContext:
     accuracy_runs: list = field(default_factory=list)  # run ids the table draws on
     accuracy_args: list = field(default_factory=list)  # (suite label, tool-eval-bench args)
     accuracy_baseline: str = ""
+    accuracy_excluded_note: str = ""
     # the image's patch inventory (docker/vllm-thor/PATCHES.md) — verbatim table + row counts
     patches_table: str = ""
     patches_total: int = 0
@@ -829,12 +830,7 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list
     b = accuracy.baseline(rows)
     if b:
         mine = [r for r in rows if r is not b and str(r.get("config", "")).startswith("NVFP4_MJOLNIR")]
-        deltas = [
-            abs(r["suites"][n]["score"] - b["suites"][n]["score"])
-            for r in mine
-            for n in ("tools", "hardmode")
-            if n in r["suites"] and n in b["suites"]
-        ]
+        deltas = [abs(d[0]) for r in mine for n in ("tools", "hardmode") if (d := accuracy.delta(r, b, n))]
         if deltas:
             f["acc"] = f"{max(deltas):.1f}"
     ctx.feat = f
@@ -848,6 +844,8 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     bases = accuracy.baselines(rows)
     names = accuracy.suites_in(rows)
     ctx.accuracy_baseline = accuracy.baseline_caption(bases)
+    if any((d := accuracy.delta(r, base, n)) and d[1] for r, base in zip(rows, bases) for n in names):
+        ctx.accuracy_excluded_note = accuracy.EXCLUDED_NOTE
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
     for r in rows:
@@ -859,13 +857,10 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
         v = (r["suites"].get(n) or {}).get("score")
         if v is None:
             return "—"
-        b = (base["suites"].get(n) or {}).get("score") if base else None
         out = f"{v:.1f}"
         if (r.get("suites", {}).get(n) or {}).get("n", 1) > 1:
             out += f" <sub>n={r['suites'][n]['n']}</sub>"
-        if r is not base and b is not None:
-            out += f" ({v - b:+.1f})"
-        return out
+        return out + accuracy.fmt_delta(accuracy.delta(r, base, n))
 
     head = ["config", "KV", *[f"{accuracy.suite_label(n)} %" for n in names], "completion"]
     body = []
@@ -891,11 +886,11 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     for r, base in zip(rows, bases):
         if base is None or r is base:
             continue
-        deltas = []
-        for n in names:
-            v, b = (r["suites"].get(n) or {}).get("score"), (base["suites"].get(n) or {}).get("score")
-            if v is not None and b is not None:
-                deltas.append(f"{accuracy.suite_label(n)} {v - b:+.1f}")
+        deltas = [
+            f"{accuracy.suite_label(n)} {d[0]:+.1f}{'‡' if d[1] else ''}"
+            for n in names
+            if (d := accuracy.delta(r, base, n))
+        ]
         if deltas:
             changed = []
             if r.get("scenarios") and base.get("scenarios"):

@@ -1343,7 +1343,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
             ax.plot(
                 [v], [y], ls="none", **{k: kw[k] for k in ("color", "marker", "mfc", "mec", "mew")}, ms=10, zorder=5
             )
-            txt = f"{v:.1f}" if r is base or b is None else f"{v:.1f} ({v - b:+.1f})"
+            txt = f"{v:.1f}{accuracy.fmt_delta(accuracy.delta(r, base, name))}"
             ax.annotate(
                 txt,
                 (v if b is None else max(v, b), y),
@@ -1364,7 +1364,12 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         "Model quality per serving config",
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
         + (accuracy.baseline_caption(bases, ", ") or "baseline")
-        + " · (±) = points vs it",
+        + " · (±) = points vs it"
+        + (
+            " · ‡ = a scenario was excluded on one side, scored as zero"
+            if any((d := accuracy.delta(r, b, s)) and d[1] for r, b in zip(rows, bases) for s in names)
+            else ""
+        ),
     )
     _accuracy_footer(fig, mode, rows)
     return fig

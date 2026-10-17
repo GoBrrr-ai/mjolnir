@@ -16,7 +16,7 @@ Speculative decoding (MTP) does not enter here: the draft only proposes tokens a
 - **Hard Mode** — the 28 adversarial, stateful and transactional scenarios (category P), scored the same way.
 - **GSM8K, MMLU, IFEval** — the same adapter's accuracy plugins, when the run forwards them (accuracy in %, IFEval at prompt level).
 
-Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors) are dropped from the score instead of counted as zero — the **completion** column; compare rows only at equal completion.
+Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors, or a feature its pre-run probe found missing) are dropped from that leg's score instead of counted as zero — the **completion** column. A delta between two legs that dropped different scenarios scores both on the larger max, the dropped points counting as zero, and is marked ‡.
 
 ## Result
 
@@ -30,7 +30,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 {{ how("accuracy") }}
 
-<sub>Score in %, (±) = points vs the bold row of the same model (**{{ ctx.accuracy_baseline }}**), never across models; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: {% for label, args in ctx.accuracy_args %}{{ label }}: `{{ args }}`{{ "; " if not loop.last else "" }}{% endfor %}. Rendered from {% for r in ctx.accuracy_runs %}[`benchmarks/raw/accuracy/{{ r }}/accuracy.json`]({{ root }}benchmarks/raw/accuracy/{{ r }}/accuracy.json){{ ", " if not loop.last else "" }}{% endfor %}.</sub>
+<sub>Score in %, (±) = points vs the bold row of the same model (**{{ ctx.accuracy_baseline }}**), never across models;{% if ctx.accuracy_excluded_note %} {{ ctx.accuracy_excluded_note }};{% endif %} n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: {% for label, args in ctx.accuracy_args %}{{ label }}: `{{ args }}`{{ "; " if not loop.last else "" }}{% endfor %}. Rendered from {% for r in ctx.accuracy_runs %}[`benchmarks/raw/accuracy/{{ r }}/accuracy.json`]({{ root }}benchmarks/raw/accuracy/{{ r }}/accuracy.json){{ ", " if not loop.last else "" }}{% endfor %}.</sub>
 {% if ctx.accuracy_categories %}
 ### By tool-call category
 

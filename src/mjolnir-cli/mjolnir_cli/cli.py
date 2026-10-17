@@ -1134,19 +1134,18 @@ def _print_accuracy(doc: dict) -> None:
     for n in suites:
         t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
     t.add_column("completion", justify="right")
+    flagged = False
     for r, base in zip(rows, accuracy.baselines(rows)):  # a run may hold several models: each vs its own
         cells = []
         for n in suites:
             v = (r.get("suites", {}).get(n) or {}).get("score")
-            b = ((base or {}).get("suites", {}).get(n) or {}).get("score")
-            if v is None:
-                cells.append("—")
-            elif r is base or b is None:
-                cells.append(f"{v:.1f}")
-            else:
-                cells.append(f"{v:.1f} ({v - b:+.1f})")
+            d = accuracy.delta(r, base, n)
+            flagged |= bool(d and d[1])
+            cells.append("—" if v is None else f"{v:.1f}{accuracy.fmt_delta(d)}")
         comp = [x.get("completion_rate") for x in r.get("suites", {}).values() if x.get("completion_rate") is not None]
         t.add_row(r.get("label", r.get("id", "")), *cells, f"{min(comp):.0f}%" if comp else "—")
+    if flagged:
+        t.caption = accuracy.EXCLUDED_NOTE
     Console().print(t)
 
 

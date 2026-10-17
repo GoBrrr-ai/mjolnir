@@ -339,6 +339,38 @@ def baselines(rows: list[dict]) -> list[dict | None]:
     return [per_model[model_of(r)] for r in rows]
 
 
+def delta(r: dict, base: dict | None, name: str) -> tuple[float, bool] | None:
+    """Points ``r`` scored over ``base`` on suite ``name``, and whether the two
+    were scored on different maxes (None when ``r`` is the baseline or either
+    lacks the suite). tool-eval-bench drops a scenario its pre-run probe judged
+    the endpoint unable to serve (TC-45 when ``tool_choice=required`` looks
+    unenforced), which shrinks that leg's max, so its % divides by less. Both
+    legs are scored on the larger max instead, the excluded points counting as
+    zero: an exclusion never raises a delta."""
+    if base is None or r is base:
+        return None
+    v, b = r.get("suites", {}).get(name) or {}, base.get("suites", {}).get(name) or {}
+    if v.get("score") is None or b.get("score") is None:
+        return None
+    mv, mb = v.get("max"), b.get("max")
+    if mv and mb and mv != mb:
+        m = max(mv, mb)
+
+        def on_m(s: dict) -> float:  # exact from points for one run; an average of runs has only its %
+            return s["earned"] / m * 100 if s.get("n", 1) == 1 and "earned" in s else s["score"] * s["max"] / m
+
+        return on_m(v) - on_m(b), True
+    return v["score"] - b["score"], False
+
+
+def fmt_delta(d: tuple[float, bool] | None) -> str:
+    """' (+1.2)', ' (-1.4‡)' when scored on different maxes, '' for no delta."""
+    return f" ({d[0]:+.1f}{'‡' if d[1] else ''})" if d else ""
+
+
+EXCLUDED_NOTE = "‡ = the two legs were scored on different maxes (tool-eval-bench excluded a scenario on one endpoint); the delta counts the excluded points as zero"
+
+
 def baseline_caption(bases: list[dict | None], item_sep: str = " · ") -> str:
     """The distinct baseline labels, first-seen order, ' / '-joined ('' if none);
     ``item_sep`` replaces the label's own ' · ' separator."""

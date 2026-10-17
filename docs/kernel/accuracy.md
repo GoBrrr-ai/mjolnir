@@ -1,6 +1,6 @@
 # Accuracy
 
-> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-081301`, `20261017-112642`
+> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-131320`
 
 ## The question
 
@@ -16,7 +16,7 @@ Speculative decoding (MTP) does not enter here: the draft only proposes tokens a
 - **Hard Mode** — the 28 adversarial, stateful and transactional scenarios (category P), scored the same way.
 - **GSM8K, MMLU, IFEval** — the same adapter's accuracy plugins, when the run forwards them (accuracy in %, IFEval at prompt level).
 
-Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors) are dropped from the score instead of counted as zero — the **completion** column; compare rows only at equal completion.
+Sampling is greedy (temperature 0) with a fixed seed, so two configs see the same prompts and differ only through the numerics. Scenarios the endpoint failed (timeouts, errors, or a feature its pre-run probe found missing) are dropped from that leg's score instead of counted as zero — the **completion** column. A delta between two legs that dropped different scenarios scores both on the larger max, the dropped points counting as zero, and is marked ‡.
 
 ## Result
 
@@ -28,7 +28,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 - **Qwen3.8-27B · Mjolnir · fp8 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
 - **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
 - **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls +0.0, Hard Mode +0.0 points (1 scenarios scored lower, 1 higher of 97).
-- **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls +0.0, Hard Mode +3.6 points (1 scenarios scored lower, 3 higher of 97).
+- **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls -1.4‡, Hard Mode +3.6 points (4 scenarios scored lower, 3 higher of 97).
 
 | config | KV | Tool calls % | Hard Mode % | completion |
 |---|---|--:|--:|--:|
@@ -36,8 +36,8 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 | Qwen3.8-27B · Mjolnir · fp8 KV | fp8 | 95.7 (-1.4) | 78.6 (-3.6) | 100% |
 | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 98.5 (+1.5) | 83.9 (+1.8) | 100% |
 | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 97.1 (+0.0) | 82.1 (+0.0) | 100% |
-| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV** | fp8 | 91.3 | 76.8 | 100% |
-| Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 91.3 (+0.0) | 80.4 (+3.6) | 100% |
+| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV** | fp8 | 90.6 | 76.8 | 100% |
+| Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | fp6 e2m3 | 90.4 (-1.4‡) | 80.4 (+3.6) | 99% |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -48,7 +48,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 </details><br />
 
-<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-081301/accuracy.json`](../../benchmarks/raw/accuracy/20261017-081301/accuracy.json), [`benchmarks/raw/accuracy/20261017-112642/accuracy.json`](../../benchmarks/raw/accuracy/20261017-112642/accuracy.json).</sub>
+<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; ‡ = the two legs were scored on different maxes (tool-eval-bench excluded a scenario on one endpoint); the delta counts the excluded points as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../benchmarks/raw/accuracy/20261017-131320/accuracy.json).</sub>
 
 ### By tool-call category
 
@@ -67,11 +67,11 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 | F · Localization | 100 | 100 | 100 | 100 | 100 | 100 |
 | G · Structured Reasoning | 100 | 100 | 100 | 100 | 100 | 100 |
 | H · Instruction Following | 100 | 100 | 100 | 100 | 100 | 100 |
-| I · Context & State | 90 | 95 | 100 | 90 | 85 | 75 |
-| J · Code Patterns | 100 | 100 | 100 | 100 | 83 | 100 |
-| K · Safety & Boundaries | 100 | 88 | 100 | 100 | 92 | 92 |
+| I · Context & State | 90 | 95 | 100 | 90 | 85 | 80 |
+| J · Code Patterns | 100 | 100 | 100 | 100 | 100 | 83 |
+| K · Safety & Boundaries | 100 | 88 | 100 | 100 | 85 | 92 |
 | L · Toolset Scale | 100 | 100 | 100 | 100 | 88 | 88 |
-| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 100 |
+| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 83 |
 | N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 |
 | O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 |
 | P · Hard Mode | 82 | 79 | 84 | 82 | 77 | 80 |

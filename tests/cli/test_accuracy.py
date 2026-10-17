@@ -253,6 +253,54 @@ def test_two_model_page_compares_within_each_model(repo):
     assert "never across models" in page
 
 
+def _excluded_pair() -> tuple[dict, dict]:
+    """The same-run Qwen3.6 pair: official 125/138, Mjolnir 123/136 (TC-45 excluded)."""
+    off = _leg(OFFICIAL, "NVFP4_DFLASH", 90.58, 76.79, {})
+    mj = _leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.44, 80.36, {})
+    off["suites"]["tools"].update(earned=125, max=138)
+    mj["suites"]["tools"].update(earned=123, max=136, completion_rate=99.0)
+    off["suites"]["hardmode"].update(earned=43, max=56)
+    mj["suites"]["hardmode"].update(earned=45, max=56)
+    return off, mj
+
+
+def test_an_excluded_scenario_never_raises_the_delta():
+    """A leg whose endpoint had a scenario excluded scores on a smaller max; the
+    delta counts the excluded points as zero (123/138 vs 125/138), and says so."""
+    off, mj = _excluded_pair()
+    d, flagged = accuracy.delta(mj, off, "tools")
+    assert flagged and round(d, 2) == round((123 - 125) / 138 * 100, 2)  # -1.45, not -0.14
+    assert accuracy.delta(mj, off, "hardmode") == pytest.approx((80.36 - 76.79, False))
+    assert accuracy.delta(off, off, "tools") is None
+    assert accuracy.fmt_delta((d, flagged)) == " (-1.4‡)"
+    # the other way round: an excluded scenario on the baseline does not flatter it either
+    d2, flagged2 = accuracy.delta(off, mj, "tools")
+    assert flagged2 and round(d2, 2) == round((125 - 123) / 138 * 100, 2)
+
+
+def test_print_accuracy_marks_an_excluded_scenario(capsys):
+    from mjolnir_cli import cli
+
+    off, mj = _excluded_pair()
+    cli._print_accuracy({"run_id": "r", "args": ["run"], "legs": [off, mj]})
+    out = capsys.readouterr().out
+    assert "(-1.4‡)" in out and "(-0.1)" not in out
+    assert "counts the excluded points as zero" in out
+
+
+def test_page_marks_an_excluded_scenario(repo):
+    layout = load_layout()
+    off, mj = _excluded_pair()
+    p = layout.raw_dir / "accuracy" / "20261017-131320" / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"format": accuracy.FORMAT, "run_id": "20261017-131320", "args": [], "legs": [off, mj]}))
+    readme.render_readme(layout)
+    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    assert "90.4 (-1.4‡)" in page and "80.4 (+3.6)" in page
+    assert "Tool calls -1.4‡" in page
+    assert "counts the excluded points as zero" in page
+
+
 def test_accuracy_page_pending_without_runs(repo):
     layout = load_layout()
     readme.render_readme(layout)
