@@ -823,12 +823,13 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout) -> None:
         if base and fp6:
             f["kv"] = f"+{(fp6['kv_tokens'] / base['kv_tokens'] - 1) * 100:.0f}%"
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
-    b = accuracy.baseline(rows)
-    if b:
-        mine = [r for r in rows if r is not b and str(r.get("config", "")).startswith("NVFP4_MJOLNIR")]
+    if rows:
         deltas = [
             abs(r["suites"][n]["score"] - b["suites"][n]["score"])
-            for r in mine
+            for r in rows
+            if str(r.get("config", "")).startswith("NVFP4_MJOLNIR")
+            and (b := accuracy.baseline_for(rows, r)) is not None
+            and b is not r
             for n in ("tools", "hardmode")
             if n in r["suites"] and n in b["suites"]
         ]
@@ -843,9 +844,9 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
     if not rows:
         return
-    base = accuracy.baseline(rows)
+    bases = {id(r): accuracy.baseline_for(rows, r) for r in rows}
     names = accuracy.suites_in(rows)
-    ctx.accuracy_baseline = base["label"] if base else ""
+    ctx.accuracy_baseline = ", ".join(dict.fromkeys(b["label"] for r in rows if (b := bases[id(r)]) is not None))
     ctx.accuracy_runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
     args = {}
     for r in rows:
@@ -857,7 +858,8 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
         v = (r["suites"].get(n) or {}).get("score")
         if v is None:
             return "—"
-        b = ((base or {})["suites"].get(n) or {}).get("score") if base else None
+        base = bases[id(r)]
+        b = (base["suites"].get(n) or {}).get("score") if base else None
         out = f"{v:.1f}"
         if (r.get("suites", {}).get(n) or {}).get("n", 1) > 1:
             out += f" <sub>n={r['suites'][n]['n']}</sub>"
@@ -869,7 +871,7 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
     body = []
     for r in rows:
         comp = [x.get("completion_rate") for x in r["suites"].values() if x.get("completion_rate") is not None]
-        label = f"**{r['label']}**" if r is base else r["label"]
+        label = f"**{r['label']}**" if r is bases[id(r)] else r["label"]
         kv = str(r.get("kv_cache_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3").replace("auto", "bf16")
         body.append([label, kv, *[cell(r, n) for n in names], f"{min(comp):.0f}%" if comp else "—"])
     ctx.accuracy_table = _table(head, body, ["---", "---"] + ["--:"] * (len(head) - 2))
@@ -886,27 +888,27 @@ def _accuracy_context(ctx: ReadmeContext, layout: RepoLayout) -> None:
             )
         ctx.accuracy_categories = _table(chead, cbody)
 
-    if base:
-        for r in rows:
-            if r is base:
-                continue
-            deltas = []
-            for n in names:
-                v, b = (r["suites"].get(n) or {}).get("score"), (base["suites"].get(n) or {}).get("score")
-                if v is not None and b is not None:
-                    deltas.append(f"{accuracy.suite_label(n)} {v - b:+.1f}")
-            if deltas:
-                changed = []
-                if r.get("scenarios") and base.get("scenarios"):
-                    common = r["scenarios"].keys() & base["scenarios"].keys()
-                    worse = sum(1 for k in common if r["scenarios"][k] < base["scenarios"][k])
-                    better = sum(1 for k in common if r["scenarios"][k] > base["scenarios"][k])
-                    changed = [f"{worse} scenarios scored lower, {better} higher of {len(common)}"]
-                ctx.accuracy_findings.append(
-                    f"**{r['label']}** vs {base['label']}: {', '.join(deltas)} points"
-                    + (f" ({changed[0]})" if changed else "")
-                    + "."
-                )
+    for r in rows:
+        base = bases[id(r)]
+        if base is None or r is base:
+            continue
+        deltas = []
+        for n in names:
+            v, b = (r["suites"].get(n) or {}).get("score"), (base["suites"].get(n) or {}).get("score")
+            if v is not None and b is not None:
+                deltas.append(f"{accuracy.suite_label(n)} {v - b:+.1f}")
+        if deltas:
+            changed = []
+            if r.get("scenarios") and base.get("scenarios"):
+                common = r["scenarios"].keys() & base["scenarios"].keys()
+                worse = sum(1 for k in common if r["scenarios"][k] < base["scenarios"][k])
+                better = sum(1 for k in common if r["scenarios"][k] > base["scenarios"][k])
+                changed = [f"{worse} scenarios scored lower, {better} higher of {len(common)}"]
+            ctx.accuracy_findings.append(
+                f"**{r['label']}** vs {base['label']}: {', '.join(deltas)} points"
+                + (f" ({changed[0]})" if changed else "")
+                + "."
+            )
 
 
 # ── "how is this calculated" panels (one under every table / figure with % or ×) ──

@@ -128,6 +128,30 @@ def test_latest_legs_merge_suites_across_runs(tmp_path):
     assert rows[0]["label"].startswith("official vLLM")
 
 
+def test_baseline_is_per_model(tmp_path):
+    """A second model's run never borrows the first model's baseline: each row is
+    compared with its own model's official-image row, and labels name the model."""
+    _write_runs(tmp_path)
+    other = {
+        "format": accuracy.FORMAT,
+        "run_id": "20261017-100000",
+        "args": list(accuracy.DEFAULT_ARGS),
+        "legs": [
+            {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.3, 76.8, {"A": 100}), "model": "nvidia/Qwen3.6-35B-A3B"},
+            {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.4, 80.4, {"A": 100}), "model": "nvidia/Qwen3.6-35B-A3B"},
+        ],
+    }
+    p = tmp_path / "accuracy" / other["run_id"] / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps(other))
+    rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
+    by = {(r["model"], r["config"]): r for r in rows}
+    q36_mj = by[("nvidia/Qwen3.6-35B-A3B", "NVFP4_MJOLNIR_E2M3")]
+    assert accuracy.baseline_for(rows, q36_mj)["config"] == "NVFP4_DFLASH"  # no NVFP4 row: first official one
+    assert accuracy.baseline_for(rows, by[("Qwen/Qwen3.8-27B", "NVFP4_MJOLNIR_E2M3")])["config"] == "NVFP4"
+    assert q36_mj["label"].startswith("Qwen3.6-35B-A3B · Mjolnir")
+
+
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"

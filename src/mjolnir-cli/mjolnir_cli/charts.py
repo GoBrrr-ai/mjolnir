@@ -1276,7 +1276,7 @@ def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], dict | None, list[st
     from mjolnir_cli import accuracy
 
     rows = accuracy.latest_legs(accuracy.load_runs(layout))
-    return rows, accuracy.baseline(rows), accuracy.suites_in(rows)
+    return rows, [accuracy.baseline_for(rows, r) for r in rows], accuracy.suites_in(rows)
 
 
 def _accuracy_footer(fig, mode: Mode, rows: list[dict]) -> None:
@@ -1296,7 +1296,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
     dashed line, the difference printed next to the dot."""
     from mjolnir_cli import accuracy
 
-    rows, base, names = _accuracy_rows(layout)
+    rows, bases, names = _accuracy_rows(layout)
     if not rows:
         return None
     plt = _plt()
@@ -1306,18 +1306,23 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
     theme.apply(fig, axes, mode)
     ys = list(range(len(rows)))[::-1]
     for ax, name in zip(axes, names):
-        vals = [(y, r, (r["suites"].get(name) or {}).get("score")) for y, r in zip(ys, rows)]
-        got = [v for _, _, v in vals if v is not None]
+        # each row's baseline score: its own model's baseline row
+        bs = [(base["suites"].get(name) or {}).get("score") if base else None for base in bases]
+        vals = [(y, r, (r["suites"].get(name) or {}).get("score"), b) for y, r, b in zip(ys, rows, bs)]
+        got = [v for _, _, v, _ in vals if v is not None]
         if not got:
             ax.set_visible(False)
             continue
-        b = (base["suites"].get(name) or {}).get("score") if base else None
-        lo, hi = min(got + ([b] if b is not None else [])), max(got + ([b] if b is not None else []))
+        refs = [b for b in bs if b is not None]
+        lo, hi = min(got + refs), max(got + refs)
         pad = max(4.0, (hi - lo) * 0.35)
         ax.set_xlim(max(0, lo - pad), min(100, hi + pad) + pad * 0.6)
-        if b is not None:
-            ax.axvline(b, color=mode.text_dim, lw=1.2, ls=(0, (4, 3)), zorder=2)
-        for y, r, v in vals:
+        for base in {id(b): b for b in bases if b is not None}.values():  # one dashed mark per model
+            b = (base["suites"].get(name) or {}).get("score")
+            span = [y for y, r, base_r in zip(ys, rows, bases) if base_r is base]
+            if b is not None and span:
+                ax.vlines(b, min(span) - 0.4, max(span) + 0.4, color=mode.text_dim, lw=1.2, ls=(0, (4, 3)), zorder=2)
+        for (y, r, v, b), base in zip(vals, bases):
             if v is None:
                 continue
             sid = _accuracy_series(r)
@@ -1347,7 +1352,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         mode,
         "Model quality per serving config",
         "tool-eval-bench over each config's OpenAI endpoint · dashed = "
-        + (base["label"].replace(" · ", ", ") if base else "baseline")
+        + (" / ".join(dict.fromkeys(b["label"].replace(" · ", ", ") for b in bases if b is not None)) or "baseline")
         + " · (±) = points vs it",
     )
     _accuracy_footer(fig, mode, rows)
@@ -1364,8 +1369,9 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     """Tool-call categories × configs: the share of points per cell, colored
     by how far the config falls behind the baseline — green on par (or
     better), then orange, then red the more points it loses."""
-    rows, base, _ = _accuracy_rows(layout)
-    rows = [r for r in rows if r.get("categories")]
+    rows, bases, _ = _accuracy_rows(layout)
+    keep = [i for i, r in enumerate(rows) if r.get("categories")]
+    rows, bases = [rows[i] for i in keep], [bases[i] for i in keep]
     if not rows:
         return None
     import numpy as np
@@ -1373,12 +1379,16 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
 
     cats = sorted({c for r in rows for c in r["categories"]})
     pct = np.array([[r["categories"].get(c, {}).get("percent", np.nan) for c in cats] for r in rows], dtype=float)
-    ref = (
-        np.array([base["categories"].get(c, {}).get("percent", np.nan) for c in cats], dtype=float)
-        if base and base.get("categories")
-        else np.full(len(cats), np.nan)
+    ref = np.array(  # per row: its own model's baseline
+        [
+            [b["categories"].get(c, {}).get("percent", np.nan) for c in cats]
+            if b and b.get("categories")
+            else [np.nan] * len(cats)
+            for b in bases
+        ],
+        dtype=float,
     )
-    delta = pct - ref[None, :]
+    delta = pct - ref
     loss = np.where(np.isfinite(delta), np.clip(-delta, 0, None), 0.0)  # points behind the baseline; ahead = 0
     span = max(ACC_RED_POINTS, float(loss.max()) if loss.size else ACC_RED_POINTS)
     plt = _plt()
@@ -1410,7 +1420,10 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
         mode,
         "Tool calls by category",
         "cell = share of points, % · green = on par with "
-        + (base["label"].replace(" · ", ", ") if base else "the first row")
+        + (
+            " / ".join(dict.fromkeys(b["label"].replace(" · ", ", ") for b in bases if b is not None))
+            or "the first row"
+        )
         + f" (at most {ACC_PAR_POINTS:g} points behind, or ahead) · orange → red = further behind",
     )
     _accuracy_footer(fig, mode, rows)

@@ -312,16 +312,29 @@ def latest_legs(docs: list[dict]) -> list[dict]:
             if (leg.get("suites") or {}).keys() & {"tools", "hardmode"}:
                 row["categories"] = leg.get("categories") or row["categories"]
                 row["scenarios"] = leg.get("scenarios") or row["scenarios"]
-    return [r for r in rows.values() if r["suites"]]
+    out = [r for r in rows.values() if r["suites"]]
+    if len({r.get("model") for r in out}) > 1:  # rows of several models: say which
+        for r in out:
+            r["label"] = f"{str(r.get('model', '')).split('/')[-1]} · {r['label']}"
+    return out
 
 
-def baseline(rows: list[dict]) -> dict | None:
-    """The reference row for deltas: native FlashInfer on the official image
-    when measured, else the first row."""
-    for r in rows:
-        if not _is_mjolnir(str(r.get("image", ""))) and r.get("config") == "NVFP4":
+def baseline(rows: list[dict], model: str | None = None) -> dict | None:
+    """The reference row for deltas, among ``model``'s rows (all rows when
+    None): native FlashInfer on the official image when measured, else the
+    first official-image row, else the first row. Rows of another model are
+    never a baseline — their scores are not comparable."""
+    rows = [r for r in rows if model is None or r.get("model") == model]
+    official = [r for r in rows if not _is_mjolnir(str(r.get("image", "")))]
+    for r in official:
+        if r.get("config") == "NVFP4":
             return r
-    return rows[0] if rows else None
+    return (official or rows or [None])[0]
+
+
+def baseline_for(rows: list[dict], row: dict) -> dict | None:
+    """The baseline ``row`` is compared with: its own model's."""
+    return baseline(rows, row.get("model"))
 
 
 def suites_in(rows: list[dict]) -> list[str]:
