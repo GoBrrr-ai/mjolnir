@@ -55,12 +55,16 @@ def _listed_commands(help_text: str) -> list[str]:
     return names
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _invoke_help(*args: str) -> str:
+    """Help text as plain text: rich colors it when it detects CI (GITHUB_ACTIONS)."""
     from mjolnir_cli.cli import app
 
     result = runner.invoke(app, [*args, "--help"])
     assert result.exit_code == 0, result.output
-    return result.output
+    return _ANSI.sub("", result.output)
 
 
 def test_cli_helpers_import_from_the_modules_that_own_them():
