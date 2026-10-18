@@ -27,7 +27,8 @@ def test_ledger_roundtrip_and_best(tmp_path):
         ar.append_ledger(tmp_path, {**r, "hypothesis": "h\twith tab", "agent": "x"})
     back = ar.load_ledger(tmp_path)
     assert [r["id"] for r in back] == [1, 2, 3]
-    assert ar.best_kept(back)["commit"] == "c"  # a discarded higher score never becomes "best"
+    best = ar.best_kept(back)
+    assert best and best["commit"] == "c"  # a discarded higher score never becomes "best"
     tsv = (tmp_path / "research" / "ledger.tsv").read_text().splitlines()
     assert tsv[0].split("\t") == ar.TSV_COLUMNS and len(tsv) == 4
     assert "\t".join(["h with tab"]) in tsv[1]
@@ -90,7 +91,7 @@ def _row(mult: dict, fi: dict | None = None) -> dict:
 
 
 def test_judge_keeps_a_broad_win_and_tolerates_one_slow_L():
-    st, why, rel = ar.judge(_row({L: 1.06 for L in LS} | {"16384": 0.95}), BASE)
+    st, why, rel = ar.judge(_row(dict.fromkeys(LS, 1.06) | {"16384": 0.95}), BASE)
     assert st == "keep", why
     assert rel["16384"] == 0.95
 
@@ -101,7 +102,7 @@ def test_judge_rejects_a_win_that_rests_on_one_L():
 
 
 def test_judge_rejects_short_L_regressions():
-    st, why, _ = ar.judge(_row({"4096": 0.6, "8192": 0.7} | {L: 1.4 for L in LS[4:]}), BASE)
+    st, why, _ = ar.judge(_row({"4096": 0.6, "8192": 0.7} | dict.fromkeys(LS[4:], 1.4)), BASE)
     assert st == "discard" and "slower at 4K" in why and "8K" in why
 
 
@@ -109,7 +110,7 @@ def test_judge_sets_aside_a_reference_outlier():
     # FlashInfer at 256K ran 1.7x slower in this run: Mjolnir "gains" 70% there
     st, why, _ = ar.judge(_row({"262144": 1.7}, fi={"262144": 1.7}), BASE)
     assert st == "discard" and "reference jumped: 256K" in why
-    st, why, _ = ar.judge(_row({}, fi={L: 1.3 for L in LS[:4]}), BASE)
+    st, why, _ = ar.judge(_row({}, fi=dict.fromkeys(LS[:4], 1.3)), BASE)
     assert st == "noisy"
 
 
@@ -125,7 +126,7 @@ def test_progress_chart_renders(tmp_path):
         {"id": 2, "status": "crash", "score": None, "hypothesis": "x"},
         {"id": 3, **_row({"262144": 1.7}, fi={"262144": 1.7}), "status": "discard", "score": 1.07,
          "reason": "geomean +0.0% ≤ +2% (set aside, reference jumped: 256K)", "hypothesis": "y"},
-        {"id": 4, **_row({L: 1.06 for L in LS}), "status": "keep", "score": 1.06, "hypothesis": "z"},
+        {"id": 4, **_row(dict.fromkeys(LS, 1.06)), "status": "keep", "score": 1.06, "hypothesis": "z"},
     ]  # fmt: skip
     p = ar._render_progress(tmp_path, rows, tmp_path / "progress.png")
     assert p and (tmp_path / "progress.png").exists() and (tmp_path / "progress-dark.png").exists()

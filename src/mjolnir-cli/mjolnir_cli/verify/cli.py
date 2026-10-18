@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import shutil
 import sys
-from typing import Optional
 
 import typer
 
@@ -41,7 +40,7 @@ app = typer.Typer(
 _LS_HELP = "L values (default: 128 4096 8192 16384 32768 65536 131072 262144)"
 
 
-def _parse_ls(ls: Optional[str]) -> tuple[int, ...]:
+def _parse_ls(ls: str | None) -> tuple[int, ...]:
     if not ls:
         return stages.ALL_LS
     return tuple(int(x) for x in ls.replace(",", " ").split())
@@ -76,8 +75,8 @@ def execute(
     params: dict,
     defaults: dict,
     *,
-    image: Optional[str],
-    ls: Optional[str],
+    image: str | None,
+    ls: str | None,
     iters: int,
     gate: bool,
     dry_run: bool,
@@ -128,6 +127,7 @@ def execute(
     kwargs = dict(params)
     if stage == "vllm":
         kwargs["repo"] = layout.require_repo("verify vllm")
+    assert st.fn is not None, f"stage {stage} has no body"
     try:
         body = st.fn(ctx, **kwargs)
     finally:
@@ -219,7 +219,7 @@ def correctness(
     match: str = typer.Option("", "--match", help="only cases whose label contains this"),
     quick: bool = typer.Option(False, "--quick", help="the quick subset (one case per group; what autoresearch runs)"),
     fail_fast: bool = typer.Option(False, "--fail-fast"),
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     dry_run: bool = DRY,
     timeout: float = TIMEOUT,
     save: bool = SAVE,
@@ -233,8 +233,8 @@ def correctness(
 @app.command()
 def sweep(
     legs: str = typer.Option(KERNEL["verify.sweep"], "--legs", help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     iters: int = ITERS,
     gate: bool = GATE,
     dry_run: bool = DRY,
@@ -268,8 +268,8 @@ def sweep(
 @app.command()
 def hndsweep(
     legs: str = typer.Option(KERNEL["verify.hndsweep"], "--legs"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     iters: int = ITERS,
     gate: bool = GATE,
     dry_run: bool = DRY,
@@ -300,8 +300,8 @@ def kvfmt(
     variants: str = typer.Option(stages.KVFMT_DEFAULT, "--variants", help="name:flags|name:flags"),
     refs: str = typer.Option(KERNEL["verify.kvfmt.refs"], "--refs", help="baseline legs"),
     wall_iters: int = typer.Option(200, "--wall-iters", help="harness wall-clock iterations (0 = skip)"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     iters: int = ITERS,
     gate: bool = GATE,
     dry_run: bool = DRY,
@@ -329,8 +329,8 @@ def kvfmt(
 def quant(
     formats: str = typer.Option(stages.QUANT_FORMATS, "--formats"),
     batches: int = typer.Option(2, "--batches"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     dry_run: bool = DRY,
     timeout: float = TIMEOUT,
     save: bool = SAVE,
@@ -357,8 +357,8 @@ def ring(
     depths: str = typer.Option(stages.RING_DEFAULT, "--stages", help="--kv_stages values"),
     base: str = typer.Option("", "--base", help="harness flags every variant gets"),
     refs: str = typer.Option("fi", "--refs"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     iters: int = ITERS,
     gate: bool = GATE,
     dry_run: bool = DRY,
@@ -387,8 +387,8 @@ def prefetch(
     distances: str = typer.Option("0 1 2 4", "--distances", help="--l2_prefetch tiles ahead"),
     base: str = typer.Option("--kv_format fp8", "--base"),
     refs: str = typer.Option("fi", "--refs"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     iters: int = ITERS,
     gate: bool = GATE,
     dry_run: bool = DRY,
@@ -417,8 +417,8 @@ def pdl(
     batches: str = typer.Option("1 8", "--batches"),
     dtypes: str = typer.Option("fp8", "--dtypes"),
     wall_iters: int = typer.Option(200, "--wall-iters"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     gate: bool = GATE,
     dry_run: bool = DRY,
     timeout: float = TIMEOUT,
@@ -446,8 +446,8 @@ def ab(
     variants: str = typer.Option(stages.AB_DEFAULT, "--variants", help="name:flags|name:flags"),
     refs: str = typer.Option("fi", "--refs"),
     wall_iters: int = typer.Option(200, "--wall-iters"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     iters: int = ITERS,
     gate: bool = GATE,
     dry_run: bool = DRY,
@@ -476,8 +476,8 @@ def fp6prof(
     variants: str = typer.Option(stages.PROF_DEFAULT, "--variants"),
     count: int = typer.Option(3, "--count", help="profiled launches per point"),
     section_set: str = typer.Option("full", "--set"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     gate: bool = GATE,
     dry_run: bool = DRY,
     timeout: float = TIMEOUT,
@@ -505,8 +505,8 @@ def timing(
     dtypes: str = typer.Option("fp8 bf16", "--dtypes"),
     ctas: str = typer.Option("1 2", "--ctas"),
     wall_iters: int = typer.Option(50, "--wall-iters"),
-    image: Optional[str] = IMAGE,
-    ls: Optional[str] = LS,
+    image: str | None = IMAGE,
+    ls: str | None = LS,
     gate: bool = GATE,
     dry_run: bool = DRY,
     timeout: float = TIMEOUT,
@@ -540,9 +540,9 @@ def profile(
     concurrency: int = typer.Option(1, "--concurrency"),
     requests: int = typer.Option(2, "--requests", help="request rounds inside the profiled window"),
     max_tokens: int = typer.Option(128, "--max-tokens"),
-    model: Optional[str] = typer.Option(None, "--model"),
+    model: str | None = typer.Option(None, "--model"),
     restart: bool = typer.Option(False, "--restart", help="stop a running vLLM server first"),
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     dry_run: bool = DRY,
     timeout: float = typer.Option(1800.0, "--timeout"),
     save: bool = SAVE,
@@ -585,11 +585,11 @@ def spec(
     concurrency: str = typer.Option("1 4", "--concurrency", help="requests in flight per block"),
     max_tokens: int = typer.Option(256, "--max-tokens", help="generated tokens per request"),
     long_words: int = typer.Option(6000, "--long-words", help="the long-context prompt's size (0 = none)"),
-    model: Optional[str] = typer.Option(None, "--model", help="model (default: the active one)"),
+    model: str | None = typer.Option(None, "--model", help="model (default: the active one)"),
     restart: bool = typer.Option(
         False, "--restart", help="stop a running vLLM server (default: refuse — the GPU must be yours)"
     ),
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     dry_run: bool = DRY,
     timeout: float = typer.Option(1800.0, "--timeout", help="per-point server start timeout (s)"),
     save: bool = SAVE,
@@ -637,11 +637,11 @@ def kv_cache_size(
         "--legs",
         help="side:config, comma-separated; official = the stock vLLM image, mjolnir = --image",
     ),
-    model: Optional[str] = typer.Option(None, "--model", help="model (default: the active one)"),
+    model: str | None = typer.Option(None, "--model", help="model (default: the active one)"),
     restart: bool = typer.Option(
         False, "--restart", help="stop a running vLLM server (default: refuse — the GPU must be yours)"
     ),
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     dry_run: bool = DRY,
     timeout: float = typer.Option(1800.0, "--timeout", help="per-leg wait for the KV sizing (s)"),
     save: bool = SAVE,
@@ -677,7 +677,7 @@ def vllm(
     ),
     model: str = typer.Option("Qwen/Qwen3-0.6B", "--model"),
     tokens: int = typer.Option(128, "--tokens"),
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     dry_run: bool = DRY,
     timeout: float = typer.Option(1800.0, "--timeout"),
     save: bool = SAVE,
@@ -753,11 +753,11 @@ _DEFAULTS: dict[str, dict] = {
 
 @app.command()
 def bench(
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     gate: bool = GATE,
     dry_run: bool = DRY,
     plot: bool = typer.Option(True, "--plot/--no-plot"),
-    start: Optional[str] = typer.Option(None, "--from", help="resume the sequence at this stage"),
+    start: str | None = typer.Option(None, "--from", help="resume the sequence at this stage"),
 ):
     """Every benchmark stage with default parameters (one headline run each), then re-render the charts."""
     raise typer.Exit(_sequence(_from(stages.BENCH_ORDER, start), image, gate, dry_run, plot))
@@ -765,11 +765,11 @@ def bench(
 
 @app.command("all")
 def all_(
-    image: Optional[str] = IMAGE,
+    image: str | None = IMAGE,
     gate: bool = GATE,
     dry_run: bool = DRY,
     plot: bool = typer.Option(True, "--plot/--no-plot"),
-    start: Optional[str] = typer.Option(None, "--from", help="resume the sequence at this stage"),
+    start: str | None = typer.Option(None, "--from", help="resume the sequence at this stage"),
 ):
     """Correctness + every benchmark stage, then re-render the charts."""
     raise typer.Exit(_sequence(_from(stages.ALL_ORDER, start), image, gate, dry_run, plot))
@@ -777,7 +777,7 @@ def all_(
 
 @app.command("show")
 def show_cmd(
-    stage: Optional[str] = typer.Argument(None, help="stage (default: every stage with a saved run)"),
+    stage: str | None = typer.Argument(None, help="stage (default: every stage with a saved run)"),
     any_run: bool = typer.Option(False, "--any", help="latest run of any parameters, not just default runs"),
 ):
     """Re-print the latest saved run of a stage (or every stage)."""

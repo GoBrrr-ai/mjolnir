@@ -122,6 +122,6 @@ if __name__ == "__main__":  # `python -m mjolnir.banner [--plain]`: preview with
         color=sys.stdout.isatty() and not plain,
         model=os.environ.get("MJOLNIR_CONFIG", "").strip() or None,
     )
-    print("")
+    print()
     print(msg)
-    print("")
+    print()

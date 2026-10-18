@@ -71,7 +71,7 @@ def render_prometheus(s: Settings, vllm_target: str | None = None) -> Path:
     try:
         yaml.safe_load(rendered)
     except yaml.YAMLError as e:
-        raise PersesError(f"rendered prometheus config invalid: {e}".replace("\n", " "))
+        raise PersesError(f"rendered prometheus config invalid: {e}".replace("\n", " ")) from e
     out = SPEC.data_dir() / "prometheus.yml"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(rendered)
@@ -81,14 +81,14 @@ def render_prometheus(s: Settings, vllm_target: str | None = None) -> Path:
 # ── stack glue (the compose driver is mjolnir.stack) ───────────────────────
 
 
-def _port_of(env: dict[str]) -> int:
+def _port_of(env: dict[str, str]) -> int:
     try:
         return int(env.get("PERSER_PORT", DEFAULT_PORT))
     except ValueError:
         return DEFAULT_PORT
 
 
-def _prom_port_of(env: dict[str]) -> int:
+def _prom_port_of(env: dict[str, str]) -> int:
     try:
         return int(env.get("PROMETHEUS_PORT", PROMETHEUS_DEFAULT_PORT))
     except ValueError:
@@ -122,10 +122,10 @@ def up(
             print(f"(rendered prometheus config: {cfg_path})")
         return extra
 
-    def health(env: dict[str]) -> str:
+    def health(env: dict[str, str]) -> str:
         return f"http://127.0.0.1:{_port_of(env)}/api/v1/projects"
 
-    def banner(env: dict[str]) -> list[str]:
+    def banner(env: dict[str, str]) -> list[str]:
         p, pp = _port_of(env), _prom_port_of(env)
         return [
             f"perses:     http://127.0.0.1:{p}  (dashboards: Performance Statistics, Query Statistics)",
@@ -144,7 +144,7 @@ def up(
             banner=banner,
         )
     except stack.StackError as e:
-        raise PersesError(str(e))
+        raise PersesError(str(e)) from e
     return 0
 
 

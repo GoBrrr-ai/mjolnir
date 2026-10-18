@@ -229,7 +229,7 @@ def write_kv(
         return
     _, h_k, d = key.shape
     _, H, N, C = kv_cache.shape
-    assert H == h_k and C == 2 * row_bytes(d) and kv_cache.stride(3) == 1 and kv_cache.dtype == torch.uint8
+    assert h_k == H and 2 * row_bytes(d) == C and kv_cache.stride(3) == 1 and kv_cache.dtype == torch.uint8
     assert key.stride(2) == 1 and value.stride(2) == 1
     _write_kv_kernel[(T, h_k)](
         key,
@@ -271,7 +271,7 @@ def expand_pages_to_fp8(
     P = src_blocks.shape[0]
     _, H, N, C = kv_cache.shape
     d = head_size
-    assert C == 2 * row_bytes(d) and out.shape[1:] == (H, N, 2 * d) and out.stride(3) == 1
+    assert 2 * row_bytes(d) == C and out.shape[1:] == (H, N, 2 * d) and out.stride(3) == 1
     if P == 0:
         return out[:0]
     _expand_kernel[(P, H, N)](

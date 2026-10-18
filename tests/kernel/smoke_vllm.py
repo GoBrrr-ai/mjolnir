@@ -107,7 +107,9 @@ def compare_prompt(ref_tok, t5_tok, ref_lp, t5_lp, tie_nats: float) -> dict:
 
     ``*_lp`` are per-step {token id: logprob} dicts (keys int or str), or None
     when the run had no logprobs."""
-    n = next((k for k, (x, y) in enumerate(zip(ref_tok, t5_tok)) if x != y), min(len(ref_tok), len(t5_tok)))
+    n = next(
+        (k for k, (x, y) in enumerate(zip(ref_tok, t5_tok, strict=False)) if x != y), min(len(ref_tok), len(t5_tok))
+    )
     out: dict = {"prefix": n, "len": len(ref_tok), "deltas": [], "diverged": n < len(ref_tok)}
     if ref_lp is None or t5_lp is None:
         return out
@@ -125,10 +127,11 @@ def compare_prompt(ref_tok, t5_tok, ref_lp, t5_lp, tie_nats: float) -> dict:
         a, b = ref_tok[n], t5_tok[n]
         ra, rb = lp(ref_lp, n, a), lp(ref_lp, n, b)  # the reference's view of both tokens
         ta, tb = lp(t5_lp, n, a), lp(t5_lp, n, b)  # Mjolnir's view
-        gaps = [g for g in ((ra - rb) if None not in (ra, rb) else None, (tb - ta) if None not in (ta, tb) else None)]
+        gaps = [(ra - rb) if None not in (ra, rb) else None, (tb - ta) if None not in (ta, tb) else None]
+        real = [g for g in gaps if g is not None]
         out["step"] = n
-        out["gap"] = max((g for g in gaps if g is not None), default=None)
-        out["tie"] = None not in gaps and max(gaps) <= tie_nats
+        out["gap"] = max(real) if real else None
+        out["tie"] = len(real) == len(gaps) and max(real) <= tie_nats
     return out
 
 
@@ -264,9 +267,8 @@ def calibrate(args, out: str) -> str:
     print("\n=== calibrate (fp8 KV, e2m3 scales) ===", flush=True)
     env = dict(os.environ)
     _add_pkg_path()
-    env["PYTHONPATH"] = os.pathsep.join(
-        [p for p in sys.path if p and os.path.isdir(os.path.join(p, "mjolnir"))][:1] + [env.get("PYTHONPATH", "")]
-    )
+    pkg_path = [p for p in sys.path if p and os.path.isdir(os.path.join(p, "mjolnir"))]
+    env["PYTHONPATH"] = os.pathsep.join([*pkg_path[:1], env.get("PYTHONPATH", "")])
     if subprocess.run(cmd, check=False, env=env).returncode != 0:
         sys.exit("calibration failed")
     return out
@@ -351,7 +353,7 @@ def main():
 
     print("\n=== comparison (shared prefix, |Δ logprob| on it, first divergence) ===")
     results = []
-    for i, (a, b) in enumerate(zip(ref["tokens"], t5["tokens"])):
+    for i, (a, b) in enumerate(zip(ref["tokens"], t5["tokens"], strict=False)):
         rl, tl = (ref.get("logprobs") or [None] * len(PROMPTS))[i], (t5.get("logprobs") or [None] * len(PROMPTS))[i]
         r = compare_prompt(a, b, rl, tl, args.tie_nats)
         results.append(r)

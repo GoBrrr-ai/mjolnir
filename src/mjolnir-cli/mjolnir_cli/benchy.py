@@ -115,8 +115,8 @@ def _std(vals: list[float]) -> float:
     return (sum((v - m) ** 2 for v in vals) / (len(vals) - 1)) ** 0.5
 
 
-def _p95(vals: list[float]) -> float:
-    """Linear-interpolated 95th percentile."""
+def _p95(vals: list[float]) -> float | None:
+    """Linear-interpolated 95th percentile (``None`` on empty input)."""
     if not vals:
         return None
     s = sorted(vals)
@@ -295,7 +295,7 @@ def run_perf(
             # pooled like the totals: accepted at each position over all drafts
             "per_pos": [
                 round(sum(col) / tot["drafts"], 4)
-                for col in zip(*(x.get("per_pos_accepted") or [] for x in sweep_spec))
+                for col in zip(*(x.get("per_pos_accepted") or [] for x in sweep_spec), strict=False)
             ]
             if tot["drafts"]
             else [],
@@ -438,13 +438,15 @@ def _pipe_table(headers: list[str], rows: list[list[str]]) -> str:
 
     def data_row(cells: list[str]) -> str:
         return (
-            "| " + " | ".join(c.rjust(w) if a == ">" else c.ljust(w) for c, w, a in zip(cells, widths, aligns)) + " |"
+            "| "
+            + " | ".join(c.rjust(w) if a == ">" else c.ljust(w) for c, w, a in zip(cells, widths, aligns, strict=True))
+            + " |"
         )
 
     def sep_cell(a: str, w: int) -> str:
         return ":" + "-" * (w - 1) if a == "<" else "-" * (w - 1) + ":"
 
-    sep = "|" + "|".join(sep_cell(a, w) for w, a in zip(widths, aligns)) + "|"
+    sep = "|" + "|".join(sep_cell(a, w) for w, a in zip(widths, aligns, strict=True)) + "|"
     return "\n".join([data_row(headers), sep, *map(data_row, rows)])
 
 

@@ -407,6 +407,10 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   table / figure with % or × gets a `{{ how("<kind>") }}` panel
   (`readme.py` `_HOW`) that states the formula.
 - **Lint:** `uvx ruff@0.14.14 check src/ tests/` + `format` (pre-commit runs it).
+- **Types:** `uv run ty check src/ tests/` (Astral's ty; config in `[tool.ty]`,
+  CI stage `typecheck` + a pre-commit hook) — image-provided imports (torch,
+  vllm, cutlass, flashinfer) are unresolved-on-purpose via `[tool.ty.overrides]`;
+  both packages ship `py.typed`.
 - **Container output:** containers run as root; a file one writes into a host
   mount (the checkout) is handed back with `build_run_args(..., chown=...)` /
   `dockerctl.owner_suffix` — root-owned files break the pre-commit hooks.

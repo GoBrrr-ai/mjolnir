@@ -48,7 +48,7 @@ def _add_pkg_path():
 
 _add_pkg_path()
 
-from mjolnir import t5_decode as t5  # noqa: E402
+from mjolnir.t5_harness import emulate_decode  # noqa: E402 — the bit-faithful reference (moved out of t5_decode by the harness split)
 from _util import (  # noqa: E402
     DEV,
     _fp6_cache,
@@ -411,7 +411,7 @@ def test_fp6_runner_vs_emulator():
     n_q = ql * (h_q // h_k)
     q_packed = runner.q_pack[: b * h_k * n_q * d].view(b, h_k, n_q, d).float().cpu()
     qd = runner.q_descale[:b].float().cpu()
-    o_emu, _, _ = t5.emulate_decode(
+    o_emu, _, _ = emulate_decode(
         q_packed,
         k_vals,
         v_vals,
@@ -546,8 +546,8 @@ def test_lmhead_fp8_is_faster_than_bf16():
             torch.cuda.synchronize()
             return a.elapsed_time(b) / it
 
-        bf = t(lambda: torch.nn.functional.linear(x, w))
-        f8 = t(lambda: lmhead.fp8_linear(x, w8, scale))
+        bf = t(lambda x=x, w=w: torch.nn.functional.linear(x, w))
+        f8 = t(lambda x=x, w8=w8, scale=scale: lmhead.fp8_linear(x, w8, scale))
         out.append((M, bf, f8))
         print(f"   lm_head M={M}: bf16 {bf:.2f} ms ({N * K * 2 / bf / 1e6:.0f} GB/s) · fp8 {f8:.2f} ms "
               f"({N * K / f8 / 1e6:.0f} GB/s) · {bf / f8:.2f}x")  # fmt: skip
@@ -629,7 +629,7 @@ def test_draft_vocab_quantized_head():
 
     saved = lmhead._dequant_weight
     saved_qr = lmhead.quantize_rows
-    lmhead._dequant_weight = lambda h, dt: W.to(dt)  # the helper returns (vocab, hidden)
+    lmhead._dequant_weight = lambda h, dt: W.to(dt)  # ty: ignore[invalid-assignment] — test stub
     qr_calls = []
 
     def _qr_spy(w, *a, **kw):  # proves the quantized path re-quantizes to fp8, never bf16
@@ -637,7 +637,7 @@ def test_draft_vocab_quantized_head():
         return saved_qr(w, *a, **kw)
 
     try:
-        lmhead.quantize_rows = _qr_spy
+        lmhead.quantize_rows = _qr_spy  # ty: ignore[invalid-assignment] — test stub
         assert lmhead.install_draft_vocab(d, keep)
     finally:
         lmhead._dequant_weight = saved

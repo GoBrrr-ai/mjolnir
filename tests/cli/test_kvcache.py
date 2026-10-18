@@ -99,6 +99,7 @@ def test_spec_delta():
     before = {"drafts": 100, "draft_tokens": 300, "accepted": 150, "preemptions": 1, "per_pos": {0: 80, 1: 50, 2: 20}}
     after = {"drafts": 200, "draft_tokens": 600, "accepted": 330, "preemptions": 1, "per_pos": {0: 170, 1: 110, 2: 50}}
     d = gate.spec_delta(before, after)
+    assert d is not None
     assert d["acceptance_length"] == 2.8 and d["acceptance_rate"] == 0.6
     assert d["per_pos"] == [0.9, 0.6, 0.3] and d["preemptions"] == 0
     assert gate.spec_delta(None, after) is None

@@ -33,10 +33,17 @@ repos:
         files: ^(src|tests)/
       - id: ruff-format
         files: ^(src|tests)/
-  # whole repo, same script as CI, rules in pyproject.toml; --fix retires
-  # grandfathered entries parked at the limit (stage pyproject.toml, commit again)
+  # same scope + config as CI's typecheck stage; `uv run` syncs the env ty
+  # resolves types against (the kernel's image-provided imports are ignored via
+  # [tool.ty.overrides] in pyproject.toml)
   - repo: local
     hooks:
+      - id: typecheck
+        name: ty typecheck
+        entry: uv run ty check src/ tests/
+        language: system
+        pass_filenames: false
+        files: ^(src|tests)/|^(pyproject\.toml|uv\.lock)$
       - id: file-length
         name: file-length ratchet
         entry: uv run scripts/check_file_length.py --base HEAD --fix

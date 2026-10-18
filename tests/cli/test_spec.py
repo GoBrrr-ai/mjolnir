@@ -14,7 +14,7 @@ COUNTERS = {"drafts": 0}
 
 
 class _Fake(BaseHTTPRequestHandler):
-    def log_message(self, *a):  # quiet
+    def log_message(self, format: str, *args: object) -> None:  # quiet, matches the stdlib signature
         pass
 
     def do_GET(self):  # /metrics
@@ -71,7 +71,8 @@ def test_block_against_a_fake_server():
 def test_spec_override(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text("model: x\nspeculative-config:\n  method: mtp\n  num_speculative_tokens: 3\n")
-    assert json.loads(spec.spec_override(cfg, 2)) == {"method": "mtp", "num_speculative_tokens": 2}
+    ov = spec.spec_override(cfg, 2)
+    assert ov is not None and json.loads(ov) == {"method": "mtp", "num_speculative_tokens": 2}
     (tmp_path / "n.yaml").write_text("model: x\n")
     assert spec.spec_override(tmp_path / "n.yaml", 2) is None
 
@@ -79,7 +80,7 @@ def test_spec_override(tmp_path):
 def _rows():
     out = []
     for cfg, tps in (("NVFP4", (20, 23, 24, 23.5)), ("NVFP4_MJOLNIR_E2M3", (21, 24, 25.5, 25))):
-        for k, v in zip((1, 2, 3, 4), tps):
+        for k, v in zip((1, 2, 3, 4), tps, strict=True):
             out.append(
                 {
                     "config": cfg,
@@ -115,4 +116,5 @@ def test_spec_delta_keeps_raw_position_counts():
     before = {"drafts": 0, "draft_tokens": 0, "accepted": 0, "per_pos": {0: 0, 1: 0}}
     after = {"drafts": 10, "draft_tokens": 20, "accepted": 12, "per_pos": {0: 8, 1: 4}}
     d = gate.spec_delta(before, after)
+    assert d is not None
     assert d["per_pos_accepted"] == [8, 4] and d["per_pos"] == [0.8, 0.4]

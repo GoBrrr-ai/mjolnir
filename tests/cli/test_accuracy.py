@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -89,7 +90,7 @@ def _leg(image: str, config: str, tools: float, hard: float, cats: dict, extra: 
 
 
 def _write_runs(raw: Path) -> None:
-    first = {
+    first: dict[str, Any] = {
         "format": accuracy.FORMAT,
         "run_id": "20261012-100000",
         "args": list(accuracy.DEFAULT_ARGS),
@@ -98,7 +99,7 @@ def _write_runs(raw: Path) -> None:
             _leg(MJ, "NVFP4_MJOLNIR_E2M3", 86.5, 62.0, {"A": 85, "P": 62}),
         ],
     }
-    later = {
+    later: dict[str, Any] = {
         "format": accuracy.FORMAT,
         "run_id": "20261013-100000",
         "args": ["--gsm8k-only"],
@@ -123,7 +124,8 @@ def test_latest_legs_merge_suites_across_runs(tmp_path):
     mj = rows[1]
     assert set(mj["suites"]) == {"tools", "hardmode", "gsm8k"}  # the GSM8K run joins the A/B row
     assert mj["categories"]["A"]["percent"] == 85  # categories stay from the tool-call run
-    assert accuracy.baseline(rows)["config"] == "NVFP4"
+    base_row = accuracy.baseline(rows)
+    assert base_row and base_row["config"] == "NVFP4"
     assert accuracy.suites_in(rows) == ["tools", "hardmode", "gsm8k"]
     assert rows[0]["label"].startswith("official vLLM")
 
@@ -147,9 +149,11 @@ def test_baseline_is_per_model(tmp_path):
     rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
     by = {(r["model"], r["config"]): r for r in rows}
     q36_mj = by[("nvidia/Qwen3.6-35B-A3B", "NVFP4_MJOLNIR_E2M3")]
-    base = dict(zip(map(id, rows), accuracy.baselines(rows)))
-    assert base[id(q36_mj)]["config"] == "NVFP4_DFLASH"  # no NVFP4 row: first official one
-    assert base[id(by[("Qwen/Qwen3.8-27B", "NVFP4_MJOLNIR_E2M3")])]["config"] == "NVFP4"
+    base = dict(zip(map(id, rows), accuracy.baselines(rows), strict=True))
+    q36_base, q38_base = base[id(q36_mj)], base[id(by[("Qwen/Qwen3.8-27B", "NVFP4_MJOLNIR_E2M3")])]
+    assert q36_base and q38_base
+    assert q36_base["config"] == "NVFP4_DFLASH"  # no NVFP4 row: first official one
+    assert q38_base["config"] == "NVFP4"
     assert q36_mj["label"].startswith("Qwen3.6-35B-A3B · Mjolnir")
 
 
@@ -199,7 +203,7 @@ def test_rows_of_one_model_stay_together(tmp_path):
     _write_two_model_run(tmp_path)
     rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
     assert [r["model"] for r in rows] == ["Qwen/Qwen3.8-27B"] * 2 + ["nvidia/Qwen3.6-35B-A3B"] * 2
-    assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
+    assert [b["config"] for b in accuracy.baselines(rows) if b] == ["NVFP4", "NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
 
 
 @pytest.fixture
@@ -269,13 +273,17 @@ def test_an_excluded_scenario_never_raises_the_delta():
     """A leg whose endpoint had a scenario excluded scores on a smaller max; the
     delta counts the excluded points as zero (123/138 vs 125/138), and says so."""
     off, mj = _excluded_pair()
-    d, flagged = accuracy.delta(mj, off, "tools")
+    res = accuracy.delta(mj, off, "tools")
+    assert res is not None
+    d, flagged = res
     assert flagged and round(d, 2) == round((123 - 125) / 138 * 100, 2)  # -1.45, not -0.14
     assert accuracy.delta(mj, off, "hardmode") == pytest.approx((80.36 - 76.79, False))
     assert accuracy.delta(off, off, "tools") is None
     assert accuracy.fmt_delta((d, flagged)) == " (-1.4‡)"
     # the other way round: an excluded scenario on the baseline does not flatter it either
-    d2, flagged2 = accuracy.delta(off, mj, "tools")
+    res2 = accuracy.delta(off, mj, "tools")
+    assert res2 is not None
+    d2, flagged2 = res2
     assert flagged2 and round(d2, 2) == round((125 - 123) / 138 * 100, 2)
 
 
@@ -301,7 +309,9 @@ def test_averaged_trials_rescale_every_trial():
         maxes=[136, 136, 138],
         completion_rate=99.0,
     )
-    d, flagged = accuracy.delta(mj, off, "tools")
+    res = accuracy.delta(mj, off, "tools")
+    assert res is not None
+    d, flagged = res
     assert flagged and round(d, 3) == round(((123 + 123 + 125) / 3 - 125) / 138 * 100, 3)
 
 
@@ -354,6 +364,6 @@ def test_a_leg_without_model_never_borrows_another_models_baseline():
         {**_leg(OFFICIAL, "NVFP4_DFLASH", 91.0, 77.0, {}), "model": None},
         {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 90.0, 80.0, {}), "model": None},
     ]
-    assert [b["config"] for b in accuracy.baselines(rows)] == ["NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
+    assert [b["config"] for b in accuracy.baselines(rows) if b] == ["NVFP4", "NVFP4_DFLASH", "NVFP4_DFLASH"]
     labels = [r["label"] for r in accuracy.latest_legs([{"run_id": "r", "legs": rows}])]
     assert sum(label.startswith("unknown model · ") for label in labels) == 2  # never shown as the default model

@@ -39,7 +39,6 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich import box
@@ -119,7 +118,7 @@ MAX_SUSPECT = 2  # more suspect L than this and the measurement itself is reject
 
 def _gm(xs) -> float:
     xs = list(xs)
-    return results.geomean(xs) if xs else 1.0
+    return results.geomean(xs) or 1.0  # geomean is None only when no positive value survives: neutral 1.0
 
 
 def _pct(x: float) -> str:
@@ -158,7 +157,7 @@ def judge(row: dict, best: dict | None, min_gain: float = 0.02, noise: float = N
     if best is None:
         return "baseline", "the starting kernel", {}
     new, old = row.get("per_L") or {}, best.get("per_L") or {}
-    common = [L for L in new if L in old and old[L]]
+    common = [L for L in new if old.get(L)]
     if not common:  # rows written before per-L judging: the plain geomean rule
         st = decide(score, correct, best.get("score"), min_gain)
         return st, f"geomean {_pct(score / best['score'])} (no per-L reference)", {}
@@ -172,8 +171,8 @@ def judge(row: dict, best: dict | None, min_gain: float = 0.02, noise: float = N
     gain = _gm(trusted.values())
     if gain <= 1 + min_gain:
         return "discard", f"geomean {_pct(gain)} ≤ +{min_gain * 100:g}%{note}", rel
-    top = max(trusted, key=trusted.get)
-    loo = _gm(v for L, v in trusted.items() if L != top)
+    top = max(trusted, key=lambda L: trusted[L])
+    loo = _gm(v for L, v in trusted.items() if top != L)
     if loo <= 1 + min_gain / 2:
         return (
             "discard",
@@ -207,7 +206,7 @@ def _root() -> Path:
 # ── commands ────────────────────────────────────────────────────────────────
 
 
-def _init(root: Path, tag: str, base: str, evaluate_baseline: bool, image: Optional[str]) -> int:
+def _init(root: Path, tag: str, base: str, evaluate_baseline: bool, image: str | None) -> int:
     branch = f"autoresearch/{tag}"
     if _git(root, "branch", "--list", branch):
         console.print(f"[red]{branch} already exists — pick a fresh tag (a run never reuses a branch)[/red]")
@@ -232,7 +231,7 @@ def init(
     tag: str = typer.Argument(..., help="run tag, e.g. oct11 — the branch is autoresearch/<tag>"),
     base: str = typer.Option("main", "--base", help="branch to start from"),
     evaluate_baseline: bool = typer.Option(True, "--baseline/--no-baseline", help="score the starting kernel now"),
-    image: Optional[str] = typer.Option(None, "--image"),
+    image: str | None = typer.Option(None, "--image"),
 ):
     """Create the research branch and score the starting kernel (the baseline row)."""
     raise typer.Exit(_init(_root(), tag, base, evaluate_baseline, image))
@@ -243,9 +242,9 @@ def _evaluate(
     hypothesis: str,
     agent: str,
     sources: str,
-    image: Optional[str],
+    image: str | None,
     min_gain: float = 0.02,
-    ls: Optional[str] = None,
+    ls: str | None = None,
     iters: int = 50,
     gate: bool = True,
     skip_correctness: bool = False,
@@ -301,7 +300,7 @@ def _evaluate(
             by = results.series_by_id(doc)
             if "fi" in by and "mjolnir" in by:
                 sp = results.speedup(by["fi"], by["mjolnir"])
-                want = set(int(x) for x in (ls or " ".join(map(str, ALL_LS))).replace(",", " ").split())
+                want = {int(x) for x in (ls or " ".join(map(str, ALL_LS))).replace(",", " ").split()}
                 if sp and set(sp) >= want:
                     score = results.geomean(sp.values())
                     per_L = {str(k): round(v, 4) for k, v in sp.items()}
@@ -310,7 +309,7 @@ def _evaluate(
             sweep_run = doc["run_id"]
     row = {
         "id": len(rows) + 1,
-        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "ts": _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds"),
         "branch": _git(root, "rev-parse", "--abbrev-ref", "HEAD"),
         "commit": commit,
         "status": None,
@@ -390,10 +389,10 @@ def evaluate(
     agent: str = typer.Option("autoresearch", "--agent", help="who proposed/implemented it"),
     sources: str = typer.Option("", "--sources", help="comma-separated URLs / arXiv ids behind the idea"),
     min_gain: float = typer.Option(0.02, "--min-gain", help="required geomean gain over the best kept score"),
-    ls: Optional[str] = typer.Option(None, "--ls", help="L values (default: all 8; a subset is never a keep)"),
+    ls: str | None = typer.Option(None, "--ls", help="L values (default: all 8; a subset is never a keep)"),
     iters: int = typer.Option(50, "--iters"),
     gate: bool = typer.Option(True, "--gate/--no-gate"),
-    image: Optional[str] = typer.Option(None, "--image"),
+    image: str | None = typer.Option(None, "--image"),
 ):
     """Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep;
     append the result and the fixed keep/discard decision to the ledger."""
@@ -464,8 +463,8 @@ def chart():
 
 @app.command()
 def run(
-    tag: Optional[str] = typer.Option(None, "--tag", help="start a new run first (init <tag>)"),
-    model: Optional[str] = typer.Option(None, "--model", help="OpenCode model (provider/model) for the orchestrator"),
+    tag: str | None = typer.Option(None, "--tag", help="start a new run first (init <tag>)"),
+    model: str | None = typer.Option(None, "--model", help="OpenCode model (provider/model) for the orchestrator"),
     prompt: str = typer.Option(
         "Read research/program.md and run the loop: setup is done when the ledger has a baseline row. "
         "Never stop to ask; record every experiment with `mjolnir autoresearch evaluate`.",
@@ -494,7 +493,7 @@ def run(
 
 @app.command()
 def export(
-    tag: Optional[str] = typer.Option(None, "--tag", help="run tag (default: from the autoresearch/<tag> branch)"),
+    tag: str | None = typer.Option(None, "--tag", help="run tag (default: from the autoresearch/<tag> branch)"),
 ):
     """Snapshot the ledger into research/runs/<tag>/ (ledger.jsonl, ledger.tsv,
     SUMMARY.md) — commit that to keep the run's notebook with the repo."""

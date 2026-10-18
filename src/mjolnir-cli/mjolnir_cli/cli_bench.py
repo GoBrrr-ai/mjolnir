@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shlex
-from typing import Optional
 
 import typer
 from rich import box
@@ -50,12 +49,12 @@ def bench_perf(
     gate: bool = typer.Option(True, "--gate/--no-gate"),
     confirm: int = typer.Option(3, "--confirm", help="clean-window confirm samples"),
     gate_timeout: float = typer.Option(3600.0, "--gate-timeout"),
-    label: Optional[str] = typer.Option(None, "--label", help="backend label for the history log"),
-    api_key: Optional[str] = typer.Option(None, "--api-key"),
-    model: Optional[str] = typer.Option(None, "--model"),
-    config: Optional[str] = typer.Option(None, "--config"),
-    image: Optional[str] = typer.Option(None, "--image"),
-    port: Optional[int] = typer.Option(None, "--port"),
+    label: str | None = typer.Option(None, "--label", help="backend label for the history log"),
+    api_key: str | None = typer.Option(None, "--api-key"),
+    model: str | None = typer.Option(None, "--model"),
+    config: str | None = typer.Option(None, "--config"),
+    image: str | None = typer.Option(None, "--image"),
+    port: int | None = typer.Option(None, "--port"),
     plot: bool = typer.Option(True, "--plot/--no-plot"),
 ):
     """End-to-end perf bench (gated clean window, raw JSON, history log)."""
@@ -85,7 +84,7 @@ def bench_perf(
         )
     except benchy.BenchError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     if plot:
         try:
             charts.render_all(layout)
@@ -162,11 +161,11 @@ def bench_ab(
     runs: int = typer.Option(6, "--runs"),
     repeat: int = typer.Option(1, "--repeat"),
     gate: bool = typer.Option(True, "--gate/--no-gate"),
-    model: Optional[str] = typer.Option(None, "--model"),
-    image: Optional[str] = typer.Option(
+    model: str | None = typer.Option(None, "--model"),
+    image: str | None = typer.Option(
         None, "--image", help="image for bare-config legs (default: $MJOLNIR_IMAGE / built-in default)"
     ),
-    port: Optional[int] = typer.Option(None, "--port"),
+    port: int | None = typer.Option(None, "--port"),
 ):
     """Headline A/B: restart the server per leg, gated perf bench for each,
     one history row-set per leg.
@@ -185,9 +184,9 @@ def bench_ab(
         legs = _ab_legs(backends, s.model, s.image, entries)
     except ValueError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4)
+        raise typer.Exit(4) from e
 
-    for m_, img, q in legs:
+    for _m, img, q in legs:
         if q != DEFAULT_QUANT and e2e.is_mjolnir({"image": img}):
             typer.secho(
                 f"note: {q} on {img} is not native vLLM (the Mjolnir image patches FlashInfer too) — it is kept in "
@@ -224,9 +223,9 @@ def bench_accuracy(
         help="serve each leg (restarts the server; the GPU must be yours) — --no-restart measures the running "
         "server as one leg (pass its config with --backends)",
     ),
-    model: Optional[str] = typer.Option(None, "--model"),
-    image: Optional[str] = typer.Option(None, "--image", help="image for bare-config legs"),
-    port: Optional[int] = typer.Option(None, "--port"),
+    model: str | None = typer.Option(None, "--model"),
+    image: str | None = typer.Option(None, "--image", help="image for bare-config legs"),
+    port: int | None = typer.Option(None, "--port"),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the legs and the tool-eval-bench command"),
     plot: bool = typer.Option(True, "--plot/--no-plot"),
 ):
@@ -251,7 +250,7 @@ def bench_accuracy(
         legs = _ab_legs(backends, s.model, s.image, entries)
     except ValueError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4)
+        raise typer.Exit(4) from e
     passthrough = list(ctx.args)
     if not restart and len(legs) != 1:
         typer.secho("--no-restart measures the running server: give exactly one leg", fg=typer.colors.RED, err=True)
@@ -277,7 +276,7 @@ def bench_accuracy(
         out = accuracy.run_accuracy(s, layout, legs, passthrough, restart=restart)
     except accuracy.AccuracyError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     _print_accuracy(json.loads(out.read_text()))
     typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
     if plot:
@@ -295,7 +294,7 @@ def _print_accuracy(doc: dict) -> None:
         t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
     t.add_column("completion", justify="right")
     bases = accuracy.baselines(rows)  # a run may hold several models: each vs its own
-    for r, base in zip(rows, bases):
+    for r, base in zip(rows, bases, strict=True):
         cells = []
         for n in suites:
             v = (r.get("suites", {}).get(n) or {}).get("score")
@@ -333,7 +332,7 @@ def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
             benchy.run_perf(s, layout, warmup_runs=2, exact_tg=True, **perf)
         except benchy.BenchError as e:
             typer.secho(str(e), fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         finally:
             typer.secho(f"  leg done: stopping the vLLM server ({leg_image})", fg=typer.colors.CYAN)
             dockerctl.serve_down(s)
@@ -341,10 +340,10 @@ def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
 
 def _print_compare(
     layout,
-    mjolnir_config: Optional[str] = None,
+    mjolnir_config: str | None = None,
     as_json: bool = False,
-    official_config: Optional[str] = None,
-    model: Optional[str] = None,
+    official_config: str | None = None,
+    model: str | None = None,
 ) -> int:
     off, mj = e2e.latest_pair(layout.history_file, mjolnir_config, official_config, model)
     if not off or not mj:
@@ -406,7 +405,7 @@ def bench_e2e(
     config: str = typer.Option(
         legs_.side_configs("bench.e2e", legs_.MJOLNIR)[0], "--config", help="config served on the Mjolnir image"
     ),
-    model: Optional[str] = typer.Option(None, "--model"),
+    model: str | None = typer.Option(None, "--model"),
     runs: int = typer.Option(6, "--runs", help="measured runs per cell"),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps per leg"),
     depths: str = typer.Option(
@@ -418,8 +417,8 @@ def bench_e2e(
     pp: int = typer.Option(2048, "--pp", help="prompt tokens per request (prefill)"),
     tg: int = typer.Option(128, "--tg", help="generated tokens per request (decode)"),
     gate: bool = typer.Option(True, "--gate/--no-gate"),
-    port: Optional[int] = typer.Option(None, "--port"),
-    only: Optional[str] = typer.Option(
+    port: int | None = typer.Option(None, "--port"),
+    only: str | None = typer.Option(
         None,
         "--only",
         help="run one leg: 'mjolnir' or 'official'; the comparison pairs it with the other side's latest record",
@@ -519,12 +518,12 @@ def bench_e2e(
 
 @bench_app.command("compare")
 def bench_compare(
-    config: Optional[str] = typer.Option(None, "--config", help="Mjolnir-side config (default: the Mjolnir backend)"),
-    official_config: Optional[str] = typer.Option(
+    config: str | None = typer.Option(None, "--config", help="Mjolnir-side config (default: the Mjolnir backend)"),
+    official_config: str | None = typer.Option(
         None, "--official-config", help="official-side config (default: the stock baseline, NVFP4)"
     ),
     as_json: bool = typer.Option(False, "--json", "-j"),
-    model: Optional[str] = typer.Option(None, "--model", help="whose runs to pair (default: the active model)"),
+    model: str | None = typer.Option(None, "--model", help="whose runs to pair (default: the active model)"),
 ):
     """Official vLLM image vs Mjolnir image from the history — no new run.
     `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares

@@ -26,10 +26,10 @@ def test_no_duplicate_legs():
 
 
 def test_stages_and_commands_read_the_table():
-    assert spec.DEFAULT_LEGS == legs.verify_legs("verify.spec")
-    assert kvcache.DEFAULT_LEGS == legs.verify_legs("verify.kv-cache-size")
-    assert profile.DEFAULT_LEGS == legs.verify_legs("verify.profile")
-    assert stages.SWEEP_LEGS == legs.KERNEL["verify.sweep"]
+    assert legs.verify_legs("verify.spec") == spec.DEFAULT_LEGS
+    assert legs.verify_legs("verify.kv-cache-size") == kvcache.DEFAULT_LEGS
+    assert legs.verify_legs("verify.profile") == profile.DEFAULT_LEGS
+    assert legs.KERNEL["verify.sweep"] == stages.SWEEP_LEGS
     assert inspect.signature(stages.stage_hndsweep).parameters["legs"].default == legs.KERNEL["verify.hndsweep"]
     assert inspect.signature(stages.stage_vllm).parameters["smoke_modes"].default == legs.SMOKE_MODES
     assert not hasattr(accuracy, "DEFAULT_LEGS")

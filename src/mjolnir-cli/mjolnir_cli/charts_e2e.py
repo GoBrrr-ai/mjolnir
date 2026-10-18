@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from mjolnir_cli import theme
 from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of, model_short
@@ -88,7 +88,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     theme.apply(fig, axes, mode)
     sides = [(rec, *_e2e_series(rec)) for rec in (off, mj)]
     top = max((e2e.value(e2e.cell(rec, c, x), metric) or 0) for rec in (off, mj) for c, x in cells)
-    for ax, conc in zip(axes, concs):
+    for ax, conc in zip(axes, concs, strict=True):
         ctxs = sorted({x for c, x in cells if c == conc and (x or metric != "pp_tps")})  # no ctx: no prefill
         w = 0.8 / len(sides)
         for i, (rec, sid, lbl) in enumerate(sides):
@@ -174,6 +174,12 @@ def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
     )
 
 
+def _rgba(hex_color: str) -> tuple[int, int, int, int]:
+    """``#rrggbb`` -> the opaque RGBA tuple PIL would produce for it."""
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
+
+
 def render_hero(layout: RepoLayout) -> Path | None:
     """``assets/hero.png`` — the README header: ``assets/hero-background.png``
     with the slogan (two lines, centred under the MJOLNIR logotype) and a row
@@ -193,8 +199,8 @@ def render_hero(layout: RepoLayout) -> Path | None:
     cx = (left + right) / 2
     S = 2  # draw at 2x, downsample: smooth pill edges and text
     fam = _display_family()
-    slogan_font = ImageFont.truetype(_font_file(fam, "medium"), int(round(H * 0.040)) * S)
-    pill_font = ImageFont.truetype(_font_file(fam, "semibold"), int(round(H * 0.030)) * S)
+    slogan_font = ImageFont.truetype(_font_file(fam, "medium"), round(H * 0.040) * S)
+    pill_font = ImageFont.truetype(_font_file(fam, "semibold"), round(H * 0.030) * S)
 
     over = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     shadow = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
@@ -212,15 +218,15 @@ def render_hero(layout: RepoLayout) -> Path | None:
 
     # pills: one centred row
     labels = [(t.format(vllm=VLLM_VERSION), c0, c1) for t, c0, c1 in HERO_PILLS]
-    pad_x, pill_h, gap = 18 * S, int(round(H * 0.060)) * S, 14 * S
+    pad_x, pill_h, gap = 18 * S, round(H * 0.060) * S, 14 * S
     widths = [d.textlength(t, font=pill_font) + 2 * pad_x for t, _, _ in labels]
     x = cx * S - (sum(widths) + gap * (len(widths) - 1)) / 2
     y = int(y + H * 0.035 * S)
-    for (text, c0, c1), w in zip(labels, widths):
+    for (text, c0, c1), w in zip(labels, widths, strict=True):
         box = (int(x), y, int(x + w), y + pill_h)
         ds.rounded_rectangle((box[0], box[1] + 3 * S, box[2], box[3] + 3 * S), radius=pill_h // 2, fill=(0, 0, 0, 120))
         # horizontal gradient, clipped to the pill by a rounded mask
-        a0, a1 = Image.new("RGBA", (1, 1), c0).getpixel((0, 0)), Image.new("RGBA", (1, 1), c1).getpixel((0, 0))
+        a0, a1 = _rgba(c0), _rgba(c1)
         grad = Image.new("RGBA", (box[2] - box[0], pill_h))
         gw = max(1, grad.size[0] - 1)
         grad.putdata(
@@ -242,7 +248,7 @@ def render_hero(layout: RepoLayout) -> Path | None:
         x += w + gap
 
     shadow = shadow.filter(ImageFilter.GaussianBlur(4 * S))
-    layer = Image.alpha_composite(shadow, over).resize((W, H), Image.LANCZOS)
+    layer = Image.alpha_composite(shadow, over).resize((W, H), Image.Resampling.LANCZOS)
     out = layout.repo_root / "assets" / HERO
     Image.alpha_composite(bg, layer).convert("RGB").save(out, optimize=True)
     return out
@@ -268,7 +274,9 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     if layout.repo_root is None:
         return None
     off, mj = e2e.latest_pair(layout.history_file)
-    h = e2e.hero(off, mj) if off and mj else None
+    if not off or not mj:
+        return None
+    h = e2e.hero(off, mj)
     bg_path = layout.repo_root / "assets" / "background.jpeg"
     if not h or not bg_path.exists():
         print("[mjolnir] no official-vLLM / Mjolnir e2e pair in history — infographic skipped (run: mjolnir bench e2e)")

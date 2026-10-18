@@ -22,6 +22,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ty==0.0.89",
 ]
 
 [tool.uv]
@@ -38,15 +39,52 @@ mjolnir-kernel = { workspace = true }
 line-length = 120
 target-version = "py312"
 
+[tool.ruff.lint]
+# Beyond the defaults (E/F): modernization (UP), bug-prone patterns (B),
+# blind excepts (BLE — every broad except must carry a `noqa` with its
+# rationale), simplification (SIM), comprehension/collection style (C4, PIE,
+# PERF, FURB), return-flow (RET), import conventions (ICN), dead code (ERA),
+# datetime handling (DTZ) and the RUF misc set. Deliberately NOT selected:
+#   E501  — ruff format owns wrapping; the file-length ratchet owns size
+#   RUF001-003 — box-drawing/middot/×/‡ in banners, tables and findings
+#   B008  — typer's Option()/Argument() defaults are the framework idiom
+#   S     — no untrusted input surface; assert/subprocess are deliberate
+#   T20   — print() is the CLI's output path
+#   PTH   — os.path is used deliberately alongside pathlib (docker/env strings)
+select = ["E", "F", "UP", "B", "BLE", "SIM", "C4", "PIE", "RET", "RUF", "PERF", "FURB", "ICN", "ERA", "DTZ"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003", "B008"]
+
 [tool.ruff.lint.per-file-ignores]
-# The CuTe-DSL kernel follows CUTLASS/FlashAttention conventions: the DSL's
-# typing star-import and the running log-sum-exp accumulator named `l`.
-"src/mjolnir/mjolnir/t5_decode.py" = ["F403", "F405", "E741"]
-"src/mjolnir/mjolnir/t5_call.py" = ["F403", "F405"]
-"src/mjolnir/mjolnir/t5_kernel.py" = ["F403", "F405"]
-"src/mjolnir/mjolnir/t5_sections.py" = ["F403", "F405"]
-"src/mjolnir/mjolnir/t5_softmax.py" = ["F403", "F405"]
+# The CuTe-DSL kernel files are traced at compile time and follow
+# CUTLASS/FlashAttention conventions; the DSL is sensitive to body/signature
+# edits, so their idioms stay: the typing star-import, `Tuple` in @cute.jit
+# signatures, dice/atom tuple concatenation, yoda-style tile compares, the
+# running log-sum-exp accumulator named `l`, named-but-unused tile loop
+# variables, and math comments (GEMM shapes, tile layouts) that read like code.
+"src/mjolnir/mjolnir/t5_decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "SIM300"]
+"src/mjolnir/mjolnir/t5_call.py" = ["F403", "F405", "ERA001", "RUF005", "RUF059", "UP006", "UP035", "SIM300"]
+"src/mjolnir/mjolnir/t5_const.py" = ["RUF005"]
 "src/mjolnir/mjolnir/t5_harness.py" = ["F403", "F405", "E741"]
+# Triton-jit bodies keep explicit constexpr branches (clearer than the ternary
+# and independent of the tracer's handling of conditional expressions)
+"src/mjolnir/mjolnir/kvfp6.py" = ["SIM108"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = ["src/mjolnir-cli/hatch_build.py"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+# The kernel and the benchmark drivers run inside the vLLM image: torch, vllm,
+# cutlass (CuTe DSL), triton, flashinfer and cuda bindings are provided there
+# and deliberately not declared as package deps (multi-GB CUDA stack), so they
+# do not resolve in a dev checkout / CI. Suppress the resolution noise for
+# those paths — everything else still type-checks.
+[[tool.ty.overrides]]
+include = ["src/mjolnir/**", "tests/kernel/**", "src/mjolnir-cli/mjolnir_cli/drivers/**"]
+rules.unresolved-import = "ignore"
+rules.unresolved-attribute = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -26,10 +26,7 @@ def minifloat_table(fmt):
         sign = -1.0 if code >> (eb + mb) else 1.0
         e = (code >> mb) & ((1 << eb) - 1)
         m = code & ((1 << mb) - 1)
-        if e == 0:
-            v = (m / (1 << mb)) * 2.0 ** (1 - bias)
-        else:
-            v = (1 + m / (1 << mb)) * 2.0 ** (e - bias)
+        v = (m / (1 << mb)) * 2.0 ** (1 - bias) if e == 0 else (1 + m / (1 << mb)) * 2.0 ** (e - bias)
         vals.append(sign * v)
     return torch.tensor(vals, dtype=torch.float32)
 

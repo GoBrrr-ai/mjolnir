@@ -39,7 +39,7 @@ _add_pkg_path()
 DEV = "cuda"
 FP8_NAN = 0x7F  # e4m3fn NaN byte, poisons pages no sequence owns
 
-from mjolnir import t5_decode as t5  # noqa: E402
+from mjolnir.t5_harness import emulate_decode  # noqa: E402 — the bit-faithful reference (moved out of t5_decode by the harness split)
 from mjolnir.runner import (  # noqa: E402
     T5DecodeRunner,
     detect_kv_layout,
@@ -193,7 +193,7 @@ def emulate(runner, plan, query, k_cache, v_cache, block_table, seq_lens, k_scal
     # padding rows (seq_len 0) have no reference; emulate them as length
     # q_len and never compare them (run_case checks they are exactly 0)
     lens = seq_lens[:b].cpu().clamp_min(ql)
-    o_emu, _, _ = t5.emulate_decode(
+    o_emu, _, _ = emulate_decode(
         q_packed,
         kf,
         vf,

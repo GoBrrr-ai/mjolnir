@@ -28,6 +28,7 @@ import time
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 from mjolnir_cli import dockerctl
 from mjolnir_cli.config import DEFAULT_IMAGE, STOCK_IMAGE, resolve
@@ -47,7 +48,7 @@ CATEGORIES = (  # first match wins: GEMMs before attention (FlashInfer's NVFP4 G
 
 def categorize(name: str) -> str:
     for cat, pat in CATEGORIES:
-        if re.search(pat, name, re.I):
+        if re.search(pat, name, re.IGNORECASE):
             return cat
     return "other"
 
@@ -97,13 +98,13 @@ def parse_trace(path: Path, tokens: int | None = None, top: int = 15) -> dict:
         by_name[k.get("name", "")].append(d)
         corr = (k.get("args") or {}).get("correlation")
         launcher = runtime.get(corr, {}).get("name", "")
-        if "GraphLaunch" in launcher:
+        if corr is not None and "GraphLaunch" in launcher:
             graph_kernels[corr].append(k)
         else:
             eager.append(k)
 
     # one entry per graph replay: kernel count, GPU span, summed kernel time
-    replays = []
+    replays: list[dict[str, Any]] = []
     for corr, ks in graph_kernels.items():
         start = min(k["ts"] for k in ks)
         end = max(k["ts"] + k.get("dur", 0) for k in ks)
@@ -123,7 +124,7 @@ def parse_trace(path: Path, tokens: int | None = None, top: int = 15) -> dict:
     sigs: dict[int, list[dict]] = defaultdict(list)
     for r in replays:
         sigs[r["n"]].append(r)
-    graphs = []
+    graphs: list[dict[str, Any]] = []
     for n, rs in sorted(sigs.items(), key=lambda kv: -kv[0]):
         names: dict[str, float] = defaultdict(float)
         for r in rs:
@@ -261,7 +262,8 @@ def stage_profile(
             gen = [0]
             lock = threading.Lock()
 
-            def work():
+            # bind the per-point values: the threads are joined before the next point rebinds them
+            def work(s=s, gen=gen, lock=lock):
                 r = stream_one(s.base_url, s.served_model, prompt, max_tokens)
                 with lock:
                     gen[0] += r.get("tokens") or 0

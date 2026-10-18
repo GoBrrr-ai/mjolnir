@@ -20,7 +20,7 @@ FI_HND = [25.3, 61.0, 96.0, 175.4, 344.8, 716.9, 1310.0, 2530.0]
 
 def _pts(times, bits=8.0, hk=4, d=256):
     out = []
-    for L, t in zip(LS, times):
+    for L, t in zip(LS, times, strict=True):
         kv = L * hk * d * 2 * bits / 8
         out.append(
             {
@@ -72,7 +72,7 @@ def _scale(times, f):
 def all_docs() -> dict[str, dict]:
     fi = _series("fi", "FlashInfer (fp8 KV, NHD)", "fi", FI, role="baseline")
     fihnd = _series("fi-hnd", "FlashInfer (fp8 KV, HND)", "fi", FI_HND, role="baseline")
-    docs = {
+    return {
         "sweep": _doc(
             "sweep",
             series=[
@@ -100,7 +100,7 @@ def all_docs() -> dict[str, dict]:
             ],
             rows=[
                 {"L": L, "series": s, "median_us": t * f, "gbps": None, "ok": True}
-                for L, t in zip(LS, MJ_FP8)
+                for L, t in zip(LS, MJ_FP8, strict=True)
                 for s, f in (("t5:fp8-nhd", 1.1), ("t5:e2m3-hnd", 0.82))
             ],
         ),
@@ -158,7 +158,7 @@ def all_docs() -> dict[str, dict]:
             ],
             rows=[
                 {"L": L, "series": s, "median_us": t, "gbps": None, "ok": True}
-                for L, t in zip(LS, MJ_E2M3)
+                for L, t in zip(LS, MJ_E2M3, strict=True)
                 for s in ("t5:base", "t5:evict")
             ],
         ),
@@ -167,7 +167,7 @@ def all_docs() -> dict[str, dict]:
             rows=[
                 {"q": "fp8", "batches": b, "L": L, "off_us": t, "on_us": t * (1 + d / 100), "delta_pct": d}
                 for b in (1, 8)
-                for L, t, d in zip(LS, MJ_E2M3, (-4, -2, -1, 1, -1, 0.5, 2, -0.5))
+                for L, t, d in zip(LS, MJ_E2M3, (-4, -2, -1, 1, -1, 0.5, 2, -0.5), strict=True)
             ],
         ),
         "fp6prof": _doc(
@@ -194,7 +194,7 @@ def all_docs() -> dict[str, dict]:
                     ("e2m3-hnd", 6, 0.95, 1.5),
                     ("e2m1-hnd", 4, 0.53, 1.0),
                 )
-                for L, t in zip(LS, MJ_FP8)
+                for L, t in zip(LS, MJ_FP8, strict=True)
             ],
         ),
         "correctness": _doc(
@@ -202,7 +202,6 @@ def all_docs() -> dict[str, dict]:
             cases=[{"label": c[0], "q": q, "passed": True, "seconds": 20.0} for c in stages.CASES for q in c[2]],
         ),
     }
-    return docs
 
 
 def write_all(verify_dir) -> None:

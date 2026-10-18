@@ -115,8 +115,8 @@ def parse_benchy_json(raw: dict[str, Any]) -> list[dict[str, Any]]:
     cells = []
     for b in raw.get("benchmarks", []):
 
-        def metric(name: str) -> dict | None:
-            m = b.get(name)
+        def metric(rec: dict, name: str) -> dict | None:
+            m = rec.get(name)
             if not isinstance(m, dict):
                 return None
             vals = m.get("values")
@@ -140,7 +140,7 @@ def parse_benchy_json(raw: dict[str, Any]) -> list[dict[str, Any]]:
             ("ttfr", "ttfr_ms"),
             ("e2e_ttft", "ttft_ms"),
         ):
-            m = metric(src)
+            m = metric(b, src)
             if m is not None:
                 cell[dst] = m
         # inter-token latency: the per-request decode rate inverted, per run

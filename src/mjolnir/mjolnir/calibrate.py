@@ -86,7 +86,8 @@ def engine_kwargs_from_config(path: str) -> dict:
     import yaml
 
     parser, engine_args = _engine_parser()
-    data = yaml.safe_load(open(path)) or {}
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
     known = {k: v for k, v in data.items() if "--" + str(k).replace("_", "-") in parser._option_string_actions}
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
         yaml.safe_dump(known, f)

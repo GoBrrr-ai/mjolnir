@@ -111,7 +111,7 @@ def summarize_db(db: Path) -> dict:
     cats: dict[str, dict] = {}
     scen: dict[str, list[float]] = {}
     runs = []
-    for run_id, created, status, run_type, scores_json, config_json in rows:
+    for run_id, created, status, run_type, scores_json, _config_json in rows:
         runs.append({"run_id": run_id, "created_at": created, "status": status, "run_type": run_type})
         if status != "completed":
             continue
@@ -397,7 +397,7 @@ def leg_excluded(r: dict, base: dict | None, names: list[str]) -> bool:
 
 
 def any_excluded(rows: list[dict], bases: list[dict | None], names: list[str]) -> bool:
-    return any(leg_excluded(r, b, names) for r, b in zip(rows, bases))
+    return any(leg_excluded(r, b, names) for r, b in zip(rows, bases, strict=True))
 
 
 EXCLUDED_NOTE = (

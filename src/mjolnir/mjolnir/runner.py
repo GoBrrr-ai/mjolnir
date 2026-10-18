@@ -590,7 +590,9 @@ class T5DecodeRunner:
         try:
             qpack.pack_q_fp8(q3, b, ql, self.h_k, self.h_r, q_view, qd, q_mul)
             return True
-        except Exception as e:  # noqa: BLE001 - e.g. a Triton build that cannot target this GPU
+        except (
+            Exception
+        ) as e:  # re-raises under graph capture; otherwise falls back (e.g. a Triton build that cannot target this GPU)
             if torch.cuda.is_current_stream_capturing():
                 raise
             self._fused_qpack = False
@@ -695,7 +697,7 @@ def _canon_singleton(t: torch.Tensor) -> torch.Tensor:
     TMA wants 16-byte multiples -> zero them (never used for indexing)."""
     if all(s != 1 for s in t.shape):
         return t
-    st = [0 if n == 1 else s for n, s in zip(t.shape, t.stride())]
+    st = [0 if n == 1 else s for n, s in zip(t.shape, t.stride(), strict=True)]
     return t.as_strided(t.shape, st, t.storage_offset())
 
 

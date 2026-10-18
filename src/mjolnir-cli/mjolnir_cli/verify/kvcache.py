@@ -36,7 +36,7 @@ _MEMORY = {
     "activation_gib": re.compile(r"(?:PyTorch )?activation peak memory takes\s*([0-9.]+)\s*GiB"),
     "non_torch_gib": re.compile(r"non[_ ]torch[_ ]memory takes\s*([0-9.]+)\s*GiB"),
     "cudagraph_gib": re.compile(
-        r"(?:CUDA graph|cudagraph)[^\n]*?(?:take|took|estimate[ds]?|memory)[^\n]*?([0-9.]+)\s*GiB", re.I
+        r"(?:CUDA graph|cudagraph)[^\n]*?(?:take|took|estimate[ds]?|memory)[^\n]*?([0-9.]+)\s*GiB", re.IGNORECASE
     ),
 }
 _FAILED = re.compile(r"EngineCore failed to start|Traceback \(most recent call last\)")

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["register", "BACKEND_PATH", "BACKEND_NAME", "__version__"]
+__all__ = ["BACKEND_NAME", "BACKEND_PATH", "__version__", "register"]
 __version__ = "0.1.0"
 
 BACKEND_NAME = "MJOLNIR"
@@ -41,7 +41,7 @@ def _registry():
     try:
         from vllm.v1.attention.backends.registry import AttentionBackendEnum, register_backend
     except ImportError:  # older vLLM layout
-        from vllm.attention.backends.registry import (  # type: ignore
+        from vllm.attention.backends.registry import (
             AttentionBackendEnum,
             register_backend,
         )

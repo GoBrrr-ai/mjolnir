@@ -4,6 +4,8 @@ headline-run selection the charts depend on — no GPU, no docker."""
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from mjolnir_cli.verify import legs, ncu, results, stages
@@ -38,6 +40,7 @@ def test_point_splits_decode_and_merge_and_counts_real_bytes():
     leg = legs.MJOLNIR  # e2m3: 6 bits/element
     kv_bytes = L * 4 * 256 * 2 * leg.kv_bits / 8
     pt = ncu.point(ncu.parse_summary(NCU_LOG), legs.MAIN["t5"], legs.MERGE["t5"], L, kv_bytes)
+    assert pt is not None
     assert pt["main_us"] == pytest.approx(640.5)
     assert pt["merge_us"] == pytest.approx(7.33)
     assert pt["total_us"] == pytest.approx(647.83)
@@ -75,8 +78,11 @@ def _doc(stage, run_id, default, series=None, **kw):
 def test_latest_prefers_default_runs(tmp_path):
     results.save(tmp_path, _doc("sweep", "20261010-100000", True))
     results.save(tmp_path, _doc("sweep", "20261010-110000", False))
-    assert results.latest(tmp_path, "sweep")["run_id"] == "20261010-100000"
-    assert results.latest(tmp_path, "sweep", default_only=False)["run_id"] == "20261010-110000"
+    latest_default = results.latest(tmp_path, "sweep")
+    latest_any = results.latest(tmp_path, "sweep", default_only=False)
+    assert latest_default and latest_any
+    assert latest_default["run_id"] == "20261010-100000"
+    assert latest_any["run_id"] == "20261010-110000"
     assert results.latest(tmp_path, "ring") is None
 
 
@@ -129,7 +135,7 @@ def test_raw_csv_with_text_only_columns_does_not_crash():
         '"0","decode","12.5","n/a"\n'
         '"1","decode","13.5","n/a"\n'
     )
-    mean, units, best_id = ncu.parse_raw_csv(text)
+    mean, _units, best_id = ncu.parse_raw_csv(text)
     # identical launches flip up to ~25% under replay: the fastest launch is
     # the reported snapshot, not the mean
     assert mean["gpu__time_duration.sum"] == 12500.0  # µs -> ns, fastest launch
@@ -164,8 +170,7 @@ def test_sweep_batch_and_q_len_reach_both_drivers(tmp_path):
 
 
 def test_sweep_rejects_fa2_for_batched_shapes(tmp_path):
-    from types import SimpleNamespace
-
-    ctx = SimpleNamespace(runner=SimpleNamespace(batch=1, q_len=1))
+    # the duck-typed stub stage_sweep raises on before it touches anything but .runner
+    ctx = cast(stages.Ctx, SimpleNamespace(runner=SimpleNamespace(batch=1, q_len=1)))
     with pytest.raises(ValueError, match="fa2"):
         stages.stage_sweep(ctx, legs="fi,fa2", batch=4, q_len=4)
