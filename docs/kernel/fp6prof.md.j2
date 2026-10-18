@@ -43,7 +43,7 @@ mjolnir verify fp6prof --variants "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-
 ## Ideas to try
 
 - **Tried:** a TMA box that keeps fp6 requests at 128 B (SW128 smem atoms, autoresearch run 1) — ~5% faster at 64K–256K, slower at short L; gated at ≥ 64K it is +1.7% overall. At long L e2m3 is already close to its byte ratio, so request size is not the main limit there.
-- **Tried:** TMA-warp block-table readahead (a rolling page window refilled N tiles ahead of the TMA issue; task/flashinfer-0.7.2-sm110-analysis.md E2a) — correct but no win: wall ratios move ±2–4% around zero at 16K–128K, and the `long_scoreboard` share does not drop. The stall is not the block table. The implementation is preserved in git history (`39fa326`) with its A/B in `benchmarks/raw/verify/ab/20261017-205053.json`.
+- **Tried:** TMA-warp block-table readahead (a rolling page window refilled N tiles ahead of the TMA issue; task/flashinfer-0.7.2-sm110-analysis.md E2a) — correct but no win: wall ratios move ±2–4% around zero at 16K–128K, and the `long_scoreboard` share does not drop. The stall is not the block table. The implementation and its A/B raw are preserved in git history (`39fa326`).
 - **Open:** the uniform ~10–15% shortfall vs the byte ratio at every L (the latency side of the whole kernel: L2 at 17–25% of peak, `long_scoreboard` the top stall); ring depth chosen per L at runtime. The ranked list with commands is [`research/program.md`]({{ root }}research/program.md).
 - **Not worth it:** unpacking fp6 in registers instead of the TMA — the nvfp4 convert warpgroup shows what a conversion pass costs (0.48–0.69× FlashInfer).
 
