@@ -1,0 +1,148 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "spec",
+ "run_id": "20261018-193000",
+ "ts": "2026-10-18T19:36:49+00:00",
+ "default": false,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "5c8517d",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "legs": "mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+  "drafts": "5",
+  "concurrency": "1 4",
+  "max_tokens": 256,
+  "long_words": 6000,
+  "prompts": 13,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "rows": [
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.32.0",
+   "k": 5,
+   "concurrency": 1,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 94.99,
+   "decode_tps": 38.97,
+   "agg_tps": 35.035,
+   "ttft_ms": 603.9,
+   "ttft_p50_ms": 286.9,
+   "ttft_list_ms": [
+    189.6,
+    198.1,
+    287.0,
+    289.5,
+    288.6,
+    287.9,
+    197.4,
+    197.2,
+    286.9,
+    286.8,
+    3271.0,
+    197.5,
+    1873.6
+   ],
+   "acceptance_length": 3.596,
+   "acceptance_rate": 0.5193,
+   "per_pos": [
+    0.816,
+    0.6331,
+    0.4946,
+    0.3766,
+    0.276
+   ],
+   "drafts": 924,
+   "preemptions": 0
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5",
+   "side": "mjolnir",
+   "config": "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.32.0",
+   "k": 5,
+   "concurrency": 4,
+   "requests": 13,
+   "errors": [],
+   "tokens": 3328,
+   "wall_s": 32.68,
+   "decode_tps": 33.771,
+   "agg_tps": 101.833,
+   "ttft_ms": 1433.1,
+   "ttft_p50_ms": 445.7,
+   "ttft_list_ms": [
+    3607.0,
+    3609.8,
+    3616.4,
+    3606.3,
+    440.5,
+    445.7,
+    437.7,
+    439.1,
+    445.7,
+    437.6,
+    440.5,
+    442.6,
+    661.2
+   ],
+   "acceptance_length": 3.63,
+   "acceptance_rate": 0.526,
+   "per_pos": [
+    0.8406,
+    0.6432,
+    0.4729,
+    0.3818,
+    0.2918
+   ],
+   "drafts": 922,
+   "preemptions": 0
+  }
+ ],
+ "cases": [
+  {
+   "label": "mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5",
+   "passed": true,
+   "log": "/home/narandill/.worktrees/mjolnir/feat-vllm-0.32.0/benchmarks/logs/verify-20261018-193000/spec/mjolnir-NVFP4_MJOLNIR_E2M3_LMH8_VT64K-k5.log"
+  }
+ ],
+ "summary": {
+  "NVFP4_MJOLNIR_E2M3_LMH8_VT64K c=1": {
+   "k": 5,
+   "decode_tps": 38.97,
+   "acceptance_length": 3.596
+  },
+  "NVFP4_MJOLNIR_E2M3_LMH8_VT64K c=4": {
+   "k": 5,
+   "decode_tps": 33.771,
+   "acceptance_length": 3.63
+  }
+ }
+}
