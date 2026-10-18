@@ -482,6 +482,10 @@ CASES: list[tuple[str, str, tuple[str, ...]]] = [
         "--descale per_tensor --pad_work_to 40",
         BOTH,
     ),
+    # E1 fused last-CTA merge (counter self-reset covered by the replay case)
+    ("fused merge e2m3 HND varlen", "@default --batches 2 --seqlen 16384 --varlen --fused_merge", FP8),
+    ("fused merge L=65536, replay x8", "@default --seqlen 65536 --fused_merge --iterations 8", FP8),
+    ("fused merge q_len=2 fp8 HND", "--batches 3 --seqlen 9000 --varlen --q_len 2 --kv_layout hnd --fused_merge", FP8),
 ]
 
 
@@ -501,6 +505,7 @@ QUICK_CASES = (
     "default: varlen 6x<=20000",
     "evict + PDL q_len=3 + pad",
     "non-causal q_len=8 (drafter block)",
+    "fused merge e2m3 HND varlen",
 )
 
 

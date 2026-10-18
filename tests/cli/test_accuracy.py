@@ -156,7 +156,7 @@ def test_baseline_is_per_model(tmp_path):
 def test_print_accuracy_compares_within_model(capsys):
     """The end-of-run table: a run with legs of two models never prints a delta
     across models."""
-    from mjolnir_cli import cli
+    from mjolnir_cli import cli_bench as cli
 
     q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
     doc = {
@@ -306,7 +306,7 @@ def test_averaged_trials_rescale_every_trial():
 
 
 def test_print_accuracy_marks_an_excluded_scenario(capsys):
-    from mjolnir_cli import cli
+    from mjolnir_cli import cli_bench as cli
 
     off, mj = _excluded_pair()
     cli._print_accuracy({"run_id": "r", "args": ["run"], "legs": [off, mj]})

@@ -47,7 +47,7 @@ def e2m3_values(device) -> torch.Tensor:
     """(64,) fp32: the value of every e2m3 code."""
     key = str(device)
     if key not in _LUTF:
-        from .t5_decode import minifloat_table
+        from .quant import minifloat_table
 
         _LUTF[key] = minifloat_table("e2m3").to(device)
     return _LUTF[key]
@@ -57,7 +57,7 @@ def e2m3_to_e4m3_lut(device) -> torch.Tensor:
     """(64,) uint8: e4m3fn byte of every e2m3 code (exact)."""
     key = str(device)
     if key not in _LUT:
-        from .t5_decode import minifloat_table
+        from .quant import minifloat_table
 
         vals = minifloat_table("e2m3")  # 64 float values, code order
         e4 = vals.to(torch.float8_e4m3fn)
@@ -303,7 +303,7 @@ def expand_pages_to_fp8(
 def quantize_rows_reference(x: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     """(..., h_k, d) float -> packed bytes (..., h_k, row_bytes(d)) uint8;
     scale per tensor, per KV head or (h_k, d) per channel."""
-    from .t5_decode import minifloat_quantize, pack_subbyte
+    from .quant import minifloat_quantize, pack_subbyte
 
     h_k, d = x.shape[-2], x.shape[-1]
     s = scale.float().cpu()
@@ -318,7 +318,7 @@ def quantize_rows_reference(x: torch.Tensor, scale: torch.Tensor) -> torch.Tenso
 
 def decode_rows_reference(packed: torch.Tensor, d: int) -> torch.Tensor:
     """packed (..., row_bytes) uint8 -> e2m3 code values (..., d) float."""
-    from .t5_decode import minifloat_table
+    from .quant import minifloat_table
 
     b = packed.to(torch.int64).cpu().reshape(*packed.shape[:-1], d // 4, 3)
     w = b[..., 0] | (b[..., 1] << 8) | (b[..., 2] << 16)

@@ -1,6 +1,6 @@
 # Full profiles per KV format
 
-> full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format · `mjolnir verify fp6prof` · run `20261012-213840`
+> full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format · `mjolnir verify fp6prof` · run `20261017-212447`
 
 ## The question
 
@@ -8,7 +8,7 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 
 ## How it is measured
 
-`ncu --set full` on 3 launches of the decode kernel per format and L (cold L2, base clocks). Recorded: kernel time, L2 sectors and requests read, throughput %, achieved occupancy, warp-stall reasons. The `.ncu-rep` files stay in the run's log directory for Nsight Compute's *Add Baseline* view.
+`ncu --set full` on 3 launches of the decode kernel per format and L (cold L2, base clocks). Reported: the **fastest launch's** metrics — time, stall mix and bytes from one self-consistent replay. Identical launches of this kernel flip up to ~25% in kernel time under replay (CTA-residency modes, at every L and format), so a mean over a few launches mixes the modes and invents per-L holes that wall clock does not show; the fastest launch is the one the wall-clock harness medians see. The `.ncu-rep` files stay in the run's log directory for Nsight Compute's *Add Baseline* view.
 
 ## Result
 
@@ -17,35 +17,35 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
   <img src="../../assets/benchmarks/fp6prof-bytes-vs-time.png" alt="Bytes vs time per KV format" width="100%">
 </picture>
 
-- `e2m3-hnd`: kernel time **0.89×** the baseline for 0.75× the bytes — 43% of the byte saving becomes speed (mean over L).
-- `e2m1-hnd`: kernel time **0.58×** the baseline for 0.50× the bytes — 84% of the byte saving becomes speed (mean over L).
+- `e2m3-hnd`: kernel time **0.90×** the baseline for 0.75× the bytes — 40% of the byte saving becomes speed (mean over L).
+- `e2m1-hnd`: kernel time **0.61×** the baseline for 0.50× the bytes — 78% of the byte saving becomes speed (mean over L).
 
 | L | variant | bits | kernel time | time ratio | L2 bytes ratio | ideal | bytes / L2 request | top stall (cycles/instr) |
 |---|---|--:|--:|--:|--:|--:|--:|---|
-| **128** | `fp8-hnd` | 8 | 14.1&nbsp;µs | 1.00 | 1.00 | 1.00 | 238 B | long_scoreboard 3.7 |
-| **128** | `e2m3-hnd` | 6 | 16.1&nbsp;µs | 1.14 | 0.88 | 0.75 | 143 B | long_scoreboard 3.4 |
-| **128** | `e2m1-hnd` | 4 | 14.6&nbsp;µs | 1.04 | 0.75 | 0.50 | 178 B | long_scoreboard 3.1 |
-| **4K** | `fp8-hnd` | 8 | 53.4&nbsp;µs | 1.00 | 1.00 | 1.00 | 135 B | long_scoreboard 14.9 |
-| **4K** | `e2m3-hnd` | 6 | 43.3&nbsp;µs | 0.81 | 0.77 | 0.75 | 69 B | long_scoreboard 14.2 |
-| **4K** | `e2m1-hnd` | 4 | 32.2&nbsp;µs | 0.60 | 0.53 | 0.50 | 72 B | long_scoreboard 7.3 |
-| **8K** | `fp8-hnd` | 8 | 93.1&nbsp;µs | 1.00 | 1.00 | 1.00 | 132 B | long_scoreboard 21.6 |
-| **8K** | `e2m3-hnd` | 6 | 75.6&nbsp;µs | 0.81 | 0.76 | 0.75 | 67 B | long_scoreboard 19.7 |
-| **8K** | `e2m1-hnd` | 4 | 48.9&nbsp;µs | 0.52 | 0.52 | 0.50 | 68 B | long_scoreboard 10.2 |
-| **16K** | `fp8-hnd` | 8 | 180.4&nbsp;µs | 1.00 | 1.00 | 1.00 | 130 B | long_scoreboard 30.3 |
-| **16K** | `e2m3-hnd` | 6 | 174.5&nbsp;µs | 0.97 | 0.76 | 0.75 | 66 B | long_scoreboard 30.8 |
-| **16K** | `e2m1-hnd` | 4 | 97.9&nbsp;µs | 0.54 | 0.51 | 0.50 | 66 B | long_scoreboard 13.4 |
-| **32K** | `fp8-hnd` | 8 | 389.3&nbsp;µs | 1.00 | 1.00 | 1.00 | 129 B | long_scoreboard 37.8 |
-| **32K** | `e2m3-hnd` | 6 | 391.9&nbsp;µs | 1.01 | 0.75 | 0.75 | 65 B | long_scoreboard 43.1 |
-| **32K** | `e2m1-hnd` | 4 | 188.6&nbsp;µs | 0.48 | 0.51 | 0.50 | 65 B | long_scoreboard 18.3 |
-| **64K** | `fp8-hnd` | 8 | 779.4&nbsp;µs | 1.00 | 1.00 | 1.00 | 129 B | long_scoreboard 43.2 |
-| **64K** | `e2m3-hnd` | 6 | 630.0&nbsp;µs | 0.81 | 0.75 | 0.75 | 64 B | long_scoreboard 41.0 |
-| **64K** | `e2m1-hnd` | 4 | 409.7&nbsp;µs | 0.53 | 0.50 | 0.50 | 65 B | long_scoreboard 21.4 |
-| **128K** | `fp8-hnd` | 8 | 1.48&nbsp;ms | 1.00 | 1.00 | 1.00 | 128 B | long_scoreboard 43.3 |
-| **128K** | `e2m3-hnd` | 6 | 1.21&nbsp;ms | 0.81 | 0.75 | 0.75 | 64 B | long_scoreboard 41.9 |
-| **128K** | `e2m1-hnd` | 4 | 697.7&nbsp;µs | 0.47 | 0.50 | 0.50 | 64 B | long_scoreboard 21.3 |
-| **256K** | `fp8-hnd` | 8 | 2.80&nbsp;ms | 1.00 | 1.00 | 1.00 | 128 B | long_scoreboard 46.3 |
-| **256K** | `e2m3-hnd` | 6 | 2.16&nbsp;ms | 0.77 | 0.75 | 0.75 | 64 B | long_scoreboard 38.4 |
-| **256K** | `e2m1-hnd` | 4 | 1.27&nbsp;ms | 0.45 | 0.50 | 0.50 | 64 B | long_scoreboard 21.4 |
+| **128** | `fp8-hnd` | 8 | 13.0&nbsp;µs | 1.00 | 1.00 | 1.00 | 239 B | long_scoreboard 3.7 |
+| **128** | `e2m3-hnd` | 6 | 13.9&nbsp;µs | 1.07 | 0.87 | 0.75 | 143 B | long_scoreboard 3.3 |
+| **128** | `e2m1-hnd` | 4 | 14.8&nbsp;µs | 1.14 | 0.74 | 0.50 | 178 B | long_scoreboard 3.0 |
+| **4K** | `fp8-hnd` | 8 | 50.7&nbsp;µs | 1.00 | 1.00 | 1.00 | 135 B | long_scoreboard 17.8 |
+| **4K** | `e2m3-hnd` | 6 | 43.9&nbsp;µs | 0.87 | 0.77 | 0.75 | 69 B | long_scoreboard 18.3 |
+| **4K** | `e2m1-hnd` | 4 | 30.0&nbsp;µs | 0.59 | 0.53 | 0.50 | 72 B | long_scoreboard 9.1 |
+| **8K** | `fp8-hnd` | 8 | 93.4&nbsp;µs | 1.00 | 1.00 | 1.00 | 132 B | long_scoreboard 15.4 |
+| **8K** | `e2m3-hnd` | 6 | 76.3&nbsp;µs | 0.82 | 0.76 | 0.75 | 67 B | long_scoreboard 26.9 |
+| **8K** | `e2m1-hnd` | 4 | 46.4&nbsp;µs | 0.50 | 0.52 | 0.50 | 68 B | long_scoreboard 12.5 |
+| **16K** | `fp8-hnd` | 8 | 167.3&nbsp;µs | 1.00 | 1.00 | 1.00 | 130 B | long_scoreboard 20.6 |
+| **16K** | `e2m3-hnd` | 6 | 155.2&nbsp;µs | 0.93 | 0.76 | 0.75 | 66 B | long_scoreboard 39.6 |
+| **16K** | `e2m1-hnd` | 4 | 84.4&nbsp;µs | 0.50 | 0.51 | 0.50 | 66 B | long_scoreboard 7.7 |
+| **32K** | `fp8-hnd` | 8 | 331.8&nbsp;µs | 1.00 | 1.00 | 1.00 | 129 B | long_scoreboard 21.1 |
+| **32K** | `e2m3-hnd` | 6 | 302.3&nbsp;µs | 0.91 | 0.75 | 0.75 | 65 B | long_scoreboard 20.1 |
+| **32K** | `e2m1-hnd` | 4 | 192.1&nbsp;µs | 0.58 | 0.51 | 0.50 | 65 B | long_scoreboard 10.3 |
+| **64K** | `fp8-hnd` | 8 | 642.3&nbsp;µs | 1.00 | 1.00 | 1.00 | 129 B | long_scoreboard 21.8 |
+| **64K** | `e2m3-hnd` | 6 | 533.0&nbsp;µs | 0.83 | 0.75 | 0.75 | 65 B | long_scoreboard 22.9 |
+| **64K** | `e2m1-hnd` | 4 | 341.2&nbsp;µs | 0.53 | 0.50 | 0.50 | 65 B | long_scoreboard 11.5 |
+| **128K** | `fp8-hnd` | 8 | 1.18&nbsp;ms | 1.00 | 1.00 | 1.00 | 128 B | long_scoreboard 23.6 |
+| **128K** | `e2m3-hnd` | 6 | 1.04&nbsp;ms | 0.88 | 0.75 | 0.75 | 64 B | long_scoreboard 19.8 |
+| **128K** | `e2m1-hnd` | 4 | 635.5&nbsp;µs | 0.54 | 0.50 | 0.50 | 64 B | long_scoreboard 10.8 |
+| **256K** | `fp8-hnd` | 8 | 2.36&nbsp;ms | 1.00 | 1.00 | 1.00 | 128 B | long_scoreboard 22.1 |
+| **256K** | `e2m3-hnd` | 6 | 2.12&nbsp;ms | 0.90 | 0.75 | 0.75 | 64 B | long_scoreboard 20.2 |
+| **256K** | `e2m1-hnd` | 4 | 1.19&nbsp;ms | 0.51 | 0.50 | 0.50 | 64 B | long_scoreboard 10.3 |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -55,7 +55,7 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261012-213840.json`](../../benchmarks/raw/verify/fp6prof/20261012-213840.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261017-212447.json`](../../benchmarks/raw/verify/fp6prof/20261017-212447.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
@@ -73,7 +73,8 @@ mjolnir verify fp6prof --variants "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-
 ## Ideas to try
 
 - **Tried:** a TMA box that keeps fp6 requests at 128 B (SW128 smem atoms, autoresearch run 1) — ~5% faster at 64K–256K, slower at short L; gated at ≥ 64K it is +1.7% overall. At long L e2m3 is already close to its byte ratio, so request size is not the main limit there.
-- **Open:** the 16K–32K range, where e2m3 is as slow as fp8 and its L2 throughput drops; the latency side of the whole kernel (L2 at 16–24% of peak, `long_scoreboard` the top stall — the TMA warp reads the block table on its critical path); ring depth chosen per L at runtime. The ranked list with commands is [`research/program.md`](../../research/program.md).
+- **Tried:** TMA-warp block-table readahead (a rolling page window refilled N tiles ahead of the TMA issue; task/flashinfer-0.7.2-sm110-analysis.md E2a) — correct but no win: wall ratios move ±2–4% around zero at 16K–128K, and the `long_scoreboard` share does not drop. The stall is not the block table. The implementation and its A/B raw are preserved in git history (`39fa326`).
+- **Open:** the uniform ~10–15% shortfall vs the byte ratio at every L (the latency side of the whole kernel: L2 at 17–25% of peak, `long_scoreboard` the top stall); ring depth chosen per L at runtime. The ranked list with commands is [`research/program.md`](../../research/program.md).
 - **Not worth it:** unpacking fp6 in registers instead of the TMA — the nvfp4 convert warpgroup shows what a conversion pass costs (0.48–0.69× FlashInfer).
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../.github/CONTRIBUTING.md).

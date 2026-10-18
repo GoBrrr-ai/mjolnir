@@ -23,6 +23,7 @@ import torch
 
 from . import qpack
 from . import t5_decode as t5
+from . import t5_plan as t5p
 
 FP8_MAX = 448.0
 _log = logging.getLogger("vllm.mjolnir")
@@ -234,7 +235,7 @@ class VariantKey:
 
 
 # KV formats the vLLM path serves: e4m3 bytes, or e2m3 codes packed 4 per 3
-# bytes (little-endian bitstream, mjolnir.t5_decode.pack_subbyte).
+# bytes (little-endian bitstream, mjolnir.quant.pack_subbyte).
 RUNNER_KV_FORMATS = {"fp8": 8, "e2m3": 6}
 
 
@@ -374,7 +375,7 @@ class T5DecodeRunner:
         assert 1 <= q_len <= self.max_q_len and num_seqs <= self.max_num_seqs
         lens = [int(x) + margin for x in seq_lens_cpu[:num_seqs]]
         cap = self._cap[q_len]
-        p = t5.plan_split_kv(
+        p = t5p.plan_split_kv(
             lens,
             self.h_k,
             self.n_tiles(q_len),
@@ -548,7 +549,7 @@ class T5DecodeRunner:
 
     def _launch(self, plan, q, o, k_cache, v_cache, qd, kd, vd, scale, compile_only=False):
         b, n_q = plan.num_seqs, plan.n_q
-        strides = t5.kernel_strides(q, o, k_cache, v_cache, qd, kd, vd, kv_bits=self.kv_bits)
+        strides = t5p.kernel_strides(q, o, k_cache, v_cache, qd, kd, vd, kv_bits=self.kv_bits)
         nqk = self.h_k * n_q
         args = (
             (b, self.h_k, n_q, self.d),

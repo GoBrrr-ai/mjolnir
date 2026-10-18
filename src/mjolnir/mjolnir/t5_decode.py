@@ -71,54 +71,39 @@ exit at once, so a fixed-size padded work list is CUDA-graph friendly.
 max_splits == 1 compiles the reduction out entirely.
 """
 
-import argparse
-import math
-import os
-from typing import Type, Tuple
-from functools import partial
-
-import torch
-
-import cuda.bindings.driver as cuda
+from typing import Type
 
 import cutlass
 import cutlass.cute as cute
-from cutlass.cute.nvgpu import tcgen05, OperandMajorMode
-import cutlass.utils as utils
 import cutlass.pipeline as pipeline
-import cutlass.torch as cutlass_torch
+import cutlass.utils as utils
 import cutlass.utils.blackwell_helpers as sm100_utils
-import cutlass.cute.testing as testing
-from cutlass.cute.runtime import from_dlpack
+from cutlass.cute.nvgpu import tcgen05
+
+from mjolnir.quant import NVFP4_GROUP, NVFP4_SHIFT
+from mjolnir.t5_call import _CallMixin
+from mjolnir.t5_const import (
+    FP8_P_SCALE,
+    _note,
+    cpy_dice,
+    exp2,
+    fadd2,
+    ffma2,
+    fmul2,
+    log2_e,
+    mma_dice,
+    mma_modes,
+    smem_fmax,
+    swizzle_align,
+    warp_fmax,
+    warp_threads,
+    warpgroup_threads,
+    warpgroup_warps,
+)
 from cutlass.cute.typing import *
 
 # Compile-time notes (stages, tmem use): printed by the standalone harness
 # (__main__), quiet inside vLLM unless MJOLNIR_ATTN_VERBOSE=1.
-VERBOSE = os.environ.get("MJOLNIR_ATTN_VERBOSE", os.environ.get("THOR_T5_VERBOSE", "")).strip() in ("1", "true", "yes")
-
-
-def _note(msg: str) -> None:
-    if VERBOSE:
-        print(msg)
-
-
-# Kernel invariants
-mma_modes = (0, 1, 2)
-mma_dice = (None, None, None)  # (MMA, #MMA_M, #MMA_K)
-cpy_dice = (None,) + mma_dice  # (CPY, #CPY_MMA, #CPY_M, #CPY_K)
-warp_threads = 32
-warpgroup_warps = 4
-warpgroup_threads = 128
-tile_s_rows = 128  # KV rows per tile (= GEMM1 M)
-
-# SW128 smem atoms repeat every 1024 B and both TMA and the UMMA descriptor
-# (base_offset = 0) assume the tile base is 1024-B aligned.
-swizzle_align = 1024
-
-# fp8 P is stored as e4m3(p * FP8_P_SCALE): p in [0, 1] then spans e4m3's
-# normal range instead of flushing small probabilities to subnormals / 0.
-# 1 / FP8_P_SCALE is folded into the output scale.
-FP8_P_SCALE = 448.0
 
 # KV cache formats (fp8-Q path). "fp8": e4m3 (default). Narrow formats read
 # DIRECTLY by tcgen05 kind::f8f6f4 (TMA unpacks the packed gmem bytes into
@@ -136,30 +121,9 @@ HARNESS_KV_LAYOUT = "hnd"
 # NVFP4 conversion computes e4m3(code * scale * 2^-3): with codes <= 6 and
 # e4m3 scales <= 448 the product stays <= 336 (< 448, no saturation). The
 # host folds the 2^3 back into the K/V descale.
-NVFP4_SHIFT = 0.125
-NVFP4_GROUP = 16
-
-# Math helpers
-log2_e = math.log2(math.e)  # change exponential base
-fadd2 = cute.arch.add_packed_f32x2
-fmul2 = cute.arch.mul_packed_f32x2
-ffma2 = cute.arch.fma_packed_f32x2
-exp2 = partial(cute.math.exp2, fastmath=True)
 
 
-def _warp_fmax_shfl(value, mask=0xFFFFFFFF):
-    """Warp-wide fmax via a butterfly shfl. ``warp_redux_sync(kind="fmax")``
-    emits ``redux.f32``, which ptxas rejects on sm_110a (redux is int-only)."""
-    for offset in (16, 8, 4, 2, 1):
-        value = cute.arch.fmax(value, cute.arch.shuffle_sync_bfly(value, offset=offset, mask=mask), nan=True)
-    return value
-
-
-warp_fmax = _warp_fmax_shfl
-smem_fmax = partial(cute.arch.atomic_fmax, sem="relaxed", scope="cta")
-
-
-class MixedInputFusedMultiHeadAttentionDecode:
+class MixedInputFusedMultiHeadAttentionDecode(_CallMixin):
     def __init__(
         self,
         headdim,
@@ -177,6 +141,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         kv_evict_first=False,  # TMA K/V loads with an L2 EVICT_FIRST cache policy
         kv_format="fp8",  # KV cache format, see KV_FORMATS
         causal=True,  # False: every query token sees all seq_len keys (parallel-drafter blocks)
+        fused_merge=False,  # E1: last CTA per (seq, q tile, kv head) merges the splits in-kernel
     ):
         self.causal = bool(causal)
         self.max_kv_stages = max_kv_stages
@@ -216,6 +181,10 @@ class MixedInputFusedMultiHeadAttentionDecode:
         assert grouped_head_tile in (8, 16, 32), "grouped_head_tile must be 8, 16 or 32"
         assert convert_warpgroups >= 0
         assert q_len >= 1 and max_splits >= 1
+        self.fused_merge = bool(fused_merge)
+        if self.fused_merge:
+            assert max_splits > 1, "fused_merge needs split capacity (max_splits > 1)"
+            assert hasattr(cute.arch, "atomic_add"), "fused_merge needs cute.arch.atomic_add"
         assert ctas_per_sm in (1, 2)
 
         warpgroup_id = 0
@@ -265,525 +234,11 @@ class MixedInputFusedMultiHeadAttentionDecode:
         self.sp_stages = 2
         self.o_stages = 1
 
-    def _kv_types(self, kv_dtype, mma_dtype):
-        """KV-format type plumbing, kept OUT of the traced __call__ (the DSL
-        rewrites if/else and ternaries there). Returns (NVFP4, NARROW,
-        MMA A-operand dtype, SMEM ring dtype, packed stages)."""
-        nvfp4 = self.kv_format == "nvfp4"
-        narrow = self.kv_format in ("e3m2", "e2m3", "e2m1")
-        if nvfp4:
-            assert kv_dtype is cutlass.Float4E2M1FN, kv_dtype
-            assert mma_dtype.width == 8, "nvfp4 KV needs fp8 Q"
-            return True, False, mma_dtype, mma_dtype, 2
-        if narrow:
-            assert kv_dtype.width < 8 and mma_dtype.width == 8, (kv_dtype, mma_dtype)
-            # A = K/V in fp6/fp4 (MMA reads them directly), SMEM 1-B containers
-            return False, True, kv_dtype, cutlass.Int8, 0
-        assert kv_dtype is cutlass.Float8E4M3FN, kv_dtype
-        return False, False, mma_dtype, kv_dtype, 0
+    ##############################################################################
+    # Host helpers (also what a vLLM backend would call)
+    ##############################################################################
 
-    def _default_kv_stages(self, stages_per_tile):
-        """(default ring depth, round smem-limited depths to whole tiles).
-        Plain Python (not traced). fp6 KV at 2 CTAs/SM, d=256 (4 stages per
-        tile): 2 stages. Depth is monotonic for fp6 at long L — 2 < 3 < 4 <
-        5 < 6 in ncu time; 2 beat 3 by 11-14% at 64K/128K/256K (verify ring
-        20261011-091005), after 3 had beaten 4 by 4-5% in two earlier A/Bs.
-        fp8 keeps the whole tile (4) until its own ring sweep says otherwise."""
-        if self.max_kv_stages > 0:
-            return self.max_kv_stages, False
-        if self.kv_format in ("e3m2", "e2m3") and self.ctas_per_sm == 2 and stages_per_tile == 4:
-            return 2, False
-        return stages_per_tile * (1 if self.ctas_per_sm == 2 else 2), True
-
-    def _kv_tx_dtype(self, kv_smem_dtype):
-        """Element type whose size TMA credits to the KV stage barrier: the
-        packed gmem type for the narrow formats, else the SMEM type."""
-        return {
-            "e3m2": cutlass.Float6E3M2FN,
-            "e2m3": cutlass.Float6E2M3FN,
-            "e2m1": cutlass.Float4E2M1FN,
-        }.get(self.kv_format, kv_smem_dtype)
-
-    def can_implement(self, num_seqs, heads_q, heads_k, headdim, q_dtype, kv_dtype):
-        want = {
-            "fp8": cutlass.Float8E4M3FN,
-            "e3m2": cutlass.Float6E3M2FN,
-            "e2m3": cutlass.Float6E2M3FN,
-            "e2m1": cutlass.Float4E2M1FN,
-            "nvfp4": cutlass.Float4E2M1FN,
-        }[self.kv_format]
-        if kv_dtype is not want:
-            raise testing.CantImplementError(f"kv_format {self.kv_format} needs KV dtype {want}, got {kv_dtype}")
-        if self.kv_format != "fp8" and q_dtype is not cutlass.Float8E4M3FN:
-            raise testing.CantImplementError(f"kv_format {self.kv_format} runs on the fp8-Q path only")
-        if q_dtype not in (cutlass.BFloat16, cutlass.Float8E4M3FN):
-            raise testing.CantImplementError("Q must be BFloat16 or Float8E4M3FN")
-        if headdim != self.headdim or headdim % 128 != 0:
-            raise testing.CantImplementError(f"headdim({headdim}) must be a multiple of 128")
-        if heads_q % heads_k != 0:
-            raise testing.CantImplementError(f"heads_q({heads_q}) must be a multiple of heads_k({heads_k})")
-        fp8 = q_dtype.width == 8
-        if fp8:
-            need_cvt = 1 if self.kv_format == "nvfp4" else 0
-            if self.convert_warpgroups != need_cvt:
-                raise testing.CantImplementError(
-                    f"fp8-Q path with kv_format {self.kv_format} needs convert_warpgroups={need_cvt}"
-                )
-            if self.grouped_head_tile % 16 != 0:
-                raise testing.CantImplementError("fully-fp8 mma needs grouped_head_tile % 16 == 0")
-        elif self.convert_warpgroups < 1:
-            raise testing.CantImplementError("bf16 Q path needs cvt warpgroups")
-
-    @cute.jit
-    def __call__(
-        self,
-        problem_shape: Tuple[
-            cutlass.Int32, cutlass.Int32, cutlass.Int32, cutlass.Int32
-        ],  # num_seqs, h_k, n_q (= q_len * h_r packed rows), d
-        max_blocks: cutlass.Int32,  # block_table row length
-        num_pages: cutlass.Int32,  # pages in the KV pool
-        num_work: cutlass.Int32,  # work items in the plan (grid.x)
-        strides: Tuple[
-            cutlass.Int32,
-            cutlass.Int32,  # q_seq, o_seq
-            cutlass.Int32,
-            cutlass.Int32,
-            cutlass.Int32,  # k_page, k_row, k_head
-            cutlass.Int32,
-            cutlass.Int32,
-            cutlass.Int32,  # v_page, v_row, v_head
-            cutlass.Int32,
-            cutlass.Int32,  # q_descale seq, head
-            cutlass.Int32,
-            cutlass.Int32,  # k_descale seq, head
-            cutlass.Int32,
-            cutlass.Int32,  # v_descale seq, head
-            cutlass.Int32,
-            cutlass.Int32,
-            cutlass.Int32,  # ks_page, ks_row, ks_head
-            cutlass.Int32,
-            cutlass.Int32,
-            cutlass.Int32,  # vs_page, vs_row, vs_head
-        ],  # element strides (of the KV element type); see STRIDE_FIELDS
-        q_iter: cute.Pointer,  # (b, h_k, n_q, d): rows d-contiguous, seq stride free
-        k_iter: cute.Pointer,  # pages x rows x heads x d, d contiguous, any other strides
-        v_iter: cute.Pointer,  # same for V (may alias K's buffer, e.g. interleaved)
-        ks_iter: cute.Pointer,  # nvfp4 only: K scales (e4m3, one per 16 d), else unused
-        vs_iter: cute.Pointer,  # nvfp4 only: V scales
-        block_table_iter: cute.Pointer,  # (b, max_blocks) int32
-        seq_lens_iter: cute.Pointer,  # (b,) int32
-        work_iter: cute.Pointer,  # (num_work, 4) int32: seq, tile_begin, tile_end, split
-        n_splits_iter: cute.Pointer,  # (b,) int32: chunks per sequence
-        q_descale_iter: cute.Pointer,  # fp32, indexed (seq, kv head) via strides
-        k_descale_iter: cute.Pointer,  # (stride 0, 0 = one per-tensor scale)
-        v_descale_iter: cute.Pointer,
-        o_iter: cute.Pointer,  # (b, h_k, n_q, d): rows d-contiguous, seq stride free
-        lse_iter: cute.Pointer,  # (b, h_k, n_q) fp32
-        o_partial_iter: cute.Pointer,  # (max_splits, b, h_k, n_q, d) fp32
-        m_partial_iter: cute.Pointer,  # (max_splits, b, h_k, n_q) fp32
-        l_partial_iter: cute.Pointer,  # (max_splits, b, h_k, n_q) fp32
-        scale_qs: cutlass.Float32,  # softmax scale (1/sqrt(d) by default)
-        scale_o: cutlass.Float32,
-        stream: cuda.CUstream,
-    ):
-        ##############################
-        # TiledMma creation
-        ##############################
-        mma_dtype = q_iter.dtype
-        kv_dtype = k_iter.dtype
-        acc_dtype = cutlass.Float32
-        NVFP4, NARROW, kv_mma_dtype, kv_smem_dtype, self.packed_stages = self._kv_types(kv_dtype, mma_dtype)
-        assert v_iter.dtype is kv_dtype
-        assert o_partial_iter.dtype is acc_dtype
-        assert m_partial_iter.dtype is acc_dtype
-        assert l_partial_iter.dtype is acc_dtype
-        assert lse_iter.dtype is acc_dtype
-
-        FP8 = mma_dtype.width == 8
-        if cutlass.const_expr(FP8):
-            assert self.convert_warpgroups == int(NVFP4)
-        else:
-            assert self.convert_warpgroups >= 1
-
-        PS = self.page_size
-        max_splits = self.max_splits
-
-        # Block tile sets the granularity at which threadblocks consume work
-        blk_tile_s = tile_s_rows
-        blk_tile_h = self.grouped_head_tile
-        blk_tile_d = self.headdim
-        blk_tile_shd = (blk_tile_s, blk_tile_h, blk_tile_d)
-
-        # MMA tile sets the granularity at which TMAs + MMAs are issued
-        mma_tile_m = 128
-        mma_tile_n = self.grouped_head_tile
-        mma_tile_k = 128
-        mma_tile_mnk = (mma_tile_m, mma_tile_n, mma_tile_k)
-
-        # A-operand source: fp8 reads K/V straight from the TMA'd SMEM ring;
-        # bf16 reads the cvt output from TMEM.
-        a_operand_source = tcgen05.OperandSource.SMEM if cutlass.const_expr(FP8) else tcgen05.OperandSource.TMEM
-
-        # GEMM1: S(s, n) = K(s, d) . Q(n, d) — A-operand K.
-        # Narrow formats: A = K/V in fp6/fp4, B = Q/P in e4m3 (kind::f8f6f4
-        # takes mixed A/B types). nvfp4 is converted to e4m3 before the MMA.
-        # (kv_mma_dtype / kv_smem_dtype come from self._kv_types)
-        tiled_mma_kq = sm100_utils.make_trivial_tiled_mma(
-            kv_mma_dtype,
-            mma_dtype,
-            OperandMajorMode.K,  # K
-            OperandMajorMode.K,  # Q
-            acc_dtype,
-            tcgen05.CtaGroup.ONE,
-            mma_tile_mnk[:2],
-            a_operand_source,
-        )
-
-        # GEMM2: O(d, n) = V(d, s) . P(s, n). V is headdim-major (MN-major)
-        # in SMEM on the fp8 path; on the bf16 path V comes from TMEM, which
-        # must be K-major. The a-major must match smem_layout_v's orientation.
-        v_major_mode = OperandMajorMode.MN if cutlass.const_expr(FP8) else OperandMajorMode.K
-        tiled_mma_vp = sm100_utils.make_trivial_tiled_mma(
-            kv_mma_dtype,
-            mma_dtype,
-            v_major_mode,
-            OperandMajorMode.MN,  # P
-            acc_dtype,
-            tcgen05.CtaGroup.ONE,
-            mma_tile_mnk[:2],
-            a_operand_source,
-        )
-
-        # Q stages
-        self.q_stages = blk_tile_d // mma_tile_k
-
-        # Perf heuristics
-        max_cvt_stages = 4 if self.grouped_head_tile == 32 else 8
-        # KV ring depth: a stage is freed only when the GEMM that read it
-        # completes, so loads for tile s+2 wait on GEMM2(s). Deeper rings let
-        # the loader run further ahead of the softmax/GEMM chain at long L.
-        # Default depth = a WHOLE number of KV tiles (one tile = tiles_dk K
-        # stages + tiles_dm V stages; 4 at d=256): 1 tile at 2 CTAs/SM, 2 at
-        # 1 CTA/SM. Measured on Thor (ncu, cold L2, d=256): 2/SM depth 4 beat
-        # 2, 3, 5, 6 at 8K/64K/256K, and 1/SM depth 8 beat 13. Ring depths
-        # that are not tile multiples rotate a tile's K/V across slots and
-        # stream worse on LPDDR5X; deeper is not better.
-        # Exception, fp6 KV (e3m2/e2m3) at 2/SM, d=256: shallower is faster —
-        # depth 2 beat 3 by 11-14% at 64K-256K, 3 beat 4 by 4-5%, 6 was worst
-        # — see _default_kv_stages.
-        stages_per_tile = (blk_tile_d // mma_tile_k) + (blk_tile_d // mma_tile_m)
-        # Plain ternaries, not if/else: the DSL stages if/else into regions
-        # whose bindings don't escape (NameError after the block).
-        max_kv_stages, round_to_tile = self._default_kv_stages(stages_per_tile)
-
-        # TMEM: S stages + O + (bf16 only) the cvt ring
-        tmem_alloc_cols = mma_tile_n * self.sp_stages
-        tmem_alloc_cols += mma_tile_n * self.o_stages * (blk_tile_d // mma_tile_m)
-        tmem_capacity = 512 // self.ctas_per_sm  # 512 cols per SM, split by CTAs
-        cvt_stage_cols = mma_tile_k * mma_dtype.width // 32
-        if cutlass.const_expr(FP8):
-            self.cvt_stages = 0
-        else:
-            self.cvt_stages = min((tmem_capacity - tmem_alloc_cols) // cvt_stage_cols, max_cvt_stages)
-        tmem_alloc_cols += self.cvt_stages * cvt_stage_cols
-        self.tmem_alloc_cols = 2 ** math.ceil(math.log2(tmem_alloc_cols))  # PO2
-        # A second co-resident CTA blocks in tcgen05.alloc if the first holds
-        # more than its share.
-        assert self.tmem_alloc_cols <= tmem_capacity
-
-        _note(f"\tcvt stages: {self.cvt_stages}")
-
-        # SMEM budget -> KV stages
-        mbarrier_reserved_bytes = 768
-        smem_alloc_bits = mbarrier_reserved_bytes * 8
-        smem_alloc_bits += mma_tile_n * acc_dtype.width  # colmax
-        smem_alloc_bits += mma_tile_n * warpgroup_warps * acc_dtype.width  # colsum
-        smem_alloc_bits += mma_tile_n * mma_tile_k * self.q_stages * mma_dtype.width  # Q
-        smem_alloc_bits += mma_tile_m * mma_tile_n * self.sp_stages * mma_dtype.width  # P
-        smem_alloc_bits += 3 * swizzle_align * 8  # worst-case padding: Q, KV, P
-        # nvfp4: packed e2m1 tiles (TMA -> convert warpgroup), one K + one V
-        # tile in flight; the e4m3 ring below is what the MMA reads
-        smem_alloc_bits += self.packed_stages * (blk_tile_s * blk_tile_d * 4 + 128 * 8)
-
-        # Thor (sm_110a): 228 KB smem per SM, 1 KB reserved per resident CTA,
-        # at most 227 KB (232448 B) per CTA. At 2 CTAs/SM each gets ~113 KB
-        # (6 KV stages instead of 8 — still 96 KB of KV in flight per CTA).
-        smem_capacity = min(232448, 233472 // self.ctas_per_sm - 1024)
-        # SMEM ring dtype (from self._kv_types): 1-byte containers for the
-        # narrow formats (TMA unpacks), e4m3 for fp8 and converted nvfp4
-        self.kv_stages = (smem_capacity * 8 - smem_alloc_bits) // (mma_tile_m * mma_tile_k * kv_smem_dtype.width)
-        self.kv_stages = min(self.kv_stages, max_kv_stages)
-        # smem-limited below the target: keep a whole number of tiles
-        self.kv_stages = (
-            self.kv_stages - self.kv_stages % stages_per_tile
-            if round_to_tile and self.kv_stages >= stages_per_tile
-            else self.kv_stages
-        )
-
-        _note(f"\tkv stages: {self.kv_stages}, kv format: {self.kv_format}, packed stages: {self.packed_stages}")
-        _note(f"\tpdl: {self.pdl}, l2 prefetch: {self.l2_prefetch} tiles ahead, kv evict_first: {self.kv_evict_first}")
-
-        ##############################
-        # Global tensors
-        ##############################
-        b, h_k, n_q, d = problem_shape
-        (
-            q_seq,
-            o_seq,
-            k_page,
-            k_row,
-            k_head,
-            v_page,
-            v_row,
-            v_head,
-            qd_seq,
-            qd_head,
-            kd_seq,
-            kd_head,
-            vd_seq,
-            vd_head,
-            ks_page,
-            ks_row,
-            ks_head,
-            vs_page,
-            vs_row,
-            vs_head,
-        ) = strides
-
-        # Q: (n_q, d, (h_k, b)). Rows of one sequence are packed (n_q, h_k)
-        # with d contiguous; the per-sequence stride is free so vLLM's
-        # fused-QKV `query` view is read in place (TMA strides only need
-        # 16-B multiples).
-        q = cute.make_tensor(
-            q_iter,
-            cute.make_layout((n_q, d, (h_k, b)), stride=(d, 1, (n_q * d, q_seq))),
-        )
-        # KV cache, any layout with d contiguous (vLLM NHD, the interleaved
-        # (blocks, heads, tokens, 2*d) layout, FlashInfer (blocks, 2, ...)):
-        #   K view: (PS, d, (h_k, num_pages))   — GEMM1 A-operand (M=s, K=d)
-        #   V view: (d, PS, (h_k, num_pages))   — GEMM2 A-operand (M=d, K=s)
-        # A page of one KV head is a (PS, d) block: page index and head
-        # together are the L-mode, so a page-table lookup is just a TMA
-        # coordinate.
-        k = cute.make_tensor(
-            k_iter,
-            cute.make_layout((PS, d, (h_k, num_pages)), stride=(k_row, 1, (k_head, k_page))),
-        )
-        v = cute.make_tensor(
-            v_iter,
-            cute.make_layout((d, PS, (h_k, num_pages)), stride=(1, v_row, (v_head, v_page))),
-        )
-        # nvfp4: packed K and V are both token-major (PS, d) blocks; scales are
-        # (PS, d/16) e4m3 per (head, page). Unused (dummy) on other formats.
-        v_tok = cute.make_tensor(
-            v_iter,
-            cute.make_layout((PS, d, (h_k, num_pages)), stride=(v_row, 1, (v_head, v_page))),
-        )
-        n_groups = d // NVFP4_GROUP
-        k_scales = cute.make_tensor(
-            ks_iter,
-            cute.make_layout((PS, n_groups, (h_k, num_pages)), stride=(ks_row, 1, (ks_head, ks_page))),
-        )
-        v_scales = cute.make_tensor(
-            vs_iter,
-            cute.make_layout((PS, n_groups, (h_k, num_pages)), stride=(vs_row, 1, (vs_head, vs_page))),
-        )
-        block_table = cute.make_tensor(
-            block_table_iter,
-            cute.make_layout((b, max_blocks), stride=(max_blocks, 1)),  # row-major
-        )
-        seq_lens = cute.make_tensor(seq_lens_iter, cute.make_layout((b,)))
-        work = cute.make_tensor(work_iter, cute.make_layout((num_work, 4), stride=(4, 1)))
-        n_splits = cute.make_tensor(n_splits_iter, cute.make_layout((b,)))
-        # Descales indexed by coord_hb = (kv head, seq); stride 0 broadcasts
-        # a per-tensor scale (vLLM layer._k_scale) with no copy.
-        q_descale = cute.make_tensor(q_descale_iter, cute.make_layout(((h_k, b),), stride=((qd_head, qd_seq),)))
-        k_descale = cute.make_tensor(k_descale_iter, cute.make_layout(((h_k, b),), stride=((kd_head, kd_seq),)))
-        v_descale = cute.make_tensor(v_descale_iter, cute.make_layout(((h_k, b),), stride=((vd_head, vd_seq),)))
-
-        o = cute.make_tensor(
-            o_iter,
-            cute.make_layout((d, n_q, (h_k, b)), stride=(1, d, (n_q * d, o_seq))),
-        )
-        lse = cute.make_tensor(
-            lse_iter,
-            cute.make_ordered_layout(shape=(n_q, (h_k, b)), order=(0, (1, 2))),
-        )
-        o_partial = cute.make_tensor(
-            o_partial_iter,
-            cute.make_ordered_layout(shape=(d, n_q, (h_k, b), max_splits), order=(0, 1, (2, 3), 4)),
-        )
-        m_partial = cute.make_tensor(
-            m_partial_iter,
-            cute.make_ordered_layout(shape=(n_q, (h_k, b), max_splits), order=(0, (1, 2), 3)),
-        )
-        l_partial = cute.make_tensor(
-            l_partial_iter,
-            cute.make_ordered_layout(shape=(n_q, (h_k, b), max_splits), order=(0, (1, 2), 3)),
-        )
-
-        ##############################
-        # SMEM layouts
-        ##############################
-        # (MMA, MMA_M/N, MMA_K, Stages)
-        smem_layout_q = sm100_utils.make_smem_layout_b(tiled_mma_kq, mma_tile_mnk, mma_dtype, self.q_stages)
-        smem_layout_k = sm100_utils.make_smem_layout_a(tiled_mma_kq, mma_tile_mnk, kv_smem_dtype, self.kv_stages)
-        smem_layout_v = sm100_utils.make_smem_layout_a(
-            tiled_mma_vp, mma_tile_mnk, kv_smem_dtype, self.kv_stages, is_k_major=False
-        )  # V is headdim-major (GEMM2 M-major) in gmem + smem
-
-        # O tile shape (used only to derive the TMEM O fragment / softmax
-        # partitions; the epilogue stores O from registers).
-        smem_layout_atom_o = tcgen05.make_smem_layout_atom(tcgen05.mma.SmemLayoutAtomKind.MN_SW128, acc_dtype)
-        smem_layout_o = cute.tile_to_shape(smem_layout_atom_o, (blk_tile_d, blk_tile_h), order=(1, 0))
-        smem_layout_o = cute.flat_divide(smem_layout_o, (mma_tile_m, mma_tile_n))
-
-        ##############################
-        # TMA atoms
-        ##############################
-        tma_load_op = cute.nvgpu.cpasync.CopyBulkTensorTileG2SOp()
-
-        tma_atom_q, tma_tensor_q = cute.nvgpu.make_tiled_tma_atom_B(
-            tma_load_op,
-            q,
-            cute.select(smem_layout_q, mma_modes),
-            mma_tile_mnk,
-            tiled_mma_kq,
-        )
-
-        if cutlass.const_expr(NVFP4):
-            # Packed e2m1 boxes of one page x the whole head dim, into a plain
-            # row-major (token, d) packed tile; the convert warpgroup reads it.
-            packed_box = cute.make_layout((PS, blk_tile_d), stride=(blk_tile_d, 1))
-            tma_atom_k, tma_tensor_k = cute.nvgpu.cpasync.make_tiled_tma_atom(
-                tma_load_op, k, packed_box, (PS, blk_tile_d)
-            )
-            tma_atom_v, tma_tensor_v = cute.nvgpu.cpasync.make_tiled_tma_atom(
-                tma_load_op, v_tok, packed_box, (PS, blk_tile_d)
-            )
-        elif cutlass.const_expr(PS == blk_tile_s):
-            # One page == one KV tile: the same full-stage TMA box as a dense
-            # KV tensor, indexed by (head, page) in the L-mode.
-            tma_atom_k, tma_tensor_k = cute.nvgpu.make_tiled_tma_atom_A(
-                tma_load_op,
-                k,
-                cute.select(smem_layout_k, mma_modes),
-                mma_tile_mnk,
-                tiled_mma_kq,
-                internal_type=kv_smem_dtype,
-            )
-            tma_atom_v, tma_tensor_v = cute.nvgpu.make_tiled_tma_atom_A(
-                tma_load_op,
-                v,
-                cute.select(smem_layout_v, mma_modes),
-                mma_tile_mnk,
-                tiled_mma_vp,
-                internal_type=kv_smem_dtype,
-            )
-        else:
-            # PS < 128: a KV tile spans 128 / PS pages, one TMA box per page.
-            # The MMA-partitioned stage (MMA, #MMA_M, #MMA_K) flattens colex
-            # to m + 128 * k, so (rows, cols) sub-boxes are relabeled with a
-            # (1, 128)-strided layout; the swizzle stays in the ComposedLayout.
-            k_box = cute.composition(
-                cute.select(smem_layout_k, mma_modes),
-                cute.make_layout((PS, mma_tile_k), stride=(1, mma_tile_m)),
-            )  # (s rows of one page, d)
-            v_box = cute.composition(
-                cute.select(smem_layout_v, mma_modes),
-                cute.make_layout((mma_tile_m, PS), stride=(1, mma_tile_m)),
-            )  # (d, s rows of one page)
-            tma_atom_k, tma_tensor_k = cute.nvgpu.cpasync.make_tiled_tma_atom(
-                tma_load_op, k, k_box, (PS, mma_tile_k), internal_type=kv_smem_dtype
-            )
-            tma_atom_v, tma_tensor_v = cute.nvgpu.cpasync.make_tiled_tma_atom(
-                tma_load_op, v, v_box, (mma_tile_m, PS), internal_type=kv_smem_dtype
-            )
-
-        ##############################
-        # Decode kernel launch
-        ##############################
-        scale_qs_log2_e = scale_qs * log2_e
-
-        n_tiles = cute.ceil_div(n_q, blk_tile_h)
-        grid = (num_work, n_tiles, h_k)  # one CTA per (work item, q tile, kv head)
-
-        self.decode(
-            blk_tile_shd,
-            mma_tile_mnk,
-            tiled_mma_kq,
-            tiled_mma_vp,
-            mma_dtype,
-            kv_smem_dtype,
-            smem_layout_q,
-            tma_atom_q,
-            tma_tensor_q,
-            smem_layout_k,
-            tma_atom_k,
-            tma_tensor_k,
-            smem_layout_v,
-            tma_atom_v,
-            tma_tensor_v,
-            smem_layout_o,
-            block_table,
-            seq_lens,
-            work,
-            n_splits,
-            q_descale,
-            k_descale,
-            v_descale,
-            k_scales,
-            v_scales,
-            o,
-            lse,
-            o_partial,
-            m_partial,
-            l_partial,
-            h_k,
-            n_q,
-            num_pages,
-            scale_qs,
-            scale_qs_log2_e,
-            scale_o,
-        ).launch(
-            grid=grid,
-            block=[self.threads_per_cta, 1, 1],
-            cluster=[1, 1, 1],
-            stream=stream,
-            min_blocks_per_mp=self.ctas_per_sm,  # caps regs/thread for 2 CTAs/SM
-            **self.launch_extra,
-        )
-
-        ##############################
-        # Split-KV reduction (merges only sequences the plan split)
-        ##############################
-        # Compiled out when the plan splits no sequence (every sequence wrote
-        # its final output in decode): saves a ~7 us no-op launch.
-        if cutlass.const_expr(max_splits > 1 and self.with_reduction):
-            h_q = h_k * n_q
-            o_r = cute.make_tensor(o_iter, cute.make_layout((d, h_q, b), stride=(1, d, o_seq)))
-            lse_r = cute.make_tensor(lse_iter, cute.make_layout((h_q, b)))
-            o_partial_r = cute.make_tensor(o_partial_iter, cute.make_layout((d, h_q, b, max_splits)))
-            m_partial_r = cute.make_tensor(m_partial_iter, cute.make_layout((h_q, b, max_splits)))
-            l_partial_r = cute.make_tensor(l_partial_iter, cute.make_layout((h_q, b, max_splits)))
-            d_per_blk = 128
-            d_blks = cute.ceil_div(d, d_per_blk)
-            self.reduction(
-                o_r,
-                lse_r,
-                o_partial_r,
-                m_partial_r,
-                l_partial_r,
-                n_splits,
-                scale_o,
-                self.pdl,
-            ).launch(
-                grid=[d_blks, h_q, b],
-                block=[d_per_blk, 1, 1],
-                cluster=[1, 1, 1],
-                stream=stream,
-                **self.launch_extra,
-            )
+    # ----------------------------------------------------------------------------
 
     @cute.kernel
     def decode(
@@ -828,6 +283,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         # Scalars
         h_k: cutlass.Int32,
         n_q: cutlass.Int32,
+        num_seqs: cutlass.Int32,
         num_pages: cutlass.Int32,
         scale_qs: cutlass.Float32,
         scale_qs_log2_e: cutlass.Float32,
@@ -855,6 +311,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         FP8 = cutlass.const_expr(mma_dtype.width == 8)
         NVFP4 = cutlass.const_expr(self.kv_format == "nvfp4")
         SINGLE_SPLIT = cutlass.const_expr(self.max_splits == 1)
+        MAX_SPLITS = self.max_splits  # plain int: loop bounds in the fused merge
         PS = self.page_size
         p_scale = FP8_P_SCALE if FP8 else 1.0
 
@@ -928,6 +385,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         s_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.sp_stages * 2)
         p_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.sp_stages * 2)
         o_pipeline_ptr = smem.allocate_array(cutlass.Int64, self.o_stages * 2)
+        merge_flag_ptr = smem.allocate_array(cutlass.Int32, 1)  # E1 last-CTA election flag
 
         # Named barriers
         softmax_nbar = pipeline.NamedBarrier(barrier_id=1, num_threads=warpgroup_threads)
@@ -1956,6 +1414,60 @@ class MixedInputFusedMultiHeadAttentionDecode:
                         if n_base + i < n_q:
                             mO_partial[d_idx, n_base + i, coord_hb, split_slot] = tSrO_dm[i] * part_scale
 
+                # E1 fused last-CTA merge: after every softmax thread issued its
+                # partial stores, one elected thread increments this group's
+                # counter (acq_rel, gpu scope: publishes the stores, acquires
+                # the other CTAs'); the last CTA combines all splits' partials
+                # for its rows and writes the final O + LSE itself — no
+                # reduction launch, one DRAM round trip (FlashInfer D128
+                # producer structure; the counter self-reset keeps it
+                # graph-safe, and the next grid's griddepcontrol_wait orders
+                # after this grid completes).
+                if cutlass.const_expr(self.fused_merge):
+                    softmax_nbar.arrive_and_wait()
+                    cnt_idx = num_seqs + (coord_hr * h_k + h_k_idx) * num_seqs + b_idx
+                    if warpgroup_tidx == 0:
+                        merge_flag_ptr[0] = 0
+                        old = cute.arch.atomic_add(
+                            mNSplits.iterator + mNSplits.layout(cnt_idx),
+                            cutlass.Int32(1),
+                            sem="acq_rel",
+                            scope="gpu",
+                        )
+                        if old == n_splits_seq - 1:
+                            merge_flag_ptr[0] = 1
+                            mNSplits[cnt_idx] = 0  # self-reset for the next launch
+                    softmax_nbar.arrive_and_wait()
+                    if merge_flag_ptr[0]:
+                        for i in cutlass.range_constexpr(cute.size(tSrO[cpy_dice + (0, 0)])):
+                            if n_base + i < n_q:
+                                m_max = -cutlass.Float32.inf
+                                for j in cutlass.range_constexpr(MAX_SPLITS):
+                                    if j < n_splits_seq:
+                                        m_max = cute.arch.fmax(m_max, mM_partial[n_base + i, coord_hb, j])
+                                l_acc = cutlass.Float32(0)
+                                o_acc = cute.make_rmem_tensor((tiles_dm,), cutlass.Float32)
+                                for dm in cutlass.range_constexpr(tiles_dm):
+                                    o_acc[dm] = cutlass.Float32(0)
+                                for j in cutlass.range_constexpr(MAX_SPLITS):
+                                    if j < n_splits_seq:
+                                        m_j = mM_partial[n_base + i, coord_hb, j]
+                                        w = cutlass.Float32(0)
+                                        if m_j != -cutlass.Float32.inf:
+                                            w = exp2(log2_e * (m_j - m_max))
+                                        l_acc += w * mL_partial[n_base + i, coord_hb, j]
+                                        for dm in cutlass.range_constexpr(tiles_dm):
+                                            d_idx = dm * mma_tile_m + warpgroup_tidx
+                                            o_acc[dm] += w * mO_partial[d_idx, n_base + i, coord_hb, j]
+                                inv_l_m = cutlass.Float32(0)
+                                if l_acc > cutlass.Float32(0):
+                                    inv_l_m = 1.0 / l_acc
+                                for dm in cutlass.range_constexpr(tiles_dm):
+                                    d_idx = dm * mma_tile_m + warpgroup_tidx
+                                    mO[d_idx, n_base + i, coord_hb] = mO.element_type(scale_o * o_acc[dm] * inv_l_m)
+                                if warpgroup_tidx == 0:
+                                    mLSE[n_base + i, coord_hb] = m_max + cute.math.log(l_acc, fastmath=False)
+
         return
 
     @staticmethod
@@ -2029,962 +1541,7 @@ class MixedInputFusedMultiHeadAttentionDecode:
         return
 
 
-##############################################################################
-# Host helpers (also what a vLLM backend would call)
-##############################################################################
+if __name__ == "__main__":  # the standalone harness lives in mjolnir.t5_harness
+    from mjolnir.t5_harness import main
 
-
-class SplitPlan:
-    """Host-side occupancy-pinned split-KV plan (see plan_split_kv)."""
-
-    def __init__(self, work, n_splits, chunk_tiles, slots):
-        self.work = work  # list of (seq, tile_begin, tile_end, split_slot)
-        self.n_splits = n_splits  # chunks per sequence
-        self.chunk_tiles = chunk_tiles  # tiles per chunk (last chunk may be short)
-        self.slots = slots  # work items that fit one wave
-
-    @property
-    def num_work(self):
-        return len(self.work)
-
-    def work_tensor(self, device="cpu"):
-        t = torch.tensor(self.work if self.work else [(0, 0, 0, 0)], dtype=torch.int32)
-        return t.reshape(-1, 4).contiguous().to(device)
-
-    def n_splits_tensor(self, device="cpu"):
-        return torch.tensor(self.n_splits, dtype=torch.int32).to(device)
-
-    def __repr__(self):
-        real = sum(1 for w in self.work if w[2] > w[1])
-        return (
-            f"SplitPlan(chunk={self.chunk_tiles} tiles, work={real}"
-            f"{f'+{self.num_work - real} pad' if self.num_work > real else ''}, "
-            f"slots/wave={self.slots}, max chunks/seq={max(self.n_splits)})"
-        )
-
-
-def plan_split_kv(
-    seq_lens,
-    heads_k,
-    n_q_tiles,
-    sm_count,
-    ctas_per_sm=1,
-    max_splits=16,
-    force_splits=0,
-    min_chunk_tiles=1,
-    pad_to=0,
-):
-    """Occupancy-pinned split-KV plan (the FlashInfer PrefillPlan / FlashDecoding
-    scheme), in units of 128-row KV tiles.
-
-    The grid is (work items, q tiles, kv heads), so one wave holds
-        slots = sm_count * ctas_per_sm // (heads_k * n_q_tiles)
-    work items. Pick the SMALLEST contiguous chunk size such that the total
-    number of chunks over all sequences fits in one wave; every sequence is
-    then cut into ceil(tiles / chunk) contiguous chunks. Long sequences get
-    more chunks, short ones fewer, so varlen batches balance, and each CTA
-    streams one contiguous KV range front to back.
-
-    If the batch alone already fills the wave, nothing is split (each
-    sequence is one work item, ordered longest first for the waves).
-    force_splits > 0 cuts every sequence into that many chunks instead.
-    pad_to > 0 pads the work list to a fixed length with empty items
-    (begin == end, they exit at once) — keeps the grid fixed for CUDA graphs.
-    """
-    tiles = [max(1, math.ceil(int(L) / tile_s_rows)) for L in seq_lens]
-    T = max(tiles)
-    slots = max(1, (sm_count * ctas_per_sm) // (heads_k * n_q_tiles))
-    lo = max(min_chunk_tiles, math.ceil(T / max_splits))  # cap chunks/seq
-    if force_splits > 0:
-        chunk = max(lo, math.ceil(T / force_splits))
-    elif len(tiles) >= slots or max_splits == 1:
-        chunk = T
-    else:
-        hi = T
-        while lo < hi:  # smallest chunk whose total work fits one wave
-            mid = (lo + hi) // 2
-            if sum(math.ceil(t / mid) for t in tiles) <= slots:
-                hi = mid
-            else:
-                lo = mid + 1
-        chunk = lo
-    work, n_splits = [], []
-    for b, t in enumerate(tiles):
-        k = math.ceil(t / chunk)
-        n_splits.append(k)
-        for j in range(k):
-            work.append((b, j * chunk, min((j + 1) * chunk, t), j))
-    work.sort(key=lambda w: -(w[2] - w[1]))  # longest first (stable)
-    if pad_to:
-        assert pad_to >= len(work), f"pad_to {pad_to} < {len(work)} work items"
-        work += [(0, 0, 0, 0)] * (pad_to - len(work))
-    assert max(n_splits) <= max_splits
-    return SplitPlan(work, n_splits, chunk, slots)
-
-
-STRIDE_FIELDS = (
-    "q_seq",
-    "o_seq",
-    "k_page",
-    "k_row",
-    "k_head",
-    "v_page",
-    "v_row",
-    "v_head",
-    "qd_seq",
-    "qd_head",
-    "kd_seq",
-    "kd_head",
-    "vd_seq",
-    "vd_head",
-    "ks_page",
-    "ks_row",
-    "ks_head",
-    "vs_page",
-    "vs_row",
-    "vs_head",
-)
-
-
-def _descale_strides(t, num_seqs, heads_k):
-    """(seq, head) element strides of a descale tensor: a 1-element tensor
-    is a per-tensor scale (0, 0); (h_k,) per head; (b, h_k) per seq+head."""
-    if t.numel() == 1:
-        return 0, 0
-    if t.dim() == 1 and t.shape[0] == heads_k:
-        return 0, t.stride(0)
-    assert t.dim() == 2 and t.shape[1] == heads_k, f"descale shape {tuple(t.shape)}"
-    return t.stride(0), t.stride(1)
-
-
-def _kv_elem_strides(t, kv_bits, name):
-    """(page, row, head) strides of a KV view in units of the KV ELEMENT.
-    8-bit formats: the view's own strides. Sub-byte formats (fp6 / fp4 /
-    nvfp4) are passed as uint8 BYTE views (pages, PS, h_k, d * bits / 8);
-    their byte strides are converted to element strides."""
-    assert t.stride(3) == 1, f"{name}: head dim must be contiguous"
-    byte_strides = [x * t.element_size() for x in t.stride()[:3]]
-    assert all(x % 16 == 0 for x in byte_strides), f"{name}: TMA needs 16-byte-multiple strides, got {byte_strides} B"
-    if kv_bits == 8:
-        return tuple(t.stride()[:3])
-    assert t.element_size() == 1, f"{name}: sub-byte KV must be a uint8 byte view"
-    assert all((x * 8) % kv_bits == 0 for x in byte_strides), (
-        f"{name}: byte strides {byte_strides} are not whole {kv_bits}-bit elements"
-    )
-    return tuple(x * 8 // kv_bits for x in byte_strides)
-
-
-def kernel_strides(q, o, k_cache, v_cache, q_descale, k_descale, v_descale, kv_bits=8, k_scales=None, v_scales=None):
-    """Element strides for the kernel's `strides` argument.
-
-    q, o      : (b, h_k, n_q, d) views (rows d-contiguous; seq stride free)
-    k/v_cache : (num_pages, page_size, h_k, d) LOGICAL views of any physical
-                layout with d contiguous (vLLM NHD, interleaved K|V, FlashInfer,
-                head-major HND); for sub-byte formats uint8 byte views with
-                last dim d * kv_bits / 8
-    *_descale : 1-element, (h_k,) or (b, h_k) fp32 tensors
-    k/v_scales: nvfp4 only, (num_pages, page_size, h_k, d / 16) e4m3 (uint8)
-    """
-    b, h_k, n_q, d = q.shape
-    for name, t in (("q", q), ("o", o)):
-        assert t.stride(3) == 1 and t.stride(2) == d and t.stride(1) == n_q * d, (
-            f"{name}: rows must be packed (n_q, h_k) with d contiguous, got {t.stride()}"
-        )
-    ks = (0, 0, 0)
-    vs = (0, 0, 0)
-    if k_scales is not None:
-        assert k_scales.stride(3) == 1 and v_scales.stride(3) == 1
-        ks = tuple(k_scales.stride()[:3])
-        vs = tuple(v_scales.stride()[:3])
-    vals = (
-        q.stride(0),
-        o.stride(0),
-        *_kv_elem_strides(k_cache, kv_bits, "k_cache"),
-        *_kv_elem_strides(v_cache, kv_bits, "v_cache"),
-        *_descale_strides(q_descale, b, h_k),
-        *_descale_strides(k_descale, b, h_k),
-        *_descale_strides(v_descale, b, h_k),
-        *ks,
-        *vs,
-    )
-    assert all(0 <= x < 2**31 for x in vals), f"stride out of int32 range: {vals}"
-    return tuple(int(x) for x in vals)
-
-
-# ----------------------------------------------------------------------------
-# Narrow KV formats: value tables, quantization and bit packing
-# ----------------------------------------------------------------------------
-_MINIFLOAT = {  # format: (exponent bits, mantissa bits, bias); no inf / nan
-    "e3m2": (3, 2, 3),
-    "e2m3": (2, 3, 1),
-    "e2m1": (2, 1, 1),
-}
-
-
-def minifloat_table(fmt):
-    """Values of every code of an fp6 / fp4 format (code = sign|exp|mant)."""
-    eb, mb, bias = _MINIFLOAT[fmt]
-    vals = []
-    for code in range(1 << (1 + eb + mb)):
-        sign = -1.0 if code >> (eb + mb) else 1.0
-        e = (code >> mb) & ((1 << eb) - 1)
-        m = code & ((1 << mb) - 1)
-        if e == 0:
-            v = (m / (1 << mb)) * 2.0 ** (1 - bias)
-        else:
-            v = (1 + m / (1 << mb)) * 2.0 ** (e - bias)
-        vals.append(sign * v)
-    return torch.tensor(vals, dtype=torch.float32)
-
-
-def minifloat_quantize(x, fmt):
-    """Round-to-nearest (saturating) codes of x in an fp6 / fp4 format.
-    Returns (codes uint8, decoded float values)."""
-    table = minifloat_table(fmt)
-    pos = table[: len(table) // 2]  # non-negative half, ascending
-    ax = x.abs().clamp(max=float(pos[-1]))
-    idx = torch.bucketize(ax, pos)  # first pos >= ax
-    lo = (idx - 1).clamp(min=0)
-    hi = idx.clamp(max=len(pos) - 1)
-    pick_lo = (ax - pos[lo]) <= (pos[hi] - ax)
-    mag = torch.where(pick_lo, lo, hi)
-    neg = (x < 0) & (pos[mag] > 0)
-    codes = (mag + neg.to(mag.dtype) * (len(table) // 2)).to(torch.uint8)
-    return codes, table[codes.long()]
-
-
-def pack_subbyte(codes, bits):
-    """Pack codes (..., d) into bytes (..., d * bits / 8): little-endian
-    bitstream, element i at bits [bits*i, bits*i + bits) (fp4: element 2i in
-    the low nibble)."""
-    c = codes.to(torch.int64)
-    d = c.shape[-1]
-    if bits == 8:
-        return codes.to(torch.uint8)
-    if bits == 4:
-        c = c.reshape(*c.shape[:-1], d // 2, 2)
-        return (c[..., 0] | (c[..., 1] << 4)).to(torch.uint8)
-    assert bits == 6 and d % 4 == 0
-    c = c.reshape(*c.shape[:-1], d // 4, 4)
-    w = c[..., 0] | (c[..., 1] << 6) | (c[..., 2] << 12) | (c[..., 3] << 18)
-    out = torch.stack([w & 0xFF, (w >> 8) & 0xFF, (w >> 16) & 0xFF], dim=-1)
-    return out.reshape(*c.shape[:-2], d // 4 * 3).to(torch.uint8)
-
-
-def nvfp4_quantize(x, group=NVFP4_GROUP):
-    """NVFP4: e2m1 codes, one e4m3 scale per `group` elements of the last dim
-    and one fp32 global scale. Returns (codes uint8, scales e4m3, global
-    scale, values the T5 kernel feeds its fp8 MMA, descale to pass).
-    Kernel value = e4m3(e2m1 * scale * 2^-3); descale = global * 2^3."""
-    *lead, d = x.shape
-    xg = x.reshape(*lead, d // group, group)
-    amax_g = xg.abs().amax(dim=-1)
-    gs = float(x.abs().amax().clamp(min=1e-12)) / (6.0 * 448.0)
-    sc = (amax_g / 6.0 / gs).clamp(max=448.0).to(torch.float8_e4m3fn)
-    scf = sc.float()
-    denom = (scf * gs).unsqueeze(-1)
-    q = torch.where(denom > 0, xg / denom.clamp(min=1e-30), torch.zeros_like(xg))
-    codes, _ = minifloat_quantize(q, "e2m1")
-    lut = minifloat_table("e2m1")
-    kern = (lut[codes.long()] * scf.unsqueeze(-1) * NVFP4_SHIFT).to(torch.float8_e4m3fn)
-    return (codes.reshape(*lead, d), sc, gs, kern.float().reshape(*lead, d), gs / NVFP4_SHIFT)
-
-
-def pack_q(q, num_seqs, q_len, heads_k):
-    """vLLM q (num_seqs * q_len, h_q, d) -> kernel q (b, h_k, q_len * h_r, d).
-    A free view for q_len == 1."""
-    _, h_q, d = q.shape
-    h_r = h_q // heads_k
-    if q_len == 1:
-        return q.view(num_seqs, heads_k, h_r, d)
-    return (
-        q.view(num_seqs, q_len, heads_k, h_r, d)
-        .permute(0, 2, 1, 3, 4)
-        .reshape(num_seqs, heads_k, q_len * h_r, d)
-        .contiguous()
-    )
-
-
-def unpack_o(o, num_seqs, q_len, heads_k):
-    """kernel o (b, h_k, q_len * h_r, d) -> vLLM (num_seqs * q_len, h_q, d)."""
-    b, h_k, n_q, d = o.shape
-    h_r = n_q // q_len
-    if q_len == 1:
-        return o.view(num_seqs, h_k * h_r, d)
-    return o.view(b, h_k, q_len, h_r, d).permute(0, 2, 1, 3, 4).reshape(b * q_len, h_k * h_r, d)
-
-
-def quantize_q_fp8(q, num_seqs, q_len, heads_k):
-    """Per-(seq, kv head) e4m3 quantization of q (num_seqs * q_len, h_q, d).
-    Returns (q_fp8 same shape, q_descale (num_seqs, h_k) fp32)."""
-    _, h_q, d = q.shape
-    h_r = h_q // heads_k
-    qg = q.float().view(num_seqs, q_len, heads_k, h_r, d)
-    amax = qg.abs().amax(dim=(1, 3, 4)).clamp(min=1e-6)  # (b, h_k)
-    q_descale = (amax / 448.0).contiguous()
-    q8 = (qg / q_descale[:, None, :, None, None]).to(torch.float8_e4m3fn)
-    return q8.view(num_seqs * q_len, h_q, d), q_descale
-
-
-def _to_cute(t, dtype=None):
-    """torch -> cute tensor; fp8 goes through a uint8 view (dlpack-safe)."""
-    if t.dtype == torch.float8_e4m3fn:
-        ct = from_dlpack(t.view(torch.uint8), assumed_align=16)
-        ct.element_type = cutlass.Float8E4M3FN
-        return ct
-    ct = from_dlpack(t, assumed_align=16)
-    if dtype is not None:
-        ct.element_type = dtype
-    return ct
-
-
-def emulate_decode(
-    q_packed,  # (b, h_k, n_q, d) float — the exact values the kernel reads
-    k_pool,  # (num_pages, PS, h_k, d) float
-    v_pool,
-    block_table,  # (b, max_blocks) int
-    seq_lens,  # (b,) int
-    q_descale,
-    k_descale,
-    v_descale,  # (b, h_k) float
-    scale_qs,
-    scale_o,
-    q_len,
-    chunk_tiles,
-    fp8,
-    causal=True,
-):
-    """Bit-faithful model of the kernel's arithmetic (contiguous chunk split, running
-    max, -inf guard, P rounding to e4m3(p * 448) or bf16, descale folding).
-    Also returns a plain fp32 attention for the fp8-vs-exact gap."""
-    b, h_k, n_q, d = q_packed.shape
-    PS = k_pool.shape[1]
-    h_r = n_q // q_len
-    p_scale = FP8_P_SCALE if fp8 else 1.0
-    o_emu = torch.zeros(b, h_k, n_q, d)
-    lse_emu = torch.zeros(b, h_k, n_q)
-    o_exact = torch.zeros(b, h_k, n_q, d)
-    for bi in range(b):
-        L = int(seq_lens[bi])
-        n_blk = math.ceil(L / PS)
-        pages = block_table[bi, :n_blk].long()
-        Kb = k_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)  # (h_k, L, d)
-        Vb = v_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)
-        S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
-        qi = torch.arange(n_q) // h_r
-        lim = L - q_len + qi if causal else torch.full((n_q,), L - 1)  # (n_q,) last key each row sees
-        masked = torch.arange(L)[None, :] > lim[:, None]  # (n_q, L)
-        S = S.masked_fill(masked[None], -math.inf)
-        qk = q_descale[bi] * k_descale[bi]  # (h_k,)
-        c = (scale_qs * log2_e * qk)[:, None]  # (h_k, 1)
-        cta_scale = (scale_qs * qk)[:, None]
-        vd = v_descale[bi][:, None, None]
-
-        tiles = math.ceil(L / tile_s_rows)
-        o_parts, m_parts, l_parts = [], [], []
-        n_chunks = math.ceil(tiles / chunk_tiles)
-        for j in range(n_chunks):  # contiguous chunks, as in the plan
-            m = torch.full((h_k, n_q), -math.inf)
-            l = torch.zeros(h_k, n_q)
-            o = torch.zeros(h_k, n_q, d)
-            for t in range(j * chunk_tiles, min((j + 1) * chunk_tiles, tiles)):
-                sl = slice(t * tile_s_rows, min((t + 1) * tile_s_rows, L))
-                St = S[:, :, sl]
-                m_new = torch.maximum(m, St.amax(dim=-1))
-                m_use = torch.where(m_new == -math.inf, torch.zeros_like(m_new), m_new)
-                p = torch.exp2((St - m_use[..., None]) * c[..., None])
-                corr = torch.exp2((m - m_use) * c)
-                l = l * corr + p.sum(dim=-1)
-                if fp8:
-                    pq = (p * p_scale).to(torch.float8_e4m3fn).float()
-                else:
-                    pq = p.to(torch.bfloat16).float()
-                o = o * corr[..., None] + torch.einsum("gnl,gld->gnd", pq, Vb[:, sl])
-                m = m_new
-            o_parts.append(o * vd / p_scale)
-            m_parts.append(m * cta_scale)
-            l_parts.append(l)
-        m_all = torch.stack(m_parts).amax(dim=0)
-        w = [torch.exp(mp - m_all) for mp in m_parts]
-        o_sum = sum(wi[..., None] * op for wi, op in zip(w, o_parts))
-        l_sum = sum(wi * lp for wi, lp in zip(w, l_parts))
-        o_emu[bi] = scale_o * o_sum / l_sum[..., None]
-        lse_emu[bi] = m_all + torch.log(l_sum)
-
-        # exact fp32 attention (no P rounding) for reference
-        P = torch.softmax(S * cta_scale[..., None], dim=-1)
-        o_exact[bi] = scale_o * torch.einsum("gnl,gld->gnd", P, Vb) * vd
-    return o_emu, lse_emu, o_exact
-
-
-def run(
-    batches: int = 1,
-    seqlen: int = 1024,
-    varlen: bool = False,
-    q_len: int = 1,
-    heads_q: int = 24,
-    heads_k: int = 4,
-    headdim: int = 256,
-    page_size: int = 128,
-    kv_splits: int = 0,
-    q_dtype: Type[cutlass.Numeric] = cutlass.BFloat16,
-    kv_dtype: Type[cutlass.Numeric] = cutlass.Float8E4M3FN,
-    tolerance: float = 0.05,
-    scale_s: float = 0.0,
-    scale_o: float = 1.0,
-    warmup_iterations: int = 0,
-    iterations: int = 0,
-    skip_ref_check: bool = False,
-    seed: int = 1111,
-    ctas_per_sm: int = 2,
-    no_l2_flush: bool = False,
-    kv_stages: int = 0,
-    contiguous_pages: bool = False,
-    max_splits: int = 16,
-    pad_work_to: int = 0,
-    kv_layout: str = "nhd",
-    strided_qo: bool = False,
-    descale: str = "per_seq_head",
-    pdl: bool = False,
-    l2_prefetch: int = 0,
-    kv_evict_first: int = -1,  # -1 auto: on for fp8 Q (vLLM default), off for bf16 Q
-    kv_format: str = "fp8",
-    kv_from_float: bool = False,
-    non_causal: bool = False,
-    **kwargs,
-):
-    if not torch.cuda.is_available():
-        raise RuntimeError("GPU is required to run this example!")
-    torch.manual_seed(seed)
-    dev = "cuda"
-
-    fp8 = q_dtype.width == 8
-    num_seqs = batches
-    if kv_evict_first < 0:
-        # matches the vLLM backend default: EVICT_FIRST wins on the fp8 path,
-        # but costs the bf16 path 4-18% at 32K-256K
-        kv_evict_first = 1 if fp8 else 0
-    h_r = heads_q // heads_k
-    n_q = q_len * h_r
-    PS = page_size
-
-    # Kernel config. Default 2 CTAs/SM (40-CTA one-wave plan for one
-    # sequence) with a one-tile KV ring: measured best on Thor. At 2 CTAs/SM
-    # the bf16 path uses a single cvt warpgroup so two CTAs fit the
-    # 64K-register file.
-    assert kv_format in KV_FORMATS
-    if kv_format != "fp8":
-        assert fp8, f"kv_format {kv_format} runs on the fp8-Q path (--q_dtype Float8E4M3FN)"
-        kv_dtype = {
-            "e3m2": cutlass.Float6E3M2FN,
-            "e2m3": cutlass.Float6E2M3FN,
-            "e2m1": cutlass.Float4E2M1FN,
-            "nvfp4": cutlass.Float4E2M1FN,
-        }[kv_format]
-    kv_bits = KV_FORMAT_BITS[kv_format]
-    from_float = kv_format != "fp8" or kv_from_float
-    if fp8:
-        convert_warpgroups = 1 if kv_format == "nvfp4" else 0
-    elif headdim > 128 and ctas_per_sm == 1:
-        convert_warpgroups = 2
-    else:
-        convert_warpgroups = 1
-    ght_base = 16 if fp8 else 8
-    # Rows per CTA tile: next power of two >= n_q (min 8 bf16 / 16 fp8, max 32;
-    # wider n_q is tiled across CTAs). TMEM ld/st widths must be powers of two.
-    grouped_head_tile = max(ght_base, min(32, 1 << max(0, (n_q - 1).bit_length())))
-    n_tiles = math.ceil(n_q / grouped_head_tile)
-
-    # Sequence lengths (include the q_len new tokens). A decode step always
-    # has at least the new token(s) in the cache, so L < q_len is clamped.
-    if seqlen < q_len:
-        print(f"\tseqlen {seqlen} < q_len {q_len}: using seqlen = {q_len}")
-        seqlen = q_len
-    if varlen:
-        seq_lens = torch.randint(q_len, seqlen + 1, (num_seqs,), dtype=torch.int32)
-        seq_lens[0] = seqlen  # keep the max for the split heuristic
-    else:
-        seq_lens = torch.full((num_seqs,), seqlen, dtype=torch.int32)
-    max_seqlen = int(seq_lens.max())
-
-    hw = cutlass.utils.HardwareInfo()
-    sm_count = hw.get_device_multiprocessor_count()
-    sm_count = 20 if sm_count <= 0 else sm_count  # Jetson AGX Thor: 20 SMs
-    # Occupancy-pinned split-KV plan (contiguous chunks, one wave).
-    plan = plan_split_kv(
-        seq_lens.tolist(),
-        heads_k,
-        n_tiles,
-        sm_count,
-        ctas_per_sm=ctas_per_sm,
-        max_splits=max_splits,
-        force_splits=kv_splits,
-        pad_to=pad_work_to,
-    )
-
-    print("Paged FMHA decode (sm_110) with:")
-    print(f"\tnum_seqs: {num_seqs}, max seqlen: {max_seqlen}, varlen: {varlen}")
-    print(f"\tseq_lens: {seq_lens.tolist()[:8]}{' ...' if num_seqs > 8 else ''}")
-    print(f"\tq_len: {q_len}, heads_q: {heads_q}, heads_k: {heads_k}, headdim: {headdim}")
-    grid_ctas = plan.num_work * heads_k * n_tiles
-    print(
-        f"\tpage_size: {PS}, sm_count: {sm_count}, ctas_per_sm: {ctas_per_sm}, "
-        f"grid: {grid_ctas} CTAs, pages: {'contiguous' if contiguous_pages else 'shuffled'}"
-    )
-    print(f"\tplan: {plan}")
-    print(f"\tq_dtype: {q_dtype}, kv_dtype: {kv_dtype}")
-
-    fmha = MixedInputFusedMultiHeadAttentionDecode(
-        headdim=headdim,
-        grouped_head_tile=grouped_head_tile,
-        convert_warpgroups=convert_warpgroups,
-        page_size=PS,
-        q_len=q_len,
-        max_splits=max_splits,
-        ctas_per_sm=ctas_per_sm,
-        max_kv_stages=kv_stages,
-        with_reduction=max(plan.n_splits) > 1,
-        pdl=pdl,
-        l2_prefetch=l2_prefetch,
-        kv_evict_first=bool(kv_evict_first),
-        kv_format=kv_format,
-        causal=not non_causal,
-    )
-    fmha.can_implement(num_seqs, heads_q, heads_k, headdim, q_dtype, kv_dtype)
-
-    if scale_s == 0.0:
-        scale_s = 1.0 / math.sqrt(headdim)
-
-    #
-    # Paged KV pool with a SHUFFLED page assignment; unreferenced pages are
-    # poisoned with e4m3 NaN so any stray read shows up in the output.
-    #
-    pages_per_seq = [math.ceil(int(L) / PS) for L in seq_lens]
-    max_blocks = max(pages_per_seq)
-    used_pages = sum(pages_per_seq)
-    num_pages = used_pages + max(4, used_pages // 4)
-    # Shuffled pages exercise the paging logic; contiguous pages (identity-
-    # ordered block table) match a freshly allocated cache and the FI driver.
-    perm = torch.arange(num_pages) if contiguous_pages else torch.randperm(num_pages)
-    block_table = torch.zeros(num_seqs, max_blocks, dtype=torch.int32)
-    cursor = 0
-    for bi, n_blk in enumerate(pages_per_seq):
-        block_table[bi, :n_blk] = perm[cursor : cursor + n_blk].to(torch.int32)
-        cursor += n_blk
-    unused = perm[cursor:]
-
-    # Descales: per (seq, kv head), per kv head, or one per-tensor scale
-    # (vLLM's layer._k_scale) — the kernel takes them via strides.
-    def make_descale():
-        if descale == "per_tensor":
-            return torch.rand(1) * 1.5 + 0.5
-        if descale == "per_head":
-            return torch.rand(heads_k) * 1.5 + 0.5
-        return torch.rand(num_seqs, heads_k) * 1.5 + 0.5
-
-    def expand_descale(t):  # logical (b, h_k) for the reference
-        t = t.float()
-        if t.numel() == 1:
-            return t.reshape(1, 1).expand(num_seqs, heads_k)
-        if t.dim() == 1:
-            return t.reshape(1, heads_k).expand(num_seqs, heads_k)
-        return t
-
-    row_bytes = headdim * kv_bits // 8
-
-    def kv_pool():
-        """-> (bytes (pages, PS, h_k, row_bytes) uint8, kernel values (float,
-        what the MMA multiplies), descale, nvfp4 scale bytes or None,
-        unquantized float pool or None). Unreferenced pages are poisoned:
-        e4m3 NaN for fp8, the largest code (and scale) otherwise."""
-        shape = (num_pages, PS, heads_k, headdim)
-        if not from_float:  # legacy fp8 test data: raw e4m3 values, random descales
-            x8 = (torch.randn(shape) * 2.0).to(torch.float8_e4m3fn)
-            xb = x8.view(torch.uint8).clone()
-            xb[unused] = 0x7F  # e4m3fn NaN
-            return xb, xb.view(torch.float8_e4m3fn).float(), make_descale(), None, None
-        x = torch.randn(shape)  # the "real" KV the cache quantizes
-        if kv_format == "nvfp4":
-            codes, sc, gs, vals, desc = nvfp4_quantize(x)
-            codes[unused] = 7  # +6.0
-            sc = sc.view(torch.uint8).clone()
-            sc[unused] = 0x7E  # e4m3 448
-            vals = vals.clone()
-            vals[unused] = float("nan")  # never read by the reference
-            return pack_subbyte(codes, 4), vals, torch.tensor([desc]), sc, x
-        amax = x.abs().amax(dim=(0, 1, 3)).clamp(min=1e-6)  # per kv head
-        if kv_format == "fp8":
-            kd = amax / 448.0
-            x8 = (x / kd.view(1, 1, -1, 1)).to(torch.float8_e4m3fn)
-            xb = x8.view(torch.uint8).clone()
-            xb[unused] = 0x7F
-            return xb, xb.view(torch.float8_e4m3fn).float(), kd, None, x
-        fmax = float(minifloat_table(kv_format).max())
-        kd = amax / fmax
-        codes, vals = minifloat_quantize(x / kd.view(1, 1, -1, 1), kv_format)
-        codes[unused] = (1 << (kv_bits - 1)) - 1  # largest positive code
-        return pack_subbyte(codes, kv_bits), vals, kd, None, x
-
-    k_bytes, k_pool, k_descale, k_sc, k_true = kv_pool()
-    v_bytes, v_pool, v_descale, v_sc, v_true = kv_pool()
-    if from_float:
-        print(
-            f"\tkv: format {kv_format} ({kv_bits} bit) quantized from float data; "
-            f"descale {'per-tensor (nvfp4 global)' if kv_format == 'nvfp4' else 'per kv head'}"
-            f" (--descale ignored)"
-        )
-
-    q_vllm = torch.randn(num_seqs * q_len, heads_q, headdim).to(torch.bfloat16)
-    if fp8:
-        q_in, q_descale = quantize_q_fp8(q_vllm, num_seqs, q_len, heads_k)
-    else:
-        q_in, q_descale = q_vllm, torch.ones(1)  # per-tensor 1.0
-    q_packed = pack_q(q_in, num_seqs, q_len, heads_k).contiguous()
-
-    # Device tensors. Q/O optionally live inside wider rows (like vLLM's
-    # fused-QKV `query` view); the KV cache optionally uses another vLLM
-    # physical layout — the kernel sees only strided logical views.
-    row = heads_k * n_q * headdim
-    pad = (2 * heads_k * headdim) if strided_qo else 0
-
-    def strided_rows(src_packed, dtype):
-        buf = torch.zeros(num_seqs, row + pad, dtype=dtype, device=dev)
-        view = buf[:, :row].view(num_seqs, heads_k, n_q, headdim)
-        if src_packed is not None:
-            if src_packed.dtype == torch.float8_e4m3fn:
-                view.view(torch.uint8).copy_(src_packed.view(torch.uint8).to(dev))
-            else:
-                view.copy_(src_packed.to(dev))
-        return view
-
-    q_d = strided_rows(q_packed, q_packed.dtype)
-    # KV bytes in the chosen physical layout; the kernel sees logical
-    # (pages, PS, h_k, row) views. fp8 views are retyped e4m3, sub-byte
-    # formats stay uint8 byte views (strides converted to elements).
-    rb = row_bytes
-    if kv_layout == "nhd":  # separate (pages, PS, h_k, row) K and V tensors
-        k_d, v_d = k_bytes.to(dev), v_bytes.to(dev)
-    elif kv_layout == "hnd":  # head-major: (pages, 2, h_k, PS, row)
-        buf = torch.empty(num_pages, 2, heads_k, PS, rb, dtype=torch.uint8, device=dev)
-        buf[:, 0] = k_bytes.permute(0, 2, 1, 3).to(dev)
-        buf[:, 1] = v_bytes.permute(0, 2, 1, 3).to(dev)
-        k_d, v_d = buf[:, 0].transpose(1, 2), buf[:, 1].transpose(1, 2)
-    elif kv_layout == "interleaved":  # vLLM main FA: (pages, h_k, PS, 2*row)
-        buf = torch.empty(num_pages, heads_k, PS, 2 * rb, dtype=torch.uint8, device=dev)
-        buf[..., :rb] = k_bytes.permute(0, 2, 1, 3).to(dev)
-        buf[..., rb:] = v_bytes.permute(0, 2, 1, 3).to(dev)
-        kv = buf.transpose(1, 2)  # (pages, PS, h_k, 2*row)
-        k_d, v_d = kv[..., :rb], kv[..., rb:]
-    elif kv_layout == "flashinfer":  # FlashInfer NHD: (pages, 2, PS, h_k, row)
-        buf = torch.empty(num_pages, 2, PS, heads_k, rb, dtype=torch.uint8, device=dev)
-        buf[:, 0] = k_bytes.to(dev)
-        buf[:, 1] = v_bytes.to(dev)
-        k_d, v_d = buf[:, 0], buf[:, 1]
-    else:
-        raise ValueError(f"unknown kv_layout {kv_layout}")
-    if kv_bits == 8:
-        k_d, v_d = k_d.view(torch.float8_e4m3fn), v_d.view(torch.float8_e4m3fn)
-    if kv_format == "nvfp4":
-        ks_d = k_sc.to(dev).view(torch.float8_e4m3fn)
-        vs_d = v_sc.to(dev).view(torch.float8_e4m3fn)
-    else:  # unused by the kernel; any valid e4m3 pointer
-        ks_d = vs_d = torch.zeros(1, 1, 1, NVFP4_GROUP, dtype=torch.uint8, device=dev).view(torch.float8_e4m3fn)
-    bt_d = block_table.to(dev)
-    sl_d = seq_lens.to(dev)
-    work_d = plan.work_tensor(dev)
-    ns_d = plan.n_splits_tensor(dev)
-    qd_d = q_descale.float().contiguous().to(dev)
-    kd_d = k_descale.float().contiguous().to(dev)
-    vd_d = v_descale.float().contiguous().to(dev)
-    o_d = strided_rows(None, torch.bfloat16)
-    strides = kernel_strides(
-        q_d,
-        o_d,
-        k_d,
-        v_d,
-        qd_d,
-        kd_d,
-        vd_d,
-        kv_bits=kv_bits,
-        k_scales=ks_d if kv_format == "nvfp4" else None,
-        v_scales=vs_d if kv_format == "nvfp4" else None,
-    )
-    print(
-        f"\tlayout: kv={kv_layout} strided_qo={strided_qo} descale={descale}; "
-        f"strides={dict(zip(STRIDE_FIELDS, strides))}"
-    )
-    lse_d = torch.empty(num_seqs, heads_k, n_q, dtype=torch.float32, device=dev)
-    # Workspace: deliberately NOT initialized (the kernel must not need it)
-    op_d = torch.full((max_splits, num_seqs, heads_k, n_q, headdim), float("nan"), device=dev)
-    mp_d = torch.full((max_splits, num_seqs, heads_k, n_q), float("nan"), device=dev)
-    lp_d = torch.full((max_splits, num_seqs, heads_k, n_q), float("nan"), device=dev)
-
-    def kv_ptr(t):
-        if kv_bits == 8:
-            return _to_cute(t).iterator
-        from cutlass.cute.runtime import make_ptr  # sub-byte element pointer
-
-        return make_ptr(kv_dtype, t.data_ptr(), cute.AddressSpace.gmem, assumed_align=32)
-
-    kv_ptrs = [kv_ptr(k_d), kv_ptr(v_d), _to_cute(ks_d).iterator, _to_cute(vs_d).iterator]
-    cts = [
-        _to_cute(q_d),
-        _to_cute(bt_d),
-        _to_cute(sl_d),
-        _to_cute(work_d),
-        _to_cute(ns_d),
-        _to_cute(qd_d),
-        _to_cute(kd_d),
-        _to_cute(vd_d),
-        _to_cute(o_d),
-        _to_cute(lse_d),
-        _to_cute(op_d),
-        _to_cute(mp_d),
-        _to_cute(lp_d),
-    ]
-    stream = cutlass_torch.default_stream()
-    args = (
-        (num_seqs, heads_k, n_q, headdim),
-        max_blocks,
-        num_pages,
-        max(1, plan.num_work),
-        strides,
-        cts[0].iterator,
-        *kv_ptrs,
-        *[t.iterator for t in cts[1:]],
-        scale_s,
-        scale_o,
-        stream,
-    )
-    compiled = cute.compile(fmha, *args, options="--opt-level 2")
-    print("Finished Compiling")
-
-    if not skip_ref_check:
-        compiled(*args)
-        torch.cuda.synchronize()
-        print("Verifying results...")
-        o_emu, lse_emu, o_exact = emulate_decode(
-            q_packed.float(),
-            k_pool.float(),
-            v_pool.float(),
-            block_table,
-            seq_lens,
-            expand_descale(q_descale.float()),
-            expand_descale(k_descale.float()),
-            expand_descale(v_descale.float()),
-            scale_s,
-            scale_o,
-            q_len,
-            plan.chunk_tiles,
-            fp8,
-            causal=not non_causal,
-        )
-        o_kern = o_d.float().cpu()
-        lse_kern = lse_d.cpu()
-        if from_float:
-            # what the cache format costs: kernel vs attention over the
-            # UNQUANTIZED float KV (same q, P rounding aside)
-            ones = torch.ones(num_seqs, heads_k)
-            _, _, o_true = emulate_decode(
-                q_packed.float(),
-                k_true,
-                v_true,
-                block_table,
-                seq_lens,
-                expand_descale(q_descale.float()),
-                ones,
-                ones,
-                scale_s,
-                scale_o,
-                q_len,
-                plan.chunk_tiles,
-                fp8,
-                causal=not non_causal,
-            )
-            d_true = (o_kern - o_true).abs()
-            rel = (d_true.norm() / o_true.norm().clamp(min=1e-12)).item()
-            print(
-                f"kv quantization error ({kv_format}): |kern-fp32 unquantized| "
-                f"max={d_true.max().item():.4g} mean={d_true.mean().item():.4g} "
-                f"rel_l2={rel:.4g}"
-            )
-        d_emu = (o_kern - o_emu).abs()
-        d_exact = (o_kern - o_exact).abs()
-        d_lse = (lse_kern - lse_emu).abs()
-        print(
-            f"check: |kern-emu| max={d_emu.max().item():.4g} mean={d_emu.mean().item():.4g}; "
-            f"|lse-emu| max={d_lse.max().item():.4g}; "
-            f"|kern-exact fp32| max={d_exact.max().item():.4g} "
-            f"(P rounding to {'e4m3' if fp8 else 'bf16'})"
-        )
-        if torch.isnan(o_kern).any():
-            raise AssertionError("NaN in output (stray read of a poisoned page?)")
-        torch.testing.assert_close(o_kern, o_emu, atol=tolerance, rtol=2e-2)
-        torch.testing.assert_close(lse_kern, lse_emu, atol=1e-2, rtol=1e-3)
-        # vLLM-layout round trip sanity
-        _ = unpack_o(o_d, num_seqs, q_len, heads_k)
-
-    exec_us = 0.0
-    if iterations > 0:
-        # Cold L2 (32 MiB on Thor): flush between timed launches, unless an
-        # external profiler controls the cache (ncu --cache-control all) —
-        # then the flush kernel is just noise in the profile.
-        flush = None
-        if not no_l2_flush:
-            flush = torch.empty(64 * 1024 * 1024, dtype=torch.uint8, device=dev)
-        for _ in range(warmup_iterations):
-            compiled(*args)
-        times = []
-        for _ in range(iterations):
-            if flush is not None:
-                flush.zero_()
-            start = torch.cuda.Event(enable_timing=True)
-            end = torch.cuda.Event(enable_timing=True)
-            start.record()
-            compiled(*args)
-            end.record()
-            end.synchronize()
-            times.append(start.elapsed_time(end) * 1000.0)
-        times.sort()
-        exec_us = times[len(times) // 2]
-        kv_bytes = int(seq_lens.sum()) * heads_k * headdim * 2  # K + V, 1 B each
-        io_bytes = q_d.numel() * q_d.element_size() + o_d.numel() * 2
-        gbps = (kv_bytes + io_bytes) / (exec_us * 1e-6) / 1e9
-        cache = "hot/unflushed L2" if flush is None else "cold L2"
-        if os.environ.get("CUDA_INJECTION64_PATH"):
-            # ncu / nsys inject a library and serialize + replay every launch:
-            # host-side event timing then measures the profiler, not the kernel.
-            print(
-                f"median {exec_us:.1f} us host-timed UNDER A PROFILER (includes "
-                f"replay/flush overhead) — use the profiler's gpu__time_duration"
-            )
-        else:
-            print(f"median {exec_us:.2f} us, {gbps:.3g} GB/s ({cache}, {kv_bytes + io_bytes} B of KV+Q+O)")
-
-    return exec_us
-
-
-if __name__ == "__main__":
-    VERBOSE = True  # the harness prints the kernel's compile-time notes
-    parser = argparse.ArgumentParser(description="Paged fp8 decode attention (sm_110).")
-    parser.add_argument("--batches", "--batch", "--b", "--num_seqs", type=int, default=1)
-    parser.add_argument(
-        "--seqlen", "--seqlen_k", "--s", type=int, default=1024, help="(max) kv sequence length incl. new tokens"
-    )
-    parser.add_argument("--varlen", action="store_true", help="random per-sequence lengths in [q_len, seqlen]")
-    parser.add_argument("--q_len", type=int, default=1, help="query tokens per sequence (spec decode)")
-    parser.add_argument("--heads_q", "--h_q", type=int, default=24)
-    parser.add_argument("--heads_k", "--h_k", type=int, default=4)
-    parser.add_argument("--headdim", "--d", type=int, default=256)
-    parser.add_argument("--page_size", type=int, default=128)
-    parser.add_argument(
-        "--ctas_per_sm",
-        type=int,
-        default=2,
-        choices=(1, 2),
-        help="co-resident CTAs per SM (2 = 40 CTAs/wave, measured best on Thor with the default ring depth)",
-    )
-    parser.add_argument(
-        "--kv_stages",
-        type=int,
-        default=0,
-        help="KV ring depth (0 = default: 1 KV tile at 2 CTAs/SM, 2 tiles at 1 CTA/SM)",
-    )
-    parser.add_argument(
-        "--contiguous_pages", action="store_true", help="identity-ordered block table (default: shuffled pages)"
-    )
-    parser.add_argument(
-        "--kv_splits",
-        "--splits",
-        type=int,
-        default=0,
-        help="force N contiguous chunks per sequence (0 = occupancy-pinned plan)",
-    )
-    parser.add_argument("--max_splits", type=int, default=16, help="partial-slot capacity per sequence (compile-time)")
-    parser.add_argument(
-        "--pad_work_to", type=int, default=0, help="pad the work list to N items (fixed grid, CUDA graphs)"
-    )
-    parser.add_argument(
-        "--kv_layout",
-        default=HARNESS_KV_LAYOUT,
-        choices=("nhd", "hnd", "interleaved", "flashinfer"),
-        help="physical KV cache layout (vLLM NHD, head-major HND "
-        "(pages, 2, h_k, PS, d), vLLM-main interleaved K|V, "
-        f"FlashInfer NHD); default {HARNESS_KV_LAYOUT}",
-    )
-    parser.add_argument(
-        "--kv_format",
-        default="auto",
-        choices=("auto",) + KV_FORMATS,
-        help="KV cache format (fp8-Q path for non-fp8): e4m3; fp6 "
-        "e3m2/e2m3 or fp4 e2m1 read directly by the MMA (per "
-        "kv-head descale); nvfp4 (e2m1 + e4m3 per-16 scales, "
-        "converted to e4m3 in-kernel); default auto = "
-        f"{HARNESS_KV_FORMAT_FP8Q} for fp8 Q, fp8 for bf16 Q",
-    )
-    parser.add_argument(
-        "--kv_from_float",
-        action="store_true",
-        help="fp8: quantize KV from float data with per-head "
-        "descales and report the quantization error (always "
-        "on for the other formats) — the accuracy A/B baseline",
-    )
-    parser.add_argument(
-        "--non_causal",
-        action="store_true",
-        help="every query token sees all seq_len keys (q_len > 1): the block attention of "
-        "parallel drafters (DSpark / DFlash)",
-    )
-    parser.add_argument(
-        "--strided_qo", action="store_true", help="Q/O rows inside wider rows (like vLLM's fused-QKV view)"
-    )
-    parser.add_argument(
-        "--pdl",
-        action="store_true",
-        help="programmatic dependent launch (decode waits on the previous "
-        "kernel, reduction launches early); time with --iterations/nsys, "
-        "ncu serializes kernels and hides the effect",
-    )
-    parser.add_argument(
-        "--l2_prefetch", type=int, default=0, help="TMA-prefetch K/V this many 128-row tiles ahead into L2 (0 = off)"
-    )
-    parser.add_argument(
-        "--kv_evict_first",
-        type=int,
-        nargs="?",
-        const=1,
-        default=-1,
-        choices=(-1, 0, 1),
-        help="TMA K/V loads with an L2 EVICT_FIRST cache policy; "
-        "default auto = on for fp8 Q, off for bf16 Q (the vLLM "
-        "defaults); 0/1 force it",
-    )
-    parser.add_argument(
-        "--descale",
-        default="per_seq_head",
-        choices=("per_seq_head", "per_head", "per_tensor"),
-        help="K/V descale granularity (vLLM default: per_tensor)",
-    )
-    parser.add_argument("--q_dtype", type=cutlass.dtype, default=cutlass.BFloat16)
-    parser.add_argument("--kv_dtype", type=cutlass.dtype, default=cutlass.Float8E4M3FN)
-    parser.add_argument("--tolerance", type=float, default=0.05, help="atol vs the bit-faithful emulation")
-    parser.add_argument("--scale_s", "--scale", type=float, default=0.0)
-    parser.add_argument("--scale_o", type=float, default=1.0)
-    parser.add_argument("--warmup_iterations", type=int, default=0)
-    parser.add_argument("--iterations", type=int, default=0)
-    parser.add_argument("--skip_ref_check", action="store_true")
-    parser.add_argument("--seed", type=int, default=1111)
-    parser.add_argument(
-        "--no_l2_flush",
-        action="store_true",
-        help="don't flush L2 between timed launches (use under ncu --cache-control all)",
-    )
-    # Accepted for old command lines; paging is always on now.
-    parser.add_argument("--paged", action="store_true", help=argparse.SUPPRESS)
-
-    kwargs = vars(parser.parse_args())
-    if kwargs["kv_format"] == "auto":  # sub-8-bit formats need fp8 Q
-        kwargs["kv_format"] = HARNESS_KV_FORMAT_FP8Q if kwargs["q_dtype"] is cutlass.Float8E4M3FN else "fp8"
-    run(**kwargs)
-
-    print("PASS")
+    main()

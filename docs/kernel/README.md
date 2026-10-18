@@ -2,7 +2,7 @@
 
 > How a paged fp8 decode-attention kernel was built for one GPU — the Jetson AGX Thor (`sm_110`, 20 SMs, 32 MiB L2, ~273 GB/s LPDDR5X) — and measured step by step against FlashInfer and FlashAttention 2. Every chart and table on these pages is rendered from raw results in [`benchmarks/raw/verify/`](../../benchmarks/raw/verify/) by `mjolnir plot --readme`; every chapter ends with the command that reproduces it.
 
-**Where it stands:** 1.24× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.00× FlashAttention 2, 94 / 94 correctness checks — run `20261012-202029`.
+**Where it stands:** 1.26× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.01× FlashAttention 2, 97 / 97 correctness checks — run `20261018-005613`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -62,14 +62,14 @@ flowchart LR
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261017-112344` |
-| 2 | [Headline L-sweep](sweep.md) | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L | ✅ run `20261012-202029` |
+| 1 | [Correctness matrix](correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261018-004609` |
+| 2 | [Headline L-sweep](sweep.md) | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L | ✅ run `20261018-005613` |
 | 3 | [Head-major pages](hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261012-203356` |
 | 4 | [KV layouts and formats](kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261012-203801` |
 | 5 | [KV format accuracy](quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261012-205732` |
 | 6 | [KV cache capacity](kv-cache-size.md) | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context | ✅ run `20261013-124353` |
 | 7 | [Speculative decoding](spec.md) | MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count | ✅ run `20261014-182829` |
-| 8 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261012-213840` |
+| 8 | [Full profiles per KV format](fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261017-212447` |
 | 9 | [KV ring depth](ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261012-210506` |
 | 10 | [L2 prefetch](prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261012-211441` |
 | 11 | [Programmatic dependent launch](pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ✅ run `20261012-212058` |

@@ -131,10 +131,21 @@ skipped with a hint — nothing blocks on a password.
 ## Repo layout
 
 - `src/mjolnir/` — **the kernel package** (`mjolnir-kernel`, import `mjolnir`):
-  - `mjolnir/t5_decode.py` — the CuTe-DSL kernel, split-KV merge, standalone
-    harness (`python -m mjolnir.t5_decode --help`) and `emulate_decode`, the
-    bit-faithful correctness reference. The single source of truth for the
-    kernel; `mjolnir verify` mounts it over the image's copy.
+  - `mjolnir/t5_decode.py` — the kernel class (`__init__` + the traced
+    `decode`/`reduction` kernels) and the host helpers a vLLM backend calls;
+    the single source of truth for the kernel; `mjolnir verify` mounts the
+    package over the image's copy. The traced kernel body cannot be split
+    further: extracting the warp-role `elif` arms into methods hits a CuTe-DSL
+    internal compiler error (2026-10-18) — revisit on a DSL bump.
+  - `mjolnir/t5_call.py` — `_CallMixin`: the host-side builder (`__call__`,
+    `_kv_types`, `can_implement`), traced at compile time.
+  - `mjolnir/t5_const.py` — shared kernel constants + the math helpers
+    (`exp2`, `fadd2`, `smem_fmax`, …); the leaf module (no intra-package deps).
+  - `mjolnir/t5_plan.py` — `plan_split_kv` / `SplitPlan` / `kernel_strides`
+    (what a vLLM backend calls for planning).
+  - `mjolnir/t5_harness.py` — the standalone harness (`emulate_decode`, the
+    benchmark driver, CLI; `python -m mjolnir.t5_decode --help` still works via
+    a shim) and `emulate_decode`, the bit-faithful correctness reference.
   - `mjolnir/runner.py` — plan buffers, compile cache, launch, KV views (no vLLM).
   - `mjolnir/backend.py` — the vLLM backend / builder / impl / metadata.
   - `mjolnir/__init__.py` — `register()` (the plugin entry point), `BACKEND_NAME`.
@@ -293,8 +304,13 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       their config dir (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
 - [ ] **fp6 byte-vs-time gap**: not the 64-byte L2 requests (SW128 tried: ~5% at
-      ≥64K only) — the kernel is latency-bound and e2m3 has a 16K–32K hole
-      (`docs/kernel/fp6prof.md`, ranked ideas in `research/program.md`).
+      ≥64K only) and **not the 16K–32K hole** — that was an ncu artifact
+      (identical launches flip ±25% under replay; fp6prof averaged 2–3 of them;
+      fixed 2026-10-17: fastest-launch snapshot, wall shows a flat 0.84–0.86×
+      fp8 at every L) and not the block table (E2a readahead: no win, impl in
+      git history `39fa326`). What remains is a uniform ~10–17% latency floor
+      vs the byte ratio at every L (`docs/kernel/fp6prof.md`, ranked ideas in
+      `research/program.md`).
 - [x] Fuse the split-KV merge into the last CTA per sequence — tried
       (autoresearch run 1): 0.56× at 4K; retired in favour of a cheaper merge.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
