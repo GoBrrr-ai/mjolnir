@@ -227,10 +227,12 @@ not hand-typed numbers.
 ### End to end
 `mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
 TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
-`mjolnir bench perf` (gated llama-benchy; `perf` and `ab` default to
-context depths 0–128K (`config.E2E_DEPTHS`), `e2e` to 0–32K (`e2e.MAX_CTX`: the
-README table, e2e charts and infographic stop there; the infographic takes the
-1-request cell with the highest decode gain), raw JSON + server log + a history row,
+`mjolnir bench perf` (gated llama-benchy; `perf` defaults to
+context depths 0–128K (`config.E2E_DEPTHS`), `ab` and `e2e` to 0–32K
+(`e2e.MAX_CTX`: the README table, e2e charts and infographic stop there; the
+infographic takes the
+1-request cell with the highest decode gain; pass `--depths` explicitly for
+deliberate deep-cell ab runs), raw JSON + server log + a history row,
 incl. `spec_stats`: MTP tokens per verify step and per-position acceptance from
 the server's counters — decode t/s = tokens/step ÷ step time, so compare it
 before blaming the kernel);
