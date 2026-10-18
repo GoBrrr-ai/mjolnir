@@ -9,8 +9,7 @@ All policy (limit, include globs, exempt globs, grandfathered ceilings) lives in
 entry); without it only current-state checks run and a stderr note says so. ``--fix``
 retires grandfathered entries parked at the limit (the pre-commit hook passes it).
 
-Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error.
-A clean run prints nothing.
+Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error. A clean run prints nothing.
 """
 
 from __future__ import annotations
@@ -26,11 +25,7 @@ from pathlib import Path
 
 TABLE = ("tool", "mjolnir", "file-length")
 
-# git's repo-location vars: git exports GIT_DIR (absolute) to hooks — in a
-# worktree the worktree gitdir — and GIT_INDEX_FILE on partial commits, which
-# would make `-C <dir> rev-parse --show-toplevel` resolve to <dir> itself
-# instead of discovering the repo upward, and `ls-files` read a staged-only
-# temp index. Drop them so every git call here sees the plain checkout.
+# git exports GIT_DIR (hooks) / GIT_INDEX_FILE (partial commits): scrub, else -C treats <dir> as the work tree.
 _GIT_LOC_VARS = frozenset(("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_CEILING_DIRECTORIES", "GIT_INDEX_FILE"))
 
 
