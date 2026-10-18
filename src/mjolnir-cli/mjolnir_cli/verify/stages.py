@@ -17,7 +17,8 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any
+from collections.abc import Callable
 
 from mjolnir_cli.verify import legs as L_
 from mjolnir_cli.legs import KERNEL, SMOKE_MODES
@@ -36,7 +37,7 @@ DEFAULT_ITERS = 50
 # on 16K alone. Was 7% while the GPU was shared with a live vLLM server.
 NOISE_PCT = 3.0
 
-_MEDIAN = re.compile(r"^median ([0-9.]+) us(?:, ([0-9.e+]+) GB/s)?", re.M)
+_MEDIAN = re.compile(r"^median ([0-9.]+) us(?:, ([0-9.e+]+) GB/s)?", re.MULTILINE)
 
 
 @dataclass
@@ -177,11 +178,12 @@ def _variant_stage(
 ) -> dict:
     ref_legs = L_.legs_from_ids(refs) if refs else []
     series = run_series(ctx, ref_legs + variants, stage)
-    doc = {"series": series, "params": {"variants": [(v.id, v.flags) for v in variants], "refs": refs}}
+    params: dict[str, Any] = {"variants": [(v.id, v.flags) for v in variants], "refs": refs}
+    doc = {"series": series, "params": params}
     if wall_iters:
         ctx.out("   wall clock (harness median, cold L2, b=1) — includes launch gaps")
         doc["rows"] = _wall_rows(ctx, variants, stage, wall_iters, wall_ls or ctx.ls)
-        doc["params"]["wall_iters"] = wall_iters
+        params["wall_iters"] = wall_iters
     return doc
 
 
@@ -295,7 +297,7 @@ def stage_quant(ctx: Ctx, formats: str = QUANT_FORMATS, batches: int = 2) -> dic
                     "L": L,
                     "rel_l2": rel,
                     "max_abs": float(mx.group(1)) if mx else None,
-                    "emulator_pass": bool(re.search(r"^PASS$", text, re.M)),
+                    "emulator_pass": bool(re.search(r"^PASS$", text, re.MULTILINE)),
                     "ok": rc == 0 and rel is not None,
                 }
             )
@@ -555,8 +557,8 @@ def stage_correctness(
             log = ctx.logdir / "correctness" / f"{len(cases) + 1:02d}-{dt}-{_slug(label)}.log"
             t0 = time.time()
             rc, text = ctx.runner.harness(log, dt, case_args(args), timeout=timeout)
-            ok = rc == 0 and bool(re.search(r"^PASS$", text, re.M))
-            check = re.search(r"^check: (.*?)(;|$)", text, re.M)
+            ok = rc == 0 and bool(re.search(r"^PASS$", text, re.MULTILINE))
+            check = re.search(r"^check: (.*?)(;|$)", text, re.MULTILINE)
             plan = re.search(r"plan: SplitPlan\((.*)\)", text)
             c = {
                 "label": label,
@@ -658,11 +660,11 @@ def stage_vllm(
         log = ctx.logdir / "vllm" / f"smoke-{mode}.log"
         rc = ctx.runner.tests(log, repo, f"python3 tests/smoke_vllm.py {args}", timeout, hf)
         text = log.read_text(errors="replace") if log.exists() else ""
-        ok = (rc == 0 and bool(re.search(r"^PASS$", text, re.M))) or ctx.runner.dry_run
+        ok = (rc == 0 and bool(re.search(r"^PASS$", text, re.MULTILINE))) or ctx.runner.dry_run
         cases.append({"label": f"smoke {mode}", "passed": ok, **parse_smoke(text), "log": str(log)})
         ctx.out(f" {'✅' if ok else '❌'} smoke {mode:<6}" + smoke_summary(cases[-1]))
         if not ok:
-            for line in re.findall(r"^  ❌ (.*)$", text, re.M)[:3]:
+            for line in re.findall(r"^  ❌ (.*)$", text, re.MULTILINE)[:3]:
                 ctx.out(f"      │ {line}")
     return {"cases": cases, "params": {"smoke_modes": smoke_modes, "model": model, "tokens": tokens}}
 

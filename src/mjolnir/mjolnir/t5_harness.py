@@ -8,7 +8,6 @@ vLLM backend calls stay there). Run as ``python -m mjolnir.t5_decode`` (shim) or
 import argparse
 import math
 import os
-from typing import Type
 
 import torch
 import cutlass
@@ -106,10 +105,7 @@ def emulate_decode(
                 p = torch.exp2((St - m_use[..., None]) * c[..., None])
                 corr = torch.exp2((m - m_use) * c)
                 l = l * corr + p.sum(dim=-1)
-                if fp8:
-                    pq = (p * p_scale).to(torch.float8_e4m3fn).float()
-                else:
-                    pq = p.to(torch.bfloat16).float()
+                pq = (p * p_scale).to(torch.float8_e4m3fn).float() if fp8 else p.to(torch.bfloat16).float()
                 o = o * corr[..., None] + torch.einsum("gnl,gld->gnd", pq, Vb[:, sl])
                 m = m_new
             o_parts.append(o * vd / p_scale)
@@ -117,8 +113,8 @@ def emulate_decode(
             l_parts.append(l)
         m_all = torch.stack(m_parts).amax(dim=0)
         w = [torch.exp(mp - m_all) for mp in m_parts]
-        o_sum = sum(wi[..., None] * op for wi, op in zip(w, o_parts))
-        l_sum = sum(wi * lp for wi, lp in zip(w, l_parts))
+        o_sum = sum(wi[..., None] * op for wi, op in zip(w, o_parts, strict=True))
+        l_sum = sum(wi * lp for wi, lp in zip(w, l_parts, strict=True))
         o_emu[bi] = scale_o * o_sum / l_sum[..., None]
         lse_emu[bi] = m_all + torch.log(l_sum)
 
@@ -138,8 +134,8 @@ def run(
     headdim: int = 256,
     page_size: int = 128,
     kv_splits: int = 0,
-    q_dtype: Type[cutlass.Numeric] = cutlass.BFloat16,
-    kv_dtype: Type[cutlass.Numeric] = cutlass.Float8E4M3FN,
+    q_dtype: type[cutlass.Numeric] = cutlass.BFloat16,
+    kv_dtype: type[cutlass.Numeric] = cutlass.Float8E4M3FN,
     tolerance: float = 0.05,
     scale_s: float = 0.0,
     scale_o: float = 1.0,
@@ -319,7 +315,7 @@ def run(
             return xb, xb.view(torch.float8_e4m3fn).float(), make_descale(), None, None
         x = torch.randn(shape)  # the "real" KV the cache quantizes
         if kv_format == "nvfp4":
-            codes, sc, gs, vals, desc = nvfp4_quantize(x)
+            codes, sc, _gs, vals, desc = nvfp4_quantize(x)
             codes[unused] = 7  # +6.0
             sc = sc.view(torch.uint8).clone()
             sc[unused] = 0x7E  # e4m3 448
@@ -425,7 +421,7 @@ def run(
     )
     print(
         f"\tlayout: kv={kv_layout} strided_qo={strided_qo} descale={descale}; "
-        f"strides={dict(zip(STRIDE_FIELDS, strides))}"
+        f"strides={dict(zip(STRIDE_FIELDS, strides, strict=True))}"
     )
     lse_d = torch.empty(num_seqs, heads_k, n_q, dtype=torch.float32, device=dev)
     # Workspace: deliberately NOT initialized (the kernel must not need it)
@@ -631,7 +627,7 @@ def main():
     parser.add_argument(
         "--kv_format",
         default="auto",
-        choices=("auto",) + KV_FORMATS,
+        choices=("auto", *KV_FORMATS),
         help="KV cache format (fp8-Q path for non-fp8): e4m3; fp6 "
         "e3m2/e2m3 or fp4 e2m1 read directly by the MMA (per "
         "kv-head descale); nvfp4 (e2m1 + e4m3 per-16 scales, "

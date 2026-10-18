@@ -172,7 +172,7 @@ def render_config(s: Settings, proxy_port: int | None = None) -> Path:
 # ── stack glue (the compose driver is mjolnir.stack) ───────────────────────
 
 
-def _port_of(env: dict[str]) -> int:
+def _port_of(env: dict[str, str]) -> int:
     try:
         return int(env.get("LITELLM_PORT", DEFAULT_PROXY_PORT))
     except ValueError:
@@ -192,10 +192,10 @@ def up(
             print(f"(rendered config: {cfg_path})")
         return {}
 
-    def health(env: dict[str]) -> str:
+    def health(env: dict[str, str]) -> str:
         return f"http://127.0.0.1:{_port_of(env)}/health/liveliness"
 
-    def banner(env: dict[str]) -> list[str]:
+    def banner(env: dict[str, str]) -> list[str]:
         p = _port_of(env)
         return [
             f"litellm proxy: http://127.0.0.1:{p} (master key: {env.get('LITELLM_MASTER_KEY', 'sk-1234')})",
@@ -224,7 +224,7 @@ def up(
             if "port is already allocated" in str(e)
             else ""
         )
-        raise LitellmError(str(e) + hint)
+        raise LitellmError(str(e) + hint) from e
     return 0
 
 

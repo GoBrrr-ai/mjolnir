@@ -142,5 +142,5 @@ def test_quick_correctness_covers_the_non_causal_drafter_block():
     from mjolnir_cli.verify import stages
 
     label = "non-causal q_len=8 (drafter block)"
-    args = dict((lab, a) for lab, a, _ in stages.CASES)[label]
+    args = {lab: a for lab, a, _ in stages.CASES}[label]
     assert label in stages.QUICK_CASES and "--non_causal" in args and "--headdim 128" in args

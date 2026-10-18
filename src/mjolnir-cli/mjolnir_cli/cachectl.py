@@ -16,6 +16,7 @@ hint) when it isn't — it never prompts and never fails a run.
 
 from __future__ import annotations
 
+import contextlib
 import getpass
 import os
 import re
@@ -119,10 +120,8 @@ def grant_drop_caches(assume_yes: bool = False) -> int:
         print(f"[mjolnir] installed {SUDOERS_DROPIN}", file=sys.stderr)
         return 0
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
 
 
 def prepare_bench() -> None:

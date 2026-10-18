@@ -22,6 +22,7 @@ Special tokens (EOS, the chat / think markers) are always included.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -116,10 +117,8 @@ def main(argv=None) -> int:
         return 1
     tok = llm.get_tokenizer()
     special = set(getattr(tok, "all_special_ids", []) or [])
-    try:
+    with contextlib.suppress(Exception):
         special |= set(tok.get_added_vocab().values())
-    except Exception:  # noqa: BLE001
-        pass
     vocab = len(tok)
     ranked = rank(counts, special, vocab)
     coverage = held_out_coverage(halves[0], halves[1], special, vocab)

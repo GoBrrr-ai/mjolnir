@@ -133,9 +133,7 @@ def _variant_table(doc: dict, ref_id: str = "fi") -> str:
             cells.append(f"**{c}**" if v and v == best_per_L.get(L) else c)
         g = results.geomean(sp.values())
         rows.append(
-            [f"`{s['label']}`", f"`{s['flags']}`" if s.get("flags") else "(default)"]
-            + cells
-            + [ratio_md(g) if g else "—"]
+            [f"`{s['label']}`", f"`{s['flags']}`" if s.get("flags") else "(default)", *cells, ratio_md(g) if g else "—"]
         )
     return _table(header, rows, ["---", "---"] + ["--:"] * (len(Ls) + 1))
 
@@ -252,7 +250,7 @@ def _correctness_table(doc: dict) -> str:
             else "KV formats"
             if re.search(r"e2m3|e3m2|e2m1|nvfp4|from float", lab)
             else "KV layouts / strides"
-            if re.search(r"interl|flashinfer|HND|strided|descale", lab, re.I)
+            if re.search(r"interl|flashinfer|HND|strided|descale", lab, re.IGNORECASE)
             else "launch options"
             if re.search(r"PDL|prefetch|evict", lab)
             else "scheduling / paging"
@@ -370,7 +368,7 @@ def _kvcache_table(doc: dict) -> str:
         names = {"load_gib": "model load", "weights_gib": "weights", "activation_gib": "activation peak",
                  "non_torch_gib": "non-torch"}  # fmt: skip
         head += [f"{names[k]} {color('GiB')}" for k in mem]
-        for r, line in zip(rows, out):
+        for r, line in zip(rows, out, strict=True):
             line += [f"{r[k]:.1f}" if r.get(k) else "—" for k in mem]
     return _table(head, out, ["---", "---"] + ["--:"] * (len(head) - 2))
 

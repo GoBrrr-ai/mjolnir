@@ -57,12 +57,12 @@ logger = logging.getLogger("vllm.mjolnir")  # under vLLM's handler
 try:
     from vllm.v1.attention.backends.registry import AttentionBackendEnum
 except ImportError:  # older layout
-    from vllm.attention.backends.registry import AttentionBackendEnum  # type: ignore
+    from vllm.attention.backends.registry import AttentionBackendEnum
 
 try:
     from vllm.v1.attention.backend import AttentionCGSupport
 except ImportError:
-    from vllm.v1.attention.backends.utils import AttentionCGSupport  # type: ignore
+    from vllm.v1.attention.backends.utils import AttentionCGSupport
 
 FP8_CACHE_DTYPES = ("fp8", "fp8_e4m3")
 FP6_CACHE_DTYPES = ("fp6_e2m3",)
@@ -718,13 +718,6 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         row = runner.kv_row_bytes
         if self._kv_layout is None:
             self._kv_layout = detect_kv_layout(kv_cache.shape, runner.h_k, runner.page_size, row)
-            # logger.info(
-            #     "Mjolnir: KV cache %s %s -> layout %s (%s)",
-            #     tuple(kv_cache.shape),
-            #     tuple(kv_cache.stride()),
-            #     self._kv_layout,
-            #     runner.kv_format,
-            # )
         return split_kv_cache(kv_cache, self._kv_layout, row)
 
     def _write_kv(self, layer, key, value, kv_cache, k_cache, v_cache, md):

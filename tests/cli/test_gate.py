@@ -25,13 +25,13 @@ def _prom_body(running: float, waiting: float) -> bytes:
 class _MetricsHandler(http.server.BaseHTTPRequestHandler):
     body: bytes = _prom_body(0.0, 0.0)
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(self.body)
 
-    def log_message(self, *args):  # silence
+    def log_message(self, format: str, *args: object) -> None:  # silence, matches the stdlib signature
         pass
 
 
@@ -81,7 +81,7 @@ def test_wait_for_idle_dirty_sample_resets_streak(metrics_server):
     sequence = iter([1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
 
     class Dynamic(_MetricsHandler):
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):
             _MetricsHandler.body = _prom_body(next(sequence, 0.0), 0.0)
             super().do_GET()
 
@@ -97,9 +97,11 @@ def test_wait_for_idle_times_out_when_busy(metrics_server):
 
 
 def test_clean_window_preflight_raises_when_endpoint_down():
-    with pytest.raises(PreflightError, match="unreachable"):
-        with CleanWindow("http://127.0.0.1:1/metrics", poll_s=0.01, timeout_s=1):
-            pass
+    with (
+        pytest.raises(PreflightError, match="unreachable"),
+        CleanWindow("http://127.0.0.1:1/metrics", poll_s=0.01, timeout_s=1),
+    ):
+        pass
 
 
 def test_clean_window_reports_clean_and_dirty(metrics_server):

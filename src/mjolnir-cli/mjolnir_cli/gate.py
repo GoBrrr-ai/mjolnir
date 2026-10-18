@@ -39,12 +39,12 @@ def server_load(metrics_url: str) -> tuple[float, float] | None:
     try:
         with urllib.request.urlopen(metrics_url, timeout=5) as r:
             text = r.read().decode()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - an unreadable endpoint is 'waiting', not an error # noqa: BLE001
         return None
     out: dict[str, float] = {}
     for line in text.splitlines():
         for key in (_RUNNING, _WAITING):
-            if line.startswith(key + "{") or line.startswith(key + " "):
+            if line.startswith((key + "{", key + " ")):
                 out[key.split(":", 1)[1]] = float(line.rsplit(" ", 1)[1])
     if "num_requests_running" not in out or "num_requests_waiting" not in out:
         return None
@@ -67,7 +67,7 @@ def server_counters(metrics_url: str) -> dict | None:
     try:
         with urllib.request.urlopen(metrics_url, timeout=5) as r:
             text = r.read().decode()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - an unreadable endpoint is 'waiting', not an error
         return None
     out: dict = {"per_pos": {}}
     for line in text.splitlines():
@@ -181,7 +181,7 @@ class CleanWindow:
         self.clean: bool | None = None
         self.dirty_samples: list = []
 
-    def __enter__(self) -> "CleanWindow":
+    def __enter__(self) -> CleanWindow:
         self._mon = _Monitor(self.metrics_url, self.poll_s)
         self._mon.start()
         time.sleep(self.poll_s)

@@ -187,8 +187,7 @@ def plan_split_kv(
     for b, t in enumerate(tiles):
         k = math.ceil(t / chunk)
         n_splits.append(k)
-        for j in range(k):
-            work.append((b, j * chunk, min((j + 1) * chunk, t), j))
+        work.extend((b, j * chunk, min((j + 1) * chunk, t), j) for j in range(k))
     work.sort(key=lambda w: -(w[2] - w[1]))  # longest first (stable)
     if pad_to:
         assert pad_to >= len(work), f"pad_to {pad_to} < {len(work)} work items"

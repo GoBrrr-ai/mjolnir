@@ -42,9 +42,9 @@ def L_label(L: int) -> str:
 
 def _plt():
     try:
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as e:  # pragma: no cover
         raise RuntimeError(
@@ -79,7 +79,7 @@ def _place_labels(ax, mode: Mode, items: list[tuple[float, float, str]], min_gap
     # re-center the stack on the data so nudges spread both ways
     shift = (sum(d[0] for d in disp) - sum(placed)) / len(placed)
     placed = [p + shift for p in placed]
-    for (yp, x, y, t), py in zip(disp, placed):
+    for (yp, x, y, t), py in zip(disp, placed, strict=True):
         ax.annotate(
             t,
             (x, y),
@@ -145,7 +145,7 @@ def _variant_matrix(doc: dict, ref_id: str = "fi") -> tuple[list[str], list[int]
         if s.get("kind") != "t5":
             continue
         pm = results.point_map(s)
-        rows.append([ref[L] / pm[L] if L in pm and pm[L] else None for L in Ls])
+        rows.append([ref[L] / pm[L] if pm.get(L) else None for L in Ls])
         labels.append(s["label"])
     return (labels, Ls, rows) if rows else None
 
@@ -228,7 +228,7 @@ def _save(fig, path: Path) -> Path:
 def multiple(gain_pct: float) -> str:
     """A gain of 100% or more as a multiple: +200% -> "3×", +150% -> "2.5×"."""
     m = f"{1 + gain_pct / 100:.1f}"
-    return f"{m[:-2] if m.endswith('.0') else m}×"
+    return f"{m.removesuffix('.0')}×"
 
 
 def _register_fonts() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Callable
+from collections.abc import Callable
 from itertools import groupby
 
 from mjolnir_cli import theme
@@ -32,7 +32,9 @@ def chart_kvcache(data: dict, mode: Mode):
     from mjolnir_cli.readme_tables import kvcache_label
 
     doc = data.get("kv-cache-size")
-    rows = [r for r in (doc or {}).get("rows", []) if r.get("kv_tokens")]
+    if not doc:
+        return None
+    rows = [r for r in doc.get("rows", []) if r.get("kv_tokens")]
     if not rows:
         return None
     pp, tg = doc.get("params", {}).get("e2e_pp", 2048), doc.get("params", {}).get("e2e_tg", 128)
@@ -40,7 +42,7 @@ def chart_kvcache(data: dict, mode: Mode):
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12.5, 4.8), gridspec_kw={"width_ratios": [1, 1.6]})
     theme.apply(fig, [ax0, ax1], mode)
     ys = list(range(len(rows)))[::-1]
-    for y, r in zip(ys, rows):
+    for y, r in zip(ys, rows, strict=True):
         sid = _kvcache_series(r)
         c = theme.color(mode, sid)
         hollow = not theme.filled(sid)
@@ -102,7 +104,9 @@ def chart_spec(data: dict, mode: Mode):
     from mjolnir_cli.readme_tables import spec_label
 
     doc = data.get("spec")
-    rows = [r for r in (doc or {}).get("rows", []) if r.get("decode_tps")]
+    if not doc:
+        return None
+    rows = [r for r in doc.get("rows", []) if r.get("decode_tps")]
     if not rows:
         return None
     concs = sorted({r["concurrency"] for r in rows})
@@ -113,7 +117,7 @@ def chart_spec(data: dict, mode: Mode):
     )
     axes = list(axes)
     theme.apply(fig, axes, mode)
-    for ax, conc in zip(axes, concs):
+    for ax, conc in zip(axes, concs, strict=False):  # axes has one extra panel (acceptance) past the concs
         for cfg in cfgs:
             pts = sorted((r["k"], r["decode_tps"]) for r in rows if r["config"] == cfg and r["concurrency"] == conc)
             if not pts:
@@ -221,10 +225,10 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
     axes = list(axes) if n > 1 else [axes]
     theme.apply(fig, axes, mode)
     ys = list(range(len(rows)))[::-1]
-    for ax, name in zip(axes, names):
+    for ax, name in zip(axes, names, strict=True):
         # each row's baseline score: its own model's baseline row
         bs = [(base["suites"].get(name) or {}).get("score") if base else None for base in bases]
-        vals = [(y, r, (r["suites"].get(name) or {}).get("score"), b) for y, r, b in zip(ys, rows, bs)]
+        vals = [(y, r, (r["suites"].get(name) or {}).get("score"), b) for y, r, b in zip(ys, rows, bs, strict=True)]
         got = [v for _, _, v, _ in vals if v is not None]
         if not got:
             ax.set_visible(False)
@@ -234,7 +238,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
         pad = max(4.0, (hi - lo) * 0.35)
         ax.set_xlim(max(0, lo - pad), min(100, hi + pad) + pad * 0.6)
         # one dashed mark per model, spanning its rows (latest_legs keeps them together)
-        for _, group in groupby(zip(ys, bs, bases), key=lambda t: id(t[2])):
+        for _, group in groupby(zip(ys, bs, bases, strict=True), key=lambda t: id(t[2])):
             span = list(group)
             if span[0][1] is not None:
                 ax.vlines(
@@ -246,7 +250,7 @@ def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
                     ls=(0, (4, 3)),
                     zorder=2,
                 )
-        for (y, r, v, b), base in zip(vals, bases):
+        for (y, r, v, b), base in zip(vals, bases, strict=True):
             if v is None:
                 continue
             sid = _accuracy_series(r)
@@ -297,10 +301,10 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     from mjolnir_cli import accuracy
 
     rows, bases, names = _accuracy_rows(layout)
-    pairs = [(r, b) for r, b in zip(rows, bases) if r.get("categories")]
+    pairs = [(r, b) for r, b in zip(rows, bases, strict=True) if r.get("categories")]
     if not pairs:
         return None
-    rows, bases = (list(t) for t in zip(*pairs))
+    rows, bases = (list(t) for t in zip(*pairs, strict=True))
     import numpy as np
     from matplotlib.colors import Normalize
 
@@ -340,9 +344,9 @@ def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
     ax.set_xticks(range(len(cats)))
     ax.set_xticklabels(cats, color=mode.text)
     ax.set_yticks(range(len(rows)))
-    marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases)]
+    marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases, strict=True)]
     ax.set_yticklabels(
-        [theme.wrap(r["label"] + (" ‡" if m else ""), 24) for r, m in zip(rows, marked)], color=mode.text
+        [theme.wrap(r["label"] + (" ‡" if m else ""), 24) for r, m in zip(rows, marked, strict=True)], color=mode.text
     )
     ax.set_xlabel("tool-call category (names: the table below)")
     theme.title(
@@ -497,7 +501,7 @@ def chart_autoresearch(rows: list[dict], mode: Mode):
             hx.axvline(j - 0.5, color=mode.panel, lw=2)
         for i in range(len(Ls) + 1):
             hx.axhline(i - 0.5, color=mode.panel, lw=2)
-        for j, r in enumerate(rows):  # L set aside: the FlashInfer reference jumped there
+        for r in rows:  # L set aside: the FlashInfer reference jumped there
             m = re.search(r"reference jumped: ([^)]*)\)", r.get("reason") or "")
             for lab in m.group(1).split(", ") if m else []:
                 if lab in [L_label(L) for L in Ls]:

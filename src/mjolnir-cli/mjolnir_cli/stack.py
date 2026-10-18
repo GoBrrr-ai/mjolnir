@@ -34,10 +34,11 @@ import shutil
 import subprocess
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import resource_path
+from mjolnir_cli.config import Settings, resource_path
 
 # envsubst-style variables: ${NAME} or bare $NAME
 VAR_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
@@ -170,12 +171,12 @@ def compose_ok() -> None:
         raise StackError("docker compose v2 plugin not found (needed: sudo apt install docker-compose-plugin)")
 
 
-def compose_argv(spec: StackSpec, extra: list[str], env: dict[str] | None = None) -> list[str]:
+def compose_argv(spec: StackSpec, extra: list[str], env: dict[str, str] | None = None) -> list[str]:
     """The full ``docker compose ...`` argv for one subcommand."""
     return [_docker(), "compose", "-f", str(spec.compose_file()), "-p", spec.project, *extra]
 
 
-def _run_compose(spec: StackSpec, extra: list[str], env: dict[str], **kw) -> subprocess.CompletedProcess:
+def _run_compose(spec: StackSpec, extra: list[str], env: dict[str, str], **kw) -> subprocess.CompletedProcess:
     compose_ok()
     return subprocess.run(compose_argv(spec, extra, env), env={**os.environ, **env}, **kw)
 
@@ -222,14 +223,14 @@ def probe(url: str, timeout_s: float = 5.0) -> str:
 
 def up(
     spec: StackSpec,
-    s: object,
-    prepare: object = None,
+    s: Settings,
+    prepare: Callable[[Settings], dict[str, str]] | None = None,
     *,
     wait: bool = True,
     wait_timeout_s: float | None = None,
     dry_run: bool = False,
-    health: object = None,
-    banner: object = None,
+    health: Callable[[dict[str, str]], str] | None = None,
+    banner: Callable[[dict[str, str]], list[str]] | None = None,
     compose_wait: bool = False,
 ) -> None:
     """Start the stack.

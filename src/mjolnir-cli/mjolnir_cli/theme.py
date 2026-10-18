@@ -115,16 +115,16 @@ def hatch(series_id: str) -> str | None:
 def line_kw(mode: Mode, series_id: str) -> dict:
     """2px line + >=8px marker; hollow markers carry a variant (same hue)."""
     c = color(mode, series_id)
-    return dict(
-        color=c,
-        lw=2.0,
-        marker=marker(series_id),
-        ms=8,
-        mfc=c if filled(series_id) else mode.panel,
-        mec=c,
-        mew=2.0,
-        zorder=5,
-    )
+    return {
+        "color": c,
+        "lw": 2.0,
+        "marker": marker(series_id),
+        "ms": 8,
+        "mfc": c if filled(series_id) else mode.panel,
+        "mec": c,
+        "mew": 2.0,
+        "zorder": 5,
+    }
 
 
 def diverging_cmap(mode: Mode):
@@ -260,7 +260,7 @@ def wrap(text: str, width: int = 24) -> str:
 
     parts = re.split(r"( · | \+ )", text)
     lines, cur = [], parts[0]
-    for sep, word in zip(parts[1::2], parts[2::2]):
+    for sep, word in zip(parts[1::2], parts[2::2], strict=False):
         if len(cur) + len(sep) + len(word) <= width:
             cur += sep + word
         else:
@@ -271,11 +271,10 @@ def wrap(text: str, width: int = 24) -> str:
 
 
 def legend(ax, mode: Mode, **kw):
-    leg = ax.legend(
+    return ax.legend(
         facecolor=mode.panel,
         edgecolor=mode.grid,
         labelcolor=mode.text,
         framealpha=1.0,
         **{"fontsize": 10, **kw},
     )
-    return leg

@@ -112,8 +112,7 @@ def cases_summary(doc: dict) -> str:
     if not bad:
         return f"[bold green]✅ all {len(cs)} checks passed[/bold green]"
     lines = [f"[bold red]❌ {len(bad)} failed[/bold red], [green]{len(cs) - len(bad)} passed[/green]"]
-    for c in bad:
-        lines.append(f"   [red]❌ {c.get('q', '')} {c['label']}[/red]  [dim]{c.get('log', '')}[/dim]")
+    lines.extend(f"   [red]❌ {c.get('q', '')} {c['label']}[/red]  [dim]{c.get('log', '')}[/dim]" for c in bad)
     return "\n".join(lines)
 
 

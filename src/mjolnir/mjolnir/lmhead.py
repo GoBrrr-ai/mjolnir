@@ -188,9 +188,13 @@ def _self_test(w: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor) -> float:
 def _is_tied(lm_head, model) -> bool:
     ptr = lm_head.weight.data_ptr()
     for name, mod in model.named_modules():
-        if mod is not lm_head and name.endswith("embed_tokens") and hasattr(mod, "weight"):
-            if mod.weight.data_ptr() == ptr:
-                return True
+        if (
+            mod is not lm_head
+            and name.endswith("embed_tokens")
+            and hasattr(mod, "weight")
+            and mod.weight.data_ptr() == ptr
+        ):
+            return True
     return False
 
 
@@ -607,7 +611,10 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
 
     def get_top_tokens(hidden_states, *args, **kwargs):
         h = hidden_states.reshape(-1, hidden_states.shape[-1])
-        top = torch.cat([head(h[r0 : r0 + ROW_CHUNK]).argmax(dim=-1) for r0 in range(0, max(1, h.shape[0]), ROW_CHUNK)])
+        tops = []
+        for r0 in range(0, max(1, h.shape[0]), ROW_CHUNK):
+            tops.append(head(h[r0 : r0 + ROW_CHUNK]).argmax(dim=-1))  # noqa: PERF401 — a comprehension's implicit scope re-widens `head` (conditionally defined)
+        top = torch.cat(tops)
         return idx[top].reshape(hidden_states.shape[:-1])
 
     draft_model.compute_logits = compute_logits

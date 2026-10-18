@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from mjolnir_cli import charts_base, charts_e2e, charts_serving
 from mjolnir_cli import theme
 from mjolnir_cli.config import RepoLayout
 from mjolnir_cli.theme import Mode
-from mjolnir_cli.charts_e2e import E2E_CHARTS  # noqa: F401
-from mjolnir_cli.charts_serving import ACCURACY_CHARTS  # noqa: F401
+from mjolnir_cli.charts_e2e import E2E_CHARTS
+from mjolnir_cli.charts_serving import ACCURACY_CHARTS
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import NOISE_PCT
 
@@ -240,9 +240,9 @@ def chart_tradeoff(data: dict, mode: Mode):
     m = _variant_matrix(kv)
     if not m:
         return None
-    labels, Ls, rows = m
+    labels, _Ls, rows = m
     speed = {}
-    for lab, r in zip(labels, rows):
+    for lab, r in zip(labels, rows, strict=True):
         g = results.geomean([v for v in r if v])
         if g:
             speed[lab] = g
@@ -308,12 +308,12 @@ def chart_quant(data: dict, mode: Mode):
     fig, ax = plt.subplots(figsize=(12.5, 4.8))
     theme.apply(fig, ax, mode)
     means = [sum(by[f]) / len(by[f]) for f in order]
-    lo = [m - min(by[f]) for f, m in zip(order, means)]
-    hi = [max(by[f]) - m for f, m in zip(order, means)]
+    lo = [m - min(by[f]) for f, m in zip(order, means, strict=True)]
+    hi = [max(by[f]) - m for f, m in zip(order, means, strict=True)]
     x = range(len(order))
     ax.bar(x, means, width=0.55, color=mode.mjolnir, zorder=3)
     ax.errorbar(x, means, yerr=[lo, hi], fmt="none", ecolor=mode.text_dim, elinewidth=1.4, capsize=5, zorder=4)
-    for i, (f, mval) in enumerate(zip(order, means)):
+    for i, (_f, mval) in enumerate(zip(order, means, strict=True)):
         ax.text(
             i, mval + hi[i], f"{mval:.3f}", ha="center", va="bottom", color=mode.text, fontsize=10, fontweight="bold"
         )
@@ -344,7 +344,7 @@ def chart_pdl(data: dict, mode: Mode):
     axes = list(axes[0])
     theme.apply(fig, axes, mode)
     lim = max(10.0, max(abs(r["delta_pct"]) for r in rows) * 1.25)
-    for ax, b in zip(axes, batches):
+    for ax, b in zip(axes, batches, strict=True):
         rs = sorted((r for r in rows if r["batches"] == b), key=lambda r: r["L"])
         x = range(len(rs))
         ax.axhspan(-NOISE * 100, NOISE * 100, color=mode.grid, zorder=1, lw=0)
@@ -395,7 +395,7 @@ def chart_fp6prof(data: dict, mode: Mode):
     axes = list(axes[0])
     theme.apply(fig, axes, mode)
     Ls = sorted(by_L)
-    for ax, lab in zip(axes, others):
+    for ax, lab in zip(axes, others, strict=True):
         t_r, s_r, ideal = [], [], None
         for L in Ls:
             b, p = by_L[L].get(base), by_L[L].get(lab)
@@ -423,7 +423,7 @@ def chart_fp6prof(data: dict, mode: Mode):
                 fontsize=9.5,
                 ha="left",
                 va="bottom",
-                bbox=dict(facecolor=mode.panel, edgecolor="none", pad=1.5),
+                bbox={"facecolor": mode.panel, "edgecolor": "none", "pad": 1.5},
             )
         ax.set_xticks(x)
         ax.set_xticklabels([L_label(L) for L in Ls])
@@ -524,14 +524,14 @@ def render_all(layout: RepoLayout, data: dict | None = None) -> dict[str, dict]:
     if hero is not None:
         manifest["hero"] = {
             "stage": "readme",
-            "light": str(hero.relative_to(layout.repo_root)),
-            "dark": str(hero.relative_to(layout.repo_root)),
+            "light": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
+            "dark": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
         }
     if info is not None:
         manifest["opening-infographic"] = {
             "stage": "e2e",
-            "light": str(info.relative_to(layout.repo_root)),
-            "dark": str(info.relative_to(layout.repo_root)),
+            "light": str(info.relative_to(layout.repo_root) if layout.repo_root else info),
+            "dark": str(info.relative_to(layout.repo_root) if layout.repo_root else info),
         }
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")

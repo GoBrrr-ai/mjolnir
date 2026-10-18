@@ -114,6 +114,7 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
         history_file=tmp_path / "h.jsonl",
     )
     out = charts.render_hero(layout)
+    assert out is not None
     bg = Image.open(tmp_path / "assets" / charts.HERO_BACKGROUND)
     hero = Image.open(out)
     assert out.name == "hero.png" and hero.size == bg.size

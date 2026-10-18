@@ -33,7 +33,7 @@ def model_of(rec: dict) -> str | None:
 
 def by_model(recs) -> dict[str | None, list[dict]]:
     """Records grouped by :func:`model_of`, models and records in first-seen order."""
-    groups: dict[str, list[dict]] = {}
+    groups: dict[str | None, list[dict]] = {}
     for r in recs:
         groups.setdefault(model_of(r), []).append(r)
     return groups
@@ -112,9 +112,10 @@ def scan_configs(configs_dir: Path) -> list[ConfigEntry]:
     out: list[ConfigEntry] = []
     if not configs_dir.is_dir():
         return out
-    for p in sorted(configs_dir.glob("*/*/*/config.yaml")):
-        out.append(ConfigEntry(model=str(p.parent.parent.relative_to(configs_dir)), quant=p.parent.name, path=p))
-    return out
+    return [
+        ConfigEntry(model=str(p.parent.parent.relative_to(configs_dir)), quant=p.parent.name, path=p)
+        for p in sorted(configs_dir.glob("*/*/*/config.yaml"))
+    ]
 
 
 class HFCacheError(FileNotFoundError):
@@ -165,7 +166,7 @@ def config_field(path: Path, key: str) -> str | None:
     """One top-level scalar from a config yaml (None if absent/unreadable)."""
     try:
         data = yaml.safe_load(Path(path).read_text())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a malformed config is simply not offered # noqa: BLE001
         return None
     if not isinstance(data, dict):
         return None
@@ -178,7 +179,7 @@ def config_speculative(path: Path) -> dict | None:
     (None when the config has none or is unreadable)."""
     try:
         data = yaml.safe_load(Path(path).read_text())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a malformed config is simply not offered
         return None
     spec = data.get("speculative-config") if isinstance(data, dict) else None
     if not isinstance(spec, dict) or not spec.get("num_speculative_tokens"):
@@ -195,7 +196,7 @@ def config_drafter_on_mjolnir(path: Path) -> bool:
     calibrated with the config (``<config>.kv_scales.json``)."""
     try:
         data = yaml.safe_load(Path(path).read_text())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a malformed config is simply not offered
         return False
     spec = data.get("speculative-config") if isinstance(data, dict) else None
     if not isinstance(spec, dict) or not spec.get("model"):
@@ -208,7 +209,7 @@ def config_attention_backend(path: Path) -> str | None:
     ``attention-config.backend``), upper-cased; None when unset."""
     try:
         data = yaml.safe_load(Path(path).read_text())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a malformed config is simply not offered
         return None
     if not isinstance(data, dict):
         return None

@@ -36,6 +36,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import jinja2
 
@@ -114,12 +115,12 @@ def _findings(stage: str, doc: dict) -> list[str]:
                     f"**{kvcache_label(e2m3)}** holds **{e2m3['kv_tokens']:,} tokens**, "
                     f"{gain * 100:+.0f}% vs {kvcache_label(other)} ({other['kv_tokens']:,})."
                 )
-        for r in rows.values():
-            if r.get("max_concurrency"):
-                out.append(
-                    f"{kvcache_label(r)}: {r['max_concurrency']:.1f} requests at the full "
-                    f"{L_label(r.get('max_model_len') or 0)} context (vLLM's own estimate)."
-                )
+        out.extend(
+            f"{kvcache_label(r)}: {r['max_concurrency']:.1f} requests at the full "
+            f"{L_label(r.get('max_model_len') or 0)} context (vLLM's own estimate)."
+            for r in rows.values()
+            if r.get("max_concurrency")
+        )
         return out
     by = results.series_by_id(doc)
     noise = NOISE_PCT / 100
@@ -131,7 +132,7 @@ def _findings(stage: str, doc: dict) -> list[str]:
                 if not sp:
                     continue
                 g = results.geomean(sp.values())
-                lo, hi = min(sp, key=sp.get), max(sp, key=sp.get)
+                lo, hi = min(sp, key=lambda k: sp[k]), max(sp, key=lambda k: sp[k])
                 beats = sum(1 for v in sp.values() if v >= 1 + noise)
                 out.append(
                     f"**{by[sid]['label']}** vs {base['label']}: geomean **{g:.2f}×**, "
@@ -149,13 +150,13 @@ def _findings(stage: str, doc: dict) -> list[str]:
             counts: dict[str, int] = {}
             for w in winners.values():
                 counts[w] = counts.get(w, 0) + 1
-            top = max(counts, key=counts.get)
+            top = max(counts, key=lambda w: counts[w])
             out.append(f"Fastest variant at the most context lengths: **`{top}`** ({counts[top]} of {len(Ls)}).")
             geo = {s["label"]: results.geomean(results.speedup(by["fi"], s).values()) for s in variants}
             geo = {k: v for k, v in geo.items() if v}
             if geo:
-                g_top = max(geo, key=geo.get)
-                g_low = min(geo, key=geo.get)
+                g_top = max(geo, key=lambda k: geo[k])
+                g_low = min(geo, key=lambda k: geo[k])
                 out.append(
                     f"Best geomean vs FlashInfer: **`{g_top}`** ({geo[g_top]:.2f}×); "
                     f"worst: `{g_low}` ({geo[g_low]:.2f}×)."
@@ -242,7 +243,7 @@ class ReadmeContext:
     ls: str = " ".join(L_label(L) for L in ALL_LS)
     noise_pct: str = f"{NOISE_PCT:.0f}"
     e2e_noise_pct: str = field(default_factory=lambda: f"{__import__('mjolnir_cli.e2e').e2e.E2E_NOISE_PCT:.0f}")
-    # headline (sweep)
+    # the sweep headline finding
     has_sweep: bool = False
     geo_vs_fi: str = ""
     geo_vs_fi_fp8: str = ""
@@ -306,8 +307,8 @@ def _patches(layout: RepoLayout) -> tuple[str, int, int]:
     """The patch inventory table from docker/vllm-thor/PATCHES.md, re-emitted
     verbatim — it is the single source of truth the build consumes. Returns
     (table, total, pr_backed); pr_backed = rows patching a vLLM PR."""
-    p = layout.repo_root / "docker" / "vllm-thor" / "PATCHES.md"
-    if not p.exists():
+    p = (layout.repo_root / "docker" / "vllm-thor" / "PATCHES.md") if layout.repo_root else None
+    if p is None or not p.exists():
         return "", 0, 0
     lines = p.read_text().splitlines()
     start = next((i for i, ln in enumerate(lines) if ln.startswith("| File |")), None)
@@ -368,7 +369,7 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
             ctx.sweep_run = sweep["run_id"]
             sp = results.speedup(by["fi"], ours)
             ctx.geo_vs_fi = f"{results.geomean(sp.values()):.2f}"
-            lo, hi = min(sp, key=sp.get), max(sp, key=sp.get)
+            lo, hi = min(sp, key=lambda k: sp[k]), max(sp, key=lambda k: sp[k])
             ctx.min_vs_fi, ctx.min_vs_fi_L = f"{sp[lo]:.2f}", L_label(lo)
             ctx.max_vs_fi, ctx.max_vs_fi_L = f"{sp[hi]:.2f}", L_label(hi)
             last = max(sp)
@@ -499,7 +500,7 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
 
     head = ["config", "KV", *[f"{accuracy.suite_label(n)} %" for n in names], "completion"]
     body = []
-    for r, base in zip(rows, bases):
+    for r, base in zip(rows, bases, strict=True):
         comp = [x.get("completion_rate") for x in r["suites"].values() if x.get("completion_rate") is not None]
         label = f"**{r['label']}**" if r is base else r["label"]
         kv = str(r.get("kv_cache_dtype") or "auto").replace("fp6_e2m3", "fp6 e2m3").replace("auto", "bf16")
@@ -509,19 +510,20 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
     cats = sorted({c for r in rows for c in r.get("categories", {})})
     if cats:
         labels = {c: next(r["categories"][c]["label"] for r in rows if c in r.get("categories", {})) for c in cats}
-        marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases)]
-        chead = ["category", *[r["label"] + (" ‡" if m else "") for r, m in zip(rows, marked)]]
-        cbody = []
-        for c in cats:
-            cbody.append(
-                [f"{c} · {labels[c]}"]
-                + [f"{r['categories'][c]['percent']:.0f}" if c in r.get("categories", {}) else "—" for r in rows]
-            )
+        marked = [accuracy.leg_excluded(r, b, names) for r, b in zip(rows, bases, strict=True)]
+        chead = ["category", *[r["label"] + (" ‡" if m else "") for r, m in zip(rows, marked, strict=True)]]
+        cbody = [
+            [
+                f"{c} · {labels[c]}",
+                *[f"{r['categories'][c]['percent']:.0f}" if c in r.get("categories", {}) else "—" for r in rows],
+            ]
+            for c in cats
+        ]
         ctx.accuracy_categories = _table(chead, cbody)
         if any(marked):
             ctx.accuracy_categories += f"\n\n<sub>{accuracy.CATEGORY_EXCLUDED_NOTE}.</sub>"
 
-    for r, base in zip(rows, bases):
+    for r, base in zip(rows, bases, strict=True):
         if base is None or r is base:
             continue
         deltas = [
@@ -590,7 +592,7 @@ def _signed(v: float) -> str:
     return f"{'−' if v < 0 else '+'}{abs(v):.1f}%"
 
 
-def _how_e2e(ctx: "ReadmeContext") -> str:
+def _how_e2e(ctx: ReadmeContext) -> str:
     ex = ctx.e2e_example
     lines = [
         "- **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. "
@@ -618,7 +620,7 @@ def _how_e2e(ctx: "ReadmeContext") -> str:
     return "\n".join(lines)
 
 
-def how(ctx: "ReadmeContext", kind: str) -> str:
+def how(ctx: ReadmeContext, kind: str) -> str:
     """A collapsed "How this is calculated" panel for the tables / figures of
     ``kind`` (GitHub renders the markdown inside ``<details>``)."""
     body = _how_e2e(ctx) if kind == "e2e" else _HOW[kind]
@@ -656,7 +658,9 @@ def _env(layout: RepoLayout, ctx: ReadmeContext, out_path: Path) -> jinja2.Envir
         )
 
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True, autoescape=False)
-    env.globals.update(
+    # jinja2 leaves Environment.globals unannotated, so a checker infers the
+    # DEFAULT_NAMESPACE value union for it: cast to the mapping it actually is
+    cast(dict[str, Any], env.globals).update(
         how=lambda kind: how(ctx, kind),
         ctx=ctx,
         color=color,
@@ -692,8 +696,7 @@ def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | 
     docker_tpl = root / "docker" / "vllm-thor" / "README.md.j2"
     if docker_tpl.exists():
         written.append(render_file(layout, docker_tpl, docker_tpl.with_suffix(""), ctx))
-    for t in sorted((root / "docs").rglob("*.md.j2")):
-        written.append(render_file(layout, t, t.with_suffix(""), ctx))
+    written.extend(render_file(layout, t, t.with_suffix(""), ctx) for t in sorted((root / "docs").rglob("*.md.j2")))
     for p in written:
         print(f"[mjolnir] wrote {p}")
     return written

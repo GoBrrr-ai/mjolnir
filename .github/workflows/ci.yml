@@ -32,6 +32,7 @@ jobs:
     outputs:
       lint: ${{ steps.f.outputs.lint }}
       lint-workflows: ${{ steps.f.outputs.lint-workflows }}
+      typecheck: ${{ steps.f.outputs.typecheck }}
       test: ${{ steps.f.outputs.test }}
       readme: ${{ steps.f.outputs.readme }}
       build: ${{ steps.f.outputs.build }}
@@ -46,6 +47,11 @@ jobs:
               - 'src/**'
               - 'tests/**'
               - 'pyproject.toml'
+            typecheck:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
             test:
               - 'src/**'
               - 'tests/**'
@@ -102,6 +108,24 @@ jobs:
         run: uvx ruff@0.14.14 check src/ tests/
       - name: ruff format --check
         run: uvx ruff@0.14.14 format --check src/ tests/
+
+  typecheck:
+    # ty (Astral — same toolchain as ruff) over the wheel contents + tests,
+    # config in pyproject.toml ([tool.ty]). The kernel package and the
+    # benchmark drivers import the image-provided CUDA stack (torch, vllm,
+    # cutlass, flashinfer) that is deliberately not declared as a dependency —
+    # the [tool.ty.overrides] entry keeps that resolution noise out while the
+    # rest still checks.
+    needs: filter
+    if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.typecheck == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync
+      - run: uv run ty check src/ tests/
 
   lint-workflows:
     # actionlint over every workflow file (+ shellcheck on the run: blocks —
@@ -274,18 +298,20 @@ jobs:
       needs.filter.result == 'success' &&
       (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
       (needs.lint-workflows.result == 'success' || needs.lint-workflows.result == 'skipped') &&
+      (needs.typecheck.result == 'success' || needs.typecheck.result == 'skipped') &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
       (needs.readme.result == 'success' || needs.readme.result == 'skipped') &&
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
       (needs.vllm-patch.result == 'success' || needs.vllm-patch.result == 'skipped') &&
       (needs.file-length.result == 'success' || needs.file-length.result == 'skipped')
-    needs: [filter, lint, lint-workflows, file-length, test, readme, build, vllm-patch]
+    needs: [filter, lint, lint-workflows, typecheck, file-length, test, readme, build, vllm-patch]
     runs-on: ubuntu-latest
     steps:
       - name: In-scope stage results
         run: |
           echo "lint:           ${{ needs.lint.result }}"
           echo "lint-workflows: ${{ needs.lint-workflows.result }}"
+          echo "typecheck:      ${{ needs.typecheck.result }}"
           echo "test:           ${{ needs.test.result }}"
           echo "readme:         ${{ needs.readme.result }}"
           echo "build:          ${{ needs.build.result }}"

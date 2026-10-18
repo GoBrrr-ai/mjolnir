@@ -138,7 +138,7 @@ class Runner:
     def harness(self, log: Path, q: str, args: list[str] | str, timeout: float | None = None) -> tuple[int, str]:
         name = self._name("mjolnir-verify")
         argv = ["docker", "run", "--rm", "--name", name, "--gpus", "all", "--entrypoint", "python3"]
-        argv += self._overlay() + [self.image] + self.harness_args(q, args)
+        argv += [*self._overlay(), self.image, *self.harness_args(q, args)]
         rc = self._run(argv, log, name, timeout)
         return rc, log.read_text(errors="replace") if log.exists() else ""
 
@@ -242,7 +242,7 @@ class Runner:
         """Profile ``count`` launches of the leg's decode kernel with a full
         section set; returns (rc, {"raw": {...}, "units": {...}, "details": {...}})."""
         outdir.mkdir(parents=True, exist_ok=True)
-        cmd, env = self.leg_command(leg, L, count + 2)
+        cmd, _env = self.leg_command(leg, L, count + 2)
         secs = (
             "--section SpeedOfLight --section MemoryWorkloadAnalysis --section WarpStateStats "
             "--section SchedulerStats --section Occupancy --section LaunchStats --section ComputeWorkloadAnalysis"

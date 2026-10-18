@@ -64,7 +64,7 @@ def build_docker(task: Task, s: Settings) -> list[str]:
     if task.gpu:
         cmd += ["--gpus", "all"]
     cmd += ["--entrypoint", "python3", "-v", f"{script}:/tmp/{script.name}:ro"]
-    return cmd + [s.image, f"/tmp/{script.name}"]
+    return [*cmd, s.image, f"/tmp/{script.name}"]
 
 
 def run_task(s: Settings, name: str, script_args: list[str], dry_run: bool = False) -> int:

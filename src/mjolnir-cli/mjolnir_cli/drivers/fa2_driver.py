@@ -50,21 +50,21 @@ def main():
     cu_q = torch.tensor([0, 1], dtype=torch.int32, device=dev)
     seqused_k = torch.tensor([L], dtype=torch.int32, device=dev)
     out = torch.empty_like(q)
-    kw = dict(
-        q=q,
-        k=k_cache,
-        v=v_cache,
-        out=out,
-        cu_seqlens_q=cu_q,
-        max_seqlen_q=1,
-        seqused_k=seqused_k,
-        max_seqlen_k=L,
-        softmax_scale=1.0 / math.sqrt(d),
-        causal=True,
-        block_table=block_table,
-        fa_version=2,
-        num_splits=splits,
-    )
+    kw = {
+        "q": q,
+        "k": k_cache,
+        "v": v_cache,
+        "out": out,
+        "cu_seqlens_q": cu_q,
+        "max_seqlen_q": 1,
+        "seqused_k": seqused_k,
+        "max_seqlen_k": L,
+        "softmax_scale": 1.0 / math.sqrt(d),
+        "causal": True,
+        "block_table": block_table,
+        "fa_version": 2,
+        "num_splits": splits,
+    }
 
     def run():
         try:

@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("check_file_length", ROOT / "scripts" / "check_file_length.py")
+assert spec is not None and spec.loader is not None
 cfl = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cfl)
 
@@ -35,9 +36,9 @@ def table(
     limit: int = LIMIT,
     include: list[str] | None = None,
 ) -> str:
-    out = "[tool.mjolnir.file-length]\nlimit = %d\n" % limit
-    out += "include = [%s]\n" % ", ".join(f'"{i}"' for i in (INCLUDE if include is None else include))
-    out += "exempt = [%s]\n" % ", ".join(f'"{e}"' for e in (exempt or []))
+    out = f"[tool.mjolnir.file-length]\nlimit = {limit}\n"
+    out += "include = [" + ", ".join(f'"{i}"' for i in (INCLUDE if include is None else include)) + "]\n"
+    out += "exempt = [" + ", ".join(f'"{e}"' for e in (exempt or [])) + "]\n"
     out += "[tool.mjolnir.file-length.grandfathered]\n"
     for path, ceiling in (grand or {}).items():
         out += f'"{path}" = {ceiling}\n'
@@ -53,7 +54,7 @@ def make_repo(tmp_path, files, *, toml=None, untracked=()):
         (r / rel).parent.mkdir(parents=True, exist_ok=True)
         (r / rel).write_text(text)
     _git(r, "init", "-q")
-    _git(r, "add", *[p for p in contents])
+    _git(r, "add", *contents)
     return r
 
 
@@ -182,7 +183,7 @@ def test_entry_for_missing_path_fails(tmp_path, capsys):
 
 def test_entry_for_untracked_path_fails(tmp_path, capsys):
     r = make_repo(tmp_path, {"a.py": lines(1)}, toml=table({"loose.py": 8}), untracked=["loose.py"])
-    code, out, err = run(r, capsys)
+    code, _out, err = run(r, capsys)
     assert code == 1
     assert "loose.py" in err and "remove the entry" in err
 
@@ -385,7 +386,7 @@ def test_loosening_the_rules_against_base_fails(tmp_path, capsys, pr_kwargs, wor
 
 @pytest.mark.parametrize(
     "pr_kwargs",
-    [{"limit": LIMIT - 1}, {"include": INCLUDE + ["*.j2"]}],
+    [{"limit": LIMIT - 1}, {"include": [*INCLUDE, "*.j2"]}],
 )
 def test_tightening_the_rules_against_base_passes(tmp_path, capsys, pr_kwargs):
     r = tightened_repo(tmp_path, table(), table(**pr_kwargs), files={"a.py": lines(1)})

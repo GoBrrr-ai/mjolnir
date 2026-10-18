@@ -92,7 +92,7 @@ def main():
             )
             return w
         w = flashinfer.BatchDecodeWithPagedKVCacheWrapper(ws, kv_layout=lay, use_tensor_cores=True)
-        kw = dict(pos_encoding_mode="NONE", q_data_type=torch.bfloat16, kv_data_type=torch.float8_e4m3fn)
+        kw = {"pos_encoding_mode": "NONE", "q_data_type": torch.bfloat16, "kv_data_type": torch.float8_e4m3fn}
         try:
             w.plan(indptr, indices, last_len, hq, hk, d, ps, **kw)
         except TypeError:  # older FlashInfer: data_type instead of kv_data_type

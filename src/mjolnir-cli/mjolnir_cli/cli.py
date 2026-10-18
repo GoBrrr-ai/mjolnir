@@ -28,12 +28,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich import box
 from rich.style import Style
 from rich.table import Table
+from typer.core import TyperGroup
 
 from mjolnir_cli import __version__
 from mjolnir_cli.config import (
@@ -53,15 +53,15 @@ from mjolnir_cli.cli_bench import app as bench_app
 from mjolnir_cli.cli_shared import _HELP_CTX, _console, _load_state, _save_state, _settings, _state_file
 
 
-def _picker_group(bare_fn) -> type[typer.core.TyperGroup]:
+def _picker_group(bare_fn) -> type[TyperGroup]:
     """A group that, when invoked bare (no subcommand), runs ``bare_fn``
     (the arrow-key picker) instead of erroring out."""
 
-    class PickerGroup(typer.core.TyperGroup):
+    class PickerGroup(TyperGroup):
         def invoke(self, ctx):
             if not ctx._protected_args:
                 bare_fn()
-                return
+                return None
             return super().invoke(ctx)
 
     return PickerGroup
@@ -79,16 +79,16 @@ Next steps:
 """
 
 
-def _root_group() -> type[typer.core.TyperGroup]:
+def _root_group() -> type[TyperGroup]:
     """The root group: bare ``mjolnir`` prints the help plus a next-steps
     guide instead of just the help."""
 
-    class RootGroup(typer.core.TyperGroup):
+    class RootGroup(TyperGroup):
         def invoke(self, ctx):
             if not ctx._protected_args:
                 ctx.command.get_help(ctx)
                 print(_NEXT_STEPS, flush=True)
-                return
+                return None
             return super().invoke(ctx)
 
     return RootGroup
@@ -177,7 +177,7 @@ def _active_image(st: dict) -> str:
 
 
 @image_app.command("use")
-def image_use(image: Optional[str] = typer.Argument(None, help="docker image reference (omit to pick interactively)")):
+def image_use(image: str | None = typer.Argument(None, help="docker image reference (omit to pick interactively)")):
     """Remember the active vLLM image (bare ``mjolnir image`` or no args
     here = arrow-key picker over local docker images).
 
@@ -207,7 +207,7 @@ def image_use(image: Optional[str] = typer.Argument(None, help="docker image ref
             chosen = picker.select("Pick the vLLM image:", imgs, default=_active_image(st))
         except picker.Cancelled:
             typer.secho("cancelled — active image unchanged", fg=typer.colors.YELLOW, err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
     _save_state({"image": chosen})
     typer.secho(f"active image: {chosen}", fg=typer.colors.GREEN)
     typer.echo(f"  state: {_state_file()}")
@@ -227,7 +227,7 @@ def image_list():
 
 @image_app.command("build")
 def image_build(
-    tag: Optional[str] = typer.Option(
+    tag: str | None = typer.Option(
         None,
         "--tag",
         help=f"image tag (default: {DEFAULT_IMAGE} — the repo + the vLLM version the Dockerfile builds on)",
@@ -244,7 +244,7 @@ def image_build(
         root = load_layout().require_repo("image build")
     except FileNotFoundError as e:
         typer.secho(f"{e} — or pull the published image: docker pull {DEFAULT_IMAGE}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(4)
+        raise typer.Exit(4) from e
     rev = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
     cmd = ["docker", "build", "-f", str(root / "docker" / "vllm-thor" / "Dockerfile"), "-t", tag]
     if rev.returncode == 0 and rev.stdout.strip():
@@ -266,7 +266,7 @@ def image_build(
 
 
 @image_app.command("gates")
-def image_gates(image: Optional[str] = typer.Option(None, "--image"), dry_run: bool = typer.Option(False, "--dry-run")):
+def image_gates(image: str | None = typer.Option(None, "--image"), dry_run: bool = typer.Option(False, "--dry-run")):
     """Run the sm_110 gate-probe canaries against the image (fresh container,
     no server needed)."""
     s = _settings(None, None, image, None)
@@ -275,9 +275,9 @@ def image_gates(image: Optional[str] = typer.Option(None, "--image"), dry_run: b
 
 @litellm_app.command("up")
 def litellm_up(
-    model: Optional[str] = typer.Option(None, "--model"),
-    config: Optional[str] = typer.Option(None, "--config", help="config quant name, e.g. NVFP4_FA4hd256"),
-    port: Optional[int] = typer.Option(
+    model: str | None = typer.Option(None, "--model"),
+    config: str | None = typer.Option(None, "--config", help="config quant name, e.g. NVFP4_FA4hd256"),
+    port: int | None = typer.Option(
         None, "--port", help=f"host port of the proxy (default {litellm.DEFAULT_PROXY_PORT})"
     ),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="wait for the proxy's liveliness before returning"),
@@ -293,7 +293,7 @@ def litellm_up(
         litellm.up(s, proxy_port=port, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run)
     except (litellm.LitellmError, FileNotFoundError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4 if "not found" in str(e) else 1)
+        raise typer.Exit(4 if "not found" in str(e) else 1) from e
     typer.secho("\n  proxy:  mjolnir litellm status", fg=typer.colors.GREEN)
 
 
@@ -308,14 +308,14 @@ def litellm_down(
 
 
 @litellm_app.command("status")
-def litellm_status(port: Optional[int] = typer.Option(None, "--port")):
+def litellm_status(port: int | None = typer.Option(None, "--port")):
     """Container state + proxy liveliness + the rendered config path."""
     s = _settings(None, None, None, None)
     try:
         st = litellm.status(s, port)
     except FileNotFoundError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4)
+        raise typer.Exit(4) from e
     typer.echo(json.dumps(st, indent=2))
 
 
@@ -327,8 +327,8 @@ def litellm_logs(follow: bool = typer.Option(False, "--follow", "-f"), tail: int
 
 @litellm_app.command("config")
 def litellm_config(
-    model: Optional[str] = typer.Option(None, "--model"),
-    config: Optional[str] = typer.Option(None, "--config"),
+    model: str | None = typer.Option(None, "--model"),
+    config: str | None = typer.Option(None, "--config"),
     show: bool = typer.Option(False, "--show", help="print the rendered config instead of just validating it"),
 ):
     """Render the template with the current model/config (no containers) —
@@ -338,7 +338,7 @@ def litellm_config(
         p = litellm.render_config(s)
     except (litellm.LitellmError, FileNotFoundError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4 if "not found" in str(e) else 1)
+        raise typer.Exit(4 if "not found" in str(e) else 1) from e
     typer.secho(f"rendered ok: {p}  (model: {s.served_model})", fg=typer.colors.GREEN)
     if show:
         typer.echo(p.read_text())
@@ -346,9 +346,7 @@ def litellm_config(
 
 @perses_app.command("up")
 def perses_up(
-    port: Optional[int] = typer.Option(
-        None, "--port", help=f"host port of the Perses UI (default {perses.DEFAULT_PORT})"
-    ),
+    port: int | None = typer.Option(None, "--port", help=f"host port of the Perses UI (default {perses.DEFAULT_PORT})"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="wait for the Perses API before returning"),
     wait_timeout: float = typer.Option(300.0, "--wait-timeout"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -362,7 +360,7 @@ def perses_up(
         perses.up(s, port=port, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run)
     except (perses.PersesError, FileNotFoundError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4 if "not found" in str(e) else 1)
+        raise typer.Exit(4 if "not found" in str(e) else 1) from e
     typer.secho(
         f"\n  dashboards:  mjolnir perses status  (UI: http://127.0.0.1:{port or perses.DEFAULT_PORT})",
         fg=typer.colors.GREEN,
@@ -380,7 +378,7 @@ def perses_down(
 
 
 @perses_app.command("status")
-def perses_status(port: Optional[int] = typer.Option(None, "--port")):
+def perses_status(port: int | None = typer.Option(None, "--port")):
     """Container state + API health + the vLLM scrape target + the data dir."""
     s = _settings(None, None, None, None)
     typer.echo(json.dumps(perses.status(s, port), indent=2))
@@ -390,7 +388,7 @@ def perses_status(port: Optional[int] = typer.Option(None, "--port")):
 def perses_logs(
     follow: bool = typer.Option(False, "--follow", "-f"),
     tail: int = typer.Option(100, "--tail"),
-    service: Optional[str] = typer.Option(None, "--service", help="perses (default) | prometheus"),
+    service: str | None = typer.Option(None, "--service", help="perses (default) | prometheus"),
 ):
     """Tail a stack service's logs (default: perses)."""
     raise typer.Exit(perses.logs(follow=follow, tail=tail, service=service))
@@ -441,7 +439,7 @@ def hw_setup(
         )
     except (ValueError, FileNotFoundError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(4)
+        raise typer.Exit(4) from e
     raise typer.Exit(rc)
 
 
@@ -456,8 +454,8 @@ def hw_status():
         typer.secho(f"no conf at {conf}", fg=typer.colors.RED, err=True)
         raise typer.Exit(4)
     text = conf.read_text()
-    profiles = re.findall(r"^[ \t]*FAN_PROFILE\s+(\w+)", text, re.M)
-    m = re.search(r"^[ \t]*FAN_DEFAULT_PROFILE\s+(\S+)", text, re.M)
+    profiles = re.findall(r"^[ \t]*FAN_PROFILE\s+(\w+)", text, re.MULTILINE)
+    m = re.search(r"^[ \t]*FAN_DEFAULT_PROFILE\s+(\S+)", text, re.MULTILINE)
     bck = conf.with_name(conf.name + ".bck")
     print(f"conf:     {conf}")
     print(f"profiles: {', '.join(profiles)}")
@@ -467,10 +465,10 @@ def hw_status():
 
 @serve_app.command("up")
 def serve_up(
-    model: Optional[str] = typer.Option(None, "--model"),
-    config: Optional[str] = typer.Option(None, "--config", help="config quant name, e.g. NVFP4_FA4hd256"),
-    image: Optional[str] = typer.Option(None, "--image"),
-    port: Optional[int] = typer.Option(None, "--port"),
+    model: str | None = typer.Option(None, "--model"),
+    config: str | None = typer.Option(None, "--config", help="config quant name, e.g. NVFP4_FA4hd256"),
+    image: str | None = typer.Option(None, "--image"),
+    port: int | None = typer.Option(None, "--port"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="wait for /health before returning"),
     wait_timeout: float = typer.Option(1800.0, "--wait-timeout"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -487,7 +485,7 @@ def serve_up(
         dockerctl.serve_up(s, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run)
     except (dockerctl.DockerError, TimeoutError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     typer.secho(f"\n  serving {s.model} ({s.quant}, {s.backend_label}) at {s.base_url}", fg=typer.colors.GREEN)
     typer.echo("  gate:  mjolnir gate --once")
     typer.echo("  bench: mjolnir bench perf   ·   kernel: mjolnir verify sweep")
@@ -495,10 +493,10 @@ def serve_up(
 
 @serve_app.command("down")
 def serve_down(
-    model: Optional[str] = typer.Option(None, "--model"),
-    config: Optional[str] = typer.Option(None, "--config"),
-    image: Optional[str] = typer.Option(None, "--image"),
-    port: Optional[int] = typer.Option(None, "--port"),
+    model: str | None = typer.Option(None, "--model"),
+    config: str | None = typer.Option(None, "--config"),
+    image: str | None = typer.Option(None, "--image"),
+    port: int | None = typer.Option(None, "--port"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Stop the vLLM container."""
@@ -507,7 +505,7 @@ def serve_down(
 
 
 @serve_app.command("status")
-def serve_status(port: Optional[int] = typer.Option(None, "--port")):
+def serve_status(port: int | None = typer.Option(None, "--port")):
     """Container state + /health + current queue load."""
     s = _settings(None, None, None, port)
     st = dockerctl.status(s)
@@ -524,7 +522,7 @@ def serve_status(port: Optional[int] = typer.Option(None, "--port")):
 
 @serve_app.command("logs")
 def serve_logs(
-    port: Optional[int] = typer.Option(None, "--port"),
+    port: int | None = typer.Option(None, "--port"),
     follow: bool = typer.Option(False, "--follow", "-f"),
     tail: int = typer.Option(100, "--tail"),
 ):
@@ -579,14 +577,14 @@ def _pick_config(
         pick = picker.select(title, labels, default=default)
     except picker.Cancelled:
         typer.secho("cancelled — active config unchanged", fg=typer.colors.YELLOW, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     return pool[labels.index(pick)]
 
 
 @model_app.command("use")
 def model_use(
-    model: Optional[str] = typer.Argument(None, help="vendor/Model, e.g. Qwen3.8-27B (omit to pick interactively)"),
-    quant: Optional[str] = typer.Argument(None, help="config name, e.g. NVFP4_FA4hd256 (omit to pick interactively)"),
+    model: str | None = typer.Argument(None, help="vendor/Model, e.g. Qwen3.8-27B (omit to pick interactively)"),
+    quant: str | None = typer.Argument(None, help="config name, e.g. NVFP4_FA4hd256 (omit to pick interactively)"),
 ):
     """Remember the active model/config (bare ``mjolnir model`` or no args
     here = arrow-key picker over configs: repo configs/ + user-local
@@ -619,10 +617,7 @@ def model_use(
                 "no config matches the given model/quant (available: mjolnir model list)", fg=typer.colors.RED, err=True
             )
             raise typer.Exit(4)
-        if len(candidates) == 1:
-            chosen = candidates[0]
-        else:
-            chosen = _pick_config(entries, st, candidates)
+        chosen = candidates[0] if len(candidates) == 1 else _pick_config(entries, st, candidates)
     else:
         chosen = _pick_config(entries, st)
 
@@ -693,7 +688,7 @@ def model_list(as_json: bool = typer.Option(False, "--json", "-j", help="emit JS
 
 @app.command()
 def gate(
-    port: Optional[int] = typer.Option(None, "--port"),
+    port: int | None = typer.Option(None, "--port"),
     once: bool = typer.Option(False, "--once", help="check now and exit"),
     confirm: int = typer.Option(6, "--confirm"),
     timeout: float = typer.Option(3600.0, "--timeout"),
@@ -711,10 +706,10 @@ def gate(
 
 @app.command()
 def calibrate(
-    model: Optional[str] = typer.Option(None, "--model", help="vendor/Model (default: the active one)"),
-    config: Optional[str] = typer.Option(None, "--config", help="the config to calibrate (default: the active one)"),
-    image: Optional[str] = typer.Option(None, "--image", help="the Mjolnir image"),
-    out: Optional[Path] = typer.Option(
+    model: str | None = typer.Option(None, "--model", help="vendor/Model (default: the active one)"),
+    config: str | None = typer.Option(None, "--config", help="the config to calibrate (default: the active one)"),
+    image: str | None = typer.Option(None, "--image", help="the Mjolnir image"),
+    out: Path | None = typer.Option(
         None,
         "--out",
         help="default: the model's kv_scales.json next to the config dirs — kv_scales.json inside the config "
@@ -845,11 +840,11 @@ def plot(
         "(every table + number computed from the committed raw "
         "data)",
     ),
-    readme_template: Optional[Path] = typer.Option(
+    readme_template: Path | None = typer.Option(
         None, "--readme-template", help="template override (default: <repo>/README.md.j2)"
     ),
-    readme_out: Optional[Path] = typer.Option(None, "--readme-out", help="output override (default: <repo>/README.md)"),
-    site: Optional[Path] = typer.Option(
+    readme_out: Path | None = typer.Option(None, "--readme-out", help="output override (default: <repo>/README.md)"),
+    site: Path | None = typer.Option(
         None, "--site", help="also build the interactive benchmark site (index.html) into this directory"
     ),
 ):
@@ -863,7 +858,7 @@ def plot(
         charts.render_all(layout)
     except RuntimeError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     if layout.repo_root:  # research/progress.png: the live ledger, else the newest exported run
         from mjolnir_cli import autoresearch
 
@@ -873,7 +868,7 @@ def plot(
             readme.render_readme(layout, template=readme_template, out=readme_out)
         except (RuntimeError, FileNotFoundError, OSError) as e:
             typer.secho(str(e), fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     if site is not None:
         from mjolnir_cli import interactive
 

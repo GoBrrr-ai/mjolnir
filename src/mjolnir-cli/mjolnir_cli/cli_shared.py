@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 
@@ -38,6 +37,6 @@ def _save_state(patch: dict) -> None:
     _state_file().write_text(json.dumps(st, indent=2))
 
 
-def _settings(model: Optional[str], quant: Optional[str], image: Optional[str], port: Optional[int]) -> Settings:
+def _settings(model: str | None, quant: str | None, image: str | None, port: int | None) -> Settings:
     st = _load_state()
     return resolve(model or st.get("model"), quant or st.get("quant"), image or st.get("image"), port)

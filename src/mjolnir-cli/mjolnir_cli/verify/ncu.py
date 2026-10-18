@@ -123,22 +123,21 @@ def parse_raw_csv(text: str) -> tuple[dict[str, float], dict[str, str], int | No
     best_t: float | None = None
     acc: dict[str, list[float]] = {}
     for r in data:
-        vals = {k: fnum(v) for k, v in zip(hdr, r)}
-        for k, v in zip(hdr, r):
+        vals = {k: fnum(v) for k, v in zip(hdr, r, strict=True)}
+        for k, v in zip(hdr, r, strict=True):
             x = fnum(v)
             if x is not None:
                 acc.setdefault(k, []).append(x)
         if id_col is not None:
             t = vals.get("gpu__time_duration.sum")
-            if t is not None and (best_t is None or t < best_t):
-                best_t, best_id = t, int(vals.get("ID"))  # type: ignore[arg-type]
+            id_v = vals.get("ID")
+            if t is not None and id_v is not None and (best_t is None or t < best_t):
+                best_t, best_id = t, int(id_v)
                 best = {k: v for k, v in vals.items() if v is not None}
-    if best:
-        mean = best
-    else:  # no ID/time columns — degenerate export, fall back to the mean
-        mean = {k: sum(v) / len(v) for k, v in acc.items() if v}
+    # no ID/time columns -> degenerate export, fall back to the mean
+    mean = best if best else {k: sum(v) / len(v) for k, v in acc.items() if v}
     # durations -> ns whatever unit this ncu prints
-    units = dict(zip(hdr, unit))
+    units = dict(zip(hdr, unit, strict=True))
     tu = units.get("gpu__time_duration.sum", "nsecond").strip().lower()
     k_ns = {"nsecond": 1, "ns": 1, "usecond": 1e3, "us": 1e3, "msecond": 1e6, "ms": 1e6, "second": 1e9, "s": 1e9}
     if "gpu__time_duration.sum" in mean:

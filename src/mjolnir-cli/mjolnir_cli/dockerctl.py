@@ -8,6 +8,7 @@ bash/docker-compose glue, not the container.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -443,10 +444,8 @@ def run_once(argv: list[str], name: str) -> int:
         print(f"\ninterrupted — removing container {name}", file=sys.stderr)
         return 130
     finally:
-        try:
+        with contextlib.suppress(DockerError):
             _run_quiet([_docker(), "rm", "-f", name])
-        except DockerError:
-            pass
         cachectl.prepare_bench()
 
 
@@ -529,7 +528,7 @@ def status(s: Settings) -> dict:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{s.port}/health", timeout=5) as r:
             state["health"] = "ok" if r.status == 200 else f"HTTP {r.status}"
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - the health probe reports, never raises
         state["health"] = "unreachable"
     return state
 

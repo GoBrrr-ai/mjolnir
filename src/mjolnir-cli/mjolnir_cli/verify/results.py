@@ -47,7 +47,7 @@ SCHEMA = "mjolnir.verify/1"
 
 
 def new_run_id() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return _dt.datetime.now(_dt.UTC).strftime("%Y%m%d-%H%M%S")
 
 
 def git_info(root: Path | None) -> dict[str, Any]:
@@ -75,7 +75,7 @@ def header(stage: str, run_id: str, *, image: str, default: bool, params: dict, 
         "schema": SCHEMA,
         "stage": stage,
         "run_id": run_id,
-        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "ts": _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds"),
         "default": default,
         "host": platform.node(),
         "image": image,

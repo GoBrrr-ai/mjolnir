@@ -32,8 +32,10 @@ def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR")
+    assert off and mj
     assert off["epoch"] == 3 and mj["config"] == "NVFP4_MJOLNIR"  # backend config beats a newer FI run
     hero = e2e.hero(off, mj)
+    assert hero
     assert hero["ctx"] == 8192
     assert round(hero["tg_tps"][2], 1) == round((30 / 22 - 1) * 100, 1)
     # lower-is-better metrics: positive gain = the latency REDUCTION (official − Mjolnir) ÷ official,
@@ -73,7 +75,8 @@ def test_native_backends_on_the_mjolnir_image_never_count(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR")
-    assert off["image"].startswith("vllm/") and mj is None
+    assert off is not None and mj is None
+    assert off["image"].startswith("vllm/")
 
 
 def test_bench_e2e_only_runs_one_leg(monkeypatch):
@@ -164,12 +167,17 @@ def test_runs_merge_cell_by_cell(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     o, m = e2e.latest_pair(h, "NVFP4_MJOLNIR")
+    assert o and m
+    c8, c32 = e2e.cell(m, 1, 8192), e2e.cell(m, 1, 32768)
+    hero = e2e.hero(o, m)
+    assert c8 and c32 and hero
     assert sorted(c["context"] for c in o["cells"]) == [8192, 32768, 131072]
-    assert e2e.cell(m, 1, 8192)["tg_tps"]["mean"] == 23  # newest run wins
-    assert e2e.cell(m, 1, 32768)["tg_tps"]["mean"] == 19  # kept from the older run
+    assert c8["tg_tps"]["mean"] == 23  # newest run wins
+    assert c32["tg_tps"]["mean"] == 19  # kept from the older run
     # the hero: 1 request, up to MAX_CTX, the cell with the highest decode gain (128K is past the cap)
-    assert e2e.hero(o, m)["ctx"] == 8192
-    assert e2e.hero(o, m, max_ctx=None)["ctx"] in (8192, 131072)
+    assert hero["ctx"] == 8192
+    hero_all = e2e.hero(o, m, max_ctx=None)
+    assert hero_all and hero_all["ctx"] in (8192, 131072)
 
 
 def test_cells_only_one_side_measured_are_kept_and_flagged():
@@ -221,7 +229,7 @@ def test_optional_legs_run_only_when_asked(monkeypatch):
     assert r.exit_code == 0, r.output
     opt = legs.OPTIONAL["bench.e2e"]
     assert [q for _, q in served[2:]] == [cfg for _, cfg in opt]
-    for (img, _), (side, _) in zip(served[2:], opt):
+    for (img, _), (side, _) in zip(served[2:], opt, strict=True):
         assert (img == STOCK_IMAGE) == (side == legs.OFFICIAL)  # official legs stay on the upstream image
     served.clear()
     r = runner.invoke(cli.app, ["bench", "e2e", "--dry-run", "--only", "official", "--optional", "--also", ""])
@@ -254,9 +262,9 @@ def test_a_newer_optional_official_leg_never_replaces_the_baseline(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, _ = e2e.latest_pair(h, "NVFP4_MJOLNIR")
-    assert off["config"] == "NVFP4"
+    assert off and off["config"] == "NVFP4"
     off, _ = e2e.latest_pair(h, "NVFP4_MJOLNIR", "NVFP4_DSPARK")
-    assert off["config"] == "NVFP4_DSPARK"
+    assert off and off["config"] == "NVFP4_DSPARK"
 
 
 def test_pair_and_site_rows_never_mix_models(tmp_path):
@@ -264,8 +272,10 @@ def test_pair_and_site_rows_never_mix_models(tmp_path):
     never lands next to the default model's runs: not in the README pair, not
     on the interactive site."""
     from types import SimpleNamespace
+    from typing import cast
 
     from mjolnir_cli import charts
+    from mjolnir_cli.config import RepoLayout
 
     h = tmp_path / "history.jsonl"
     q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
@@ -277,10 +287,12 @@ def test_pair_and_site_rows_never_mix_models(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
+    assert off and mj
     assert off["epoch"] == 1 and mj["epoch"] == 2  # the default model's runs only
     off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3", model="nvidia/Qwen3.6-35B-A3B")
-    assert off["epoch"] == 3 and mj["epoch"] == 4
-    site = charts.e2e_rows(SimpleNamespace(history_file=h))
+    assert off and mj and off["epoch"] == 3 and mj["epoch"] == 4
+    # the duck-typed layout stub e2e_rows only reads history_file
+    site = charts.e2e_rows(cast(RepoLayout, SimpleNamespace(history_file=h)))
     assert {k: v["epoch"] for k, v in site.items()} == {"NVFP4": 1, "NVFP4_MJOLNIR_E2M3": 2}
 
 
@@ -314,7 +326,8 @@ def test_a_run_without_model_is_never_the_default_models(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR_E2M3")
-    assert off["epoch"] == 1 and mj is None
+    assert off is not None and mj is None
+    assert off["epoch"] == 1
 
 
 def test_compare_defaults_to_the_models_own_mjolnir_config(tmp_path):
@@ -328,4 +341,5 @@ def test_compare_defaults_to_the_models_own_mjolnir_config(tmp_path):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     off, mj = e2e.latest_pair(h, model=q36)
+    assert off and mj
     assert off["config"] == "NVFP4_DFLASH" and mj["config"] == "NVFP4_MJOLNIR_E2M3"

@@ -17,7 +17,7 @@ from typing import Any
 try:  # typer >= 0.20 vendors its own click
     from typer._click import Context
 except ImportError:  # pragma: no cover
-    from click import Context
+    from click import Context  # ty: ignore[unresolved-import]
 
 
 @dataclass

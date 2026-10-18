@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("release_plan", ROOT / "scripts" / "release_plan.py")
+assert spec is not None and spec.loader is not None
 rp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rp)
 
@@ -104,6 +105,7 @@ def test_previous_umbrella_orders_same_day_releases(repo):
 # ── scripts/release_notes.py ─────────────────────────────────────────────────
 
 _nspec = importlib.util.spec_from_file_location("release_notes", ROOT / "scripts" / "release_notes.py")
+assert _nspec is not None and _nspec.loader is not None
 rn = importlib.util.module_from_spec(_nspec)
 _nspec.loader.exec_module(rn)
 
