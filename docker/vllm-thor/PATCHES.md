@@ -31,6 +31,7 @@ Base this was verified against: **vllm 0.32.0**
 | `54165-mamba-spec-kv-restore.patch` | [#54165](https://github.com/vllm-project/vllm/pull/54165) | Restore **hybrid mamba-align cache hits under spec decode** with a KV connector. Gates the EAGLE last-block drop on drafters that actually *preserve* (pollute) the target KV cache — DFlash/DSpark don't, so they must not back off `last_cache_position`. |
 | `55519-no-warn-when-block-drop-off.patch` | [#55519](https://github.com/vllm-project/vllm/pull/55519) | **Don't warn "prefix reuse is disabled" when `disable_eagle_block_drop` is set.** All flag-all fallbacks are gated on `use_eagle_block_drop()`, so with the drop disabled reuse is intact — the old `use_eagle()` gate made the warning a false positive. Also rewords the scheduler's "drop disabled" warning to document that reuse works in that mode. |
 | `thor-fused-draft-decode-fi-native-update.patch` | — (Thor-authored) | **Implement `update_draft_decode_metadata` for the FlashInfer backend** so the spec-decode loop can use the **fused multi-step draft decode** instead of the "rebuild attention metadata between draft steps" fallback. The upstream contract (backend.py `update_draft_decode_metadata`) is implemented for triton/triton_mla (a `pass`, they read live GPU buffers) and flash_attn (re-plan the scheduler), but the FlashInfer native decode wrapper plans from host buffers and had no in-place advance. Adds `_advance_fi_decode_plan_kernel`, which re-derives the FI decode plan (`paged_kv_indptr`/`last_page_len`/`page_indices`) **on the GPU** from the advancing `seq_lens` + block table — the same formula as `build()`, but capture-safe (no host sync, no D2D index copy) so it replays correctly inside the draft CUDA graph. Gated to full-cudagraph, single-rank, non-DCP, native-FI (non-trtllm) builders. Pays off only at **K ≥ 3** (MTP3 / DSpark K≥2); it is a deliberate no-op at K=2. |
+| `thor-fused-draft-t5-plan-refresh.patch` | — (Thor-authored) | **Rebuild the draft attention metadata on the fused FULL-graph replay path** so host-side per-cycle plan state survives graph replay. 0.32.0's `_fused_multi_step_decode` returns before `_build_uniform_attn_metadata` when `cg_mode == FULL` (0.31.x built it unconditionally), so any builder that computes per-cycle host state in `build()` — Mjolnir's T5 split-KV **work plan** (`work_buf`/`nsplit_buf`, host-computed from seq_lens) — stays **baked at capture-time seq_lens**: every replayed draft step attends a truncated context and MTP acceptance collapses beyond position 0 (measured 2026-10-18: K=5 acceptance 4.1→**2.04**, per-position 0.82/0.17/0.04/…; eager or `MJOLNIR_ATTN_FUSED_DRAFT=0` healthy). The fix re-runs the build before `run_fullgraph` — the returned metadata is unused (the graph replays baked launches), but the side effect refreshes the persistent plan buffers the graph reads, restoring the 0.31.x contract at the same per-cycle host cost 0.31.x always paid. |
 | `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly (removes the `speculator.py:124` "does not support full CUDA graphs; running the draft eagerly" warning). A non-causal drafter (DSpark/DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **last** in `PATCH_ORDER` (its `flashinfer.py` hunks sit on top of the fused-draft-decode patch's changes). Most bump-fragile patch — see below. |
 | `thor-draft-cg-gate-sm110.patch` | — (Thor-authored) | **Shape-gate the DSpark draft's FULL cudagraph replay on sm_110 (the c1 fix).** The forensics showed the graphed draft is 7–16% *slower* than the eager draft at N=1 (replay overhead eats the launch savings on a tiny 5-layer draft). The gate routes per-step draft batches below `VLLM_THOR_DRAFT_CG_MIN_BATCH` requests (default **2**; min 1, where 1 = today's behavior) through the **existing eager fallback** via the dispatch's `need_eager` channel — no new eager path, no capture-logic changes. sm_110 only: off sm_110 the decision helper is a structural no-op (always CG). One-shot `THOR draft-CG gate: …` log lines; any gate evaluation error degrades to the CG behavior (logged once). Probe-gated, inert on non-sm_110, default N=1→eager. |
 | `thor-fa4-hd256-1cta-decode-sm110.patch` | — (Thor-authored) | **The 1CTA decode carve-out for the FA4 hd256 kernel (the v11 "N-2 decode" workstream).** Decode-shaped hd256 calls — `max_seqlen_q <= 8` (decode M 1..8, incl. MTP verify; prefill is 1024+), non-local, dense or paged-128 TMA (the kernel's only legal paged mode) — now OR into the `hd256_use_2cta` carve-out in `vllm_flash_attn/cute/interface.py` (one hunk), so the kernel drops its 2CTA cluster to a single CTA (`cluster (1,1)`, `CtaGroup.ONE`): a **1.56× decode win** at L=8192 M=1 (clean micro-bench 2CTA 323 µs → 1CTA 207 µs), with 1CTA == 2CTA == fp32-ref within fp8 tolerance; the kernel file is untouched and the 2CTA prefill path is unchanged (separate compile keys coexist in one process). The in-tree hd256 SplitKV machinery was investigated and is a no-win on **both** the 2CTA and 1CTA paths — kept inert (see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below). |
@@ -717,6 +718,40 @@ Gates run for this bump (no-GPU build on Thor; the two kernel tests
 self-skip): all 13 vllm patches + 1 flashinfer hunk apply **clean** (zero
 fuzz/offset), `all 12 fixes verified` + `all 1 flashinfer fix verified`,
 `functional_check_55519.py` ALL PASS.
+
+### Post-bump GPU validation: the drafter-acceptance regression, found & fixed (2026-10-18, later the same day)
+
+The 0–32K A/B against the official 0.32.0 image caught MTP acceptance
+collapsing beyond draft position 0 on the Mjolnir leg (K=5: **4.1 → 2.04**
+tokens/step, per-position 0.82/**0.17**/0.04/0.01/0.00 vs the official leg's
+healthy 0.82/0.63/0.50 at K=3). Probe matrix on the live Thor:
+
+| probe | graphs | draft-metadata path | tokens/step | per-position |
+|---|---|---|---|---|
+| A/B leg 2 (broken) | FULL draft graphs | fused (built once at capture) | 2.04 | 0.82/0.17/0.04/0.01/0.00 |
+| `--enforce-eager` | none | fused, built per cycle | 4.05 | 0.85/0.70/0.57/0.51/0.42 |
+| `MJOLNIR_ATTN_FUSED_DRAFT=0` | target graphs, draft unfused | rebuilt every draft step | 3.73 | 0.84/0.66/0.52/0.40/0.31 |
+
+fp6 KV, calibration and the T5 no-op update are all innocent (eager uses the
+identical fp6 path and scores 4.05). Root cause: 0.32.0's
+`_fused_multi_step_decode` returns **before** `_build_uniform_attn_metadata`
+on the FULL-graph path (0.31.x built it unconditionally), so the T5 split-KV
+work plan — host-computed in `build()` from seq_lens — stays baked at
+capture-time seq_lens; every replayed draft step attends a truncated context.
+Draft *prefill* (position 0) and the target's PIECEWISE attention build per
+cycle, which is why only positions 1+ died. Fixed by
+`thor-fused-draft-t5-plan-refresh.patch` (above); with the fix, fusion +
+FULL graphs + fp6 score **3.40 tokens/step, per-position
+0.77/0.59/0.43/0.34/0.27** — healthy decay, +67% acceptance over the broken
+run (probe on a `docker commit` of the fixed speculator — `v0.32.0-t5fix`;
+the residual gap to the unfused 3.73 is within the 6-sample probe noise, the
+`verify spec` run on the rebuilt image is the tight number).
+**`verify spec` on the rebuilt image (20261018-193000, K=5, 256-token
+requests): c1 3.60 acc / 39.0 t/s/req (0.82/0.63/0.49/0.38/0.28), c4 3.63 /
+33.8 (0.84/0.64/0.47/0.38/0.29) — vs the 0.31.0 spec raw (20261014-182829)
+c1 3.68 / 39.4 (0.82/0.65/0.51/0.40/0.30), c4 3.70 / 34.0
+(0.84/0.67/0.51/0.39/0.30): every position within 0.04, decode within
+0.4 t/s, k=5 best again — the bump is fully restored.**
 
 ## Bump to vLLM 0.31.0 (2026-10-11) — 55390 absorbed, 55519 + the FlashInfer hunk re-adapted
 

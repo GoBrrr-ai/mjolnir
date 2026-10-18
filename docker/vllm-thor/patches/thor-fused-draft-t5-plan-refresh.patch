@@ -1,0 +1,27 @@
+--- a/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py
+@@ -543,6 +543,24 @@
+         idx_mapping = self.idx_mapping[:num_reqs]
+ 
+         if batch_desc.cg_mode == CUDAGraphMode.FULL:
++            # Rebuild the draft attention metadata before replaying the
++            # captured graph. The replayed launches read the persistent
++            # buffers, but a builder may derive host-side per-cycle state
++            # from this cycle's seq_lens - Mjolnir's T5 split-KV work plan is
++            # computed on the host and copied into persistent buffers in
++            # build(), so skipping the build here bakes the capture-time plan
++            # in forever and the drafter attends a truncated context from the
++            # second draft step on (0.31.x built the metadata unconditionally
++            # on this path; keep that side effect). The returned metadata
++            # itself is unused - the graph replays baked launches.
++            if not skip_attn:
++                self._build_uniform_attn_metadata(
++                    num_reqs=num_reqs,
++                    batch_desc=batch_desc,
++                    num_query_per_req=1,
++                    seq_lens_cpu_upper_bound=seq_lens_cpu_upper_bound,
++                    step=1,
++                )
+             for groups in self.attn_groups:
+                 for group in groups:
+                     group.map_to_kernel_block_table(

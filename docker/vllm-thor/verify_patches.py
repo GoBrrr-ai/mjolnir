@@ -70,6 +70,16 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "def update_draft_decode_metadata",
         ),
     ],
+    "thor fused draft-decode: T5 work-plan refresh on the FULL-graph replay path": [
+        # The FULL branch of _fused_multi_step_decode must rebuild the draft
+        # metadata before run_fullgraph so host-side per-cycle plan state
+        # (Mjolnir's T5 split-KV work distribution) sees this cycle's
+        # seq_lens. Assert the build call itself, not just a comment.
+        (
+            "v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py",
+            "if not skip_attn:\n                self._build_uniform_attn_metadata(\n                    num_reqs=num_reqs,\n                    batch_desc=batch_desc,\n                    num_query_per_req=1,\n                    seq_lens_cpu_upper_bound=seq_lens_cpu_upper_bound,\n                    step=1,\n                )",
+        ),
+    ],
     "thor dspark non-causal draft: FULL cudagraph via the FI prefill wrapper": [
         # Sentinels assert the non-causal draft actually *routes* to the
         # cudagraph-mode prefill wrapper, not just that the symbols exist (the

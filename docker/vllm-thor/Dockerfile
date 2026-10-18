@@ -142,6 +142,7 @@ touched = [
     "v1/attention/backends/flashinfer.py",
     "v1/worker/gpu/cudagraph_utils.py",
     "v1/worker/gpu/spec_decode/dflash/speculator.py",
+    "v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py",
     "config/speculative.py",
     "config/cache.py",
     "v1/kv_cache_interface.py",
