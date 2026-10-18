@@ -2,6 +2,12 @@ name: CI
 
 on:
   pull_request:
+    # Draft PRs run no gates: the filter self-skips on a draft (below) and the
+    # stages skip on its empty outputs; ready_for_review is required because
+    # the default types (opened, synchronize, reopened) never fire when a
+    # draft is marked ready — without it the gates would not run on that
+    # transition at all.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
   workflow_call:  # the Release workflow runs the same gates before tagging
 
@@ -16,10 +22,12 @@ concurrency:
 jobs:
   # Stage scopes: on a pull_request each stage runs only when the PR touches
   # the files it guards (docs/CI/template-only PRs skip the code gates).
-  # Release (workflow_call) and manual runs always run everything — the
-  # filter does not run there, and the stage conditions fall through.
+  # Draft PRs skip everything. Release (workflow_call) and manual runs always
+  # run everything — the filter does not run there, and the stage conditions
+  # fall through.
   filter:
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     outputs:
       lint: ${{ steps.f.outputs.lint }}
@@ -257,11 +265,12 @@ jobs:
 
   # The only check branch protection should require: a PR's stages skip when
   # out of scope (see filter), and a skipped required check blocks the merge —
-  # so this aggregates: green iff every in-scope stage succeeded. PR events
-  # only; Release (workflow_call) gates itself on the stages directly.
+  # so this aggregates: green iff every in-scope stage succeeded. Draft PRs
+  # skip too (nothing ran to aggregate). PR events only; Release
+  # (workflow_call) gates itself on the stages directly.
   enforce-checks:
     if: >-
-      github.event_name == 'pull_request' && always() &&
+      github.event_name == 'pull_request' && github.event.pull_request.draft != true && always() &&
       needs.filter.result == 'success' &&
       (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
       (needs.lint-workflows.result == 'success' || needs.lint-workflows.result == 'skipped') &&

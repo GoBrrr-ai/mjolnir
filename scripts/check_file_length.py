@@ -9,14 +9,14 @@ All policy (limit, include globs, exempt globs, grandfathered ceilings) lives in
 entry); without it only current-state checks run and a stderr note says so. ``--fix``
 retires grandfathered entries parked at the limit (the pre-commit hook passes it).
 
-Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error.
-A clean run prints nothing.
+Exit codes: 0 ok, 1 violation (one stderr line each), 2 environment error. A clean run prints nothing.
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import os
 import re
 import subprocess
 import sys
@@ -24,6 +24,13 @@ import tomllib
 from pathlib import Path
 
 TABLE = ("tool", "mjolnir", "file-length")
+
+# git exports GIT_DIR (hooks) / GIT_INDEX_FILE (partial commits): scrub, else -C treats <dir> as the work tree.
+_GIT_LOC_VARS = frozenset(("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_CEILING_DIRECTORIES", "GIT_INDEX_FILE"))
+
+
+def _git_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _GIT_LOC_VARS}
 
 
 class EnvError(Exception):
@@ -87,7 +94,9 @@ def load_table(root: Path) -> dict:
 
 def tracked_files(root: Path) -> list[str]:
     try:
-        proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True)
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True, env=_git_env()
+        )
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", b"") or b""
         raise EnvError(f"git ls-files failed in {root}: {exc} {detail.decode(errors='replace').strip()}") from exc
@@ -163,7 +172,7 @@ def retire(root: Path) -> list[str]:
 
 def _git_out(root: Path, *args: str) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=_git_env())
     except OSError as exc:
         raise EnvError(f"cannot run git: {exc}") from exc
 

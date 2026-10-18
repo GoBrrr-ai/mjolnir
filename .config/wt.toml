@@ -30,7 +30,7 @@ setup-env = '''
   # fi
 
   # Allow direnv to manage this worktree's .envrc (auto-activates .venv on cd).
-  # command -v direnv >/dev/null && direnv allow --quiet
+  command -v direnv >/dev/null && direnv allow --quiet
 '''
 
 [pre-remove]
