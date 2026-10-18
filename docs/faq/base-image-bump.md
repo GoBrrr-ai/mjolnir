@@ -18,8 +18,8 @@ the assumptions a patch was written against.
 
 ```bash
 # 1. Pull the new base and note its version + digest
-docker pull --platform linux/arm64 vllm/vllm-openai:v0.31.0-ubuntu2404
-docker image inspect vllm/vllm-openai:v0.31.0-ubuntu2404 \
+docker pull --platform linux/arm64 vllm/vllm-openai:v0.32.0-ubuntu2404
+docker image inspect vllm/vllm-openai:v0.32.0-ubuntu2404 \
        --format '{{index .RepoDigests 0}}'
 
 # 2. Point the Dockerfile at it (ARG BASE_IMAGE + BASE_IMAGE_DIGEST,
@@ -27,7 +27,7 @@ docker image inspect vllm/vllm-openai:v0.31.0-ubuntu2404 \
 #    src/mjolnir-cli/mjolnir_cli/config.py — CI checks the two agree
 
 # 3. Build the candidate tag — the build is the gate
-mjolnir image build --tag narandill/mjolnir-vllm:v0.31.0
+mjolnir image build --tag narandill/mjolnir-vllm:v0.32.0
 ```
 
 Outcomes of step 3:
@@ -36,7 +36,7 @@ Outcomes of step 3:
   `--forward` skips hunks the base already merged upstream): run the canary,
   tag it canonical, keep the old tag for A/B.
   ```bash
-  mjolnir image gates --image narandill/mjolnir-vllm:v0.31.0
+  mjolnir image gates --image narandill/mjolnir-vllm:v0.32.0
   mjolnir verify correctness && mjolnir verify vllm   # the kernel + the MJOLNIR backend
   ```
 - **Red** (a patch rejects / a fix is missing): don't force it. Re-adapt the
@@ -52,7 +52,7 @@ new base:
    base, run the applier directly — it stops at the first rejected patch and
    tells you the file + hunk:
    ```bash
-   docker run --rm -it --entrypoint bash vllm/vllm-openai:v0.31.0-ubuntu2404
+   docker run --rm -it --entrypoint bash vllm/vllm-openai:v0.32.0-ubuntu2404
    # inside: locate site-packages/vllm (importlib), then
    cp /path/from/host/docker/vllm-thor/patches/… /tmp/
    patch -p1 --forward -i /tmp/<patch>.patch
@@ -89,7 +89,7 @@ reference is in the Dockerfile's "BUMPING TO A NEWER vLLM" block.
 ## The image tag follows vLLM
 
 Images are tagged with the upstream vLLM version they are built on
-(`narandill/mjolnir-vllm:v0.31.0`), independent of the `mjolnir-kernel` /
+(`narandill/mjolnir-vllm:v0.32.0`), independent of the `mjolnir-kernel` /
 `mjolnir-cli` PyPI versions. Merging the bump to `main` makes
 `.github/workflows/docker-image.yml` publish `v<vllm>`, `v<vllm>-<sha>` and
 `latest`. The `MJOLNIR` backend patch

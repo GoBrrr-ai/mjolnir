@@ -156,7 +156,10 @@ def bench_ab(
         "available: mjolnir model list",
     ),
     depths: str = typer.Option(
-        ",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths (tokens already in the KV)"
+        ",".join(str(d) for d in E2E_DEPTHS if d <= _E2E_MAX_CTX),
+        "--depths",
+        help="context depths (tokens already in the KV); defaults to the 32K e2e scope —"
+        " pass deeper values (e.g. 65536,131072) for deliberate deep-cell runs",
     ),
     runs: int = typer.Option(6, "--runs"),
     repeat: int = typer.Option(1, "--repeat"),

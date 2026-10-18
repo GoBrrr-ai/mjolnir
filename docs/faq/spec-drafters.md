@@ -139,5 +139,5 @@ None of the four configs has run on a Thor yet. On the first start:
 
 Sources: [DSpark drafter (vLLM fork)](https://huggingface.co/Doopeworld/Qwen3.8-27B-DSpark-vLLM),
 [DFlash2 drafter](https://huggingface.co/incoai/Qwen3.8-27B-DFlash2),
-[vLLM v0.31.0 model registry](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/model_executor/models/registry.py),
+[vLLM v0.32.0 model registry](https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/model_executor/models/registry.py),
 [Speculative decoding on Jetson](https://www.jetson-ai-lab.com/tutorials/speculative-decoding/).

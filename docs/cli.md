@@ -298,8 +298,8 @@ re-render at the end.
 
 | option | description | default |
 |---|---|---|
-| `--backends` | comma-separated legs: each is '&lt;config&gt;' (the --model/state model, served from --image), '&lt;image&gt;:&lt;config&gt;', '&lt;model&gt;/&lt;config&gt;' or '&lt;image&gt;:&lt;model&gt;/&lt;config&gt;' — available: mjolnir model list | `vllm/vllm-openai:v0.31.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
-| `--depths` | context depths (tokens already in the KV) | `0,4096,8192,16384,32768,65536,131072` |
+| `--backends` | comma-separated legs: each is '&lt;config&gt;' (the --model/state model, served from --image), '&lt;image&gt;:&lt;config&gt;', '&lt;model&gt;/&lt;config&gt;' or '&lt;image&gt;:&lt;model&gt;/&lt;config&gt;' — available: mjolnir model list | `vllm/vllm-openai:v0.32.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
+| `--depths` | context depths (tokens already in the KV); defaults to the 32K e2e scope — pass deeper values (e.g. 65536,131072) for deliberate deep-cell runs | `0,4096,8192,16384,32768` |
 | `--runs` |  | `6` |
 | `--repeat` |  | `1` |
 | `--gate` / `--no-gate` | wait for a clean window (vLLM queue 0/0) before measuring | --gate |
@@ -327,7 +327,7 @@ suite.
 
 | option | description | default |
 |---|---|---|
-| `--backends` | comma-separated legs, as in 'bench ab': '&lt;config&gt;', '&lt;image&gt;:&lt;config&gt;', '&lt;model&gt;/&lt;config&gt;' or '&lt;image&gt;:&lt;model&gt;/&lt;config&gt;' (default: mjolnir_cli.legs) | `vllm/vllm-openai:v0.31.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR,NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
+| `--backends` | comma-separated legs, as in 'bench ab': '&lt;config&gt;', '&lt;image&gt;:&lt;config&gt;', '&lt;model&gt;/&lt;config&gt;' or '&lt;image&gt;:&lt;model&gt;/&lt;config&gt;' (default: mjolnir_cli.legs) | `vllm/vllm-openai:v0.32.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR,NVFP4_MJOLNIR_E2M3,NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
 | `--restart` / `--no-restart` | serve each leg (restarts the server; the GPU must be yours) — --no-restart measures the running server as one leg (pass its config with --backends) | --restart |
 | `--model` | the model (`vendor/Model`; default: the active one, `mjolnir model`) |  |
 | `--image` | image for bare-config legs |  |
@@ -348,9 +348,9 @@ the README (infographic + table).
 
 | option | description | default |
 |---|---|---|
-| `--official-image` | the upstream vLLM image (baseline) | `vllm/vllm-openai:v0.31.0-ubuntu2404` |
+| `--official-image` | the upstream vLLM image (baseline) | `vllm/vllm-openai:v0.32.0-ubuntu2404` |
 | `--official-config` | config served on the official image (stock backends only) | `NVFP4` |
-| `--image` | the Mjolnir image | `narandill/mjolnir-vllm:v0.31.0` |
+| `--image` | the Mjolnir image | `narandill/mjolnir-vllm:v0.32.0` |
 | `--config` | config served on the Mjolnir image | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
 | `--model` | the model (`vendor/Model`; default: the active one, `mjolnir model`) |  |
 | `--runs` | measured runs per cell | `6` |
@@ -465,7 +465,7 @@ never the remembered active image — that may be an older build.
 
 | option | description | default |
 |---|---|---|
-| `--tag` | image tag (default: narandill/mjolnir-vllm:v0.31.0 — the repo + the vLLM version the Dockerfile builds on) |  |
+| `--tag` | image tag (default: narandill/mjolnir-vllm:v0.32.0 — the repo + the vLLM version the Dockerfile builds on) |  |
 | `--dry-run` | print what would run, run nothing | off |
 
 

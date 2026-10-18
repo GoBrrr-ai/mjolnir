@@ -10,7 +10,7 @@ A *leg* is one kernel configuration swept over the L axis:
 * ``fi``          — FlashInfer tensor-core decode as vLLM runs it (fp8 KV,
                     NHD pages) — the strongest stock baseline on Thor;
 * ``fi-hnd``      — FlashInfer on the same data in HND pages (fair layout check);
-* ``fa2``         — FlashAttention 2 as stock vLLM 0.31.0 runs it on sm_110
+* ``fa2``         — FlashAttention 2 as stock vLLM 0.32.0 runs it on sm_110
                     (bf16 KV — FA2 has no fp8 KV path, so 2x the bytes);
 * T5 variants     — the Mjolnir harness with extra flags (ab / ring / ...).
 

@@ -22,6 +22,7 @@ Run standalone (resolves the installed vllm and flashinfer themselves) or
 with explicit package roots:
 ``python apply_patches.py /path/to/site-packages/vllm /path/to/site-packages/flashinfer``.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -50,6 +51,12 @@ PATCH_ORDER = [
     "55519-no-warn-when-block-drop-off.patch",
     "thor-gdn-prefill-sm110.patch",
     "thor-fused-draft-decode-fi-native-update.patch",
+    # Refreshes the T5 split-KV work plan when the fused draft loop replays
+    # its FULL cudagraph: 0.32.0's _fused_multi_step_decode returns before
+    # building the draft metadata on the FULL path, so a host-side per-cycle
+    # plan (ours) would stay baked at capture-time seq_lens. Same feature
+    # family as the patch above; the speculator file is disjoint from it.
+    "thor-fused-draft-t5-plan-refresh.patch",
     "thor-dspark-draft-fi-noncausal-cudagraph.patch",
     # Disjoint from every patch except the hd256 one below (fa_utils.py) —
     # must land before it.
@@ -210,8 +217,7 @@ def main() -> int:
         return 1
     print(f"all {len(verify_patches.FIXES)} fixes verified in {root}", file=sys.stderr)
     print(
-        f"all {len(verify_patches.FLASHINFER_FIXES)} flashinfer fixes "
-        f"verified in {fi_root}",
+        f"all {len(verify_patches.FLASHINFER_FIXES)} flashinfer fixes verified in {fi_root}",
         file=sys.stderr,
     )
     return 0

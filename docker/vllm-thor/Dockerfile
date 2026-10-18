@@ -3,11 +3,11 @@
 # vLLM overlay for Jetson AGX Thor (aarch64, SM 11.0a) + the Mjolnir kernel.
 #
 # BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.31.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
 #   (or: mjolnir image build)
 #
 # Image tags follow the upstream vLLM version this overlays (BASE_IMAGE below):
-# vllm/vllm-openai:v0.31.0 -> narandill/mjolnir-vllm:v0.31.0 (+ :v0.31.0-<sha>).
+# vllm/vllm-openai:v0.32.0 -> narandill/mjolnir-vllm:v0.32.0 (+ :v0.32.0-<sha>).
 # .github/workflows/docker-image.yml derives the tag from BASE_IMAGE.
 #
 # This is a SMALL OVERLAY, not a from-source build. It takes the official
@@ -43,28 +43,28 @@
 # already merged is skipped, not re-applied.
 #
 # Verified against base:
-#   vllm 0.31.0  (vllm/vllm-openai:v0.31.0-ubuntu2404, released 2026-10-05)
+#   vllm 0.32.0  (vllm/vllm-openai:v0.32.0-ubuntu2404, released 2026-10)
 #   flashinfer-python / flashinfer-cubin 0.7.0.post1
 #   torch 2.13.0+cu130
 #
 # Build (on Thor or any arm64 builder; repo-root context):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.31.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
 #
 # Base image lineage: vllm/vllm-openai (aarch64, CUDA 13.0, Ubuntu 24.04,
 # Python 3.12). JetPack 7.x on Thor ships CUDA 13.0, so the runtime driver
 # matches the image's CUDA toolkit.
 
-ARG BASE_IMAGE=vllm/vllm-openai:v0.31.0-ubuntu2404
+ARG BASE_IMAGE=vllm/vllm-openai:v0.32.0-ubuntu2404
 # Pinned digest so the default build is reproducible. Override with
 # --build-arg BASE_IMAGE=vllm/vllm-openai@<digest> (or the floating tag,
 # though the floating tag is the recommended BUMP path, see above).
-ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:3fb023cc987cc7c2bca7ca14c1e0aff5ae06bd9431bf07773731ce7e8a682460
+ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:ef74f0f30e704546aa671746e1da6b1a25094b0b0914a29d33384dec86f88cac
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
 ARG MJOLNIR_REVISION=unknown
 LABEL org.opencontainers.image.title="Mjolnir — vLLM for Jetson AGX Thor (sm_110)" \
-        org.opencontainers.image.description="vllm-openai v0.31.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
+        org.opencontainers.image.description="vllm-openai v0.32.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
         org.opencontainers.image.source="https://github.com/thor-arena/mjolnir" \
         org.opencontainers.image.revision="${MJOLNIR_REVISION}" \
         org.opencontainers.image.licenses="Apache-2.0 AND BSD-3-Clause"
@@ -140,12 +140,22 @@ import importlib, importlib.util, pathlib, py_compile
 root = pathlib.Path(importlib.util.find_spec("vllm").origin).parent
 touched = [
     "v1/attention/backends/flashinfer.py",
-    "v1/worker/gpu/spec_decode/autoregressive/cudagraph_utils.py",
+    "v1/worker/gpu/cudagraph_utils.py",
+    "v1/worker/gpu/spec_decode/dflash/speculator.py",
+    "v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py",
     "config/speculative.py",
+    "config/cache.py",
+    "v1/kv_cache_interface.py",
+    "v1/attention/backends/fa_utils.py",
+    "v1/attention/backends/registry.py",
     "v1/core/sched/scheduler.py",
     "v1/core/kv_cache_utils.py",
     "v1/core/single_type_kv_cache_manager.py",
     "v1/core/kv_cache_coordinator.py",
+    "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
+    "utils/torch_utils.py",
+    "vllm_flash_attn/cute/interface.py",
+    "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
 ]
 for rel in touched:
     py_compile.compile(str(root / rel), doraise=True)
@@ -196,7 +206,7 @@ RUN cp -r /opt/vllm-patches/patches /usr/share/doc/mjolnir/patches
 RUN rm -rf /opt/vllm-patches && true
 
 # ── Build ──────────────────────────────────────────────────────────────────
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.31.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
 #
 # This is a thin overlay: the heavy lifting (CUDA kernels for SM 11.0a) comes
 # from the prebuilt wheel in the base image. The first server launch pays a

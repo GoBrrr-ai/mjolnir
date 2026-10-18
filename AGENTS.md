@@ -83,13 +83,13 @@ skipped with a hint — nothing blocks on a password.
   `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
-  CUSTOM` on stock vLLM 0.31.0 (the `vllm.general_plugins` entry point
+  CUSTOM` on stock vLLM 0.32.0 (the `vllm.general_plugins` entry point
   `mjolnir = "mjolnir:register"` fills both slots). Prefill / mixed steps run on
   the fallback (`MJOLNIR_ATTN_FALLBACK`: FA4 on the image, FlashInfer on stock
   vLLM; the FA4 default lives in the enum patch's `fa_utils` hunk). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
-- **The image**: `narandill/mjolnir-vllm:v0.31.0` on
-  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
+- **The image**: `narandill/mjolnir-vllm:v0.32.0` on
+  `vllm/vllm-openai:v0.32.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
@@ -227,10 +227,12 @@ not hand-typed numbers.
 ### End to end
 `mjolnir bench e2e` (official vLLM image vs the Mjolnir image: decode, prefill,
 TTFT, ITL — feeds the README infographic; `bench compare` re-prints it);
-`mjolnir bench perf` (gated llama-benchy; `perf` and `ab` default to
-context depths 0–128K (`config.E2E_DEPTHS`), `e2e` to 0–32K (`e2e.MAX_CTX`: the
-README table, e2e charts and infographic stop there; the infographic takes the
-1-request cell with the highest decode gain), raw JSON + server log + a history row,
+`mjolnir bench perf` (gated llama-benchy; `perf` defaults to
+context depths 0–128K (`config.E2E_DEPTHS`), `ab` and `e2e` to 0–32K
+(`e2e.MAX_CTX`: the README table, e2e charts and infographic stop there; the
+infographic takes the
+1-request cell with the highest decode gain; pass `--depths` explicitly for
+deliberate deep-cell ab runs), raw JSON + server log + a history row,
 incl. `spec_stats`: MTP tokens per verify step and per-position acceptance from
 the server's counters — decode t/s = tokens/step ÷ step time, so compare it
 before blaming the kernel);

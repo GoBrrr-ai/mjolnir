@@ -6,7 +6,7 @@ packaged as a vLLM attention backend.
 
 ```bash
 vllm serve <model> --attention-backend MJOLNIR      # the mjolnir-vllm image
-vllm serve <model> --attention-backend CUSTOM       # stock vLLM 0.31.0 + this package
+vllm serve <model> --attention-backend CUSTOM       # stock vLLM 0.32.0 + this package
 ```
 
 This package is the kernel only. Serving, calibration and benchmarking are the
@@ -59,10 +59,10 @@ fused QKV buffer.
 
 ## Install
 
-**On the image** (`narandill/mjolnir-vllm:v0.31.0`) it is pre-installed and the
+**On the image** (`narandill/mjolnir-vllm:v0.32.0`) it is pre-installed and the
 `MJOLNIR` backend name is patched into vLLM — nothing to do.
 
-**On a stock vLLM 0.31.0** (inside a container that has CUDA 13 and `sm_110`):
+**On a stock vLLM 0.32.0** (inside a container that has CUDA 13 and `sm_110`):
 
 ```bash
 pip install "mjolnir-kernel[dsl]"          # [dsl] pulls nvidia-cutlass-dsl

@@ -284,6 +284,7 @@ jobs:
           v=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' docker/vllm-thor/Dockerfile)
           git clone -q --depth 1 --branch "v${v}" --filter=blob:none --sparse https://github.com/vllm-project/vllm.git "$RUNNER_TEMP/vllm"
           git -C "$RUNNER_TEMP/vllm" sparse-checkout set vllm/v1/attention/backends
+          cd "$RUNNER_TEMP/vllm"
           git apply --check "$GITHUB_WORKSPACE/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch"
           echo "applies to vLLM v${v}"
 

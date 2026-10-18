@@ -53,14 +53,14 @@ E2E_DEPTHS: tuple[int, ...] = (0, 4096, 8192, 16384, 32768, 65536, 131072)
 FAST_QUANT = "NVFP4_MJOLNIR_E2M3_LMH8_VT64K"
 DEFAULT_QUANT = "NVFP4_MJOLNIR_E2M3_LMH8_VT64K"  # --attention-backend MJOLNIR (this repo's kernel)
 BASELINE_QUANT = "NVFP4"  # FlashInfer — the fastest stock backend on Thor
-FA2_QUANT = "NVFP4_FA2"  # FlashAttention 2 — vLLM 0.31.0's sm_110 default (bf16 KV)
+FA2_QUANT = "NVFP4_FA2"  # FlashAttention 2 — vLLM 0.32.0's sm_110 default (bf16 KV)
 SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
 
 # ── Image / serving ──────────────────────────────────────────────────────────
 # The image tag follows the upstream vLLM version it overlays (see
 # .github/workflows/docker-image.yml): narandill/mjolnir-vllm:v<vllm>.
 IMAGE_REPO = "narandill/mjolnir-vllm"
-VLLM_VERSION = "0.31.0"
+VLLM_VERSION = "0.32.0"
 DEFAULT_IMAGE = f"{IMAGE_REPO}:v{VLLM_VERSION}"
 STOCK_IMAGE = f"vllm/vllm-openai:v{VLLM_VERSION}-ubuntu2404"
 DEFAULT_PORT = 6001  # host port; vLLM metrics live on the same port

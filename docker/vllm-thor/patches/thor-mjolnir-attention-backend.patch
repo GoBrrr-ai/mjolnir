@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/attention/backends/fa_utils.py b/vllm/v1/attention/backends/fa_utils.py
-index 3757b9843fe71056185b71a8b5a31f1176672a88..5762ce6411297971f469f0cb3df6508ba26a2407 100644
+index e3e90ec..293d802 100644
 --- a/vllm/v1/attention/backends/fa_utils.py
 +++ b/vllm/v1/attention/backends/fa_utils.py
 @@ -1,6 +1,7 @@
@@ -59,13 +59,13 @@ index 3757b9843fe71056185b71a8b5a31f1176672a88..5762ce6411297971f469f0cb3df6508b
          # 3. fallback for unsupported combinations
          if device_capability.major >= 10 and fa_version == 3:
 diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
-index 32e2fabeb5673a0f43326f23e8711ef50c77c0c7..53b983dfb00df7d85d4ade9eb542e22fe22341b9 100644
+index 207c112..ce75260 100644
 --- a/vllm/v1/attention/backends/registry.py
 +++ b/vllm/v1/attention/backends/registry.py
-@@ -149,6 +149,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
-     CPU_MLA = "vllm.v1.attention.backends.mla.cpu_mla.CPUMLABackend"
+@@ -153,6 +153,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
      AMX_MLA = "vllm.v1.attention.backends.mla.amx_mla.AMXMLABackend"
      TURBOQUANT = "vllm.v1.attention.backends.turboquant_attn.TurboQuantAttentionBackend"
+     ULTRAQUANT = "vllm.v1.attention.backends.ultraquant_attn.UltraQuantAttentionBackend"
 +    # Mjolnir: the tcgen05/TMEM/TMA fp8 paged decode kernel for Jetson AGX
 +    # Thor (sm_110), packaged as `mjolnir-kernel` (https://github.com/thor-arena/mjolnir).
 +    # Decode steps run the Mjolnir kernel; prefill and mixed steps run on the

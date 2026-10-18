@@ -1,6 +1,6 @@
 """FlashAttention 2 paged decode driver for ncu — the stock-vLLM baseline.
 
-What vLLM 0.31.0 runs on sm_110 out of the box for a head_dim=256 model:
+What vLLM 0.32.0 runs on sm_110 out of the box for a head_dim=256 model:
 ``vllm.vllm_flash_attn.flash_attn_varlen_func(..., fa_version=2)`` over a
 paged KV cache in NHD order ``(num_blocks, block_size, h_k, d)``. FA2 has no
 fp8 KV path, so the cache is **bf16** — twice the bytes of the fp8 legs (the

@@ -1,8 +1,8 @@
 diff --git a/vllm/config/cache.py b/vllm/config/cache.py
-index 3121f49532b888cf8044643f14dd9fa42ad03e4e..ea2241261a608d5034929190d15afcfb9809047e 100644
+index 5eb2672..3b46eb2 100644
 --- a/vllm/config/cache.py
 +++ b/vllm/config/cache.py
-@@ -55,6 +55,10 @@ CacheDType = Literal[
+@@ -56,6 +56,10 @@ CacheDType = Literal[
      "fp8_per_token_head",
      "nvfp4",
      "nvfp4_4over6",
@@ -14,18 +14,18 @@ index 3121f49532b888cf8044643f14dd9fa42ad03e4e..ea2241261a608d5034929190d15afcfb
  
  
 diff --git a/vllm/utils/torch_utils.py b/vllm/utils/torch_utils.py
-index 849d0a38f55c34e40b2b5de0dfa822fcfea59935..8f3d510ca5cd73b3f946a6b5d72b028b92699050 100644
+index 4bf2e33..002df3a 100644
 --- a/vllm/utils/torch_utils.py
 +++ b/vllm/utils/torch_utils.py
-@@ -52,6 +52,7 @@ STR_DTYPE_TO_TORCH_DTYPE = {
-     "turboquant_3bit_nc": torch.uint8,
+@@ -53,6 +53,7 @@ STR_DTYPE_TO_TORCH_DTYPE = {
+     "ultraquant_4bit": torch.uint8,
      "nvfp4": torch.uint8,
      "nvfp4_4over6": torch.uint8,
 +    "fp6_e2m3": torch.uint8,  # THOR_SM110_FP6_KV: packed bytes, 4 values per 3
  }
  
  TORCH_DTYPE_TO_NUMPY_DTYPE = {
-@@ -80,6 +81,7 @@ def is_quantized_kv_cache(kv_cache_dtype: str) -> bool:
+@@ -89,6 +90,7 @@ def is_quantized_kv_cache(kv_cache_dtype: str) -> bool:
          kv_cache_dtype.startswith("fp8")
          or kv_cache_dtype.endswith("per_token_head")
          or kv_cache_dtype.startswith("nvfp4")
@@ -34,16 +34,16 @@ index 849d0a38f55c34e40b2b5de0dfa822fcfea59935..8f3d510ca5cd73b3f946a6b5d72b028b
  
  
 diff --git a/vllm/v1/kv_cache_interface.py b/vllm/v1/kv_cache_interface.py
-index 3ff0832b1cbb8b397641c248a4b929400b720d46..b01c9918b230202ae2c63a8d965fe9fa333882e1 100644
+index 79e88ca..e93f8e7 100644
 --- a/vllm/v1/kv_cache_interface.py
 +++ b/vllm/v1/kv_cache_interface.py
-@@ -55,6 +55,14 @@ class KVQuantMode(IntEnum):
-     TURBOQUANT_K3V4_NC = 8
+@@ -57,6 +57,14 @@ class KVQuantMode(IntEnum):
      TURBOQUANT_3BIT_NC = 9
      NVFP4_DS_MLA = 10  # opaque-bytes NVFP4 DS-MLA layouts (FlashMLA sparse)
+     ULTRAQUANT_4BIT = 11  # packed FP4 values + UE8M0 group scales
 +    # THOR_SM110_FP6_KV: packed fp6 e2m3 data (4 values per 3 bytes) with
 +    # static per-KV-head scales; the backend publishes the packed cell size.
-+    FP6_E2M3 = 11
++    FP6_E2M3 = 12
 +
 +    @property
 +    def is_fp6(self) -> bool:
@@ -52,7 +52,7 @@ index 3ff0832b1cbb8b397641c248a4b929400b720d46..b01c9918b230202ae2c63a8d965fe9fa
  
      @property
      def is_per_token_head(self) -> bool:
-@@ -96,6 +104,8 @@ def get_kv_quant_mode(kv_cache_dtype: str) -> KVQuantMode:
+@@ -103,6 +111,8 @@ def get_kv_quant_mode(kv_cache_dtype: str) -> KVQuantMode:
          return KVQuantMode.NVFP4_DS_MLA
      if kv_cache_dtype.startswith("nvfp4"):
          return KVQuantMode.NVFP4
@@ -60,4 +60,4 @@ index 3ff0832b1cbb8b397641c248a4b929400b720d46..b01c9918b230202ae2c63a8d965fe9fa
 +        return KVQuantMode.FP6_E2M3
      if isinstance(kv_cache_dtype, str) and kv_cache_dtype.startswith("turboquant_"):
          return KVQuantMode[kv_cache_dtype.upper()]
-     if isinstance(kv_cache_dtype, str) and kv_cache_dtype.startswith("fp8"):
+     if kv_cache_dtype == "ultraquant_4bit":

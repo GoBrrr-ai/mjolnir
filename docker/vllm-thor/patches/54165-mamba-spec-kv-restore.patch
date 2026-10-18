@@ -1,8 +1,8 @@
 diff --git a/vllm/config/speculative.py b/vllm/config/speculative.py
-index dbec9fd743327435b9c9a67b6c747e2e1c3d6a78..69bcb0c482d69cb64c875f5b1c6be89c395abf07 100644
+index b916d7d..9051b5b 100644
 --- a/vllm/config/speculative.py
 +++ b/vllm/config/speculative.py
-@@ -1941,9 +1941,23 @@ class SpeculativeConfig:
+@@ -1947,9 +1947,23 @@ class SpeculativeConfig:
          # TODO(ben): Refactor this so the naming is clearer
          return self.method in ("eagle", "eagle3", "mtp", "dflash", "dspark")
  
