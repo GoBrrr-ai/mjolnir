@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
-index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf47252cc0 100644
+index f6c3e26..e2e0bfe 100644
 --- a/vllm/v1/attention/backends/flashinfer.py
 +++ b/vllm/v1/attention/backends/flashinfer.py
 @@ -2,10 +2,12 @@
@@ -17,7 +17,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
  
  import numpy as np
  import torch
-@@ -741,10 +743,11 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -788,10 +790,11 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              self.compilation_config.cudagraph_mode.decode_mode() == CUDAGraphMode.FULL
          )
          if self.enable_cuda_graph:
@@ -32,7 +32,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
              ] = {}
              self._decode_cudagraph_max_bs = (1 + num_spec_tokens) * max_num_reqs
              if self.compilation_config.max_cudagraph_capture_size is not None:
-@@ -864,6 +867,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -929,6 +932,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              1,
              supports_spec_as_decode=(
                  self.flashinfer_trtllm_api_decode_kernel is not None
@@ -45,7 +45,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
              ),
              # trtllm-gen decode receives no cp_rank/global-seq-len information,
              # so its end-aligned causal mask is wrong for q_len > 1 over the
-@@ -1002,8 +1011,15 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1076,8 +1085,15 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          use_non_causal = vllm_config.attention_config.use_non_causal
          if has_uniform_batch_support and (not use_non_causal or is_xqa_arch):
              return AttentionCGSupport.UNIFORM_BATCH
@@ -63,7 +63,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
  
      @override  # type: ignore[misc]
      @classmethod
-@@ -1233,9 +1249,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1307,9 +1323,12 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          assert self._prefill_wrapper is not None
          return self._prefill_wrapper
  
@@ -78,7 +78,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
          else:
              decode_wrapper = self._decode_wrapper
  
-@@ -1267,7 +1286,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1341,7 +1360,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
  
              # save the decode wrapper
              if use_cudagraph:
@@ -108,10 +108,10 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
                  )
                  # Use the persistent buffer with padding length,
                  # instead of the same address but chunked version
-@@ -1793,9 +1820,9 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
-                 o_dtype = (
-                     FP8_DTYPE if self.is_kvcache_nvfp4 else self.model_config.dtype
-                 )
+@@ -1791,9 +1818,9 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+                 # use FP8 o_data_type so the wrapper matches the
+                 # FP8 output buffer allocated in forward().
+                 o_dtype = FP8_DTYPE if self.nvfp4_trtllm else self.model_config.dtype
 -                paged_kv_indptr_cpu = self.paged_kv_indptr.cpu[: num_input_tokens + 1]
 +                paged_kv_indptr_cpu = self.paged_kv_indptr.cpu[: num_decodes + 1]
                  paged_kv_last_page_len_cpu = self.paged_kv_last_page_len.cpu[
@@ -120,7 +120,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
                  ]
                  # plan() copies these to the GPU with non_blocking=True;
                  # stage them in pinned memory so the copies stay async
-@@ -1833,6 +1860,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1831,6 +1858,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                      o_data_type=o_dtype,
                      fixed_split_size=self.decode_fixed_split_size,
                      disable_split_kv=self.disable_split_kv,
@@ -128,7 +128,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
                  )
                  attn_metadata.decode = FIDecode(wrapper=decode_wrapper)
          return attn_metadata
-@@ -2682,6 +2710,14 @@ class FlashInferImpl(AttentionImpl):
+@@ -2673,6 +2701,14 @@ class FlashInferImpl(AttentionImpl):
              )
  
  
@@ -143,7 +143,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
  def fast_plan_decode(
      self,  # decode wrapper
      indptr_cpu: torch.Tensor,
-@@ -2705,6 +2741,7 @@ def fast_plan_decode(
+@@ -2696,6 +2732,7 @@ def fast_plan_decode(
      non_blocking: bool = True,
      fixed_split_size: int = -1,
      disable_split_kv: bool = False,
@@ -151,7 +151,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
  ) -> None:
      """A faster version of BatchDecodeWithPagedKVCacheWrapper::plan used for
      cudagraph capture/replay, while the no cudagraph version turns back
-@@ -2718,6 +2755,15 @@ def fast_plan_decode(
+@@ -2709,6 +2746,15 @@ def fast_plan_decode(
      Part of the code get inspiration from the original plan from FlashInfer repo
      and the implementation of fast_decode_plan for FlashInfer in SGlang repo.
      """
@@ -167,7 +167,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
      # Warm up with the original plan if it is first call, and always run the
      # original plan if we run for dynamic shape. For fixed shape (cudagraph),
      # this warm up is to generate the _cached_module for the decode wrapper.
-@@ -2749,6 +2795,7 @@ def fast_plan_decode(
+@@ -2740,6 +2786,7 @@ def fast_plan_decode(
              seq_lens=seq_lens_cpu,
              fixed_split_size=fixed_split_size,
              disable_split_kv=disable_split_kv,
@@ -175,7 +175,7 @@ index ecc66a75cac52fc84e7337f5e848d1c18ac21634..17833d7368f57eac53e3f803c3ce57cf
          )
          self.vllm_first_call = False
          return
-@@ -2776,6 +2823,7 @@ def fast_plan_decode(
+@@ -2767,6 +2814,7 @@ def fast_plan_decode(
          non_blocking=non_blocking,
          fixed_split_size=fixed_split_size,
          disable_split_kv=disable_split_kv,

@@ -3,7 +3,7 @@
 [![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
 [![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)
 [![Docker Hub](https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a)](https://hub.docker.com/r/narandill/mjolnir-vllm)
-[![vLLM 0.31.0](https://img.shields.io/badge/vLLM-0.31.0-blue)](https://github.com/thor-arena/mjolnir)
+[![vLLM 0.32.0](https://img.shields.io/badge/vLLM-0.32.0-blue)](https://github.com/thor-arena/mjolnir)
 [![Jetson AGX Thor](https://img.shields.io/badge/Jetson-AGX%20Thor-76b900)](https://www.nvidia.com/en-us/autonomous-machines/embedded-platforms/module/jetson-modules/agx-thor/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/thor-arena/mjolnir/blob/main/LICENSE)
 
@@ -15,7 +15,7 @@
 
 ## ⚡ What's inside this image
 
-`narandill/mjolnir-vllm:v0.31.0` is the official **vLLM 0.31.0** aarch64 image (CUDA 13.0, Ubuntu 24.04) with a small overlay on top — everything else is upstream vLLM:
+`narandill/mjolnir-vllm:v0.32.0` is the official **vLLM 0.32.0** aarch64 image (CUDA 13.0, Ubuntu 24.04) with a small overlay on top — everything else is upstream vLLM:
 
 - **The Mjolnir decode-attention kernel** — paged decode written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
 - **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on Thor; applied and verified at build time, the build fails when a patch stops applying — the list is below.
@@ -26,7 +26,7 @@ The Mjolnir kernel takes over single-token and speculative-verify steps; prefill
 
 ## ⚡ Patches
 
-`4` hand-adapted vLLM PR fixes and `10` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.31.0` and FlashInfer at build time:
+`4` hand-adapted vLLM PR fixes and `10` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time:
 
 | File | PR | What it fixes |
 |------|----|---------------|
@@ -53,11 +53,11 @@ The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/
 > Requires a Jetson AGX Thor (JetPack 7.x, `sm_110a`) with Docker + the NVIDIA Container Toolkit.
 
 ```bash
-docker pull narandill/mjolnir-vllm:v0.31.0
+docker pull narandill/mjolnir-vllm:v0.32.0
 
 # any model, any vLLM flags — Mjolnir serves the decode:
 docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
-  narandill/mjolnir-vllm:v0.31.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+  narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
 The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/README.md).
@@ -66,11 +66,11 @@ The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/pr
 
 Tags follow the **upstream vLLM version** of the base image, not the kernel's:
 
-- `v0.31.0` — the current image (re-pushed on every rebuild)
-- `v0.31.0-<sha>` — the same build, immutable per commit
+- `v0.32.0` — the current image (re-pushed on every rebuild)
+- `v0.32.0-<sha>` — the same build, immutable per commit
 - `latest` — moved by each release
 
-A kernel release is rebuilt into the same `v0.31.0` tag; the kernel version rides along as the `io.github.thor-arena.mjolnir.kernel-version` image label.
+A kernel release is rebuilt into the same `v0.32.0` tag; the kernel version rides along as the `io.github.thor-arena.mjolnir.kernel-version` image label.
 
 ## ⚡ More
 

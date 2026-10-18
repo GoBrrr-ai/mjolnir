@@ -10,7 +10,7 @@ version number."
 |---|---|---|---|
 | `mjolnir-kernel` | [PyPI](https://pypi.org/project/mjolnir-kernel/) | its own semver, from its tag history | `mjolnir-kernel-vX.Y.Z` |
 | `mjolnir-cli` | [PyPI](https://pypi.org/project/mjolnir-cli/) | its own semver, from its tag history | `mjolnir-cli-vX.Y.Z` |
-| `narandill/mjolnir-vllm` | [Docker Hub](https://hub.docker.com/r/narandill/mjolnir-vllm) | the **pinned upstream vLLM** (`VLLM_VERSION` = the Dockerfile's `BASE_IMAGE`) | `:v0.31.0`, `:v0.31.0-<sha>`, `:latest` |
+| `narandill/mjolnir-vllm` | [Docker Hub](https://hub.docker.com/r/narandill/mjolnir-vllm) | the **pinned upstream vLLM** (`VLLM_VERSION` = the Dockerfile's `BASE_IMAGE`) | `:v0.32.0`, `:v0.32.0-<sha>`, `:latest` |
 | the release | [GitHub Releases](https://github.com/thor-arena/mjolnir/releases) | the date | `release-YYYY.MM.DD[.N]` |
 | the interactive site | GitHub Pages | — | built from the release tag |
 

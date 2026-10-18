@@ -20,9 +20,9 @@ The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
 and its kernel were removed when the Mjolnir kernel replaced them; the last
 snapshot is the git tag `gemv-archive`: [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
 
-Base this was verified against: **vllm 0.31.0**
-(`vllm/vllm-openai:v0.31.0-ubuntu2404`, released 2026-10-05), FlashInfer
-0.7.0.post1 — see "Bump to vLLM 0.31.0" below.
+Base this was verified against: **vllm 0.32.0**
+(`vllm/vllm-openai:v0.32.0-ubuntu2404`), FlashInfer
+0.7.0.post1 — see "Bump to vLLM 0.32.0" below.
 
 | File | PR | What it fixes |
 |------|----|---------------|
@@ -648,6 +648,75 @@ members before `CUSTOM` (a new upstream member there moves one line); the
 `fa_utils.py` hunk sits on the FA4 patches' version of that file, next to the
 `flash_attn_version` override in `get_flash_attn_version()`, so it is
 re-generated whenever those patches are.
+
+## Bump to vLLM 0.32.0 (2026-10-18) — fused-draft-decode + 49652 collide with upstream work, FP6 mode renumbered
+
+Base moved from the release `vllm 0.31.0` to the release **`vllm 0.32.0`**
+(`vllm/vllm-openai:v0.32.0-ubuntu2404`, manifest-list digest
+`sha256:ef74f0f30e704546aa671746e1da6b1a25094b0b0914a29d33384dec86f88cac`;
+**torch 2.13.0+cu130, flashinfer 0.7.0.post1 and triton 3.7.1 unchanged**,
+`nvidia-cutlass-dsl` 4.7.1 → 4.8.0). Seven patches re-adapted, all
+**regenerated against 0.32.0** (the stack applies with zero fuzz and zero
+offset); the other six applied verbatim at line offsets.
+
+- **49652 (draft-decode capture)**: 0.32.0 added its own guard to the same
+  Dynamic-SD condition — `and self.decode_query_len >
+  self.vllm_config.num_speculative_tokens` — which already excludes the
+  draft-decode managers (their `decode_query_len` is 1 ≤ any
+  `num_speculative_tokens`). Our explicit `and self.decode_query_len > 1`
+  is kept on top (belt-and-braces; it also keeps the build sentinel
+  meaningful). Also note the patch's old anchor file
+  `v1/worker/gpu/spec_decode/autoregressive/` is **gone** in 0.32.0 — the
+  Dockerfile smoke-test list was updated to the current file set.
+- **50885 (FI native FULL decode cudagraphs)**: **not** merged upstream —
+  0.32.0's own `q_len_per_req` work lands in the *trtllm-API* branch
+  (`FlashInferTrtllmAPIDecode`), not the FI-native `else` branch this patch
+  targets. 13 of 14 hunks applied verbatim; hunk #8 (the
+  `num_input_tokens` → `num_decodes` indptr/last-page-len slices) was
+  re-anchored because the adjacent `o_dtype` line changed
+  (`self.is_kvcache_nvfp4` → `self.nvfp4_trtllm`). The slicing fix is still
+  required — 0.32.0 still slices the per-request buffers by
+  `num_input_tokens`.
+- **thor fused-draft-decode**: the big one. 0.32.0 upstream landed its own
+  fused-draft machinery for trtllm-gen: a `supports_draft_decode_metadata_update`
+  grant (`flashinfer_trtllm_api_decode_kernel == TRTLLM_GEN and not use_dcp`)
+  and a **stub** `update_draft_decode_metadata` (their path needs no per-step
+  plan update). Re-adapted:
+  - the `__init__` grant is now **OR-ed** with upstream's (theirs covers
+    trtllm-gen, ours the FI-native path) instead of overwriting it;
+  - the patch now **replaces the upstream stub body** with the real
+    FI-native plan advance (previously it inserted a new method);
+  - the `use_cascade_attention` trailing anchor is gone from the builder
+    (moved/removed upstream) — hunks re-anchored on the stub and the
+    `class FlashInferImpl` boundary.
+  The `isinstance(metadata.decode, FIDecode)` guard keeps the two paths
+  disjoint: trtllm-gen metadata flows through our method as a no-op, exactly
+  like upstream's stub.
+- **thor-dspark-draft-fi-noncausal-cudagraph**: regenerated (its hunks sit on
+  the fused-draft-decode / 50885 regions). Content unchanged.
+- **thor-draft-cg-gate-sm110**: upstream renamed the
+  `dispatch_cg_and_sync_dp` kwarg `dp_sync=` → `dp_sync_state=`; the dispatch
+  hunk re-adapted. Regenerated.
+- **thor-mjolnir-attention-backend**: the registry gained `ULTRAQUANT`
+  before `CUSTOM` — the `MJOLNIR` member re-anchored after it. (0.32.0's
+  registry also grew a second `CUSTOM = None` after the mamba/linear-attn
+  members plus a `register()` classmethod; our anchor is the first list.)
+- **thor-fp6-e2m3-kv-cache**: upstream added `ULTRAQUANT_4BIT = 11` to
+  `KVQuantMode` → **`FP6_E2M3` renumbered 11 → 12**. The
+  `verify_patches.py` sentinel was updated; the kernel reads the mode by
+  *name* (`getattr(KVQuantMode, "FP6_E2M3", None)`), so no kernel change.
+- **55519**: 0.32.0 upstream independently added a `use_eagle_block_drop()`
+  gate in `_annotate_eagle_groups` (the 55390-superseded code) — no
+  conflict; `_warn_if_unannotated_eagle_mamba` still gated on `use_eagle()`,
+  so both hunks still apply (offsets only).
+- 54165, the GDN/FA4 sm_110 group and the FlashInfer GDN allowlist hunk:
+  unchanged in content (FlashInfer itself is unchanged, so the flashinfer
+  hunk lands at the same line).
+
+Gates run for this bump (no-GPU build on Thor; the two kernel tests
+self-skip): all 13 vllm patches + 1 flashinfer hunk apply **clean** (zero
+fuzz/offset), `all 12 fixes verified` + `all 1 flashinfer fix verified`,
+`functional_check_55519.py` ALL PASS.
 
 ## Bump to vLLM 0.31.0 (2026-10-11) — 55390 absorbed, 55519 + the FlashInfer hunk re-adapted
 

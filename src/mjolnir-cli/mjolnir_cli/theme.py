@@ -12,7 +12,7 @@ Color = identity, and identities are fixed (never assigned by rank):
   tints of one hue fail the normal-vision floor on the dark surface — the
   validator rejected every tint tried, so tints are not used).
 * **FlashInfer** — blue (the strongest stock baseline).
-* **FlashAttention 2** — aqua (stock vLLM 0.31.0's sm_110 default).
+* **FlashAttention 2** — aqua (stock vLLM 0.32.0's sm_110 default).
 
 Those three slots are the validated reference palette's first three steps:
 they pass the all-pairs colorblind (CVD ΔE ≥ 8) and normal-vision (ΔE ≥ 15)

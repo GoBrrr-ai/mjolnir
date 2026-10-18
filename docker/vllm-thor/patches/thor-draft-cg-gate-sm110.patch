@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
-index 57110e0b05f16012e356fba70dac850703b5158b..c4a10985c4fd4bb4bc42f5821c229cfcb6b5d984 100644
+index 5a13441..739458c 100644
 --- a/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
 +++ b/vllm/v1/worker/gpu/spec_decode/dflash/speculator.py
 @@ -1,6 +1,7 @@
@@ -133,7 +133,7 @@ index 57110e0b05f16012e356fba70dac850703b5158b..c4a10985c4fd4bb4bc42f5821c229cfc
  
  class DFlashSpeculator(DraftModelSpeculator):
      _speculator_name = "DFlash"  # For logging, so we can share methods with subclasses
-@@ -450,6 +567,12 @@ class DFlashSpeculator(DraftModelSpeculator):
+@@ -459,6 +576,12 @@ class DFlashSpeculator(DraftModelSpeculator):
              else (None, num_query_tokens)
          )
          # Every DFlash step has exactly num_query_per_req tokens, so we can use FULL CGs
@@ -146,12 +146,12 @@ index 57110e0b05f16012e356fba70dac850703b5158b..c4a10985c4fd4bb4bc42f5821c229cfc
          batch_desc, batch_sync = dispatch_cg_and_sync_dp(
              self.query_cudagraph_manager,
              num_reqs,
-@@ -457,7 +580,7 @@ class DFlashSpeculator(DraftModelSpeculator):
+@@ -466,7 +589,7 @@ class DFlashSpeculator(DraftModelSpeculator):
              uniform_token_count=self.num_query_per_req,
              dp_size=self.dp_size,
              dp_rank=self.dp_rank,
 -            need_eager=is_profile,
 +            need_eager=need_eager,
-             dp_sync=batch_sync,
+             dp_sync_state=batch_sync,
          )
          num_tokens_padded = batch_desc.num_tokens

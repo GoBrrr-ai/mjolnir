@@ -23,7 +23,7 @@ server's state — see the
 
 ```bash
 mjolnir serve up --model Qwen/Qwen3.8-27B --config NVFP4 \
-                 --image narandill/mjolnir-vllm:v0.31.0 \
+                 --image narandill/mjolnir-vllm:v0.32.0 \
                  --port 6001
 mjolnir serve up --dry-run     # print the exact docker run, do nothing
 ```
@@ -72,11 +72,11 @@ Without the CLI, on the image:
 
 ```bash
 docker run --gpus all --ipc host -e VLLM_KV_CACHE_LAYOUT=HND -p 8000:8000 \
-  narandill/mjolnir-vllm:v0.31.0 \
+  narandill/mjolnir-vllm:v0.32.0 \
   vllm serve Qwen/Qwen3.8-27B --attention-backend MJOLNIR
 ```
 
-On a stock vLLM 0.31.0 (no image patch), `pip install mjolnir-kernel[dsl]` and
+On a stock vLLM 0.32.0 (no image patch), `pip install mjolnir-kernel[dsl]` and
 use `--attention-backend CUSTOM`: the plugin registers itself in the `CUSTOM`
 slot through the `vllm.general_plugins` entry point. Prefill and mixed batches
 run on the fallback backend (`MJOLNIR_ATTN_FALLBACK`): FlashAttention 4 on the

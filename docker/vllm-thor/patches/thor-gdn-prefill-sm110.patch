@@ -1,5 +1,5 @@
 diff --git a/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py b/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
-index 9d5bcc89dac1e86c88e2560d2dc34d71b85ed232..c2d970e99fada9237bb95e7a5099caf79a93f46e 100644
+index 516ef13..6ddeced 100644
 --- a/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
 +++ b/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
 @@ -89,6 +89,108 @@ logger = init_logger(__name__)
@@ -124,7 +124,7 @@ index 9d5bcc89dac1e86c88e2560d2dc34d71b85ed232..c2d970e99fada9237bb95e7a5099caf7
  
      In-tree CuteDSL GDN prefill kernel is chosen when:
      * "cutedsl" is requested; (opt-in only)
-@@ -141,6 +247,17 @@ def _resolve_gdn_prefill_backend(
+@@ -184,6 +290,17 @@ def _resolve_gdn_prefill_backend(
      ):
          # The in-tree CuteDSL kernel targets SM100 only, so it stays off here.
          supports_flashinfer = True

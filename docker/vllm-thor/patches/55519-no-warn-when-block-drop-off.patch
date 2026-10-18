@@ -1,8 +1,8 @@
 diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
-index 8fc327f3e0642d7efd8096d22efd4f4ccfe60db4..9a09a2d1d7d9ed1c56992448010cd505474538bc 100644
+index 03c6c5f..f2dd44b 100644
 --- a/vllm/v1/core/kv_cache_utils.py
 +++ b/vllm/v1/core/kv_cache_utils.py
-@@ -2231,13 +2231,21 @@ def _warn_if_unannotated_eagle_mamba(
+@@ -2090,13 +2090,21 @@ def _warn_if_unannotated_eagle_mamba(
  ) -> None:
      """Warn when no KV cache group could be identified as the draft model's.
  
@@ -26,10 +26,10 @@ index 8fc327f3e0642d7efd8096d22efd4f4ccfe60db4..9a09a2d1d7d9ed1c56992448010cd505
      if any(group.is_eagle_group for group in kv_cache_groups):
          return
 diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
-index 8b188de138a637557a6bb9b6f6487a5c065d3f95..ad2e7c18b31137029b8b8de1eb38c77bfbfb5891 100644
+index cec96d2..322b721 100644
 --- a/vllm/v1/core/sched/scheduler.py
 +++ b/vllm/v1/core/sched/scheduler.py
-@@ -301,9 +301,11 @@ class Scheduler(SchedulerInterface):
+@@ -316,9 +316,11 @@ class Scheduler(SchedulerInterface):
              self.use_eagle_block_drop = speculative_config.use_eagle_block_drop()
              if self.use_eagle and not self.use_eagle_block_drop:
                  logger.warning(

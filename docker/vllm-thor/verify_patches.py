@@ -176,7 +176,7 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         # the dtype name, its storage dtype, and the quant mode the backend keys on
         ("config/cache.py", '"fp6_e2m3",'),
         ("utils/torch_utils.py", '"fp6_e2m3": torch.uint8'),
-        ("v1/kv_cache_interface.py", "FP6_E2M3 = 11"),
+        ("v1/kv_cache_interface.py", "FP6_E2M3 = 12"),
         ("v1/kv_cache_interface.py", 'if kv_cache_dtype == "fp6_e2m3":\n        return KVQuantMode.FP6_E2M3'),
     ],
     "thor Mjolnir attention backend: AttentionBackendEnum.MJOLNIR": [

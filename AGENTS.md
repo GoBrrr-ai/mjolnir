@@ -83,13 +83,13 @@ skipped with a hint — nothing blocks on a password.
   `docs/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
-  CUSTOM` on stock vLLM 0.31.0 (the `vllm.general_plugins` entry point
+  CUSTOM` on stock vLLM 0.32.0 (the `vllm.general_plugins` entry point
   `mjolnir = "mjolnir:register"` fills both slots). Prefill / mixed steps run on
   the fallback (`MJOLNIR_ATTN_FALLBACK`: FA4 on the image, FlashInfer on stock
   vLLM; the FA4 default lives in the enum patch's `fa_utils` hunk). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
-- **The image**: `narandill/mjolnir-vllm:v0.31.0` on
-  `vllm/vllm-openai:v0.31.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
+- **The image**: `narandill/mjolnir-vllm:v0.32.0` on
+  `vllm/vllm-openai:v0.32.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.

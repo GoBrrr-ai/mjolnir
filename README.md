@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/mjolnir-kernel/"><img src="https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834" alt="mjolnir-kernel on PyPI"></a>
   <a href="https://pypi.org/project/mjolnir-cli/"><img src="https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6" alt="mjolnir-cli on PyPI"></a>
   <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
-  <img src="https://img.shields.io/badge/vLLM-0.31.0-blue" alt="vLLM 0.31.0">
+  <img src="https://img.shields.io/badge/vLLM-0.32.0-blue" alt="vLLM 0.32.0">
   <img src="https://img.shields.io/badge/Jetson-AGX%20Thor-76b900" alt="NVIDIA Jetson AGX Thor">
   <a href="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
@@ -40,7 +40,7 @@
 mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
-Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.31.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.32.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
 ## ⚡ Key Features
 
@@ -93,7 +93,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🐳&nbsp;Dockerized</h3>
-      <p>Official vLLM 0.31.0 + Mjolnir + Jetson Thor patches.</p>
+      <p>Official vLLM 0.32.0 + Mjolnir + Jetson Thor patches.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -151,7 +151,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 
 ```bash
 docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
-  narandill/mjolnir-vllm:v0.31.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+  narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
 ## Models as Code
@@ -193,8 +193,8 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 |---|---|---|---|
 | **Mjolnir · e2m3 KV** | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
 | **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
-| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.31.0 FlasInfer for `sm_110` | fp8 e4m3, NHD pages |
-| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.31.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
+| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.32.0 FlasInfer for `sm_110` | fp8 e4m3, NHD pages |
+| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.32.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-latency-dark.png">
@@ -232,7 +232,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### E2E: Official vLLM image vs Mjolnir
 
-Native vLLM 0.31.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e`.
+Native vLLM 0.32.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
@@ -310,7 +310,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 ## What's in the Mjolnir image
 
-[`narandill/mjolnir-vllm:v0.31.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.31.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](docker/vllm-thor/PATCHES.md). Tags follow the upstream vLLM version.
+[`narandill/mjolnir-vllm:v0.32.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.32.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](docker/vllm-thor/PATCHES.md). Tags follow the upstream vLLM version.
 
 | patch | what it does |
 |---|---|

@@ -2,9 +2,9 @@
 # context) for linux/arm64 and push it to Docker Hub.
 #
 # Versioning follows UPSTREAM vLLM, not the Python packages: the tag is the
-# vLLM version of the Dockerfile's BASE_IMAGE (vllm/vllm-openai:v0.31.0-… ->
-# narandill/mjolnir-vllm:v0.31.0). Every release also gets an immutable
-# :v0.31.0-<short-sha>, and a release-* tag moves :latest. Bumping vLLM =
+# vLLM version of the Dockerfile's BASE_IMAGE (vllm/vllm-openai:v0.32.0-… ->
+# narandill/mjolnir-vllm:v0.32.0). Every release also gets an immutable
+# :v0.32.0-<short-sha>, and a release-* tag moves :latest. Bumping vLLM =
 # bumping BASE_IMAGE (+ VLLM_VERSION in mjolnir_cli/config.py — checked below).
 # Runs on tags only (release.yml dispatches it); a manual run of a branch
 # builds without pushing unless asked.
