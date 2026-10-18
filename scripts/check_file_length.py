@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import os
 import re
 import subprocess
 import sys
@@ -24,6 +25,17 @@ import tomllib
 from pathlib import Path
 
 TABLE = ("tool", "mjolnir", "file-length")
+
+# git's repo-location vars: git exports GIT_DIR (absolute) to hooks — in a
+# worktree the worktree gitdir — and GIT_INDEX_FILE on partial commits, which
+# would make `-C <dir> rev-parse --show-toplevel` resolve to <dir> itself
+# instead of discovering the repo upward, and `ls-files` read a staged-only
+# temp index. Drop them so every git call here sees the plain checkout.
+_GIT_LOC_VARS = frozenset(("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_CEILING_DIRECTORIES", "GIT_INDEX_FILE"))
+
+
+def _git_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _GIT_LOC_VARS}
 
 
 class EnvError(Exception):
@@ -87,7 +99,9 @@ def load_table(root: Path) -> dict:
 
 def tracked_files(root: Path) -> list[str]:
     try:
-        proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True)
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True, env=_git_env()
+        )
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", b"") or b""
         raise EnvError(f"git ls-files failed in {root}: {exc} {detail.decode(errors='replace').strip()}") from exc
@@ -163,7 +177,7 @@ def retire(root: Path) -> list[str]:
 
 def _git_out(root: Path, *args: str) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=_git_env())
     except OSError as exc:
         raise EnvError(f"cannot run git: {exc}") from exc
 
