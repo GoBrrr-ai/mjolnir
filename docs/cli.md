@@ -299,7 +299,7 @@ re-render at the end.
 | option | description | default |
 |---|---|---|
 | `--backends` | comma-separated legs: each is '&lt;config&gt;' (the --model/state model, served from --image), '&lt;image&gt;:&lt;config&gt;', '&lt;model&gt;/&lt;config&gt;' or '&lt;image&gt;:&lt;model&gt;/&lt;config&gt;' — available: mjolnir model list | `vllm/vllm-openai:v0.32.0-ubuntu2404:NVFP4,NVFP4_MJOLNIR_E2M3_LMH8_VT64K` |
-| `--depths` | context depths (tokens already in the KV) | `0,4096,8192,16384,32768,65536,131072` |
+| `--depths` | context depths (tokens already in the KV); defaults to the 32K e2e scope — pass deeper values (e.g. 65536,131072) for deliberate deep-cell runs | `0,4096,8192,16384,32768` |
 | `--runs` |  | `6` |
 | `--repeat` |  | `1` |
 | `--gate` / `--no-gate` | wait for a clean window (vLLM queue 0/0) before measuring | --gate |
