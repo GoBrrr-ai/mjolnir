@@ -56,7 +56,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (4K context, 1 request): TTFT 2,314 → 1,701 ms: (1,701 − 2,314) ÷ 2,314 × 100 = **−26.5%** (a latency reduction of 26.5%). The reciprocal speedup would be 2,314 ÷ 1,701 = 1.36× (+36.0%) — the same measurement, a different convention.
+- **Worked example** (4K context, 1 request): TTFT 2,319 → 1,682 ms: (1,682 − 2,319) ÷ 2,319 × 100 = **−27.5%** (a latency reduction of 27.5%). The reciprocal speedup would be 2,319 ÷ 1,682 = 1.38× (+37.9%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
@@ -67,13 +67,13 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🚀&nbsp;Faster decode</h3>
-      <p><b>+64% tokens/s</b> vs the official vLLM image. MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
+      <p><b>+4% tokens/s</b> vs the official vLLM image. MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
       <h3>⏱️&nbsp;Faster prompts</h3>
-      <p><b>+210%</b> prefill throughput, <b>−26%</b> time to first token.</p>
+      <p><b>+276%</b> prefill throughput, <b>−27%</b> time to first token.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -232,7 +232,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 ### E2E: Official vLLM image vs Mjolnir
 
-Native vLLM 0.32.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 4 speculative tokens** — measured back to back by `mjolnir bench e2e`.
+Native vLLM 0.32.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 5 speculative tokens** — measured back to back by `mjolnir bench e2e`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
@@ -248,30 +248,30 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 22.5 → **35.4** $\color{#16a34a}{\text{+57.3\\%}}$ | — | 833 → **590** $\color{#16a34a}{\text{−29.1\\%}}$ | 45.0 → **28.6** $\color{#16a34a}{\text{−36.4\\%}}$ |
-| 4K | 1 | 23.1 → **37.9** $\color{#16a34a}{\text{+64.2\\%}}$ | 2,820 → **8,740** $\color{#16a34a}{\text{+210.0\\%}}$ | 2,314 → **1,701** $\color{#16a34a}{\text{−26.5\\%}}$ | 43.5 → **26.6** $\color{#16a34a}{\text{−38.9\\%}}$ |
-| 8K | 1 | 22.8 → **35.2** $\color{#16a34a}{\text{+54.9\\%}}$ | 2,562 → **5,077** $\color{#16a34a}{\text{+98.2\\%}}$ | 4,132 → **3,015** $\color{#16a34a}{\text{−27.0\\%}}$ | 44.4 → **28.6** $\color{#16a34a}{\text{−35.5\\%}}$ |
-| 16K | 1 | 23.2 → **33.8** $\color{#16a34a}{\text{+45.3\\%}}$ | 2,205 → **3,978** $\color{#16a34a}{\text{+80.4\\%}}$ | 8,493 → **5,631** $\color{#16a34a}{\text{−33.7\\%}}$ | 43.3 → **30.0** $\color{#16a34a}{\text{−30.6\\%}}$ |
-| 32K | 1 | 23.2 → **33.0** $\color{#16a34a}{\text{+42.1\\%}}$ | 1,762 → **3,383** $\color{#16a34a}{\text{+92.0\\%}}$ | 19,894 → **11,289** $\color{#16a34a}{\text{−43.3\\%}}$ | 43.2 → **31.0** $\color{#16a34a}{\text{−28.3\\%}}$ |
-| no ctx | 2 | 46.5 → **63.4** $\color{#16a34a}{\text{+36.4\\%}}$ | — | 1,433 → **1,097** $\color{#16a34a}{\text{−23.4\\%}}$ | 40.5 → **29.5** $\color{#16a34a}{\text{−27.3\\%}}$ |
-| 4K | 2 | 43.6 → **59.4** $\color{#16a34a}{\text{+36.3\\%}}$ | 2,728 → **3,644** $\color{#16a34a}{\text{+33.6\\%}}$ | 4,444 → **3,259** $\color{#16a34a}{\text{−26.7\\%}}$ | 43.1 → **30.4** $\color{#16a34a}{\text{−29.4\\%}}$ |
-| 8K | 2 | 45.6 → **58.0** $\color{#16a34a}{\text{+27.2\\%}}$ | 2,515 → **3,399** $\color{#16a34a}{\text{+35.1\\%}}$ | 8,081 → **5,847** $\color{#16a34a}{\text{−27.6\\%}}$ | 42.1 → **32.1** $\color{#16a34a}{\text{−23.8\\%}}$ |
-| 16K | 2 | 45.6 → **56.5** $\color{#16a34a}{\text{+23.9\\%}}$ | 2,195 → **3,299** $\color{#16a34a}{\text{+50.3\\%}}$ | 16,734 → **11,049** $\color{#16a34a}{\text{−34.0\\%}}$ | 42.3 → **33.7** $\color{#16a34a}{\text{−20.2\\%}}$ |
-| 32K | 2 | 36.7 → **44.0** $\color{#16a34a}{\text{+19.8\\%}}$ | 1,752 → **3,083** $\color{#16a34a}{\text{+76.0\\%}}$ | 39,043 → **21,938** $\color{#16a34a}{\text{−43.8\\%}}$ | 47.3 → **39.2** $\color{#16a34a}{\text{−17.3\\%}}$ |
-| no ctx | 4 | 85.0 → **109.4** $\color{#16a34a}{\text{+28.7\\%}}$ | — | 2,781 → **2,248** $\color{#16a34a}{\text{−19.2\\%}}$ | 44.1 → **30.8** $\color{#16a34a}{\text{−30.1\\%}}$ |
-| 4K | 4 | 78.5 → **99.4** $\color{#16a34a}{\text{+26.6\\%}}$ | 2,722 → **3,485** $\color{#16a34a}{\text{+28.0\\%}}$ | 8,993 → **6,909** $\color{#16a34a}{\text{−23.2\\%}}$ | 46.8 → **33.1** $\color{#16a34a}{\text{−29.2\\%}}$ |
-| 8K | 4 | 68.1 → **68.6** $\color{grey}{\text{+0.7\\%}}$ | 2,491 → **3,349** $\color{#16a34a}{\text{+34.4\\%}}$ | 16,121 → **11,310** $\color{#16a34a}{\text{−29.8\\%}}$ | 49.1 → **39.8** $\color{#16a34a}{\text{−19.0\\%}}$ |
-| 16K | 4 | 42.0 → **50.8** $\color{#16a34a}{\text{+20.8\\%}}$ | 2,172 → **3,226** $\color{#16a34a}{\text{+48.5\\%}}$ | 32,309 → **21,042** $\color{#16a34a}{\text{−34.9\\%}}$ | 60.0 → **47.5** $\color{#16a34a}{\text{−20.9\\%}}$ |
-| 32K | 4 | 11.6 → **18.3** $\color{#16a34a}{\text{+58.5\\%}}$ | 1,738 → **3,010** $\color{#16a34a}{\text{+73.2\\%}}$ | 65,787 → **36,854** $\color{#16a34a}{\text{−44.0\\%}}$ | 161.8 → **107.7** $\color{#16a34a}{\text{−33.4\\%}}$ |
+| no ctx | 1 | 23.9 → **25.5** $\color{#16a34a}{\text{+6.8\\%}}$ | — | 820 → **625** $\color{#16a34a}{\text{−23.7\\%}}$ | 42.0 → **39.2** $\color{#16a34a}{\text{−6.5\\%}}$ |
+| 4K | 1 | 23.2 → **24.1** $\color{#16a34a}{\text{+4.1\\%}}$ | 2,811 → **10,569** $\color{#16a34a}{\text{+276.0\\%}}$ | 2,319 → **1,682** $\color{#16a34a}{\text{−27.5\\%}}$ | 43.3 → **41.5** $\color{#16a34a}{\text{−4.2\\%}}$ |
+| 8K | 1 | 25.3 → **23.5** $\color{#dc2626}{\text{−6.8\\%}}$ | 2,560 → **5,165** $\color{#16a34a}{\text{+101.8\\%}}$ | 4,134 → **3,085** $\color{#16a34a}{\text{−25.4\\%}}$ | 39.7 → **42.6** $\color{#dc2626}{\text{+7.2\\%}}$ |
+| 16K | 1 | 24.7 → **23.0** $\color{#dc2626}{\text{−7.0\\%}}$ | 2,196 → **4,118** $\color{#16a34a}{\text{+87.5\\%}}$ | 8,526 → **5,576** $\color{#16a34a}{\text{−34.6\\%}}$ | 40.7 → **43.9** $\color{#dc2626}{\text{+7.7\\%}}$ |
+| 32K | 1 | 24.8 → **22.7** $\color{#dc2626}{\text{−8.2\\%}}$ | 1,756 → **3,461** $\color{#16a34a}{\text{+97.1\\%}}$ | 19,964 → **11,160** $\color{#16a34a}{\text{−44.1\\%}}$ | 40.6 → **44.0** $\color{#dc2626}{\text{+8.3\\%}}$ |
+| no ctx | 2 | 44.5 → **38.0** $\color{#dc2626}{\text{−14.6\\%}}$ | — | 1,443 → **1,027** $\color{#16a34a}{\text{−28.8\\%}}$ | 42.5 → **46.8** $\color{#dc2626}{\text{+10.3\\%}}$ |
+| 4K | 2 | 43.2 → **38.6** $\color{#dc2626}{\text{−10.8\\%}}$ | 2,707 → **3,590** $\color{#16a34a}{\text{+32.6\\%}}$ | 4,478 → **3,357** $\color{#16a34a}{\text{−25.0\\%}}$ | 44.2 → **47.4** $\color{#dc2626}{\text{+7.2\\%}}$ |
+| 8K | 2 | 44.6 → **36.1** $\color{#dc2626}{\text{−19.1\\%}}$ | 2,499 → **3,404** $\color{#16a34a}{\text{+36.2\\%}}$ | 8,135 → **5,926** $\color{#16a34a}{\text{−27.2\\%}}$ | 42.6 → **50.2** $\color{#dc2626}{\text{+17.7\\%}}$ |
+| 16K | 2 | 43.1 → **36.4** $\color{#dc2626}{\text{−15.5\\%}}$ | 2,180 → **3,336** $\color{#16a34a}{\text{+53.0\\%}}$ | 16,847 → **10,925** $\color{#16a34a}{\text{−35.1\\%}}$ | 43.7 → **49.2** $\color{#dc2626}{\text{+12.6\\%}}$ |
+| 32K | 2 | 34.6 → **29.9** $\color{#dc2626}{\text{−13.5\\%}}$ | 1,743 → **3,112** $\color{#16a34a}{\text{+78.6\\%}}$ | 39,253 → **21,723** $\color{#16a34a}{\text{−44.7\\%}}$ | 49.8 → **56.7** $\color{#dc2626}{\text{+13.9\\%}}$ |
+| no ctx | 4 | 83.3 → **61.7** $\color{#dc2626}{\text{−26.0\\%}}$ | — | 2,789 → **2,267** $\color{#16a34a}{\text{−18.7\\%}}$ | 43.3 → **56.6** $\color{#dc2626}{\text{+30.6\\%}}$ |
+| 4K | 4 | 82.0 → **61.1** $\color{#dc2626}{\text{−25.5\\%}}$ | 2,710 → **3,488** $\color{#16a34a}{\text{+28.7\\%}}$ | 9,035 → **6,892** $\color{#16a34a}{\text{−23.7\\%}}$ | 45.8 → **58.5** $\color{#dc2626}{\text{+27.8\\%}}$ |
+| 8K | 4 | 71.9 → **46.4** $\color{#dc2626}{\text{−35.4\\%}}$ | 2,461 → **3,363** $\color{#16a34a}{\text{+36.6\\%}}$ | 16,323 → **11,252** $\color{#16a34a}{\text{−31.1\\%}}$ | 46.7 → **65.3** $\color{#dc2626}{\text{+40.0\\%}}$ |
+| 16K | 4 | 42.9 → **36.9** $\color{#dc2626}{\text{−14.0\\%}}$ | 2,158 → **3,238** $\color{#16a34a}{\text{+50.0\\%}}$ | 32,532 → **20,918** $\color{#16a34a}{\text{−35.7\\%}}$ | 58.5 → **74.7** $\color{#dc2626}{\text{+27.8\\%}}$ |
+| 32K | 4 | 11.4 → **16.0** $\color{#16a34a}{\text{+39.5\\%}}$ | 1,726 → **3,024** $\color{#16a34a}{\text{+75.2\\%}}$ | 66,221 → **36,686** $\color{#16a34a}{\text{−44.6\\%}}$ | 161.7 → **137.8** $\color{#16a34a}{\text{−14.8\\%}}$ |
 
-> <sub>official: `vllm/vllm-openai:v0.31.0-ubuntu2404 · NVFP4 (vLLM 0.31.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.31.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
+> <sub>official: `vllm/vllm-openai:v0.32.0-ubuntu2404 · NVFP4 (FlashInfer)` · Mjolnir: `narandill/mjolnir-vllm:v0.32.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](benchmarks/history.jsonl).</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (4K context, 1 request): TTFT 2,314 → 1,701 ms: (1,701 − 2,314) ÷ 2,314 × 100 = **−26.5%** (a latency reduction of 26.5%). The reciprocal speedup would be 2,314 ÷ 1,701 = 1.36× (+36.0%) — the same measurement, a different convention.
+- **Worked example** (4K context, 1 request): TTFT 2,319 → 1,682 ms: (1,682 − 2,319) ÷ 2,319 × 100 = **−27.5%** (a latency reduction of 27.5%). The reciprocal speedup would be 2,319 ÷ 1,682 = 1.38× (+37.9%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
