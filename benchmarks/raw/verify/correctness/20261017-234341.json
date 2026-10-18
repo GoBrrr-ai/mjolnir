@@ -1,0 +1,332 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "correctness",
+ "run_id": "20261017-234341",
+ "ts": "2026-10-17T23:46:32+00:00",
+ "default": false,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.31.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "083ed0f",
+  "dirty": true
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "dtypes": "fp8 bf16",
+  "match": "",
+  "quick": true,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "ref_image": "vllm/vllm-openai:v0.31.0-ubuntu2404",
+ "cases": [
+  {
+   "label": "L=8192",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --seqlen 8192",
+   "passed": true,
+   "rc": 0,
+   "seconds": 6.8,
+   "check": "|kern-emu| max=0.003786 mean=0.0002999",
+   "plan": "chunk=7 tiles, work=10, slots/wave=10, max chunks/seq=10",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/01-fp8-L=8192.log"
+  },
+  {
+   "label": "L=8192",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --seqlen 8192",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.2,
+   "check": "|kern-emu| max=0.003906 mean=0.0003019",
+   "plan": "chunk=7 tiles, work=10, slots/wave=10, max chunks/seq=10",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/02-bf16-L=8192.log"
+  },
+  {
+   "label": "L=1000 (partial tile mask)",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --seqlen 1000",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.1,
+   "check": "|kern-emu| max=0.007368 mean=0.00048",
+   "plan": "chunk=1 tiles, work=8, slots/wave=10, max chunks/seq=8",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/03-fp8-L=1000_partial_tile_mask.log"
+  },
+  {
+   "label": "L=1000 (partial tile mask)",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --seqlen 1000",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.0,
+   "check": "|kern-emu| max=0.009856 mean=0.0004745",
+   "plan": "chunk=1 tiles, work=8, slots/wave=10, max chunks/seq=8",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/04-bf16-L=1000_partial_tile_mask.log"
+  },
+  {
+   "label": "L=65536 (ring wraps)",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --seqlen 65536",
+   "passed": true,
+   "rc": 0,
+   "seconds": 7.6,
+   "check": "|kern-emu| max=0.006457 mean=0.0002729",
+   "plan": "chunk=52 tiles, work=10, slots/wave=10, max chunks/seq=10",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/05-fp8-L=65536_ring_wraps.log"
+  },
+  {
+   "label": "L=65536 (ring wraps)",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --seqlen 65536",
+   "passed": true,
+   "rc": 0,
+   "seconds": 7.4,
+   "check": "|kern-emu| max=0.007585 mean=0.0002754",
+   "plan": "chunk=52 tiles, work=10, slots/wave=10, max chunks/seq=10",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/06-bf16-L=65536_ring_wraps.log"
+  },
+  {
+   "label": "varlen 6x<=20000",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 6 --seqlen 20000 --varlen",
+   "passed": true,
+   "rc": 0,
+   "seconds": 7.6,
+   "check": "|kern-emu| max=0.01559 mean=0.0004151",
+   "plan": "chunk=77 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/07-fp8-varlen_6x_=20000.log"
+  },
+  {
+   "label": "varlen 6x<=20000",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 6 --seqlen 20000 --varlen",
+   "passed": true,
+   "rc": 0,
+   "seconds": 7.7,
+   "check": "|kern-emu| max=0.01373 mean=0.0004196",
+   "plan": "chunk=77 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/08-bf16-varlen_6x_=20000.log"
+  },
+  {
+   "label": "spec q_len=2 varlen 4x<=3000",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --q_len 2",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.5,
+   "check": "|kern-emu| max=0.02962 mean=0.0006182",
+   "plan": "chunk=6 tiles, work=9, slots/wave=10, max chunks/seq=4",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/09-fp8-spec_q_len=2_varlen_4x_=3000.log"
+  },
+  {
+   "label": "spec q_len=2 varlen 4x<=3000",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --q_len 2",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.7,
+   "check": "|kern-emu| max=0.02541 mean=0.0006195",
+   "plan": "chunk=6 tiles, work=9, slots/wave=10, max chunks/seq=4",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/10-bf16-spec_q_len=2_varlen_4x_=3000.log"
+  },
+  {
+   "label": "page 16 varlen",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 1000 --varlen --page_size 16",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.4,
+   "check": "|kern-emu| max=0.01556 mean=0.0007927",
+   "plan": "chunk=3 tiles, work=9, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/11-fp8-page_16_varlen.log"
+  },
+  {
+   "label": "page 16 varlen",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 1000 --varlen --page_size 16",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.4,
+   "check": "|kern-emu| max=0.01547 mean=0.0007985",
+   "plan": "chunk=3 tiles, work=9, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/12-bf16-page_16_varlen.log"
+  },
+  {
+   "label": "KV interleaved (B,H,N,2D)",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --page_size 16 --kv_layout interleaved",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.7,
+   "check": "|kern-emu| max=0.01562 mean=0.0005207",
+   "plan": "chunk=10 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/13-fp8-KV_interleaved_B_H_N_2D.log"
+  },
+  {
+   "label": "KV interleaved (B,H,N,2D)",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --page_size 16 --kv_layout interleaved",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.6,
+   "check": "|kern-emu| max=0.01521 mean=0.0005136",
+   "plan": "chunk=10 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/14-bf16-KV_interleaved_B_H_N_2D.log"
+  },
+  {
+   "label": "HND layout p16 varlen",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --page_size 16 --kv_layout hnd",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.8,
+   "check": "|kern-emu| max=0.01562 mean=0.0005207",
+   "plan": "chunk=10 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/15-fp8-HND_layout_p16_varlen.log"
+  },
+  {
+   "label": "HND layout p16 varlen",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --page_size 16 --kv_layout hnd",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.6,
+   "check": "|kern-emu| max=0.01521 mean=0.0005136",
+   "plan": "chunk=10 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/16-bf16-HND_layout_p16_varlen.log"
+  },
+  {
+   "label": "e2m3 KV p16 varlen",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 3000 --varlen --page_size 16 --kv_format e2m3",
+   "passed": true,
+   "rc": 0,
+   "seconds": 6.0,
+   "check": "|kern-emu| max=0.000438 mean=3.821e-05",
+   "plan": "chunk=10 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/17-fp8-e2m3_KV_p16_varlen.log"
+  },
+  {
+   "label": "default: e2m3 HND L=8192",
+   "q": "fp8",
+   "args": "--seqlen 8192",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.7,
+   "check": "|kern-emu| max=0.0002052 mean=2.069e-05",
+   "plan": "chunk=7 tiles, work=10, slots/wave=10, max chunks/seq=10",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/18-fp8-default_e2m3_HND_L=8192.log"
+  },
+  {
+   "label": "default: e2m3 HND L=8192",
+   "q": "bf16",
+   "args": "--seqlen 8192",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.3,
+   "check": "|kern-emu| max=0.003906 mean=0.0003019",
+   "plan": "chunk=7 tiles, work=10, slots/wave=10, max chunks/seq=10",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/19-bf16-default_e2m3_HND_L=8192.log"
+  },
+  {
+   "label": "default: varlen 6x<=20000",
+   "q": "fp8",
+   "args": "--batches 6 --seqlen 20000 --varlen",
+   "passed": true,
+   "rc": 0,
+   "seconds": 9.4,
+   "check": "|kern-emu| max=0.0004987 mean=2.802e-05",
+   "plan": "chunk=77 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/20-fp8-default_varlen_6x_=20000.log"
+  },
+  {
+   "label": "default: varlen 6x<=20000",
+   "q": "bf16",
+   "args": "--batches 6 --seqlen 20000 --varlen",
+   "passed": true,
+   "rc": 0,
+   "seconds": 7.8,
+   "check": "|kern-emu| max=0.01373 mean=0.0004196",
+   "plan": "chunk=77 tiles, work=10, slots/wave=10, max chunks/seq=3",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/21-bf16-default_varlen_6x_=20000.log"
+  },
+  {
+   "label": "non-causal q_len=8 (drafter block)",
+   "q": "fp8",
+   "args": "--batches 4 --seqlen 5000 --varlen --q_len 8 --heads_q 40 --heads_k 8 --headdim 128 --non_causal",
+   "passed": true,
+   "rc": 0,
+   "seconds": 6.2,
+   "check": "|kern-emu| max=0.0009644 mean=5.185e-05",
+   "plan": "chunk=40 tiles, work=4, slots/wave=2, max chunks/seq=1",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/22-fp8-non-causal_q_len=8_drafter_block.log"
+  },
+  {
+   "label": "non-causal q_len=8 (drafter block)",
+   "q": "bf16",
+   "args": "--batches 4 --seqlen 5000 --varlen --q_len 8 --heads_q 40 --heads_k 8 --headdim 128 --non_causal",
+   "passed": true,
+   "rc": 0,
+   "seconds": 5.9,
+   "check": "|kern-emu| max=0.02868 mean=0.0006467",
+   "plan": "chunk=40 tiles, work=4, slots/wave=2, max chunks/seq=1",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/23-bf16-non-causal_q_len=8_drafter_block.log"
+  },
+  {
+   "label": "evict + PDL q_len=3 + pad",
+   "q": "fp8",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 2000 --varlen --q_len 3 --kv_evict_first --pdl --pad_work_to 40",
+   "passed": true,
+   "rc": 0,
+   "seconds": 6.1,
+   "check": "|kern-emu| max=0.03032 mean=0.0009096",
+   "plan": "chunk=4 tiles, work=10+30 pad, slots/wave=10, max chunks/seq=4",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/24-fp8-evict_PDL_q_len=3_pad.log"
+  },
+  {
+   "label": "evict + PDL q_len=3 + pad",
+   "q": "bf16",
+   "args": "--kv_format fp8 --kv_layout nhd --batches 4 --seqlen 2000 --varlen --q_len 3 --kv_evict_first --pdl --pad_work_to 40",
+   "passed": true,
+   "rc": 0,
+   "seconds": 6.3,
+   "check": "|kern-emu| max=0.0291 mean=0.0009047",
+   "plan": "chunk=4 tiles, work=10+30 pad, slots/wave=10, max chunks/seq=4",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/25-bf16-evict_PDL_q_len=3_pad.log"
+  },
+  {
+   "label": "fused merge e2m3 HND varlen",
+   "q": "fp8",
+   "args": "--batches 2 --seqlen 16384 --varlen --fused_merge",
+   "passed": true,
+   "rc": 0,
+   "seconds": 13.4,
+   "check": "|kern-emu| max=0.0009735 mean=6.016e-05",
+   "plan": "chunk=15 tiles, work=10, slots/wave=10, max chunks/seq=9",
+   "log": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-234341/correctness/26-fp8-fused_merge_e2m3_HND_varlen.log"
+  }
+ ],
+ "summary": {
+  "passed": 26,
+  "failed": 0
+ }
+}

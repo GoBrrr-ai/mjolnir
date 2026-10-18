@@ -131,9 +131,18 @@ skipped with a hint — nothing blocks on a password.
 ## Repo layout
 
 - `src/mjolnir/` — **the kernel package** (`mjolnir-kernel`, import `mjolnir`):
-  - `mjolnir/t5_decode.py` — the CuTe-DSL kernel, split-KV merge and the host
-    helpers a vLLM backend calls; the single source of truth for the kernel;
-    `mjolnir verify` mounts it over the image's copy.
+  - `mjolnir/t5_decode.py` — the kernel class (`__init__` + the traced
+    `decode`/`reduction` kernels) and the host helpers a vLLM backend calls;
+    the single source of truth for the kernel; `mjolnir verify` mounts the
+    package over the image's copy. The traced kernel body cannot be split
+    further: extracting the warp-role `elif` arms into methods hits a CuTe-DSL
+    internal compiler error (2026-10-18) — revisit on a DSL bump.
+  - `mjolnir/t5_call.py` — `_CallMixin`: the host-side builder (`__call__`,
+    `_kv_types`, `can_implement`), traced at compile time.
+  - `mjolnir/t5_const.py` — shared kernel constants + the math helpers
+    (`exp2`, `fadd2`, `smem_fmax`, …); the leaf module (no intra-package deps).
+  - `mjolnir/t5_plan.py` — `plan_split_kv` / `SplitPlan` / `kernel_strides`
+    (what a vLLM backend calls for planning).
   - `mjolnir/t5_harness.py` — the standalone harness (`emulate_decode`, the
     benchmark driver, CLI; `python -m mjolnir.t5_decode --help` still works via
     a shim) and `emulate_decode`, the bit-faithful correctness reference.

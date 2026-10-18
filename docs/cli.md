@@ -16,7 +16,7 @@
 | [`mjolnir serve down`](#mjolnir-serve-down) | Stop the vLLM container. |
 | [`mjolnir serve status`](#mjolnir-serve-status) | Container state + /health + current queue load. |
 | [`mjolnir serve logs`](#mjolnir-serve-logs) | Tail the vLLM container logs. |
-| [`mjolnir bench`](#mjolnir-bench) | Benchmarks — gated, raw data, chartable. |
+| [`mjolnir bench`](#mjolnir-bench) | gated end-to-end benchmarks: perf / ab / accuracy / e2e / compare, plus history + plot |
 | [`mjolnir bench perf`](#mjolnir-bench-perf) | End-to-end perf bench (gated clean window, raw JSON, history log). |
 | [`mjolnir bench ab`](#mjolnir-bench-ab) | Headline A/B: restart the server per leg, gated perf bench for each, one history row-set per leg. |
 | [`mjolnir bench accuracy`](#mjolnir-bench-accuracy) | Model quality per serving config with tool-eval-bench: does fp6 KV / the fp8 lm_head keep the model's answers? |
@@ -248,7 +248,7 @@ Tail the vLLM container logs.
 
 ## `mjolnir bench`
 
-Benchmarks — gated, raw data, chartable.
+gated end-to-end benchmarks: perf / ab / accuracy / e2e / compare, plus history + plot
 
 Sub-commands: [`mjolnir bench perf`](#mjolnir-bench-perf), [`mjolnir bench ab`](#mjolnir-bench-ab), [`mjolnir bench accuracy`](#mjolnir-bench-accuracy), [`mjolnir bench e2e`](#mjolnir-bench-e2e), [`mjolnir bench compare`](#mjolnir-bench-compare).
 

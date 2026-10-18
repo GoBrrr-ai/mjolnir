@@ -42,6 +42,10 @@ target-version = "py312"
 # The CuTe-DSL kernel follows CUTLASS/FlashAttention conventions: the DSL's
 # typing star-import and the running log-sum-exp accumulator named `l`.
 "src/mjolnir/mjolnir/t5_decode.py" = ["F403", "F405", "E741"]
+"src/mjolnir/mjolnir/t5_call.py" = ["F403", "F405"]
+"src/mjolnir/mjolnir/t5_kernel.py" = ["F403", "F405"]
+"src/mjolnir/mjolnir/t5_sections.py" = ["F403", "F405"]
+"src/mjolnir/mjolnir/t5_softmax.py" = ["F403", "F405"]
 "src/mjolnir/mjolnir/t5_harness.py" = ["F403", "F405", "E741"]
 
 [tool.pytest.ini_options]
@@ -68,9 +72,4 @@ exempt = [
 ]
 
 [tool.mjolnir.file-length.grandfathered]
-"src/mjolnir/mjolnir/t5_decode.py" = 2294
-"src/mjolnir-cli/mjolnir_cli/charts.py" = 1714
-"src/mjolnir-cli/mjolnir_cli/cli.py" = 1482
-"scripts/hw/setup-thor.sh" = 1287
-"src/mjolnir-cli/mjolnir_cli/readme.py" = 1064
-"tests/kernel/test_runner.py" = 1081
+"src/mjolnir/mjolnir/t5_decode.py" = 1547
