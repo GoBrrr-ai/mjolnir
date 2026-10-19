@@ -45,3 +45,15 @@ def test_readme_targets_import_is_gpu_free():
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_site_import_is_gpu_and_plotly_free():
+    """The site package (cycle 3d) is emitted by the host from raw data —
+    never the GPU stack, and never plotly (the charts load it from a CDN)."""
+    code = (
+        "import sys, mjolnir_cli.site, mjolnir_cli.site.data, mjolnir_cli.site.page;"
+        f"bad = [m for m in sys.modules if m.split('.')[0] in {GPU_STACK!r} + ('plotly',)];"
+        "print(bad); sys.exit(1 if bad else 0)"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

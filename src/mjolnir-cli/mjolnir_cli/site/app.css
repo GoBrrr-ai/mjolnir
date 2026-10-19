@@ -1,0 +1,136 @@
+/* Mjolnir benchmarks — the site stylesheet. The tokens mirror theme.py's
+ * validated LIGHT/DARK palettes (theme.py is the static-side source; these
+ * custom properties are what app.js reads for the Plotly traces, so the
+ * light/dark switch restyles the charts without a redraw of colors). */
+
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #fcfcfb;
+  --text: #0b0b0b;
+  --dim: #52514e;
+  --grid: #e6e5e1;
+  --accent: #eb6834; /* mjolnir */
+  --fi: #2a78d6; /* flashinfer */
+  --fa2: #1baf7a; /* flashattention 2 */
+  --neutral: #f0efec;
+  --link: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --panel: #151b26;
+    --text: #e6edf3;
+    --dim: #8b949e;
+    --grid: #21262d;
+    --accent: #d95926;
+    --fi: #3987e5;
+    --fa2: #199e70;
+    --neutral: #383835;
+    --link: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --panel: #151b26;
+  --text: #e6edf3;
+  --dim: #8b949e;
+  --grid: #21262d;
+  --accent: #d95926;
+  --fi: #3987e5;
+  --fa2: #199e70;
+  --neutral: #383835;
+  --link: #3987e5;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--link); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+header, main, footer { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 32px; display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h1 span { color: var(--accent); }
+h2 { font-size: 21px; margin: 0 0 4px; }
+.sub { color: var(--dim); margin: 0; max-width: 760px; }
+footer { color: var(--dim); font-size: 13px; padding: 32px 16px 48px; }
+
+/* ── the filter bar ── */
+#filters {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  border-bottom: 1px solid var(--grid);
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  margin-top: 20px;
+}
+.fgroup { display: flex; gap: 6px; align-items: center; }
+.flabel { color: var(--dim); font-size: 12px; white-space: nowrap; }
+#filters select, #filters input {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 14px;
+}
+#filter-model { width: 220px; }
+#filter-search { width: 180px; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tabs button {
+  background: var(--panel);
+  color: var(--dim);
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.on { color: var(--text); background: var(--panel); border-color: var(--accent); }
+.tabs button:disabled { opacity: 0.4; cursor: default; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chips button {
+  background: var(--panel);
+  color: var(--dim);
+  border: 1px solid var(--grid);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chips button.on { color: var(--text); border-color: var(--accent); }
+
+/* ── views ── */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+.tile { background: var(--panel); border: 1px solid var(--grid); border-radius: 10px; padding: 14px 16px; }
+.tile b { display: block; font-size: 28px; color: var(--text); }
+.tile span { color: var(--dim); font-size: 13px; }
+section { margin: 36px 0; }
+section p.what { color: var(--dim); margin: 0 0 10px; }
+.chart { background: var(--panel); border: 1px solid var(--grid); border-radius: 10px; min-height: 380px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+th, td { border-bottom: 1px solid var(--grid); padding: 5px 8px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+.empty { color: var(--dim); padding: 24px; }
+.better { color: var(--accent); font-weight: 600; }
+.worse { color: var(--fi); }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--dim); font-size: 14px; }

@@ -36,17 +36,22 @@ E2E_SERIES = (
 MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
 
 
-def e2e_rows(layout: RepoLayout, model: str = DEFAULT_MODEL) -> dict[str, dict]:
+def e2e_rows(layout: RepoLayout, model: str = DEFAULT_MODEL, platform: str | None = None) -> dict[str, dict]:
     """Latest history record per series: stock configs on the official vLLM
     image, the Mjolnir config on a Mjolnir image. Stock backends measured on
     the Mjolnir image are ignored (that image patches FlashInfer too). One
-    model's runs: a series is one config of one model."""
+    model's runs: a series is one config of one model. ``platform`` narrows
+    the series to one platform's records (None = any — the callers that
+    predate per-pair payloads keep their behaviour)."""
     from mjolnir_cli import e2e
+    from mjolnir_cli.platforms import platform_of
 
     latest: dict[str, dict] = {}
     for r in load_records(layout.history_file):
         cfg = r.get("config")
         if not r.get("cells") or model_of(r) != model:
+            continue
+        if platform is not None and platform_of(r) != platform:
             continue
         ok = (cfg in MJOLNIR_E2E_CONFIGS and e2e.is_mjolnir(r)) or (
             cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r)

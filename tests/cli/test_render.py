@@ -113,11 +113,12 @@ def test_full_render_from_fixture_data(repo):
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
     assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png" in page  # relative to the page
     assert "Fastest variant at the most context lengths" in page
-    # the render loop still writes the CLI reference; site keeps building
+    # the render loop still writes the CLI reference; site keeps building (v2:
+    # the lazy per-pair payload replaces the v1 single-page data.json)
     assert (repo / "docs" / "cli.md").is_file()
     site = interactive.build(layout, repo / "site")
-    data = json.loads((repo / "site" / "data.json").read_text())
-    assert "sweep" in data["stages"] and site.read_text().count("cdn.jsdelivr.net/npm/plotly.js-dist-min@") == 1
+    payload = json.loads((repo / "site" / "data" / "thor" / "Qwen3.8-27B.json").read_text())
+    assert "sweep" in payload["stages"] and site.read_text().count("cdn.jsdelivr.net/npm/plotly.js-dist-min@") == 1
 
 
 def test_render_without_verify_data_is_pending(tmp_path, monkeypatch):
