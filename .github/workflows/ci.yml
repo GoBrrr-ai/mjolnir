@@ -63,13 +63,17 @@ jobs:
               - 'scripts/check_file_length.py'
             readme:
               - 'src/mjolnir-cli/**'
-              # every template, wherever it lives (16 today: README.md.j2,
-              # docker/vllm-thor/README.md.j2, docs/kernel/*.md.j2) + the
-              # rendered outputs a hand edit must trip the check on
+              # every template, wherever it lives (README.md.j2,
+              # docker/vllm-thor/README.md.j2, docs/templates/**.md.j2) + the
+              # generated surfaces a hand edit must trip the check on
+              # (per-platform kernel pages, per-model/config README +
+              # BENCHMARKS pages, the nested per-pair charts)
               - '**/*.md.j2'
               - 'README.md'
               - 'docker/vllm-thor/README.md'
-              - 'docs/kernel/**'
+              - 'docs/platforms/**'
+              - 'docs/cli.md'
+              - 'configs/**'
               - 'assets/benchmarks/**'
               - 'benchmarks/**'
               - 'pyproject.toml'
@@ -226,9 +230,11 @@ jobs:
 
   readme:
     # README.md + docker/vllm-thor/README.md (the Docker Hub description) +
-    # docs/kernel/*.md are rendered from their .md.j2 templates and the
-    # committed raw data (benchmarks/raw/verify, history.jsonl) — a hand edit,
-    # or raw data committed without re-rendering, fails here.
+    # docs/platforms/** (the per-platform kernel case study) +
+    # configs/**/{README,BENCHMARKS}.md are rendered from their .md.j2
+    # templates and the committed raw data (benchmarks/raw/verify,
+    # history.jsonl) — a hand edit, or raw data committed without
+    # re-rendering, fails here.
     needs: filter
     if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.readme == 'true')
     runs-on: ubuntu-latest
@@ -241,7 +247,7 @@ jobs:
       - name: README + docs are reproducible from the raw data
         run: |
           uv run mjolnir plot --readme
-          git diff --exit-code -- README.md docker/vllm-thor/README.md docs/ assets/benchmarks/manifest.json
+          git diff --exit-code -- README.md docker/vllm-thor/README.md docs/ configs/ assets/benchmarks/
 
   build:
     needs: filter

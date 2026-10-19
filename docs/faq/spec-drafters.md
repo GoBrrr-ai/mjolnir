@@ -83,8 +83,8 @@ work:
 - **Its own calibration.** `mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK`
   serves the config on fp8 KV with the drafter on Mjolnir and records the
   per-channel amax of the target's and the drafter's K/V. It writes them to
-  `NVFP4_MJOLNIR_E2M3_DSPARK.kv_scales.json` next to the config. That file is
-  separate from the model's `kv_scales.json`, so the other configs are
+  `kv_scales/dspark.kv_scales.json` in the model's `kv_scales/` dir. That file is
+  separate from the model's `kv_scales/e2m3.json`, so the other configs are
   untouched. `mjolnir serve` points the config at it, and refuses to start the
   config until the file exists.
 - **The drafter's block on the decode kernel.** A DSpark draft step is one

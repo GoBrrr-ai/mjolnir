@@ -43,9 +43,10 @@ the agents run on**. When doing anything on the GPU:
   every parameter is the stage default — only those feed headline charts).
 - End-to-end results: `mjolnir bench perf|ab` → `benchmarks/raw/perf-<ts>/` +
   one row per run in `benchmarks/history.jsonl`.
-- `README.md`, `docs/kernel/*.md` and `assets/benchmarks/` are **generated**
-  (`uv run mjolnir plot --readme`) from `README.md.j2` / `docs/kernel/*.md.j2` and
-  the raw data. Never hand-edit them; CI fails if they don't reproduce.
+- `README.md`, `docs/platforms/**`, `configs/**/{README,BENCHMARKS}.md` and
+  `assets/benchmarks/` are **generated** (`uv run mjolnir plot --readme`) from
+  `README.md.j2` / `docs/templates/**.md.j2` and the raw data. Never hand-edit
+  them; CI fails if they don't reproduce.
 
 ### The page-cache clear
 `mjolnir_cli/cachectl.py` clears the host page cache (`sysctl -w
@@ -103,7 +104,7 @@ skipped with a hint — nothing blocks on a password.
   `docs/faq/spec-drafters.md`): `NVFP4_DSPARK` / `NVFP4_DFLASH2` (official
   image) and `NVFP4_MJOLNIR_E2M3_DSPARK` / `…_DFLASH2` (Mjolnir) — DSpark or
   DFlash2, K=7, instead of MTP. DSpark on Mjolnir runs its drafter on Mjolnir
-  + fp6 too: its own calibration (`<config>.kv_scales.json`, `mjolnir
+  + fp6 too: its own calibration (`kv_scales/dspark.kv_scales.json`, `mjolnir
   calibrate --config …`) and the kernel's non-causal variant for its block
   steps (`MJOLNIR_ATTN_NONCAUSAL`). DFlash2's sliding-window drafter stays on
   bf16 KV + FlashInfer. Not yet run on a Thor.
@@ -184,8 +185,8 @@ skipped with a hint — nothing blocks on a password.
   `PATCHES.md`, canary scripts.
 - `configs/<vendor>/<model>/<quant>/config.yaml` — serving configs, each in its
   own dir (with a `.env` sidecar inside when it has env switches); the model's
-  calibration files (`kv_scales.json`, `draft_vocab.json`) sit next to the
-  config dirs. User-local configs in `~/.local/share/mjolnir/configs/`
+  calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to
+  the config dirs. User-local configs in `~/.local/share/mjolnir/configs/`
   (`$MJOLNIR_CONFIGS_DIR`), same layout.
 - `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
   `history.jsonl`, `logs/` (untracked).
@@ -223,7 +224,7 @@ Default L for every stage and chart: **128 4096 8192 16384 32768 65536 131072
 
 ### Charts, README, site
 ```
-uv run mjolnir plot --readme              # charts + README.md + docs/kernel/*.md
+uv run mjolnir plot --readme              # charts + README.md + docs/platforms/** + configs/**/{README,BENCHMARKS}.md
 uv run mjolnir plot --site _site          # the interactive page (pages.yml publishes it)
 ```
 New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir
@@ -300,7 +301,7 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       486 in layer 0, rounded the other channels to 0 — wrong first token);
       scales are now per (layer, KV head, channel), `kv_scales/2` (a `/1` file
       still loads but is per head: re-calibrate after model changes:
-      `mjolnir calibrate`, commit `configs/<model>/kv_scales.json`).
+      `mjolnir calibrate`, commit `configs/<model>/kv_scales/e2m3.json`).
 - [ ] **e2e at the shapes that matter**: decode gains need long contexts
       (64K+) and concurrency; `mjolnir verify sweep --batch 4 --q-len 4`
       measures the MTP=3 verify shape in ncu.

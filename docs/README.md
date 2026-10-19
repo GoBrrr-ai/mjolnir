@@ -10,7 +10,7 @@ or upstream PR/issue anchors cited inline.
 
 | Path | What it is |
 |---|---|
-| [`kernel/`](kernel/) | **The kernel case study** — how Mjolnir works and why, one measured feature per chapter (layout, KV formats, accuracy, ring, prefetch, PDL, flag A/Bs, profiles). Rendered from the raw results; start at [`kernel/README.md`](kernel/README.md). |
+| [`kernel/`](platforms/thor/kernel/) | **The kernel case study** — how Mjolnir works and why, one measured feature per chapter (layout, KV formats, accuracy, ring, prefetch, PDL, flag A/Bs, profiles). Rendered from the raw results; start at [`kernel/README.md`](platforms/thor/kernel/README.md). |
 | [`methodology/`](methodology/) | **The measurement discipline** — the clean-window gate, ncu vs wall clock, noise bands, provenance. Read before publishing a number. |
 | [`faq/`](faq/) | **Task guides for the `mjolnir` CLI** — serve, verify, A/B, new model configs, base-image bumps, autoresearch. Start at [`faq/index.md`](faq/index.md). |
 | [`thor-stack/`](thor-stack/) | **The serving stack** — why the image patches exist: route traces, FP8 on `sm_110`, GDN prefill, base bumps, end-to-end forensics. |
@@ -24,9 +24,9 @@ The retired GEMV decode kernel and its reports are in git history:
 
 ## Suggested reading order
 
-1. [`kernel/README.md`](kernel/README.md) — the design in one page, then the chapters.
+1. [`kernel/README.md`](platforms/thor/kernel/README.md) — the design in one page, then the chapters.
 2. [`methodology/benchmarking.md`](methodology/benchmarking.md) — the rules every number follows.
-3. [`kernel/sweep.md`](kernel/sweep.md) — the headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every context length.
+3. [`kernel/sweep.md`](platforms/thor/kernel/sweep.md) — the headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every context length.
 4. [`../docker/vllm-thor/PATCHES.md`](../docker/vllm-thor/PATCHES.md) — the image, and how `--attention-backend MJOLNIR` is wired.
 5. [`../research/README.md`](../research/README.md) — how to run (or contribute to) the autoresearch loop.
 
@@ -35,17 +35,17 @@ The retired GEMV decode kernel and its reports are in git history:
 ### kernel/ (the case study — rendered from raw data)
 | Chapter | Question |
 |---|---|
-| [README.md](kernel/README.md) | Architecture: paged KV → TMA ring → `tcgen05` MMA → softmax warpgroups → split-KV merge. |
-| [correctness.md](kernel/correctness.md) | Does every layout / format / page size / q_len / Q dtype match the bit-faithful emulator? |
-| [sweep.md](kernel/sweep.md) | How fast is it vs FlashInfer and FA2 at every L? |
-| [hndsweep.md](kernel/hndsweep.md) | Is the win the layout? FlashInfer on NHD and HND pages vs Mjolnir. |
-| [kvfmt.md](kernel/kvfmt.md) | Which KV format and layout: fp8 / fp6 / fp4 / nvfp4 × NHD / interleaved / HND. |
-| [quant.md](kernel/quant.md) | What each KV format costs in accuracy. |
-| [fp6prof.md](kernel/fp6prof.md) | Why fp6 doesn't realize its full byte saving: full ncu profiles. |
-| [ring.md](kernel/ring.md) | How deep should the TMA → MMA ring be? |
-| [prefetch.md](kernel/prefetch.md) | Does an explicit L2 prefetch help a streamed read? |
-| [pdl.md](kernel/pdl.md) | Programmatic dependent launch: what overlap buys at the wall clock. |
-| [ab.md](kernel/ab.md) | A/B of harness flags (default: L2 evict-first × PDL). |
+| [README.md](platforms/thor/kernel/README.md) | Architecture: paged KV → TMA ring → `tcgen05` MMA → softmax warpgroups → split-KV merge. |
+| [correctness.md](platforms/thor/kernel/correctness.md) | Does every layout / format / page size / q_len / Q dtype match the bit-faithful emulator? |
+| [sweep.md](platforms/thor/kernel/sweep.md) | How fast is it vs FlashInfer and FA2 at every L? |
+| [hndsweep.md](platforms/thor/kernel/hndsweep.md) | Is the win the layout? FlashInfer on NHD and HND pages vs Mjolnir. |
+| [kvfmt.md](platforms/thor/kernel/kvfmt.md) | Which KV format and layout: fp8 / fp6 / fp4 / nvfp4 × NHD / interleaved / HND. |
+| [quant.md](platforms/thor/kernel/quant.md) | What each KV format costs in accuracy. |
+| [fp6prof.md](platforms/thor/kernel/fp6prof.md) | Why fp6 doesn't realize its full byte saving: full ncu profiles. |
+| [ring.md](platforms/thor/kernel/ring.md) | How deep should the TMA → MMA ring be? |
+| [prefetch.md](platforms/thor/kernel/prefetch.md) | Does an explicit L2 prefetch help a streamed read? |
+| [pdl.md](platforms/thor/kernel/pdl.md) | Programmatic dependent launch: what overlap buys at the wall clock. |
+| [ab.md](platforms/thor/kernel/ab.md) | A/B of harness flags (default: L2 evict-first × PDL). |
 
 ### methodology/
 | File | TL;DR |

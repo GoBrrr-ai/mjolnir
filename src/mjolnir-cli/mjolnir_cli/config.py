@@ -120,9 +120,9 @@ class ConfigEntry:
 def scan_configs(configs_dir: Path) -> list[ConfigEntry]:
     """Scan ``configs/<vendor>/<model>/<quant>/config.yaml`` into pickable
     entries. Everything config-specific lives in the config dir: the
-    ``.env`` sidecar and a drafter's ``kv_scales.json``; the model-level files
-    (shared ``kv_scales.json``, ``draft_vocab.json``, chat template) stay
-    next to it."""
+    ``.env`` sidecar and a drafter's ``kv_scales.json``; the model-level
+    files (shared ``kv_scales/<format>.json``, ``draft_vocab.json``, chat
+    template) stay next to it."""
     out: list[ConfigEntry] = []
     if not configs_dir.is_dir():
         return out

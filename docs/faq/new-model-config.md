@@ -73,7 +73,7 @@ mjolnir bench perf          # benchmarks it (targets the served-model-name)
 command. A local config's whole model dir is mounted at
 `/configs-local/<vendor>/<model>` (beside the read-only `/configs`, which keeps
 the repo's chat templates reachable), so its model-level files —
-`kv_scales.json`, `draft_vocab.json` — reach the container the same way as a
+`kv_scales/<format>.json`, `draft_vocab.json` — reach the container the same way as a
 repo config's; `{configs}` in its `.env` expands to that dir.
 
 Promote a good local config to the repo when it's worth sharing: copy the

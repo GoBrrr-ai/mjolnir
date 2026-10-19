@@ -22,7 +22,7 @@ def test_e2m3_config_is_the_mjolnir_config_with_fp6_kv():
 def test_serve_env_points_fp6_configs_at_their_scales(monkeypatch):
     monkeypatch.delenv("MJOLNIR_ATTN_KV_SCALES", raising=False)
     env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3"))
-    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/kv_scales.json" in env
+    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/kv_scales/e2m3.json" in env
     assert not any(e.startswith("MJOLNIR_ATTN_KV_SCALES") for e in dockerctl.backend_env(_s("NVFP4_MJOLNIR")))
     monkeypatch.setenv("MJOLNIR_ATTN_KV_SCALES", "/data/mine.json")  # the host's choice wins
     env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3"))
@@ -118,16 +118,20 @@ def test_a_drafter_on_mjolnir_gets_its_own_scales(monkeypatch):
     assert not config_drafter_on_mjolnir(dflash2.config_path)  # DFlash2's sliding window stays on FlashInfer
     assert not config_drafter_on_mjolnir(_s("NVFP4_MJOLNIR_E2M3").config_path)  # MTP is part of the model
     assert not config_drafter_on_mjolnir(_s("NVFP4_DSPARK").config_path)  # official image: no Mjolnir at all
-    # the drafter's scales live inside its config dir; the rest share the model's file
-    assert dockerctl.kv_scales_host_path(dspark) == dspark.config_path.parent / "kv_scales.json"
-    assert dockerctl.kv_scales_host_path(dflash2) == dflash2.config_path.parent.parent / "kv_scales.json"
+    # the drafter's scales live in the model's kv_scales/ dir, named for the
+    # drafter's method; the rest share the model's per-format file
+    assert (
+        dockerctl.kv_scales_host_path(dspark)
+        == dspark.config_path.parent.parent / "kv_scales" / "dspark.kv_scales.json"
+    )
+    assert dockerctl.kv_scales_host_path(dflash2) == dflash2.config_path.parent.parent / "kv_scales" / "e2m3.json"
     env = dockerctl.backend_env(dspark)
-    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/kv_scales.json" in env
+    assert "MJOLNIR_ATTN_KV_SCALES=/configs/Qwen/Qwen3.8-27B/kv_scales/dspark.kv_scales.json" in env
     r = CliRunner().invoke(
         cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR_E2M3_DSPARK", "--dry-run"]
-    )  # default output: the config's own file
+    )  # default output: the drafter's file in the model's kv_scales/ dir
     assert r.exit_code == 0, r.output
-    assert "--out /out/kv_scales.json" in r.output
+    assert "--out /out/dspark.kv_scales.json" in r.output
 
 
 def test_serve_refuses_an_fp6_config_without_scales(monkeypatch):
@@ -148,3 +152,119 @@ def test_quick_correctness_covers_the_non_causal_drafter_block():
     label = "non-causal q_len=8 (drafter block)"
     args = {lab: a for lab, a, _ in stages.CASES}[label]
     assert label in stages.QUICK_CASES and "--non_causal" in args and "--headdim 128" in args
+
+
+# ── kv_scales/<format>.json migration (spec Open Item 5) ────────────────────
+
+
+def _local_tree(tmp_path, monkeypatch, dtype: str = "fp6_e2m3", drafter: bool = False):
+    """A user-local config tree: Vend/Test/TEST with one config whose
+    ``kv-cache-dtype`` (and optional Mjolnir drafter) the test controls."""
+    model, quant = "Vend/Test", "TEST"
+    cfg = tmp_path / "local" / model / quant
+    cfg.mkdir(parents=True, exist_ok=True)
+    body = f"model: x\nkv-cache-dtype: {dtype}\nattention-backend: MJOLNIR\n"
+    if drafter:
+        body += (
+            "speculative-config:\n  method: dspark\n  model: v/d\n"
+            "  num_speculative_tokens: 7\n  attention_backend: MJOLNIR\n"
+        )
+    (cfg / "config.yaml").write_text(body)
+    monkeypatch.setenv("MJOLNIR_CONFIGS_DIR", str(tmp_path / "local"))
+    return Settings(model=model, quant=quant)
+
+
+def test_loader_prefers_the_per_format_file(tmp_path, monkeypatch):
+    """kv_scales/<format>.json wins when present; the model-root
+    kv_scales.json is only the older wheel's bundled layout (the compat
+    window's fallback)."""
+    s = _local_tree(tmp_path, monkeypatch)
+    mdir = s.config_path.parent.parent
+    (mdir / "kv_scales").mkdir()
+    (mdir / "kv_scales" / "e2m3.json").write_text("{}")
+    (mdir / "kv_scales.json").write_text("{}")
+    assert dockerctl.kv_scales_host_path(s) == mdir / "kv_scales" / "e2m3.json"
+
+
+def test_loader_falls_back_to_the_legacy_single_file(tmp_path, monkeypatch):
+    s = _local_tree(tmp_path, monkeypatch)
+    (s.config_path.parent.parent / "kv_scales.json").write_text("{}")
+    assert dockerctl.kv_scales_host_path(s) == s.config_path.parent.parent / "kv_scales.json"
+
+
+def test_loader_defaults_to_the_per_format_path(tmp_path, monkeypatch):
+    """Neither file present: the canonical path calibrate writes (what
+    missing_kv_scales names)."""
+    s = _local_tree(tmp_path, monkeypatch)
+    assert dockerctl.kv_scales_host_path(s) == s.config_path.parent.parent / "kv_scales" / "e2m3.json"
+
+
+def test_the_scale_file_is_named_after_the_kv_format(tmp_path, monkeypatch):
+    for dtype, stem in (("fp8_e5m2", "e5m2"), ("fp8", "fp8"), ("fp6_e2m3", "e2m3")):
+        s = _local_tree(tmp_path, monkeypatch, dtype=dtype)
+        assert dockerctl.kv_scales_host_path(s).name == f"{stem}.json"
+
+
+def test_a_drafter_calibrates_into_the_model_kv_scales_dir(tmp_path, monkeypatch):
+    """A Mjolnir drafter's scales are kv_scales/<method>.kv_scales.json —
+    preferred when present, the config-dir file the legacy fallback."""
+    s = _local_tree(tmp_path, monkeypatch, drafter=True)
+    cdir = s.config_path.parent
+    mdir = cdir.parent
+    canonical = mdir / "kv_scales" / "dspark.kv_scales.json"
+    assert dockerctl.kv_scales_host_path(s) == canonical  # nothing yet: canonical
+    (mdir / "kv_scales").mkdir()
+    canonical.write_text("{}")
+    assert dockerctl.kv_scales_host_path(s) == canonical  # preferred over ...
+    (cdir / "kv_scales.json").write_text("{}")  # ... the pre-migration location
+    canonical.unlink()
+    assert dockerctl.kv_scales_host_path(s) == cdir / "kv_scales.json"
+
+
+def test_calibrate_writes_both_paths_during_the_compat_window(tmp_path, monkeypatch):
+    """One run feeds both layouts: the per-format file (canonical) plus the
+    pre-migration single file older wheels read. An explicit --out (or
+    --draft-vocab) stays a single file."""
+    s = _local_tree(tmp_path, monkeypatch)
+    mdir = s.config_path.parent.parent
+    target, legacy = dockerctl.calibrate_targets(s, None, False)
+    assert target == mdir / "kv_scales" / "e2m3.json"
+    assert legacy == mdir / "kv_scales.json"
+    assert legacy is not None  # narrow: the mirror writes it after the run
+    target.parent.mkdir(parents=True)
+    target.write_text('{"format": "mjolnir.kv_scales/2"}')
+    assert dockerctl.mirror_legacy_scales(target, legacy)
+    assert legacy.read_text() == target.read_text()
+    assert dockerctl.calibrate_targets(s, tmp_path / "x.json", False) == (tmp_path / "x.json", None)
+    assert dockerctl.calibrate_targets(s, None, True)[1] is None
+
+
+def test_a_drafter_calibration_writes_its_own_legacy_file(tmp_path, monkeypatch):
+    s = _local_tree(tmp_path, monkeypatch, drafter=True)
+    target, legacy = dockerctl.calibrate_targets(s, None, False)
+    assert target == s.config_path.parent.parent / "kv_scales" / "dspark.kv_scales.json"
+    assert legacy == s.config_path.parent / "kv_scales.json"
+
+
+def test_calibrate_default_out_is_the_per_format_file():
+    r = CliRunner().invoke(cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR_E2M3", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    assert "--out /out/e2m3.json" in r.output
+    assert "/configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/config.yaml" in r.output
+
+
+def test_the_user_dir_fallback_keeps_the_kv_scales_subdir(tmp_path, monkeypatch):
+    """An unwritable configs dir redirects the whole model-relative layout
+    (kv_scales/e2m3.json, not a flat e2m3.json) under the user configs dir —
+    the wheel-installed-CLI case (bundled configs are read-only)."""
+    s = _local_tree(tmp_path, monkeypatch)
+    mdir = s.config_path.parent.parent
+    (mdir / "kv_scales").mkdir()
+    (mdir / "kv_scales").chmod(0o500)  # exists, unwritable -> the fallback
+    try:
+        monkeypatch.setattr(dockerctl, "user_configs_dir", lambda: tmp_path / "user")
+        target, legacy = dockerctl.calibrate_targets(s, None, False)
+        assert target == tmp_path / "user" / s.model / "kv_scales" / "e2m3.json"
+        assert legacy == tmp_path / "user" / s.model / "kv_scales.json"
+    finally:
+        (mdir / "kv_scales").chmod(0o755)
