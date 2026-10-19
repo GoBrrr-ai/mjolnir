@@ -25,8 +25,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from mjolnir_cli import overlays
+from mjolnir_cli.config import configs_root
 
 
 def _config_dir(tmp_path: Path, overlays_: tuple[str, ...] = (), body: str = "gpu-memory-utilization: 0.8\n") -> Path:
@@ -354,3 +356,31 @@ def test_config_exists_on_is_false_without_a_config_yaml(tmp_path):
     (d / "platforms" / "spark.yaml").write_text("gpu-memory-utilization: 0.6\n")
     assert not overlays.config_exists_on(d, "spark")  # an overlay without a config is not a config
     assert not overlays.config_exists_on(tmp_path / "missing", "thor")
+
+
+# ── the real Orin AWQ baseline (spec §Directory Layout's example, made real) ─
+
+
+def test_the_orin_awq_config_exists_only_on_orin():
+    """The repo's Orin AWQ serving config: a ``platforms/`` dir carrying only
+    ``orin.yaml`` — the overlay-only rule makes thor and spark em-dashes
+    (the legs filter reads exactly this)."""
+    d = configs_root() / "Qwen" / "Qwen3.8-27B" / "AWQ_FLASHINFER"
+    assert overlays.overlay_platforms(d) == ("orin",)
+    assert not overlays.config_exists_on(d, "thor")
+    assert not overlays.config_exists_on(d, "spark")
+    assert overlays.config_exists_on(d, "orin")
+
+
+def test_the_orin_awq_config_validates_on_orin_with_native_rows():
+    """The merged config (base + the orin overlay) passes the matrix: fp8 KV
+    via FlashInfer is a native orin row, and the AWQ weights are int4-w4a16 —
+    native on orin too (Marlin from compute capability 7.5 up)."""
+    from mjolnir_cli.availability import FLASHINFER, NATIVE, kv_state, weights_state
+
+    d = configs_root() / "Qwen" / "Qwen3.8-27B" / "AWQ_FLASHINFER"
+    base = yaml.safe_load((d / "config.yaml").read_text())
+    merged = overlays.merge_config(base, overlays.load_overlay(d, "orin") or {})
+    overlays.validate("orin", merged)  # does not raise
+    assert kv_state("fp8", FLASHINFER, "orin").state == NATIVE
+    assert weights_state("int4-w4a16", "orin").state == NATIVE

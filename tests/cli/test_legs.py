@@ -79,14 +79,29 @@ def test_legs_for_stage_defaults_to_the_thor_table():
         assert legs.legs_for_stage(name) == legs.SERVING[name], name
 
 
-@pytest.mark.parametrize("platform", ("spark", "orin"))
-def test_legs_for_stage_research_platforms_get_official_side_only(platform):
-    # research platforms measure baselines only until their kernels land
+@pytest.mark.parametrize(
+    ("platform", "baseline"),
+    [("spark", "NVFP4"), ("orin", "AWQ_FLASHINFER")],
+)
+def test_legs_for_stage_research_platforms_measure_their_own_baseline(platform, baseline):
+    # research platforms measure baselines only until their kernels land:
+    # the official side only — exactly one leg, the platform's own baseline
+    # config (spark's is the thor table's NVFP4 baseline; orin's is its AWQ
+    # serving config — a quant the thor table does not carry)
     for name in legs.SERVING:
-        ls = legs.legs_for_stage(name, platform)
-        assert ls, name
-        assert {side for side, _ in ls} == {legs.OFFICIAL}, name
-        assert (legs.OFFICIAL, "NVFP4") in ls, name
+        assert legs.legs_for_stage(name, platform) == ((legs.OFFICIAL, baseline),), name
+
+
+def test_available_serving_legs_resolve_the_orin_baseline_from_the_repo_configs():
+    # the real tree: AWQ_FLASHINFER exists on orin (its overlay), so the
+    # platform's baseline survives the existence filter for the default model
+    assert legs.available_serving_legs("bench.ab", "orin", "Qwen/Qwen3.8-27B") == ((legs.OFFICIAL, "AWQ_FLASHINFER"),)
+
+
+def test_bench_and_verify_legs_render_the_orin_baseline():
+    # orin's default image is the upstream one: the official leg renders on it
+    assert legs.bench_legs("bench.ab", "orin") == f"{STOCK_IMAGE}:AWQ_FLASHINFER"
+    assert legs.verify_legs("verify.spec", "orin") == "official:AWQ_FLASHINFER"
 
 
 def _fake_configs(root: Path, entries: dict[str, tuple[str, ...]]) -> Path:

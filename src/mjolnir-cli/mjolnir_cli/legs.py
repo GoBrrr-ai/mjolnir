@@ -92,14 +92,26 @@ SMOKE_MODES = "graph eager e2m3 lmh8"
 # kernel lands (the ncu stages need this repo's image to run the harness in).
 _RESEARCH_KERNEL_LEGS = "fi,fa2"
 
+# A research platform's own serving baseline: the one official leg its stage
+# plans measure — the platform's native compute path, which the thor table
+# does not carry. The default platform needs no entry (its table is the thor
+# table); spark keeps the thor table's NVFP4 baseline.
+_BASELINE: dict[str, str] = {
+    "orin": "AWQ_FLASHINFER",  # int4 W4A16 (AWQ) — Marlin, native on sm_87
+}
+
 
 def legs_for_stage(name: str, platform: str = DEFAULT_PLATFORM) -> tuple[Leg, ...]:
-    """The stage's legs on a platform: the full table on a supported one; on a
-    research platform the official (baseline) side only — the Mjolnir legs
-    arrive with the platform's kernel."""
+    """The stage's legs on a platform: the full table on a supported one; on
+    a research platform its official baseline only — the platform's own
+    baseline config when it names one (``_BASELINE``), else the thor table's
+    official side. The Mjolnir legs arrive with the platform's kernel."""
     ls = SERVING[name]
     if REGISTRY[platform].status == "supported":
         return ls
+    baseline = _BASELINE.get(platform)
+    if baseline is not None:
+        return ((OFFICIAL, baseline),)
     return _uniq([(side, cfg) for side, cfg in ls if side == OFFICIAL])
 
 

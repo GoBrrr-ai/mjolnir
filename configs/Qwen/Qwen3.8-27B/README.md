@@ -1,6 +1,6 @@
 # Qwen3.8-27B
 
-`Qwen/Qwen3.8-27B` — served as `Qwen/Qwen3.8-27B` — with 13
+`Qwen/Qwen3.8-27B` — served as `Qwen/Qwen3.8-27B` — with 14
 serving configs in `configs/Qwen/Qwen3.8-27B/`. Everything on this page is
 derived from the config tree and the raw results; there is no hand-written
 model prose (decision 7).
@@ -14,6 +14,7 @@ format) on each platform.
 
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
+| [`AWQ_FLASHINFER`](AWQ_FLASHINFER/README.md) · [BENCHMARKS](AWQ_FLASHINFER/BENCHMARKS.md) | AWQ int4 + FlashInfer | — | — | ✅ |
 | [`NVFP4`](NVFP4/README.md) · [BENCHMARKS](NVFP4/BENCHMARKS.md) | FlashInfer | ✅ | ✅ | ✅ |
 | [`NVFP4_DFLASH2`](NVFP4_DFLASH2/README.md) · [BENCHMARKS](NVFP4_DFLASH2/BENCHMARKS.md) | FlashInfer + DFlash2 | ✅ | — | — |
 | [`NVFP4_DSPARK`](NVFP4_DSPARK/README.md) · [BENCHMARKS](NVFP4_DSPARK/BENCHMARKS.md) | FlashInfer + DSpark | ✅ | — | — |
@@ -29,6 +30,7 @@ format) on each platform.
 | [`NVFP4_MJOLNIR_E2M3_VT32K`](NVFP4_MJOLNIR_E2M3_VT32K/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3_VT32K/BENCHMARKS.md) | Mjolnir fp6 KV + 32K draft vocab | ✅ | — | — |
 
 
+- `AWQ_FLASHINFER` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 - `NVFP4` on thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4` on spark: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4` on orin: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
@@ -51,12 +53,12 @@ format) on each platform.
 ```bash
 mjolnir serve up --platform thor --config NVFP4_MJOLNIR_E2M3_LMH8_VT64K
 mjolnir serve up --platform spark --config NVFP4
-mjolnir serve up --platform orin --config NVFP4
+mjolnir serve up --platform orin --config AWQ_FLASHINFER
 ```
 
 Any config the platform's overlays allow; the full list is the table above.
 The per-platform flags (KV layout, the config's `.env` switches) come from
-the config itself — [each config's README](NVFP4/README.md) names them.
+the config itself — [each config's README](AWQ_FLASHINFER/README.md) names them.
 
 ## End to end: the official vLLM image vs Mjolnir
 

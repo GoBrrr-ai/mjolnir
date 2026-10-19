@@ -13,6 +13,7 @@ is not measurement: links only go where data exists (decision 9).
 
 | config | model | on Jetson AGX Thor | measured |
 |---|---|---|---|
+| `AWQ_FLASHINFER` | `Qwen/Qwen3.8-27B` | — | measured: no |
 | [`NVFP4`](../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: yes |
 | [`NVFP4_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
@@ -58,7 +59,7 @@ is not measurement: links only go where data exists (decision 9).
 The [Jetson AGX Thor kernel case study](kernel/README.md) — one chapter per
 experiment, each with its chart, data table and the command that reproduces
 it, pinned to the platform's headline model (Qwen/Qwen3.8-27B).
-[correctness](kernel/correctness.md) · [sweep](kernel/sweep.md) · [hndsweep](kernel/hndsweep.md) · [kvfmt](kernel/kvfmt.md) · [quant](kernel/quant.md) · [kv-cache-size](kernel/kv-cache-size.md) · [spec](kernel/spec.md) · [fp6prof](kernel/fp6prof.md) · [ring](kernel/ring.md) · [prefetch](kernel/prefetch.md) · [pdl](kernel/pdl.md) · [ab](kernel/ab.md) ·
+[correctness](kernel/correctness.md) · [sweep](kernel/sweep.md) · [hndsweep](kernel/hndsweep.md) · [kvfmt](kernel/kvfmt.md) · [quant](kernel/quant.md) · [kv-cache-size](kernel/kv-cache-size.md) · [spec](kernel/spec.md) · [fp6prof](kernel/fp6prof.md) · [ring](kernel/ring.md) · [prefetch](kernel/prefetch.md) · [pdl](kernel/pdl.md) · [ab](kernel/ab.md)
 
 
 ## End to end

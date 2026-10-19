@@ -582,6 +582,26 @@ def test_root_headline_stays_pinned_to_thor(repo):
     assert "+28.9%" not in text and "+29%" not in text
 
 
+def test_no_generated_page_carries_trailing_whitespace(repo):
+    """Render output must be commit-clean: the pre-commit trailing-whitespace
+    hook strips trailing spaces at commit time while CI's reproduce gate
+    re-renders and diffs — a template that emits one (the kernel chapters
+    line's trailing ' · ') would make every render differ from HEAD."""
+    _render_all()
+    pages = [
+        repo / "README.md",
+        repo / "docker" / "vllm-thor" / "README.md",
+        *sorted((repo / "docs" / "platforms").rglob("*.md")),
+        *sorted((repo / "configs").rglob("*.md")),
+    ]
+    dirty = [
+        str(p.relative_to(repo))
+        for p in pages
+        if p.is_file() and any(ln.rstrip("\n") != ln.rstrip() for ln in p.read_text().splitlines())
+    ]
+    assert not dirty, dirty
+
+
 # ── idempotency (CI reproduce gate, spec §Render Triggers) ──────────────────
 
 

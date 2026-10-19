@@ -13,6 +13,7 @@ is not measurement: links only go where data exists (decision 9).
 
 | config | model | on Jetson Orin | measured |
 |---|---|---|---|
+| [`AWQ_FLASHINFER`](../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4`](../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
@@ -33,6 +34,7 @@ is not measurement: links only go where data exists (decision 9).
 | [`NVFP4_MJOLNIR_E2M3_VT64K`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_VT64K/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_VT64K/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
 
 
+- `AWQ_FLASHINFER` on Jetson Orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 - `NVFP4` on Jetson Orin: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4_DFLASH2` on Jetson Orin: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4_DSPARK` on Jetson Orin: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.

@@ -98,6 +98,7 @@ BACKEND_LABELS = {
     "NVFP4_DFLASH2": "FlashInfer + DFlash2",
     "NVFP4_FA2": "FlashAttention 2",
     "NVFP4_FA4hd256": "FlashAttention 4 hd256",
+    "AWQ_FLASHINFER": "AWQ int4 + FlashInfer",
 }
 
 # The repo marker: a checkout has the image build context.

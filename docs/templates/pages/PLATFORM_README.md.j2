@@ -29,8 +29,8 @@ is not measurement: links only go where data exists (decision 9).
 The [{{ ctx.name }} kernel case study](kernel/README.md) — one chapter per
 experiment, each with its chart, data table and the command that reproduces
 it, pinned to the platform's headline model ({{ ctx.kernel.model }}).
-{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
-{%- if name in ctx.chapters %}[{{ name }}](kernel/{{ name }}.md) · {% endif %}
+{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] | select("in", ctx.chapters) -%}
+{%- if not loop.first %} · {% endif %}[{{ name }}](kernel/{{ name }}.md)
 {%- endfor %}
 {% else -%}
 No kernel results for {{ ctx.name }} yet. {{ ctx.name }} is a **{{ ctx.status }}**

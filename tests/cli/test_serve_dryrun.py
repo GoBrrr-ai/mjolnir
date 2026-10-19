@@ -15,9 +15,10 @@ so a new config joins the pin automatically. ``stale_image`` is monkeypatched
 from __future__ import annotations
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
-from mjolnir_cli import cli, dockerctl
+from mjolnir_cli import cli, dockerctl, overlays
 from mjolnir_cli.config import (
     DEFAULT_IMAGE,
     DEFAULT_PORT,
@@ -27,6 +28,7 @@ from mjolnir_cli.config import (
     configs_root,
     scan_configs,
 )
+from mjolnir_cli.platforms import REGISTRY
 
 ENTRIES = scan_configs(configs_root())
 
@@ -83,3 +85,50 @@ def test_serve_dry_run_argv_is_unchanged(tmp_path, monkeypatch, entry):
     # every sidecar knob the config ships reaches the container env
     for kv_env in dockerctl.config_env(Settings(model=entry.model, quant=entry.quant)):
         assert f"-e {kv_env}" in line, kv_env
+
+
+MODEL = "Qwen/Qwen3.8-27B"
+
+
+def test_orin_awq_baseline_dry_run_and_merged_overlay(tmp_path, monkeypatch):
+    """The Orin AWQ baseline end to end: the dry-run argv serves its config
+    on orin's own (upstream) image with no Mjolnir env (FlashInfer reads the
+    fp8 KV natively), and the orin overlay's 64GB tuning merges over the
+    platform-neutral base — model identity, backends, KV dtype, MTP K=3 and
+    the chat template come from config.yaml; max-num-seqs / 190K / 8K / 0.9 /
+    prefix-match-unit only from platforms/orin.yaml. The serve-time gate
+    accepts the merged config on orin."""
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
+    env = {"MJOLNIR_PLATFORM": "orin", "MJOLNIR_STATE": str(tmp_path / "state.json")}
+    r = CliRunner().invoke(
+        cli.app, ["serve", "up", "--model", MODEL, "--config", "AWQ_FLASHINFER", "--dry-run"], env=env
+    )
+    assert r.exit_code == 0, r.output
+    line = next(ln for ln in r.output.splitlines() if ln.startswith("docker run "))
+    serve = f"vllm serve --config /configs/{MODEL}/AWQ_FLASHINFER/config.yaml {_SERVE_TAIL}"
+    assert f"-p {DEFAULT_PORT}:8000 {REGISTRY['orin'].default_image} -lc {serve}" in line
+    assert "-e MJOLNIR_CONFIG=" not in line  # FlashInfer serves fp8 natively: no Mjolnir reader env
+    assert "-e MJOLNIR_ATTN_KV_SCALES=" not in line  # fp8 needs no scales
+
+    d = configs_root() / MODEL / "AWQ_FLASHINFER"
+    base = yaml.safe_load((d / "config.yaml").read_text())
+    merged = overlays.merge_config(base, overlays.load_overlay(d, "orin") or {})
+    assert merged["model"] == "twolven/Qwen3.8-27B-abliterated-AWQ-MTP"
+    assert merged["served-model-name"] == MODEL
+    assert merged["quantization"] == "compressed-tensors"
+    assert merged["dtype"] == "bfloat16"
+    assert merged["load-format"] == "safetensors"
+    assert merged["attention-backend"] == "flashinfer"
+    assert merged["kv-cache-dtype"] == "fp8"
+    assert merged["speculative-config"] == {"method": "mtp", "num_speculative_tokens": 3}
+    assert merged["chat-template"] == "/configs/Qwen/Qwen3.8_chat_template.jinja"
+    for k, v in {
+        "max-num-seqs": 5,
+        "max-model-len": "190K",
+        "max-num-batched-tokens": "8K",
+        "gpu-memory-utilization": 0.9,
+        "prefix-match-unit": 32,
+    }.items():
+        assert merged[k] == v, k
+        assert k not in base, f"{k} is Orin-64GB tuning: the overlay's, never the base's"
+    overlays.validate_serving(d / "config.yaml", "orin")  # does not raise
