@@ -115,6 +115,14 @@ skipped with a hint — nothing blocks on a password.
   (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT, mamba align) out, and
   no draft vocab: `MJOLNIR_DRAFT_VOCAB` on this model adds ~40 GB at startup
   (#25). Open: a silent Thor hard hang with the E2M3 worker idle (#27).
+- **Platform layer (detection-first)**: no `platform set`/remembered state — every command
+  resolves flag > `MJOLNIR_PLATFORM` env > two-source detection (`mjolnir platform` is
+  read-only list/show with confidence + provenance). Config overlays
+  (`<quant>/platforms/<platform>.yaml`, deep-merge, lists replace) gate per-platform serving;
+  the kv-dtype × backend matrix is validated at serve time. ONE image targets all three
+  platforms (Orin: JP 7.2.1+, Spark: DGX OS + CUDA 13). thor supported, spark/orin research
+  (official-image baselines only); records carry `platform` + `gpu`; `mjolnir.platforms` +
+  `mjolnir/arch/` map arch → kernel — MJOLNIR serves on `sm_110` (thor) only.
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,

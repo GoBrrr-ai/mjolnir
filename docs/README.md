@@ -68,6 +68,7 @@ The retired GEMV decode kernel and its reports are in git history:
 | [clean-window-gate.md](faq/clean-window-gate.md) | The shared-GPU rule, what "clean" means, `mjolnir gate`. |
 | [results-history-charts.md](faq/results-history-charts.md) | Raw JSON → charts → README; `mjolnir plot --readme` / `--site`. |
 | [settings-precedence.md](faq/settings-precedence.md) | Flag > state > env > default; state file; data paths. |
+| [platforms.md](faq/platforms.md) | Detection-first platform resolution (no state), config overlays + the availability matrix, what spark/orin can't do yet. |
 | [litellm-proxy.md](faq/litellm-proxy.md) | The LiteLLM proxy in front of the server. |
 
 ### thor-stack/ (serving stack)

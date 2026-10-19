@@ -30,6 +30,9 @@
 | [`mjolnir image list`](#mjolnir-image-list) | List local docker images (● = the active one). |
 | [`mjolnir image build`](#mjolnir-image-build) | Build the Mjolnir vLLM image: the patch stack + the mjolnir-kernel package from this checkout (repo-root build context). |
 | [`mjolnir image gates`](#mjolnir-image-gates) | Run the sm_110 gate-probe canaries against the image (fresh container, no server needed). |
+| [`mjolnir platform`](#mjolnir-platform) | The active platform (thor supported; spark / orin research): list, show. |
+| [`mjolnir platform list`](#mjolnir-platform-list) | Every shipped platform: architecture, images, maturity. |
+| [`mjolnir platform show`](#mjolnir-platform-show) | The active platform (flag &gt; env `MJOLNIR_PLATFORM` &gt; detection), its detection confidence and one provenance line per source that probed. |
 | [`mjolnir verify`](#mjolnir-verify) | Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA2), saved as raw data for the charts. |
 | [`mjolnir verify correctness`](#mjolnir-verify-correctness) | Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len and Q dtype. |
 | [`mjolnir verify sweep`](#mjolnir-verify-sweep) | The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks). |
@@ -482,6 +485,30 @@ no server needed).
 | `--dry-run` | print what would run, run nothing | off |
 
 
+<a id="mjolnir-platform"></a>
+
+## `mjolnir platform`
+
+The active platform (thor supported; spark / orin research): list, show.
+
+Sub-commands: [`mjolnir platform list`](#mjolnir-platform-list), [`mjolnir platform show`](#mjolnir-platform-show).
+
+
+<a id="mjolnir-platform-list"></a>
+
+## `mjolnir platform list`
+
+Every shipped platform: architecture, images, maturity.
+
+
+<a id="mjolnir-platform-show"></a>
+
+## `mjolnir platform show`
+
+The active platform (flag &gt; env `MJOLNIR_PLATFORM` &gt; detection), its
+detection confidence and one provenance line per source that probed.
+
+
 <a id="mjolnir-verify"></a>
 
 ## `mjolnir verify`
@@ -515,7 +542,7 @@ Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len a
 
 The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks).
 
-`--batch 4 --q-len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
+`--batch 4 --q_len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
 with MTP=3 at 4 concurrent requests (saved as a non-default run).
 
 | option | description | default |
