@@ -8,7 +8,7 @@
 | [`mjolnir calibrate`](#mjolnir-calibrate) | Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache (or, with --draft-vocab, the drafter's vocabulary for VocabTrim). |
 | [`mjolnir grant-permissions`](#mjolnir-grant-permissions) | Check for — and, if missing, install — the NOPASSWD sudo grant the kernel benches use to clear the page cache. |
 | [`mjolnir drop-caches`](#mjolnir-drop-caches) | Clear the host page cache (`sysctl -w vm.drop_caches=3`) for a clean kernel-bench baseline. Uses the NOPASSWD grant (run `mjolnir grant-permissions` if it's missing); never prompts. |
-| [`mjolnir plot`](#mjolnir-plot) | Render every chart (light + dark PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
+| [`mjolnir plot`](#mjolnir-plot) | Render every chart (dark-only PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
 | [`mjolnir history`](#mjolnir-history) | Bench results at a glance: decode throughput (t/s) per recent run. |
 | [`mjolnir version`](#mjolnir-version) | Print the version. |
 | [`mjolnir serve`](#mjolnir-serve) | Drive the vLLM container (the patched image). |
@@ -146,7 +146,7 @@ kernel-bench baseline. Uses the NOPASSWD grant (run
 
 ## `mjolnir plot`
 
-Render every chart (light + dark PNGs in assets/benchmarks/, from the
+Render every chart (dark-only PNGs in assets/benchmarks/, from the
 latest default `mjolnir verify` run of each stage + the e2e history).
 --readme also renders README.md and docs/**/*.md from their .md.j2
 templates; --site builds the interactive GitHub Pages site. Everything is
@@ -325,8 +325,8 @@ added), e.g. `-- run --hardmode --no-think --trials 3` or
 `-- --gsm8k --mmlu --ifeval --skip-tool-eval --gsm8k-limit 200`.
 Results: benchmarks/raw/accuracy/&lt;run&gt;/accuracy.json (committed; the
 tool's SQLite, reports and the server log stay next to it, untracked);
-docs/kernel/accuracy.md is rendered from the newest result per config and
-suite.
+docs/platforms/&lt;platform&gt;/kernel/accuracy.md is rendered from the newest
+result per config and suite.
 
 | option | description | default |
 |---|---|---|

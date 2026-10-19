@@ -1,33 +1,51 @@
 """README + docs generation — every number, table and chart reference is
 computed from the committed raw data.
 
-``mjolnir plot --readme`` renders:
+``mjolnir plot --readme`` renders the render-target set (cycle 3b; discovery
++ contexts in :mod:`mjolnir_cli.readme_targets`):
 
-* ``README.md``                  from ``README.md.j2``
-* ``docs/kernel/**/*.md``        from the ``*.md.j2`` next to them
-* ``docker/vllm-thor/README.md`` from ``docker/vllm-thor/README.md.j2`` — the
-  Docker Hub description: plain markdown only (Docker Hub does not render inline
-  HTML), absolute image / link URLs (no repo file hosting to resolve relatives
-  against), no charts or data tables, well under Docker Hub's 25,000-byte
-  description limit. ``docker-image.yml`` pushes it via
-  ``peter-evans/dockerhub-description``.
+* ``README.md``                          the root: status matrix, measured-pair
+                                         index, the headline pinned to
+                                         (thor, the default model)
+* ``docs/platforms/README.md``           the platform index
+* ``docs/platforms/<p>/README.md``       one per shipped platform (+ its
+                                         kernel case study under ``kernel/``
+                                         when it has raws)
+* ``configs/<vendor>/<model>/README.md``                  one per model dir
+* ``configs/…/<quant>/README.md`` + ``BENCHMARKS.md``     one per config dir
+* ``docs/cli.md``                        the CLI reference (from the commands)
+* ``docker/vllm-thor/README.md``         the Docker Hub description: plain
+                                         markdown only (Docker Hub does not
+                                         render inline HTML), absolute image /
+                                         link URLs (no repo file hosting to
+                                         resolve relatives against), no charts
+                                         or data tables, well under Docker
+                                         Hub's 25,000-byte description limit.
+                                         ``docker-image.yml`` pushes it via
+                                         ``peter-evans/dockerhub-description``.
 
-Inputs: the latest default run of each ``mjolnir verify`` stage
-(``benchmarks/raw/verify/``), the e2e history (``benchmarks/history.jsonl``),
-the chart manifest (``assets/benchmarks/manifest.json``, written by
-``charts.render_all``) and the vLLM base tag in the Dockerfile. Re-rendering
-is idempotent: the output only changes when the raw data does (CI checks it).
+Inputs: the latest default run of each ``mjolnir verify`` stage for the
+page's (platform, model) pair (``benchmarks/raw/verify/``), the e2e history
+(``benchmarks/history.jsonl``), the chart manifest
+(``assets/benchmarks/manifest.json``, written by ``charts.render_all``) and
+the vLLM base tag in the Dockerfile. Re-rendering is idempotent: the output
+only changes when the raw data does (CI checks it).
 
 Template contract (Jinja2, StrictUndefined — a typo fails loud):
 
-* ``ctx``            — a ``ReadmeContext``: versions, headline numbers, the
-                       per-stage markdown tables (``ctx.tables[stage]``),
-                       the per-stage findings (``ctx.findings[stage]``) and
-                       ``ctx.pending`` (stages without a run yet)
-* ``chart(name, alt)`` — a light/dark ``<picture>`` for a chart in the
-                       manifest, ``""`` when the chart has no data yet
+* ``ctx``            — the target's context: for the kernel chapters a
+                       ``ReadmeContext`` (versions, headline numbers, the
+                       per-stage markdown tables ``ctx.tables[stage]``, the
+                       per-stage findings ``ctx.findings[stage]`` and
+                       ``ctx.pending``); the pages read their own dataclasses
+                       from ``readme_targets``
+* ``chart(name, alt)`` — a dark ``<img>`` for a chart in the
+                       manifest (``""`` when the chart has no data for this
+                       page's (platform, model) pair yet)
 * ``has(stage)``     — the stage has a saved run
 * ``root``           — relative path from the rendered file to the repo root
+* ``platform``       — the platform row of the page being rendered (kernel
+                       chapters); ``model_short`` — its headline model
 """
 
 from __future__ import annotations
@@ -40,7 +58,9 @@ from typing import Any, cast
 
 import jinja2
 
-from mjolnir_cli.config import DEFAULT_MODEL, IMAGE_REPO, RepoLayout, by_model
+from mjolnir_cli import readme_targets
+from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, IMAGE_REPO, RepoLayout, by_model, model_of
+from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.verify import results
 from mjolnir_cli.readme_tables import (
     L_label,
@@ -290,6 +310,13 @@ class ReadmeContext:
     patches_table: str = ""
     patches_total: int = 0
     patches_pr: int = 0
+    # the render-target identity this context belongs to: the (platform,
+    # model) pair the tables/findings/e2e/accuracy were read for, its
+    # registry row, and the root page's platform matrix + measured-pair index
+    chart_pair: tuple[str, str] | None = None
+    platform: Any = None
+    platforms: list = field(default_factory=list)
+    measured_pairs: list = field(default_factory=list)
 
 
 def _vllm_base_version(layout: RepoLayout) -> str:
@@ -336,11 +363,22 @@ def _version_from(path: Path) -> str:
         return ""
 
 
-def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeContext:
-    from mjolnir_cli.charts import load_verify
-
-    data = data if data is not None else load_verify(layout)
+def collect_context(
+    layout: RepoLayout,
+    data: dict | None = None,
+    platform: str = DEFAULT_PLATFORM,
+    model: str = DEFAULT_MODEL,
+) -> ReadmeContext:
+    """The context for one (platform, model) pair — the root README's and the
+    kernel chapters' context. Defaults are the pinned headline pair (decision
+    3); ``data`` overrides the pair's verify docs (as ``load_verify`` does
+    unfiltered)."""
+    data = data if data is not None else readme_targets.pair_docs(layout, platform, model)
     ctx = ReadmeContext(vllm_version=_vllm_base_version(layout))
+    ctx.chart_pair = (platform, model)
+    ctx.platform = next((p for p in readme_targets.platform_rows() if p.key == platform), None)
+    ctx.platforms = readme_targets.platform_rows()
+    ctx.measured_pairs = _measured_pairs(layout)
     ctx.image = f"{IMAGE_REPO}:v{ctx.vllm_version}" if ctx.vllm_version else IMAGE_REPO
     if layout.repo_root is not None:
         ctx.kernel_version = _version_from(layout.repo_root / "src" / "mjolnir" / "mjolnir" / "__init__.py")
@@ -391,7 +429,7 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
         ctx.correctness = f"{sum(1 for c in cs if c.get('passed'))} / {len(cs)}"
     from mjolnir_cli import e2e
 
-    off, mj = e2e.latest_pair(layout.history_file)
+    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
     if off and mj:
         ctx.vs_vllm = _vs_vllm_table(off, mj)
         ctx.vs_vllm_official, ctx.vs_vllm_mjolnir = e2e.side_label(off), e2e.side_label(mj)
@@ -432,17 +470,49 @@ def collect_context(layout: RepoLayout, data: dict | None = None) -> ReadmeConte
 
     acc_rows = accuracy.latest_legs(accuracy.load_runs(layout))  # read once, for the page and the hero
     _accuracy_context(ctx, acc_rows)
-    _features(ctx, data, layout, acc_rows)
+    _features(ctx, data, layout, acc_rows, platform=platform, model=model)
     return ctx
 
 
-def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list[dict]) -> None:
+def _measured_pairs(layout: RepoLayout) -> list[dict]:
+    """The root README's measured-pair index rows: one entry per measured
+    model, its platforms (display names) and — when the model has a config
+    dir — the link target (spec row 1)."""
+    scan = {c.model for c in readme_targets.scan_configs(layout)}
+    by_m: dict[str, set[str]] = {}
+    from mjolnir_cli.history import load_records
+
+    for rec in load_records(layout.history_file):
+        m = model_of(rec)
+        if m and rec.get("cells"):
+            by_m.setdefault(m, set()).add(platform_of(rec))
+    out = []
+    for m, plats in sorted(by_m.items()):
+        out.append(
+            {
+                "model": m,
+                "short": m.split("/")[-1],
+                "platforms": ", ".join(REGISTRY[p].name for p in sorted(plats)),
+                "linked": m in scan,
+            }
+        )
+    return out
+
+
+def _features(
+    ctx: ReadmeContext,
+    data: dict,
+    layout: RepoLayout,
+    acc_rows: list[dict],
+    platform: str = DEFAULT_PLATFORM,
+    model: str = DEFAULT_MODEL,
+) -> None:
     """The numbers the Key Features grid quotes — from the same raw results as
     the tables (the grid falls back to plain text where a run is missing)."""
     from mjolnir_cli import accuracy, e2e
 
     f: dict = {"geo": ctx.geo_vs_fi or None}
-    off, mj = e2e.latest_pair(layout.history_file)
+    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
     h = e2e.hero(off, mj) if off and mj else None
     if h:
         f.update(
@@ -462,7 +532,7 @@ def _features(ctx: ReadmeContext, data: dict, layout: RepoLayout, acc_rows: list
         )
         if base and fp6:
             f["kv"] = f"+{(fp6['kv_tokens'] / base['kv_tokens'] - 1) * 100:.0f}%"
-    rows = by_model(acc_rows).get(DEFAULT_MODEL, [])  # the hero names one model's baseline
+    rows = by_model(acc_rows).get(model, [])  # the hero names one model's baseline
     b = accuracy.baseline(rows)
     if b:
         mine = [r for r in rows if r is not b and str(r.get("config", "")).startswith("NVFP4_MJOLNIR")]
@@ -592,8 +662,9 @@ def _signed(v: float) -> str:
     return f"{'−' if v < 0 else '+'}{abs(v):.1f}%"
 
 
-def _how_e2e(ctx: ReadmeContext) -> str:
-    ex = ctx.e2e_example
+def _how_e2e(ctx: Any) -> str:
+    ex = getattr(ctx, "e2e_example", None)
+    noise = getattr(ctx, "e2e_noise_pct", "3")
     lines = [
         "- **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. "
         "`+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple "
@@ -613,16 +684,18 @@ def _how_e2e(ctx: ReadmeContext) -> str:
         "- **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = "
         "generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt "
         "tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.",
-        f"- **Colors**: green = better by at least {ctx.e2e_noise_pct}%, grey = within ±{ctx.e2e_noise_pct}% "
+        f"- **Colors**: green = better by at least {noise}%, grey = within ±{noise}% "
         "(`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more "
         "between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.",
     ]
     return "\n".join(lines)
 
 
-def how(ctx: ReadmeContext, kind: str) -> str:
+def how(ctx: Any, kind: str) -> str:
     """A collapsed "How this is calculated" panel for the tables / figures of
-    ``kind`` (GitHub renders the markdown inside ``<details>``)."""
+    ``kind`` (GitHub renders the markdown inside ``<details>``). The e2e
+    panel reads the context's noise band (any context carrying
+    ``e2e_noise_pct`` works — the page contexts do too)."""
     body = _how_e2e(ctx) if kind == "e2e" else _HOW[kind]
     return f"<details>\n<summary>How the % and × here are calculated</summary>\n\n{body}\n\n</details><br />"
 
@@ -638,24 +711,27 @@ def _manifest(layout: RepoLayout) -> dict:
         return {}
 
 
-def _env(layout: RepoLayout, ctx: ReadmeContext, out_path: Path) -> jinja2.Environment:
+def _env(layout: RepoLayout, ctx: Any, out_path: Path) -> jinja2.Environment:
     import os
 
     manifest = _manifest(layout)
     root_rel = os.path.relpath(layout.repo_root or out_path.parent, out_path.parent).replace(os.sep, "/")
     prefix = "" if root_rel == "." else root_rel + "/"
 
-    def chart(name: str, alt: str = "", width: str = "100%") -> str:
+    def chart(name: str, alt: str = "", width: str = "100%", pair: tuple[str, str] | None = None) -> str:
+        """A plain dark ``<img>`` for a manifest chart (dark-only: GitHub
+        renders markdown against a dark surface; the Pages site is Plotly).
+        A pair-scoped entry (manifest v2) resolves only for the page's own
+        (platform, model) pair — ``pair`` overrides it (the BENCHMARKS pages'
+        kernel stages quote the headline pair's charts); entries without an
+        identity (legacy flat paths, hero, accuracy) resolve everywhere."""
         m = manifest.get(name)
         if not m:
             return ""
-        light, dark = prefix + m["light"], prefix + m.get("dark", m["light"])
-        return (
-            "<picture>\n"
-            f'  <source media="(prefers-color-scheme: dark)" srcset="{dark}">\n'
-            f'  <img src="{light}" alt="{alt or name}" width="{width}">\n'
-            "</picture>"
-        )
+        want = pair or getattr(ctx, "chart_pair", None)
+        if want is not None and m.get("platform") is not None and (m["platform"], m.get("model")) != want:
+            return ""
+        return f'<img src="{prefix + m["dark"]}" alt="{alt or name}" width="{width}">'
 
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True, autoescape=False)
     # jinja2 leaves Environment.globals unannotated, so a checker infers the
@@ -665,38 +741,73 @@ def _env(layout: RepoLayout, ctx: ReadmeContext, out_path: Path) -> jinja2.Envir
         ctx=ctx,
         color=color,
         chart=chart,
-        has=lambda stage: stage in ctx.runs,
+        has=lambda stage: stage in getattr(ctx, "runs", {}),
         root=prefix,
         stages=STAGES,
+        platform=getattr(ctx, "platform", None),
+        model_short=str(getattr(ctx, "model", DEFAULT_MODEL)).split("/")[-1],
     )
     return env
 
 
-def render_file(layout: RepoLayout, tpl: Path, out: Path, ctx: ReadmeContext) -> Path:
+def render_file(layout: RepoLayout, tpl: Path, out: Path, ctx: Any) -> Path:
     env = _env(layout, ctx, out)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(env.from_string(tpl.read_text()).render())
     return out
 
 
-def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | None = None) -> list[Path]:
-    """Render README.md + every docs ``*.md.j2`` (checkout only)."""
+# the one-release-cycle redirect for the pre-cycle-3 case-study links
+REDIRECT_STUB = "The kernel case study moved to [docs/platforms/thor/kernel/](../platforms/thor/kernel/README.md).\n"
+
+
+def render_all(layout: RepoLayout, root_override: tuple[Path, Path] | None = None) -> list[Path]:
+    """Render every target (plan §1): the root README, the platform tree
+    (``docs/platforms/`` — index, per-platform pages and the kernel case
+    studies), every model README and every config's README + BENCHMARKS —
+    plus the CLI reference and the docker README. The target set and the
+    contexts come from :mod:`mjolnir_cli.readme_targets`. ``root_override``
+    (template, out) redirects the root README render (the
+    ``plot --readme-template/--readme-out`` flags)."""
     root = layout.require_repo("rendering the README")
-    tpl = Path(template) if template else root / "README.md.j2"
-    dest = Path(out) if out else root / "README.md"
-    if not tpl.exists():
-        raise FileNotFoundError(f"README template not found: {tpl}")
-    ctx = collect_context(layout)
     from mjolnir_cli import clidoc
     from mjolnir_cli.cli import app as cli_app
 
     cli_md = root / "docs" / "cli.md"
     cli_md.parent.mkdir(parents=True, exist_ok=True)
     cli_md.write_text(clidoc.reference(cli_app))
-    written = [render_file(layout, tpl, dest, ctx), cli_md]
+    written = [cli_md]
     docker_tpl = root / "docker" / "vllm-thor" / "README.md.j2"
     if docker_tpl.exists():
-        written.append(render_file(layout, docker_tpl, docker_tpl.with_suffix(""), ctx))
-    written.extend(render_file(layout, t, t.with_suffix(""), ctx) for t in sorted((root / "docs").rglob("*.md.j2")))
+        written.append(render_file(layout, docker_tpl, docker_tpl.with_suffix(""), collect_context(layout)))
+    for target in readme_targets.discover_targets(layout):
+        for tpl, out, ctx in target.outputs(root, layout):
+            if root_override and out == root / "README.md":
+                tpl, out = root_override
+            if not tpl.is_file():
+                raise FileNotFoundError(f"template not found: {tpl}")
+            written.append(render_file(layout, tpl, out, ctx))
+    # the one-release-cycle redirect stub for inbound docs/kernel/ links
+    # (spec §Directory Layout) — same content every render
+    stub = root / "docs" / "kernel" / "README.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text(REDIRECT_STUB)
+    written.append(stub)
     for p in written:
         print(f"[mjolnir] wrote {p}")
     return written
+
+
+def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | None = None) -> list[Path]:
+    """Render the full target set (:func:`render_all`). ``template``/``out``
+    override the root README's template and output (the ``mjolnir plot
+    --readme-template/--readme-out`` flags); the other targets always render
+    to their spec paths."""
+    root = layout.require_repo("rendering the README")
+    if template is None and out is None:
+        return render_all(layout)
+    tpl = Path(template) if template else root / "README.md.j2"
+    dest = Path(out) if out else root / "README.md"
+    if not tpl.exists():
+        raise FileNotFoundError(f"README template not found: {tpl}")
+    return render_all(layout, root_override=(tpl, dest))

@@ -227,7 +227,8 @@ uv run mjolnir plot --readme              # charts + README.md + docs/kernel/*.m
 uv run mjolnir plot --site _site          # the interactive page (pages.yml publishes it)
 ```
 New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir
-orange, FlashInfer blue, FA2 aqua — never ad-hoc colors; light + dark variants),
+orange, FlashInfer blue, FA2 aqua — never ad-hoc colors; dark-only variant,
+`<id>-dark.png` — the Pages site is interactive Plotly),
 registered in `render_all`; new table → `readme.py` `TABLES`; reference both from
 the template. Sentences that state a result come from `readme.py` findings,
 not hand-typed numbers.

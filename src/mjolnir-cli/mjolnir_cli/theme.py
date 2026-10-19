@@ -1,8 +1,8 @@
 """The Mjolnir chart design system — one visual language, light AND dark.
 
-Every chart is rendered twice (``<name>.png`` light, ``<name>-dark.png``
-dark) and the README switches with ``<picture>`` + ``prefers-color-scheme``,
-so a chart always sits on its own surface on GitHub.
+Static charts render dark-only (``<name>-dark.png``; GitHub markdown shows
+the dark surface, the Pages site is interactive Plotly); the interactive
+site renders both palettes client-side from ``MODES``.
 
 Color = identity, and identities are fixed (never assigned by rank):
 

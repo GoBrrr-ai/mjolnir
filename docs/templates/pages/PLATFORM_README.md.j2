@@ -1,0 +1,49 @@
+# {{ ctx.name }}
+
+> **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
+
+{% if ctx.overview %}
+{{ ctx.overview }}
+{% endif %}
+
+## Serving on {{ ctx.name }}
+
+Every serving config in `configs/`, whether it exists on {{ ctx.name }} (the
+overlay rule), its availability there — one cell, read from the in-code
+availability table — and whether the pair has end-to-end data. Availability
+is not measurement: links only go where data exists (decision 9).
+
+| config | model | on {{ ctx.name }} | measured |
+|---|---|---|---|
+{% for r in ctx.rows -%}
+| {% if r.exists %}[`{{ r.quant }}`](../../../configs/{{ r.model }}/{{ r.quant }}/README.md) · [benchmarks](../../../configs/{{ r.model }}/{{ r.quant }}/BENCHMARKS.md){% else %}`{{ r.quant }}`{% endif %} | `{{ r.model }}` | {% if r.exists %}{{ r.cell.symbol }}{% else %}—{% endif %} | measured: {{ "yes" if r.measured else "no" }} |
+{% endfor %}
+
+{% for r in ctx.rows if r.exists -%}
+- `{{ r.quant }}` on {{ ctx.name }}: {{ r.cell.symbol }} {{ r.cell.why }}
+{% endfor %}
+
+## Kernel case study
+
+{% if ctx.chapters -%}
+The [{{ ctx.name }} kernel case study](kernel/README.md) — one chapter per
+experiment, each with its chart, data table and the command that reproduces
+it, pinned to the platform's headline model ({{ ctx.kernel.model }}).
+{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
+{%- if name in ctx.chapters %}[{{ name }}](kernel/{{ name }}.md) · {% endif %}
+{%- endfor %}
+{% else -%}
+No kernel results for {{ ctx.name }} yet. {{ ctx.name }} is a **{{ ctx.status }}**
+platform: native baselines (the upstream vLLM image) until a Mjolnir kernel
+lands for it — this page's matrix and the config BENCHMARKS pages carry its
+data as it arrives.
+{% endif %}
+
+## End to end
+
+The per-config A/B rows live on each [model page](../../../configs/) — one
+row per platform, from that platform's own history; the per-config cells in
+the [BENCHMARKS.md](../../../configs/) pages likewise. Platform-level kernel
+charts: under `kernel/` above, when they exist.
+
+Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform={{ ctx.key }}).

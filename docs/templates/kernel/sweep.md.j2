@@ -1,0 +1,57 @@
+# {{ stages["sweep"].title }}
+
+> {{ stages["sweep"].summary }} · `mjolnir verify sweep` · {% if has("sweep") %}run `{{ ctx.runs["sweep"] }}`{% else %}**no run yet**{% endif %}
+
+## The question
+
+The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAttention 2 — at every context length from 128 to 256K tokens? Short contexts are latency-bound (launch, plan, merge), long ones bandwidth-bound; a decode kernel has to win both.
+
+## How it is measured
+
+- one sequence, 24 query / 4 KV heads, head dim 256, 128-token pages in random order — the hd256 attention shape of {{ model_short }};
+- **ncu kernel time** of the decode kernel(s) + the split-KV merge, averaged over 50 launches, `--cache-control all` (cold L2: every launch reads KV from DRAM) and `--clock-control base`;
+- legs: **Mjolnir e2m3** (the kernel's fastest config), **Mjolnir fp8** (the `NVFP4_MJOLNIR` config; the default serves e2m3), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, NHD pages), **FlashAttention 2** via `vllm_flash_attn` (bf16 KV — FA2 has no fp8 KV path);
+- bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit).
+
+## Result
+
+{% if has("sweep") -%}
+{{ chart("kernel-speedup", "Mjolnir speedup over FlashInfer") }}
+
+{{ chart("kernel-latency", "Decode latency per step") }}
+
+{{ chart("kernel-bandwidth", "Effective KV bandwidth") }}
+
+{% for f in ctx.findings["sweep"] -%}
+- {{ f }}
+{% endfor %}
+{{ ctx.tables.get("sweep", "") }}
+
+{{ how("kernel") }}
+
+<sub>Rendered from [`benchmarks/raw/verify/sweep/{{ ctx.runs["sweep"] }}.json`]({{ root }}benchmarks/raw/verify/sweep/{{ ctx.runs["sweep"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
+{%- else %}
+> Pending — run `mjolnir verify sweep` on a {{ platform.name }}, then `mjolnir plot --readme`.
+{%- endif %}
+
+## How to read it
+
+At L=128 the cache fits in one tile and time is mostly fixed cost: plan, launch, merge. From ~16K the cache no longer fits the 32 MiB L2 and every kernel converges toward the DRAM roofline — the remaining gap is how much of the peak each kernel sustains (bandwidth chart) and how many bytes it has to move (KV format). FA2 pays twice the bytes of every fp8 leg.
+
+## Reproduce
+
+```bash
+mjolnir verify sweep
+mjolnir verify sweep --legs fi,fi-hnd,mjolnir-fp8,mjolnir --ls "8192 65536"   # custom (not a headline run)
+```
+
+## Ideas to try
+
+- batch > 1 and varlen batches: `mjolnir verify sweep --batch 4 --q-len 4` (the MTP=3 verify shape at 4 concurrent requests), `--batches 8 --varlen` on the harness;
+- page size 16 (what vLLM's FlashInfer backend uses on {{ platform.name }}): `mjolnir verify sweep --page-size 16`.
+
+Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING]({{ root }}.github/CONTRIBUTING.md).
+
+---
+
+[← {{ stages["correctness"].title }}](correctness.md) · [case study](README.md) · [{{ stages["hndsweep"].title }} →](hndsweep.md)

@@ -255,8 +255,8 @@ def bench_accuracy(
     `-- --gsm8k --mmlu --ifeval --skip-tool-eval --gsm8k-limit 200`.
     Results: benchmarks/raw/accuracy/<run>/accuracy.json (committed; the
     tool's SQLite, reports and the server log stay next to it, untracked);
-    docs/kernel/accuracy.md is rendered from the newest result per config and
-    suite."""
+    docs/platforms/<platform>/kernel/accuracy.md is rendered from the newest
+    result per config and suite."""
     from mjolnir_cli import accuracy
 
     s = _settings(model, None, image, port)

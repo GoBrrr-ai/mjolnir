@@ -25,8 +25,8 @@
   <a href="#quickstart">Quickstart</a> •
   <a href="#benchmarks">Benchmarks</a> •
   <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
-  <a href="#how-the-kernel-works">How it works</a> •
-  <a href="docs/kernel/README.md">Case study</a> •
+  <a href="#platforms">Platforms</a> •
+  <a href="docs/platforms/thor/kernel/README.md">Case study</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -42,13 +42,30 @@ mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.32.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
 
+## Platforms
+
+Mjolnir is detection-first: the CLI resolves the host platform (never a silent
+guess), every platform gets [its own page](docs/platforms/README.md) and — once
+kernel results exist for its headline model — its own kernel case study.
+
+| platform | status | kernel | host requirements |
+|---|---|---|---|
+| [Jetson AGX Thor](docs/platforms/thor/README.md) | supported | [case study](docs/platforms/thor/kernel/README.md) | JetPack 7.x |
+| [DGX Spark](docs/platforms/spark/README.md) | research | — | DGX OS + CUDA 13 |
+| [Jetson Orin](docs/platforms/orin/README.md) | research | — | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
+
+
+Measured (platform, model) pairs — each model's page carries its configs,
+per-platform quickstart and A/B rows:
+
+- [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) — Jetson AGX Thor
+- [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) — Jetson AGX Thor
+
+
 ## ⚡ Key Features
 
 <p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/opening-infographic.png">
-  <img src="assets/opening-infographic.png" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
-</picture>
+<img src="assets/opening-infographic.png" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
 </p>
 
 <details>
@@ -184,6 +201,14 @@ More: [adding a model config](docs/faq/new-model-config.md) · [the default mode
 
 ## Benchmarks
 
+Measured (platform, model) pairs — each model's page carries its configs,
+per-platform quickstart and A/B rows; each config a README and a BENCHMARKS
+with per-platform cells:
+
+- [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) — Jetson AGX Thor
+- [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) — Jetson AGX Thor
+
+
 ### Mjolnir Kernel
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
@@ -196,10 +221,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 | **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.32.0 FlasInfer for `sm_110` | fp8 e4m3, NHD pages |
 | **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.32.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-latency-dark.png">
-  <img src="assets/benchmarks/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
-</picture>
+<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png" alt="Decode latency per step vs context length" width="100%">
 
 | L | FlashInfer | FA2 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA2 | e2m3 vs FA2 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
@@ -225,24 +247,15 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 </details><br />
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/kernel-bandwidth-dark.png">
-  <img src="assets/benchmarks/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
-</picture>
+<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth-dark.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
 
 ### E2E: Official vLLM image vs Mjolnir
 
 Native vLLM 0.32.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 5 speculative tokens** — measured back to back by `mjolnir bench e2e`.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-decode-dark.png">
-  <img src="assets/benchmarks/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
-</picture>
+<img src="assets/benchmarks/thor/Qwen3.8-27B/e2e-decode-dark.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/benchmarks/e2e-prefill-dark.png">
-  <img src="assets/benchmarks/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
-</picture>
+<img src="assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill-dark.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
 
 Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
 
@@ -286,27 +299,27 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 | ⚙️ | **Warp-specialized `tcgen05` pipeline** — a TMA warp streams K/V pages through an SMEM ring, an MMA warp runs `S = QKᵀ` and `O += PV` on the tensor cores into TMEM, softmax warpgroups read S from TMEM and write P | the tensor cores and TMEM keep scores off the register file; the TMA engine walks the page table so the SMs never issue loads |
 | 📐 | **Occupancy-pinned split-KV** — every step fills exactly 2 CTAs × 20 SMs; long sequences split into chunks, a small reduction kernel merges them | one full wave at every L; a fixed padded grid replays under full CUDA graphs |
 | 🧊 | **fp8 everything** — Q quantized per (sequence, KV head) on the fly, fp8 KV, P stored as e4m3 | one MMA kind, no conversion warps, half the KV bytes of bf16 |
-| 🗂️ | **Head-major (HND) pages** — each KV head's page is one contiguous block | longer DRAM bursts per TMA box: [hndsweep](docs/kernel/hndsweep.md) |
-| 🪶 | **6-bit KV (e2m3) read directly by the MMA** (`kind::f8f6f4`, TMA unpacks to byte containers) | 25% fewer bytes at near-fp8 accuracy: [kvfmt](docs/kernel/kvfmt.md), [quant](docs/kernel/quant.md), [capacity](docs/kernel/kv-cache-size.md) |
-| 🚿 | **L2 evict-first on K/V loads**, a 2-stage ring for fp6 | KV is streamed once; keep L2 for the rest of the model: [ring](docs/kernel/ring.md), [ab](docs/kernel/ab.md) |
+| 🗂️ | **Head-major (HND) pages** — each KV head's page is one contiguous block | longer DRAM bursts per TMA box: [hndsweep](docs/platforms/thor/kernel/hndsweep.md) |
+| 🪶 | **6-bit KV (e2m3) read directly by the MMA** (`kind::f8f6f4`, TMA unpacks to byte containers) | 25% fewer bytes at near-fp8 accuracy: [kvfmt](docs/platforms/thor/kernel/kvfmt.md), [quant](docs/platforms/thor/kernel/quant.md), [capacity](docs/platforms/thor/kernel/kv-cache-size.md) |
+| 🚿 | **L2 evict-first on K/V loads**, a 2-stage ring for fp6 | KV is streamed once; keep L2 for the rest of the model: [ring](docs/platforms/thor/kernel/ring.md), [ab](docs/platforms/thor/kernel/ab.md) |
 
-The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the **[kernel case study](docs/kernel/README.md)**:
+The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the **[kernel case study](docs/platforms/thor/kernel/README.md)** (thor; every platform with raws has its own under `docs/platforms/<p>/kernel/`):
 
 | chapter | question it answers |
 |---|---|
-| [Correctness matrix](docs/kernel/correctness.md)  | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype |
-| [Headline L-sweep](docs/kernel/sweep.md)  | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L |
-| [Head-major pages](docs/kernel/hndsweep.md)  | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? |
-| [KV layouts and formats](docs/kernel/kvfmt.md)  | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
-| [KV format accuracy](docs/kernel/quant.md)  | relative L2 error of each KV format vs unquantized KV, at every L |
-| [KV cache capacity](docs/kernel/kv-cache-size.md)  | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context |
-| [Speculative decoding](docs/kernel/spec.md)  | MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count |
-| [Full profiles per KV format](docs/kernel/fp6prof.md)  | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format |
-| [KV ring depth](docs/kernel/ring.md)  | TMA→MMA ring depth (--kv_stages) sweep at every L |
-| [L2 prefetch](docs/kernel/prefetch.md)  | TMA L2 prefetch distance (--l2_prefetch) sweep |
-| [Programmatic dependent launch](docs/kernel/pdl.md)  | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) |
-| [Flag A/B](docs/kernel/ab.md)  | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
-| [Accuracy](docs/kernel/accuracy.md)  | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
+| [Correctness matrix](docs/platforms/thor/kernel/correctness.md)  | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype |
+| [Headline L-sweep](docs/platforms/thor/kernel/sweep.md)  | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L |
+| [Head-major pages](docs/platforms/thor/kernel/hndsweep.md)  | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? |
+| [KV layouts and formats](docs/platforms/thor/kernel/kvfmt.md)  | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
+| [KV format accuracy](docs/platforms/thor/kernel/quant.md)  | relative L2 error of each KV format vs unquantized KV, at every L |
+| [KV cache capacity](docs/platforms/thor/kernel/kv-cache-size.md)  | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context |
+| [Speculative decoding](docs/platforms/thor/kernel/spec.md)  | MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count |
+| [Full profiles per KV format](docs/platforms/thor/kernel/fp6prof.md)  | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format |
+| [KV ring depth](docs/platforms/thor/kernel/ring.md)  | TMA→MMA ring depth (--kv_stages) sweep at every L |
+| [L2 prefetch](docs/platforms/thor/kernel/prefetch.md)  | TMA L2 prefetch distance (--l2_prefetch) sweep |
+| [Programmatic dependent launch](docs/platforms/thor/kernel/pdl.md)  | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) |
+| [Flag A/B](docs/platforms/thor/kernel/ab.md)  | any harness flag sets, ncu + wall clock (default: evict-first x PDL) |
+| [Accuracy](docs/platforms/thor/kernel/accuracy.md)  | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand |
 
 ## What's in the Mjolnir image
 
@@ -360,8 +373,8 @@ Every command, sub-command and option, with defaults: **[the CLI reference](docs
 ├── docker/vllm-thor/           the image: Dockerfile, patches/, apply/verify gates, PATCHES.md
 ├── configs/                    model configs (NVFP4_MJOLNIR_E2M3_LMH8_VT64K default, NVFP4 = FlashInfer, NVFP4_FA2)
 ├── benchmarks/raw/verify/      raw verify results (one JSON per stage run) — the charts' only input
-├── assets/benchmarks/          generated charts (light + dark)
-├── docs/kernel/                the kernel case study (rendered from *.md.j2 + raw data)
+├── assets/benchmarks/          generated charts (`*-dark.png`)
+├── docs/platforms/             per-platform pages + the kernel case studies (rendered)
 ├── research/                   the autoresearch program + ledger
 └── .opencode/                  OpenCode agents (autoresearch, researchers, engineer, debugger)
 ```

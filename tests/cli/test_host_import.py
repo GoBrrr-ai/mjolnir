@@ -33,3 +33,15 @@ def test_availability_import_is_gpu_free():
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_readme_targets_import_is_gpu_free():
+    """The render-target discovery (cycle 3b) is a host-side data leaf —
+    registry, config scan, history and raws — never the GPU stack."""
+    code = (
+        "import sys, mjolnir_cli.readme_targets;"
+        f"bad = [m for m in sys.modules if m.split('.')[0] in {GPU_STACK!r}];"
+        "print(bad); sys.exit(1 if bad else 0)"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

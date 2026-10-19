@@ -4,12 +4,14 @@ e2e/hero/infographic in charts_e2e, serving charts in charts_serving."""
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 from collections.abc import Callable
 
 from mjolnir_cli import charts_base, charts_e2e, charts_serving
 from mjolnir_cli import theme
-from mjolnir_cli.config import RepoLayout
+from mjolnir_cli.config import RepoLayout, model_short
+from mjolnir_cli.e2e import latest_pair as e2e_latest_pair
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.charts_e2e import E2E_CHARTS
 from mjolnir_cli.charts_serving import ACCURACY_CHARTS
@@ -489,51 +491,84 @@ render_hero = charts_e2e.render_hero
 render_infographic = charts_e2e.render_infographic
 
 
-def render_all(layout: RepoLayout, data: dict | None = None) -> dict[str, dict]:
-    """Render every chart that has data, in both modes; write the manifest.
-    Returns ``{chart: {"stage": ..., "light": path, "dark": path}}``."""
+def render_all(layout: RepoLayout) -> dict[str, dict]:
+    """Render every chart that has data, dark-only; write the manifest.
+
+    Manifest v2 (spec #8): a chart belongs to a (platform, model) pair — the
+    verify-stage charts render once per measured pair into
+    ``assets/benchmarks/<platform>/<model-short>/`` and their entries carry
+    the ``platform``/``model`` identity; the e2e charts render per pair from
+    that pair's history. The default pair renders last and owns the flat
+    chart id (the root README and the thor case study quote it); a second
+    pair's PNGs are written for the site but its entry yields the flat id.
+    The accuracy charts span every measured model at once, so they stay flat
+    with a null identity; ``hero``/``opening-infographic`` are root-page
+    one-offs. Dark-only (user decision): GitHub renders the ``-dark.png``
+    images (``chart()`` emits a plain ``<img>``), the Pages site is
+    interactive Plotly — so only ``theme.DARK`` is rendered and entries carry
+    a single ``dark`` path. Readers (``readme._env``'s ``chart()``) resolve an
+    identity entry only for the matching pair and keep resolving legacy flat
+    paths. Returns ``{chart: {"stage", "platform", "model", "dark"}}``."""
     plt = _plt()
-    data = data if data is not None else load_verify(layout)
+    from mjolnir_cli import readme_targets
+
     out_dir = layout.charts_dir
     manifest: dict[str, dict] = {}
-    jobs: list[tuple[str, str, Callable]] = [
-        (n, st, (lambda f: lambda m: f(data, m))(fn)) for n, (st, fn) in KERNEL_CHARTS.items()
-    ]
-    jobs += [(n, "e2e", (lambda f: lambda m: f(layout, m))(fn)) for n, fn in E2E_CHARTS.items()]
-    jobs += [(n, "accuracy", (lambda f: lambda m: f(layout, m))(fn)) for n, fn in ACCURACY_CHARTS.items()]
-    for name, stage, build in jobs:
-        entry = {"stage": stage}
-        for mode in theme.MODES:
-            fig = build(mode)
-            if fig is None:
-                break
-            p = _save(fig, out_dir / f"{name}{mode.suffix}.png")
-            plt.close(fig)
-            entry[mode.name] = str(p.relative_to(layout.repo_root) if layout.repo_root else p)
-        if "light" in entry:
-            manifest[name] = entry
+
+    def save(entry: dict, build: Callable, out: Path) -> bool:
+        fig = build(theme.DARK)
+        if fig is None:
+            return False
+        p = _save(fig, out / f"{entry['name']}{theme.DARK.suffix}.png")
+        plt.close(fig)
+        entry["dark"] = str(p.relative_to(layout.repo_root) if layout.repo_root else p)
+        return True
+
+    for platform, model in readme_targets.measured_pairs(layout):
+        docs = readme_targets.pair_docs(layout, platform, model)
+        if not docs:
+            continue
+        pair_dir = out_dir / platform / model_short({"model": model})
+        for name, (stage, build) in KERNEL_CHARTS.items():
+            if stage not in docs:
+                continue
+            entry: dict = {"name": name, "stage": stage, "platform": platform, "model": model}
+            if save(entry, partial(build, docs), pair_dir):
+                manifest[name] = {k: v for k, v in entry.items() if k != "name"}
+        off, mj = e2e_latest_pair(layout.history_file, model=model, platform=platform)
+        if off and mj:
+            for name, build in E2E_CHARTS.items():
+                entry = {"name": name, "stage": "e2e", "platform": platform, "model": model}
+                if save(entry, partial(build, layout, platform=platform, model=model), pair_dir):
+                    manifest[name] = {k: v for k, v in entry.items() if k != "name"}
+    for name, build in ACCURACY_CHARTS.items():
+        entry = {"name": name, "stage": "accuracy", "platform": None, "model": None}
+        if save(entry, partial(build, layout), out_dir):
+            manifest[name] = {k: v for k, v in entry.items() if k != "name"}
     info = render_infographic(layout)
     hero = render_hero(layout)
     # stale renders (data no longer qualifies) must not linger next to the manifest
-    keep = {Path(v).name for e in manifest.values() for k, v in e.items() if k in ("light", "dark")}
-    for png in out_dir.glob("*.png"):
-        if png.name not in keep:
+    keep = {
+        (layout.repo_root / e["dark"]).resolve() if layout.repo_root else Path(e["dark"])
+        for e in manifest.values()
+        if e.get("dark")
+    }
+    for png in out_dir.rglob("*.png"):
+        if png.resolve() not in keep:
             png.unlink()
     if info is None and layout.repo_root is not None:
         (layout.repo_root / "assets" / INFOGRAPHIC).unlink(missing_ok=True)
     if hero is not None:
         manifest["hero"] = {
             "stage": "readme",
-            "light": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
             "dark": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
         }
     if info is not None:
         manifest["opening-infographic"] = {
             "stage": "e2e",
-            "light": str(info.relative_to(layout.repo_root) if layout.repo_root else info),
             "dark": str(info.relative_to(layout.repo_root) if layout.repo_root else info),
         }
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
-    print(f"[mjolnir] {len(manifest)} charts (light + dark) -> {out_dir}")
+    print(f"[mjolnir] {len(manifest)} charts (dark) -> {out_dir}")
     return manifest

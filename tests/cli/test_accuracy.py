@@ -13,6 +13,8 @@ from typing import Any
 import pytest
 
 from mjolnir_cli import accuracy, charts, dockerctl, readme
+
+import verify_fixtures
 from mjolnir_cli.config import load_layout
 
 REPO = Path(__file__).resolve().parents[2]
@@ -212,11 +214,12 @@ def repo(tmp_path, monkeypatch):
     (root / "docker" / "vllm-thor").mkdir(parents=True)
     shutil.copy(REPO / "docker" / "vllm-thor" / "Dockerfile", root / "docker" / "vllm-thor" / "Dockerfile")
     shutil.copy(REPO / "README.md.j2", root / "README.md.j2")
-    shutil.copytree(REPO / "docs" / "kernel", root / "docs" / "kernel", ignore=shutil.ignore_patterns("*.md"))
+    shutil.copytree(REPO / "docs" / "templates", root / "docs" / "templates", ignore=shutil.ignore_patterns("*.md"))
     for pkg in ("mjolnir/mjolnir", "mjolnir-cli/mjolnir_cli"):
         (root / "src" / pkg).mkdir(parents=True)
         shutil.copy(REPO / "src" / pkg / "__init__.py", root / "src" / pkg / "__init__.py")
     (root / "benchmarks").mkdir()
+    verify_fixtures.write_all(root / "benchmarks" / "raw" / "verify")
     (root / "benchmarks" / "history.jsonl").write_text("")
     monkeypatch.setenv("MJOLNIR_REPO", str(root))
     for v in ("MJOLNIR_BENCHMARKS", "MJOLNIR_HISTORY"):
@@ -232,13 +235,13 @@ def test_accuracy_page_and_charts_render(repo):
     for name in ("accuracy-suites", "accuracy-categories"):
         assert name in manifest and (repo / manifest[name]["dark"]).exists()
     readme.render_readme(layout)
-    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    page = (repo / "docs" / "platforms" / "thor" / "kernel" / "accuracy.md").read_text()
     assert "{{" not in page and "{%" not in page
     assert "| **official vLLM · FlashInfer · bf16 KV** |" in page
     assert "86.5 (-1.5)" in page and "62.0 (+2.0)" in page and "90.0" in page
     assert "1 scenarios scored lower, 0 higher of 2" in page
     assert "accuracy-suites-dark.png" in page and "20261013-100000/accuracy.json" in page
-    assert "[Accuracy](docs/kernel/accuracy.md)" in (repo / "README.md").read_text()
+    assert "[Accuracy](docs/platforms/thor/kernel/accuracy.md)" in (repo / "README.md").read_text()
 
 
 def test_two_model_page_compares_within_each_model(repo):
@@ -248,7 +251,7 @@ def test_two_model_page_compares_within_each_model(repo):
     manifest = charts.render_all(layout)
     assert "accuracy-suites" in manifest and "accuracy-categories" in manifest
     readme.render_readme(layout)
-    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    page = (repo / "docs" / "platforms" / "thor" / "kernel" / "accuracy.md").read_text()
     assert "| **Qwen3.8-27B · official vLLM · FlashInfer · bf16 KV** |" in page
     assert "| **Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · " in page
     assert "86.5 (-1.5)" in page  # Qwen3.8 Mjolnir vs Qwen3.8 FlashInfer
@@ -332,7 +335,7 @@ def test_page_marks_an_excluded_scenario(repo):
     p.parent.mkdir(parents=True)
     p.write_text(json.dumps({"format": accuracy.FORMAT, "run_id": "20261017-131320", "args": [], "legs": [off, mj]}))
     readme.render_readme(layout)
-    page = (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    page = (repo / "docs" / "platforms" / "thor" / "kernel" / "accuracy.md").read_text()
     assert "90.4 (-1.4‡)" in page and "80.4 (+3.6)" in page
     assert "Tool calls -1.4‡" in page
     assert "excluded points counting as zero" in page
@@ -343,7 +346,10 @@ def test_page_marks_an_excluded_scenario(repo):
 def test_accuracy_page_pending_without_runs(repo):
     layout = load_layout()
     readme.render_readme(layout)
-    assert "Pending — run `mjolnir bench accuracy`" in (repo / "docs" / "kernel" / "accuracy.md").read_text()
+    assert (
+        "Pending — run `mjolnir bench accuracy`"
+        in (repo / "docs" / "platforms" / "thor" / "kernel" / "accuracy.md").read_text()
+    )
 
 
 def test_infographic_multiple():

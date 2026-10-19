@@ -1,0 +1,16 @@
+# Platforms
+
+Mjolnir targets edge GPUs; the platform layer (detection-first, no remembered
+state) resolves which one a host is. Every platform has a page here: its
+status, what serves on it, its host requirements — and, once kernel results
+exist for its headline model, its own kernel case study under `kernel/`.
+
+| platform | status | compute | host requirements |
+|---|---|---|---|
+{% for p in ctx.platforms -%}
+| [{{ p.name }}]({{ p.key }}/README.md) | {{ p.status }} | `{{ p.sm_family }}` | {{ p.host_requirements }} |
+{% endfor %}
+
+Per model and per serving config: the [config tree](../../configs/) — each
+model dir has a generated `README.md`, each serving config a `README.md` and
+a `BENCHMARKS.md`, all rendered from raw data by `mjolnir plot --readme`.

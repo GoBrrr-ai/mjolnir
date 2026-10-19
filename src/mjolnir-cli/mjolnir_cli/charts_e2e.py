@@ -6,7 +6,7 @@ from pathlib import Path
 from collections.abc import Callable
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of, model_short
+from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, model_of, model_short
 from mjolnir_cli.history import load_records
 from mjolnir_cli.theme import Mode
 
@@ -67,7 +67,16 @@ def _e2e_series(rec: dict) -> tuple[str, str]:
     return ("NVFP4_MJOLNIR_E2M3" if "MJOLNIR" in cfg else "NVFP4"), label
 
 
-def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: str, sub: str):
+def _e2e_chart(
+    layout: RepoLayout,
+    mode: Mode,
+    metric: str,
+    ylabel: str,
+    ttl: str,
+    sub: str,
+    platform: str = DEFAULT_PLATFORM,
+    model: str = DEFAULT_MODEL,
+):
     """The README table as bars: the same pair (official vLLM vs the Mjolnir
     config, :func:`mjolnir_cli.e2e.latest_pair` — each side's runs merged cell
     by cell), every (requests, context) cell either side measured, one panel
@@ -75,7 +84,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     of being dropped."""
     from mjolnir_cli import e2e
 
-    off, mj = e2e.latest_pair(layout.history_file)
+    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
     if not off or not mj:
         return None
     cells = e2e.all_cells(off, mj)
@@ -152,7 +161,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     return fig
 
 
-def chart_e2e_decode(layout: RepoLayout, mode: Mode):
+def chart_e2e_decode(layout: RepoLayout, mode: Mode, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL):
     return _e2e_chart(
         layout,
         mode,
@@ -160,10 +169,12 @@ def chart_e2e_decode(layout: RepoLayout, mode: Mode):
         "decode tokens/s (higher is better)",
         "End-to-end decode throughput",
         "official image (native FlashInfer) vs the Mjolnir image · the README table's cells",
+        platform,
+        model,
     )
 
 
-def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
+def chart_e2e_prefill(layout: RepoLayout, mode: Mode, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL):
     return _e2e_chart(
         layout,
         mode,
@@ -171,6 +182,8 @@ def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
         "prompt tokens/s (higher is better)",
         "End-to-end prompt processing",
         "official image (native FlashInfer) vs the Mjolnir image · the README table's cells",
+        platform,
+        model,
     )
 
 

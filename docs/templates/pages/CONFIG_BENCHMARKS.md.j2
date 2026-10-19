@@ -1,0 +1,75 @@
+# {{ ctx.quant }} — benchmarks
+
+`{{ ctx.model }}` — every number on this page is computed from the committed
+raw data ([`benchmarks/history.jsonl`]({{ root }}benchmarks/history.jsonl) and
+[`benchmarks/raw/`]({{ root }}benchmarks/raw/)); regenerate with
+`mjolnir plot --readme`. One section per platform the overlays put this
+config on; the kernel stages are the platform's headline-model runs
+({{ ctx.sections[0].headline if ctx.sections else "the headline model" }}).
+
+{% for s in ctx.sections %}
+## {{ s.name }}
+
+{% if not s.has_data %}
+**no data yet** — no end-to-end, speculative-decoding, KV-capacity or
+accuracy run for `{{ ctx.model }}` / `{{ ctx.quant }}` on {{ s.name }} so far.
+{% else %}
+{% if s.e2e and s.e2e.rows %}
+### End to end ({{ s.e2e.official }} vs {{ s.e2e.mjolnir }}, 1 request{% if s.e2e.ctx %} · {{ s.e2e.ctx }} context{% endif %})
+
+| metric | official `{{ s.e2e.official }}` | Mjolnir `{{ s.e2e.mjolnir }}` | change |
+|---|--:|--:|--:|
+{% for r in s.e2e.rows -%}
+| {{ r.metric }} ({{ r.unit }}) | {{ r.official }} | {{ r.mjolnir }} | {{ r.change }} |
+{% endfor %}
+
+{{ how("e2e") }}
+{% endif %}
+{% if s.spec %}
+### Speculative decoding
+
+{{ s.spec }}
+
+{{ how("spec") }}
+{% endif %}
+{% if s.kv %}
+### KV capacity
+
+{{ s.kv }}
+
+{{ how("kvcache") }}
+{% endif %}
+{% if s.accuracy %}
+### Model quality (per suite)
+
+| suite | score |
+|---|--:|
+{% for label, score in s.accuracy -%}
+| {{ label }} | {{ score }} |
+{% endfor %}
+
+{{ how("accuracy") }}
+{% endif %}
+{% endif %}
+
+{% if s.stages %}
+### Kernel stages ({{ s.headline }} — the platform's case-study scope)
+
+{% for name, st in s.stages.items() %}
+**{{ st.title }}**
+
+{% for f in st.findings -%}
+- {{ f }}
+{% endfor %}
+{% if st.how %}{{ how(st.how) }}
+
+{% endif %}
+{% for cid in st.charts %}{{ chart(cid, st.title, pair=s.chart_pair) }}
+{% endfor %}
+{% endfor %}
+
+<sub>Raw provenance: {% for name, st in s.stages.items() if st.run %}[`benchmarks/raw/verify/{{ name }}/{{ st.run }}.json`]({{ root }}benchmarks/raw/verify/{{ name }}/{{ st.run }}.json){{ " · " if not loop.last }}{% endfor %}</sub>
+{% endif %}
+
+{% endfor %}
+[The model's README](../README.md) · [the platform pages]({{ root }}docs/platforms/README.md) · [the interactive charts](https://thor-arena.github.io/mjolnir/#config={{ ctx.quant }})
