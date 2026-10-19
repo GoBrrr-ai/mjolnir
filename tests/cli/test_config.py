@@ -1,5 +1,11 @@
 """Settings resolution: the baked-in defaults, the env layer, and CLI-flag
-precedence (flag > env > default) — the contract the whole CLI relies on."""
+precedence (flag > env > default) — the contract the whole CLI relies on.
+
+Cycle 2 makes the platform detection-first: ``Settings.platform`` is
+``None`` until ``resolve()`` fills it (flag ``--platform`` > env
+``MJOLNIR_PLATFORM`` > host detection); there is no remembered state and
+no silent thor fallback — an unknown host raises with the probe text.
+"""
 
 from __future__ import annotations
 
@@ -18,10 +24,12 @@ from mjolnir_cli.config import (
     scan_all_configs,
     scan_configs,
 )
+from platform_fixtures import install
 
 
 @pytest.fixture(autouse=True)
 def _clean_mjolnir_env(monkeypatch):
+    # MJOLNIR_PLATFORM stays at the suite's thor pin; platform tests opt out
     for var in (
         "MJOLNIR_MODEL",
         "MJOLNIR_QUANT",
@@ -196,3 +204,83 @@ def test_backend_label_explicit_wins():
     assert Settings(label="Custom").backend_label == "Custom"
     assert Settings(quant="NVFP4").backend_label == BACKEND_LABELS["NVFP4"]
     assert Settings(quant="SomeQuant").backend_label == "SomeQuant"  # unknown -> the quant string
+
+
+# ── the platform layer, detection-first (cycle 2) ───────────────────────────
+
+
+def test_settings_platform_is_unresolved_until_resolve():
+    # the raw dataclass carries no platform: resolution (flag > env > detect)
+    # is resolve()'s job, so a hand-built Settings cannot smuggle a state one
+    assert Settings().platform is None
+
+
+def test_resolve_detects_when_no_flag_or_env_is_set(monkeypatch):
+    install(monkeypatch, smi="NVIDIA GB10, 12.1")  # detection: spark; no env
+    assert config.resolve(None, None, None, None).platform == "spark"
+
+
+def test_resolve_env_beats_detection(monkeypatch):
+    install(monkeypatch, smi="NVIDIA Thor, 11.0")  # detection would say thor
+    monkeypatch.setenv("MJOLNIR_PLATFORM", "orin")
+    assert config.resolve(None, None, None, None).platform == "orin"
+
+
+def test_resolve_cli_platform_beats_env(monkeypatch):
+    monkeypatch.setenv("MJOLNIR_PLATFORM", "orin")
+    s = config.resolve(None, None, None, None, cli_platform="spark")
+    assert s.platform == "spark"
+
+
+def test_resolve_rejects_an_unknown_platform_naming_the_shipped_keys(monkeypatch):
+    with pytest.raises(ValueError) as ei:
+        config.resolve(None, None, None, None, cli_platform="bogus")
+    assert all(k in str(ei.value) for k in ("thor", "spark", "orin"))
+    monkeypatch.setenv("MJOLNIR_PLATFORM", "bogus")  # the env layer is validated at resolve time too
+    with pytest.raises(ValueError) as ei:
+        config.resolve(None, None, None, None)
+    assert all(k in str(ei.value) for k in ("thor", "spark", "orin"))
+
+
+def test_resolve_on_an_unknown_host_raises_with_the_probe_text(monkeypatch):
+    # no flag, no env, no probes: the explicit error, never a silent thor guess
+    import mjolnir_cli.platforms as platforms
+
+    install(monkeypatch, smi=None, jetson=None, dmi=None)
+    with pytest.raises(platforms.UnknownPlatform) as ei:
+        config.resolve(None, None, None, None)
+    assert "nvidia-smi" in str(ei.value) and "MJOLNIR_PLATFORM" in str(ei.value)
+
+
+def test_image_default_follows_the_detected_platform(monkeypatch):
+    import mjolnir_cli.platforms as platforms
+
+    install(monkeypatch, smi="NVIDIA GB10, 12.1")  # detected: spark
+    assert config.resolve(None, None, None, None).image == platforms.REGISTRY["spark"].default_image
+    assert config.resolve(None, None, None, None).image != DEFAULT_IMAGE  # thor's default never leaks
+    assert config.resolve(None, None, "explicit:img", None).image == "explicit:img"  # the flag wins
+    monkeypatch.setenv("MJOLNIR_IMAGE", "env:img")
+    assert config.resolve(None, None, None, None).image == "env:img"  # env beats the platform default
+
+
+def test_thor_detection_stays_byte_identical(monkeypatch):
+    install(monkeypatch, smi="NVIDIA Thor, 11.0", jetson="nvidia,p4071-0000 nvidia,tegra264")
+    s = config.resolve(None, None, None, None)
+    assert s.platform == "thor"
+    assert s.image == DEFAULT_IMAGE
+
+
+def test_image_constants_are_unchanged_for_existing_consumers():
+    # contract for every consumer grep'd in task/explore/codebase.md §2: the
+    # constants may move (derived from the thor record) but never change value
+    assert config.IMAGE_REPO == "narandill/mjolnir-vllm"
+    assert config.VLLM_VERSION == "0.32.0"
+    assert config.DEFAULT_IMAGE == "narandill/mjolnir-vllm:v0.32.0"
+    assert config.STOCK_IMAGE == "vllm/vllm-openai:v0.32.0-ubuntu2404"
+
+
+def test_config_reexports_the_platform_record_helpers():
+    import mjolnir_cli.platforms as platforms
+
+    assert config.platform_of is platforms.platform_of
+    assert config.series_key is platforms.series_key

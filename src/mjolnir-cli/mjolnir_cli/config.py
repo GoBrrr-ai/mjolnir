@@ -20,6 +20,16 @@ from pathlib import Path
 
 import yaml
 
+# platform_of / series_key: re-exported beside model_of so existing imports
+# stay one stop apart (tests pin the identity: config.platform_of is platforms.platform_of)
+from mjolnir_cli.platforms import (
+    DEFAULT_PLATFORM,
+    REGISTRY,
+    resolve_platform,
+    platform_of as platform_of,
+    series_key as series_key,
+)
+
 # ── Model / config ───────────────────────────────────────────────────────────
 DEFAULT_MODEL = "Qwen/Qwen3.8-27B"
 
@@ -59,10 +69,16 @@ SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
 # ── Image / serving ──────────────────────────────────────────────────────────
 # The image tag follows the upstream vLLM version it overlays (see
 # .github/workflows/docker-image.yml): narandill/mjolnir-vllm:v<vllm>.
-IMAGE_REPO = "narandill/mjolnir-vllm"
+# The default platform's record (mjolnir_cli.platforms) is the source of truth
+# for these constants; they are re-exported here for every existing consumer.
+# The literal VLLM_VERSION line below is grepped by docker-image.yml (`sed
+# 's/^VLLM_VERSION = "..."'`) to sync with the Dockerfile's BASE_IMAGE — keep
+# it equal to the record's vllm_version (tests pin both sides).
 VLLM_VERSION = "0.32.0"
-DEFAULT_IMAGE = f"{IMAGE_REPO}:v{VLLM_VERSION}"
-STOCK_IMAGE = f"vllm/vllm-openai:v{VLLM_VERSION}-ubuntu2404"
+_thor = REGISTRY[DEFAULT_PLATFORM]
+IMAGE_REPO = _thor.image_repo
+DEFAULT_IMAGE = _thor.default_image
+STOCK_IMAGE = _thor.stock_image
 DEFAULT_PORT = 6001  # host port; vLLM metrics live on the same port
 CONTAINER_NAME = "mjolnir-vllm"
 
@@ -334,6 +350,7 @@ class Settings:
 
     model: str = field(default_factory=lambda: _env("MJOLNIR_MODEL", DEFAULT_MODEL))
     quant: str = field(default_factory=lambda: _env("MJOLNIR_QUANT", DEFAULT_QUANT))
+    platform: str | None = None  # unresolved until resolve() (flag > env > host detection)
     image: str = field(default_factory=lambda: _env("MJOLNIR_IMAGE", DEFAULT_IMAGE))
     port: int = field(default_factory=lambda: _env_int("MJOLNIR_PORT", DEFAULT_PORT))
     data_dir: Path = field(default_factory=lambda: Path("~/.local/share/mjolnir").expanduser())
@@ -383,15 +400,29 @@ class Settings:
         return self.label or BACKEND_LABELS.get(self.quant, self.quant)
 
 
-def resolve(cli_model: str | None, cli_quant: str | None, cli_image: str | None, cli_port: int | None) -> Settings:
-    """CLI flags > env vars > defaults."""
-    s = Settings()
+def resolve(
+    cli_model: str | None,
+    cli_quant: str | None,
+    cli_image: str | None,
+    cli_port: int | None,
+    cli_platform: str | None = None,
+) -> Settings:
+    """CLI flags > env vars > host detection (there is no remembered
+    platform state). An unknown flag or env value raises ``ValueError``
+    naming the shipped keys; an unidentifiable host raises
+    ``UnknownPlatform`` naming the probes. The image default follows the
+    platform: on a non-default platform with no explicit image, its record's
+    default image is used instead of the default platform's."""
+    platform = resolve_platform(cli_platform)
+    s = Settings(platform=platform)
     if cli_model:
         s.model = cli_model
     if cli_quant:
         s.quant = cli_quant
     if cli_image:
         s.image = cli_image
+    elif platform != DEFAULT_PLATFORM and s.image == DEFAULT_IMAGE:
+        s.image = REGISTRY[platform].default_image  # no $MJOLNIR_IMAGE: the platform's own default
     if cli_port:
         s.port = cli_port
     return s

@@ -69,7 +69,10 @@ def test_parse_variants_and_unknown_legs():
 
 
 def _doc(stage, run_id, default, series=None, **kw):
-    d = results.header(stage, run_id, image="img", default=default, params={}, kernel={}, gate={})
+    # platform/gpu are header kwargs (optional; absent keys when omitted) —
+    # popped so the legacy fixtures exercise the legacy path unchanged
+    header_kw = {k: kw.pop(k) for k in ("platform", "gpu") if k in kw}
+    d = results.header(stage, run_id, image="img", default=default, params={}, kernel={}, gate={}, **header_kw)
     d["series"] = series or []
     d.update(kw)
     return d
@@ -174,3 +177,51 @@ def test_sweep_rejects_fa2_for_batched_shapes(tmp_path):
     ctx = cast(stages.Ctx, SimpleNamespace(runner=SimpleNamespace(batch=1, q_len=1)))
     with pytest.raises(ValueError, match="fa2"):
         stages.stage_sweep(ctx, legs="fi,fa2", batch=4, q_len=4)
+
+
+# ── the platform fields + filtered latest() (plan §2 scenarios 26-28) ───────
+
+
+def test_header_writes_platform_and_gpu_when_given():
+    d = results.header(
+        "sweep", "r", image="img", default=True, params={}, kernel={}, gate={}, platform="spark", gpu="Fake GPU"
+    )
+    assert d["platform"] == "spark" and d["gpu"] == "Fake GPU"
+    assert d["schema"] == results.SCHEMA == "mjolnir.verify/1"  # the schema stays /1
+    d = results.header("sweep", "r", image="img", default=True, params={}, kernel={}, gate={})
+    assert "platform" not in d and "gpu" not in d  # omitted -> absent keys (legacy documents)
+
+
+def test_latest_filters_by_platform_and_resolves_legacy_docs_as_thor(tmp_path):
+    results.save(tmp_path, _doc("sweep", "20261010-100000", True, platform="thor"))
+    results.save(tmp_path, _doc("sweep", "20261010-110000", True, platform="spark"))
+    thor = results.latest(tmp_path, "sweep", platform="thor")
+    spark = results.latest(tmp_path, "sweep", platform="spark")
+    assert thor and spark  # latest() is dict | None: narrow before indexing (ty)
+    assert thor["run_id"] == "20261010-100000" and spark["run_id"] == "20261010-110000"
+    results.save(tmp_path, _doc("sweep", "20261010-120000", True))  # legacy: no platform field
+    legacy = results.latest(tmp_path, "sweep", platform="thor")
+    assert legacy and legacy["run_id"] == "20261010-120000"
+
+
+def test_latest_filters_by_model_and_skips_model_less_docs(tmp_path):
+    results.save(tmp_path, _doc("spec", "20261010-100000", True, model="nvidia/Qwen3.6-35B-A3B"))
+    results.save(tmp_path, _doc("spec", "20261010-110000", True, model="Qwen/Qwen3.8-27B"))
+    results.save(tmp_path, _doc("spec", "20261010-120000", True))  # no model: matches no model
+    q36 = results.latest(tmp_path, "spec", model="nvidia/Qwen3.6-35B-A3B")
+    q38 = results.latest(tmp_path, "spec", model="Qwen/Qwen3.8-27B")
+    assert q36 and q38
+    assert q36["run_id"] == "20261010-100000" and q38["run_id"] == "20261010-110000"
+
+
+def test_default_preference_holds_per_platform_pair(tmp_path):
+    # a newer spark DEFAULT run never shadows the thor default run, and the
+    # thor default wins over a newer non-default thor run
+    results.save(tmp_path, _doc("ab", "20261010-100000", True, platform="thor"))
+    results.save(tmp_path, _doc("ab", "20261010-110000", True, platform="spark"))
+    results.save(tmp_path, _doc("ab", "20261010-120000", False, platform="thor"))
+    thor = results.latest(tmp_path, "ab", platform="thor")
+    unfiltered = results.latest(tmp_path, "ab")
+    assert thor and unfiltered
+    assert thor["run_id"] == "20261010-100000"
+    assert unfiltered["run_id"] == "20261010-110000"  # unfiltered: newest default

@@ -19,7 +19,11 @@ on the command line still override one run.
 
 from __future__ import annotations
 
-from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_QUANT, FAST_QUANT, STOCK_IMAGE
+from pathlib import Path
+
+from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_QUANT, FAST_QUANT, configs_root, user_configs_dir
+from mjolnir_cli.overlays import config_exists_on
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY
 
 OFFICIAL, MJOLNIR = "official", "mjolnir"
 Leg = tuple[str, str]  # (side, config)
@@ -84,16 +88,69 @@ KERNEL: dict[str, str] = {
 # ── `verify vllm`: greedy MJOLNIR-vs-FlashInfer smoke modes ────────────────
 SMOKE_MODES = "graph eager e2m3 lmh8"
 
+# Research platforms measure the FlashInfer + FA2 baselines only until their
+# kernel lands (the ncu stages need this repo's image to run the harness in).
+_RESEARCH_KERNEL_LEGS = "fi,fa2"
 
-def verify_legs(name: str) -> str:
-    """``official:NVFP4,mjolnir:NVFP4_MJOLNIR,…`` — the ``verify --legs`` form."""
-    return ",".join(f"{side}:{cfg}" for side, cfg in SERVING[name])
+
+def legs_for_stage(name: str, platform: str = DEFAULT_PLATFORM) -> tuple[Leg, ...]:
+    """The stage's legs on a platform: the full table on a supported one; on a
+    research platform the official (baseline) side only — the Mjolnir legs
+    arrive with the platform's kernel."""
+    ls = SERVING[name]
+    if REGISTRY[platform].status == "supported":
+        return ls
+    return _uniq([(side, cfg) for side, cfg in ls if side == OFFICIAL])
 
 
-def bench_legs(name: str) -> str:
-    """``vllm/vllm-openai:…:NVFP4,NVFP4_MJOLNIR_E2M3,…`` — the ``bench --backends``
-    form (official legs pinned to the upstream image, Mjolnir legs bare)."""
-    return ",".join(f"{STOCK_IMAGE}:{cfg}" if side == OFFICIAL else cfg for side, cfg in SERVING[name])
+def available_serving_legs(
+    stage: str,
+    platform: str = DEFAULT_PLATFORM,
+    model: str | None = None,
+    configs_dir: Path | None = None,
+) -> tuple[Leg, ...]:
+    """The stage's legs for a platform, filtered to configs that exist for the
+    model — a config dir that is not there cannot be served, and per the
+    overlay rule a config exists on a platform only when its
+    ``platforms/<platform>.yaml`` overlay is there (no ``platforms/`` dir =
+    legacy thor-only). No model (or no filter hit at all) skips the
+    filesystem check; ``configs_dir`` defaults to the canonical + user-local
+    roots."""
+    ls = legs_for_stage(stage, platform)
+    if model is None:
+        return ls
+    roots = [configs_dir] if configs_dir is not None else [configs_root(), user_configs_dir()]
+    m = model  # narrowed; captured by the filter expression below
+
+    def served(cfg: str) -> bool:
+        return any(config_exists_on(root / m / cfg, platform) for root in roots)
+
+    return tuple(leg for leg in ls if served(leg[1]))
+
+
+def kernel_legs(stage: str, platform: str = DEFAULT_PLATFORM) -> str:
+    """The ncu stage's harness-leg ids for a platform (research platforms get
+    the FlashInfer + FA2 baselines)."""
+    if REGISTRY[platform].status == "supported":
+        return KERNEL[stage]
+    return _RESEARCH_KERNEL_LEGS
+
+
+def verify_legs(name: str, platform: str = DEFAULT_PLATFORM) -> str:
+    """``official:NVFP4,mjolnir:NVFP4_MJOLNIR,…`` — the ``verify --legs`` form
+    for a platform (the default platform's table: the import-time typer
+    contract)."""
+    return ",".join(f"{side}:{cfg}" for side, cfg in legs_for_stage(name, platform))
+
+
+def bench_legs(name: str, platform: str = DEFAULT_PLATFORM, model: str | None = None) -> str:
+    """``vllm/vllm-openai:…:NVFP4,NVFP4_MJOLNIR_E2M3,…`` — the ``bench
+    --backends`` form (official legs pinned to the platform's upstream image,
+    Mjolnir legs bare). With a ``model``, the legs are filtered to configs
+    that exist for it."""
+    ls = available_serving_legs(name, platform, model) if model else legs_for_stage(name, platform)
+    stock = REGISTRY[platform].stock_image
+    return ",".join(f"{stock}:{cfg}" if side == OFFICIAL else cfg for side, cfg in ls)
 
 
 def side_configs(name: str, side: str) -> list[str]:

@@ -18,7 +18,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from mjolnir_cli import cachectl
+from mjolnir_cli import cachectl, overlays
 from mjolnir_cli.config import (
     CONTAINER_NAME,
     HFCacheError,
@@ -460,6 +460,10 @@ def serve_up(
     if dry_run:
         print(" ".join(cmd))
         return
+    try:
+        overlays.validate_serving(s.config_path, s.platform)
+    except ValueError as e:
+        raise DockerError(str(e)) from None
     why = missing_kv_scales(s)
     if why:
         raise DockerError(why)

@@ -18,7 +18,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import typer
+
 from mjolnir_cli.config import resource_path
+from mjolnir_cli.platforms import DEFAULT_PLATFORM
 
 # The --skip names, in run order (mirror of the script's steps).
 STEPS: tuple[str, ...] = (
@@ -106,3 +109,30 @@ def run_setup(
             dry_run=dry_run,
         )
     )
+
+
+# The platforms this Jetson setup covers (the script is the Jetson path —
+# thor today, orin the same family). A new platform rows in here or gets its
+# own setup; anything else is refused below, never run with the wrong script.
+_JETSON_FAMILY = ("thor", "orin")
+
+
+def dispatch(platform: str, **kw) -> int:
+    """Run the HW setup for the detected platform: the Jetson family gets the
+    existing script (orin with an explicit untested note); a platform outside
+    the family is refused — naming what does exist — rather than run the
+    wrong script."""
+    if platform not in _JETSON_FAMILY:
+        typer.secho(
+            f"mjolnir hw setup is not implemented for {platform} yet — what exists today is the "
+            f"Jetson setup ({', '.join(_JETSON_FAMILY)}; scripts/hw/setup-thor.sh).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2) from None
+    if platform != DEFAULT_PLATFORM:
+        typer.secho(
+            f"note: {platform} is untested with this setup — it targets Jetson AGX Thor.",
+            fg=typer.colors.YELLOW,
+        )
+    return run_setup(**kw)

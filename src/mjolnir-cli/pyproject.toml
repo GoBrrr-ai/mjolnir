@@ -41,9 +41,11 @@ Issues = "https://github.com/thor-arena/mjolnir/issues"
 Changelog = "https://github.com/thor-arena/mjolnir/releases"
 "CLI reference" = "https://github.com/thor-arena/mjolnir/blob/main/docs/cli.md"
 
-# The distribution is `mjolnir-cli`; the command is still `mjolnir`.
+# The distribution is `mjolnir-cli`; the command is still `mjolnir` — the
+# entry point is `main` so the central UnknownPlatform handler wraps every
+# command (review cycle 2, IMPROVEMENT 3).
 [project.scripts]
-mjolnir = "mjolnir_cli.cli:app"
+mjolnir = "mjolnir_cli.cli:main"
 
 [tool.hatch.version]
 path = "mjolnir_cli/__init__.py"

@@ -27,11 +27,13 @@ The file is the raw, git-trackable substrate for the charts and for
 from __future__ import annotations
 
 import json
+import platform as host_platform
 import sys
-import platform
 import time
 from pathlib import Path
 from typing import Any
+
+from mjolnir_cli.platforms import detect, gpu_name
 
 
 def append_record(history_file: Path, record: dict[str, Any]) -> None:
@@ -79,11 +81,19 @@ def make_record(
     exact_tg: bool,
     cells: list[dict[str, Any]],
     raw_relpath: str,
+    platform: str | None = None,
+    gpu: str | None = None,
 ) -> dict[str, Any]:
+    plat = platform if platform is not None else s.platform
+    if plat is None:  # an unresolved Settings: the record names the *detected* platform
+        plat = detect().platform
     return {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.gmtime()).replace("+0000", "+00:00"),
         "epoch": time.time(),
-        "host": platform.node() or "unknown",
+        "host": host_platform.node() or "unknown",
+        "gpu": gpu if gpu is not None else gpu_name(),
+        # `is not None` on both: an explicit value (even "") wins over detection.
+        "platform": plat,
         "image": s.image,
         "model": s.model,
         "config": s.quant,

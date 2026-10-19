@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mjolnir_cli.config import host_hf_hub
+from mjolnir_cli.platforms import DEFAULT_PLATFORM
 from mjolnir_cli.verify import ncu
 from mjolnir_cli.verify.legs import FILTERS, Leg
 
@@ -47,13 +48,17 @@ _IN_DRIVERS = "/opt/mjolnir-drivers"
 _IN_NCU = "/ncu"
 
 
-def default_ref_image() -> str:
+def default_ref_image(platform: str = DEFAULT_PLATFORM) -> str:
     """Where the FlashInfer / FA2 reference legs run: the OFFICIAL upstream
     vLLM image, never ours — the Mjolnir image patches FlashInfer paths too,
-    so a reference measured there would not be stock vLLM."""
-    from mjolnir_cli.config import STOCK_IMAGE
+    so a reference measured there would not be stock vLLM. ``$MJOLNIR_REF_IMAGE``
+    wins over the platform record's stock image."""
+    from mjolnir_cli.platforms import stock_image
 
-    return os.environ.get("MJOLNIR_REF_IMAGE", STOCK_IMAGE)
+    ref = stock_image(platform, os.environ.get("MJOLNIR_REF_IMAGE"))
+    if ref is None:
+        raise ValueError(f"platform {platform!r} defines no stock image to reference")
+    return ref
 
 
 def _hf_hub_mount() -> list[str]:

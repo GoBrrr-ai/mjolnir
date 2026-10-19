@@ -11,7 +11,8 @@ GPU_STACK = ("torch", "vllm", "cutlass", "flashinfer", "triton")
 
 def test_cli_import_is_gpu_free():
     code = (
-        "import sys, mjolnir_cli.cli, mjolnir_cli.verify.cli, mjolnir_cli.autoresearch;"
+        "import sys, mjolnir_cli.cli, mjolnir_cli.verify.cli, mjolnir_cli.autoresearch,"
+        " mjolnir_cli.platforms, mjolnir_cli.cli_platform;"  # the new platform leaves stay torch-lazy too
         f"bad = [m for m in sys.modules if m.split('.')[0] in {GPU_STACK!r}];"
         "print(bad); sys.exit(1 if bad else 0)"
     )

@@ -46,11 +46,13 @@ from mjolnir_cli.config import (
     user_configs_dir,
 )
 from mjolnir_cli import cachectl, charts, dockerctl, litellm, perses, picker, readme, tasks, thor
+from mjolnir_cli.cli_platform import platform_app
 from mjolnir_cli.verify.cli import app as verify_app
 from mjolnir_cli.autoresearch import app as autoresearch_app
 from mjolnir_cli.cli_bench import app as bench_app
 
 from mjolnir_cli.cli_shared import _HELP_CTX, _console, _load_state, _save_state, _settings, _state_file
+from mjolnir_cli.platforms import UnknownPlatform, resolve_platform
 
 
 def _picker_group(bare_fn) -> type[TyperGroup]:
@@ -146,6 +148,7 @@ app.add_typer(serve_app, name="serve")
 app.add_typer(bench_app, name="bench")
 app.add_typer(model_app, name="model")
 app.add_typer(image_app, name="image")
+app.add_typer(platform_app, name="platform")
 app.add_typer(verify_app, name="verify")
 app.add_typer(autoresearch_app, name="autoresearch")
 app.add_typer(litellm_app, name="litellm")
@@ -427,7 +430,8 @@ def hw_setup(
     MAXN power mode. Idempotent — safe to re-run; the script asks for
     sudo."""
     try:
-        rc = thor.run_setup(
+        rc = thor.dispatch(
+            resolve_platform(None),
             yes=yes,
             upgrade=upgrade,
             keep_gui=keep_gui,
@@ -437,6 +441,9 @@ def hw_setup(
             reboot=reboot,
             dry_run=dry_run,
         )
+    except UnknownPlatform as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from None
     except (ValueError, FileNotFoundError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4) from e
@@ -931,5 +938,18 @@ def version():
     typer.echo(f"mjolnir {__version__}")
 
 
+def main() -> None:
+    """The console-script entry point: a host that detection cannot name must
+    fail every resolving command with the probe instructions (exit 2), never
+    a raw traceback (review cycle 2, IMPROVEMENT 3). ``platform show`` and
+    ``hw`` keep their own handlers and exits; a bad flag/env value keeps its
+    ``ValueError``."""
+    try:
+        app()
+    except UnknownPlatform as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise SystemExit(2) from None
+
+
 if __name__ == "__main__":
-    app()
+    sys.exit(main())
