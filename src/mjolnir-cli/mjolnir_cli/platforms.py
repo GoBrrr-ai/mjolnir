@@ -55,6 +55,9 @@ class Platform:
     # Renderer-facing data (cycle 3a): the host software the platform needs.
     # No renderer consumes it yet; no behavior hangs on it.
     host_requirements: str = ""
+    # Renderer-facing data (cycle 3e): the short label for tables whose
+    # columns are platforms (the config README's serving-profile table).
+    short: str = ""
 
 
 REGISTRY: dict[str, Platform] = {
@@ -69,6 +72,7 @@ REGISTRY: dict[str, Platform] = {
         vllm_version="0.32.0",
         status="supported",
         host_requirements="JetPack 7.x",
+        short="Thor",
     ),
     # Research rows: no Mjolnir kernel/image exists yet (baselines only until
     # one lands), so the upstream image is the default.
@@ -83,6 +87,7 @@ REGISTRY: dict[str, Platform] = {
         vllm_version=None,
         status="research",
         host_requirements="DGX OS + CUDA 13",
+        short="Spark",
     ),
     "orin": Platform(
         key="orin",
@@ -95,6 +100,7 @@ REGISTRY: dict[str, Platform] = {
         vllm_version=None,
         status="research",
         host_requirements="JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
+        short="Orin",
     ),
 }
 

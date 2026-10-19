@@ -53,6 +53,7 @@ from mjolnir_cli.config import (
     config_field,
     model_of,
 )
+from mjolnir_cli.config_profile import ProfileRow, _backend_label, _profile_rows
 from mjolnir_cli.history import load_records
 from mjolnir_cli.overlays import load_overlay, merge_config, overlay_platforms
 from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
@@ -256,27 +257,17 @@ def scan_configs(layout: RepoLayout) -> list[ConfigDir]:
     ]
 
 
-def _scalars(data: dict) -> list[tuple[str, str]]:
-    """A config mapping as (key, rendered value) rows — nested structures as
-    flow yaml so a delta table can quote them."""
-    return [
-        (
-            str(k),
-            yaml.safe_dump(v, default_flow_style=True).strip()
-            if isinstance(v, dict | list)
-            else ("" if v is None else str(v)),
-        )
-        for k, v in data.items()
-    ]
-
-
-def _config_scalars(path: Path) -> list[tuple[str, str]]:
-    """The config yaml's top-level entries."""
+def _merged_config(config_dir: Path, platform: str) -> dict:
+    """The base config.yaml deep-merged with the platform overlay (the base
+    as-is when the overlay is empty or the config is unreadable)."""
     try:
-        data = yaml.safe_load(path.read_text())
-    except Exception:  # noqa: BLE001 — a malformed config renders as empty
-        return []
-    return _scalars(data) if isinstance(data, dict) else []
+        raw = yaml.safe_load((config_dir / "config.yaml").read_text()) or {}
+    except OSError:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    overlay = load_overlay(config_dir, platform)
+    return merge_config(raw, overlay) if overlay else raw
 
 
 def _env_sidecar(config_dir: Path) -> dict[str, str]:
@@ -291,17 +282,6 @@ def _env_sidecar(config_dir: Path) -> dict[str, str]:
             k, v = line.split("=", 1)
             out[k.strip()] = v.strip()
     return out
-
-
-def _overlay_deltas(config_dir: Path, platform: str) -> list[tuple[str, str, str]]:
-    """(key, value, contributing file) for every value the platform overlay
-    changes against the base config.yaml (spec row 6: which file contributed
-    each delta)."""
-    raw = yaml.safe_load((config_dir / "config.yaml").read_text()) or {}
-    overlay = load_overlay(config_dir, platform) or {}
-    merged = _scalars(merge_config(raw, overlay) if overlay else raw)
-    base = dict(_scalars(raw))
-    return [(k, v, f"platforms/{platform}.yaml") for k, v in merged if base.get(k) != v]
 
 
 def exists_on(config_dir: Path, platform: str) -> bool:
@@ -329,6 +309,7 @@ class PlatformRow:
 
     key: str
     name: str
+    short: str
     status: str
     sm_family: str
     host_requirements: str
@@ -337,7 +318,12 @@ class PlatformRow:
 def platform_rows() -> list[PlatformRow]:
     return [
         PlatformRow(
-            key=p.key, name=p.name, status=p.status, sm_family=p.sm_family, host_requirements=p.host_requirements
+            key=p.key,
+            name=p.name,
+            short=p.short or p.name,
+            status=p.status,
+            sm_family=p.sm_family,
+            host_requirements=p.host_requirements,
         )
         for p in REGISTRY.values()
     ]
@@ -497,26 +483,29 @@ class Config:
     include_benchmarks: bool = True
 
     def build_context(self, layout: RepoLayout) -> ConfigContext:
+        """The config README (cycle 3e): the model is the page and the
+        profile secondary; ONE curated meta-table with a column per serving
+        platform — overlay deltas surface as columns (plan §1). No
+        config.yaml / .env / delta dumps."""
         c = self._dir(layout)
-        sections = []
-        for p in platform_rows():
-            if not exists_on(c.path, p.key):
-                continue
-            sections.append(
-                ConfigPlatform(
-                    key=p.key,
-                    name=p.name,
-                    deltas=_overlay_deltas(c.path, p.key),
-                    argv=f"mjolnir serve up --platform {p.key} --config {self.quant}",
-                    cell=_cell_of(c.path, self.quant, p.key),
-                )
-            )
+        plats = [p for p in platform_rows() if exists_on(c.path, p.key)]
+        merged = [_merged_config(c.path, p.key) for p in plats]
         return ConfigContext(
             model=self.model,
             quant=self.quant,
-            fields=_config_scalars(c.path / "config.yaml"),
+            label=_backend_label(self.quant, merged),
+            profile=_profile_rows(self.model, self.quant, merged),
+            has_overlays=bool(overlay_platforms(c.path)),
             env=_env_sidecar(c.path),
-            platforms=sections,
+            platforms=[
+                ConfigPlatform(
+                    name=p.name,
+                    short=p.short,
+                    argv=f"mjolnir serve up --platform {p.key} --config {self.quant}",
+                    cell=_cell_of(c.path, self.quant, p.key),
+                )
+                for p in plats
+            ],
             e2e_noise_pct=_e2e_noise_pct(),
         )
 
@@ -632,18 +621,26 @@ class ModelContext:
 
 @dataclass(frozen=True)
 class ConfigPlatform:
-    key: str
+    """One serving platform of a config README: the serve line, the table's
+    column label and the availability cell."""
+
     name: str
-    deltas: list[tuple[str, str, str]]
+    short: str
     argv: str
     cell: Cell
 
 
 @dataclass(frozen=True)
 class ConfigContext:
+    """The config README's context (cycle 3e): the model is the H1, the
+    profile secondary; ``profile`` is the curated meta-table (one cell per
+    platform); ``env`` the .env sidecar (empty → no line)."""
+
     model: str
     quant: str
-    fields: list[tuple[str, str]]
+    label: str
+    profile: list[ProfileRow]
+    has_overlays: bool
     env: dict[str, str]
     platforms: list[ConfigPlatform]
     e2e_noise_pct: str = "3"
