@@ -178,6 +178,127 @@ def test_validate_error_for_an_unmapped_backend_names_the_backend_value():
     assert "thor" in str(ei.value) and "kv-cache-dtype" in str(ei.value)
 
 
+# ── cycle 3a: the refactor contract ─────────────────────────────────────────
+# validate is about to be rewritten over the KV_AVAILABILITY table
+# (mjolnir_cli.availability); these tests are the pin that the user-facing
+# half does not move. The byte-identical pin is a regression guard like
+# ``test_thor_legs_are_unchanged``: green against today's data by design.
+
+
+@pytest.mark.parametrize(
+    ("platform", "merged", "message"),
+    [
+        (
+            "spark",
+            {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"},
+            "spark: kv-cache-dtype 'fp6_e2m3' cannot be served with attention-backend 'MJOLNIR'"
+            " — fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
+        ),
+        (
+            "orin",
+            {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"},
+            "orin: kv-cache-dtype 'fp6_e2m3' cannot be served with attention-backend 'MJOLNIR'"
+            " — fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
+        ),
+        (
+            "thor",
+            {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "FLASHINFER"},
+            "thor: kv-cache-dtype 'fp6_e2m3' cannot be served with attention-backend 'FLASHINFER'"
+            " — fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
+        ),
+        (
+            "orin",
+            {"kv-cache-dtype": "fp8", "attention-backend": "FLASH_ATTN"},
+            "orin: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN'"
+            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+        ),
+        (
+            "thor",
+            {"kv-cache-dtype": "fp8", "attention-backend": "FLASH_ATTN"},
+            "thor: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN'"
+            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+        ),
+        (
+            "spark",
+            {"kv-cache-dtype": "fp8", "attention-backend": "FLASH_ATTN"},
+            "spark: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN'"
+            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+        ),
+        (
+            "orin",
+            {"kv-cache-dtype": "fp8", "attention-config": {"backend": "flash_attn", "flash_attn_version": 4}},
+            "orin: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN@4'"
+            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+        ),
+        (
+            "thor",
+            {"kv-cache-dtype": "nvfp4", "attention-backend": "FLASH_ATTN"},
+            "thor: kv-cache-dtype 'nvfp4' cannot be served with attention-backend 'FLASH_ATTN'"
+            " — nvfp4 KV rides the FA2 path (fa2-nvfp4 families are sm_80/90/120, never sm_110)"
+            " and has no FlashInfer path",
+        ),
+        (
+            "thor",
+            {"kv-cache-dtype": "nvfp4", "attention-backend": "FLASHINFER"},
+            "thor: kv-cache-dtype 'nvfp4' cannot be served with attention-backend 'FLASHINFER'"
+            " — nvfp4 KV rides the FA2 path (fa2-nvfp4 families are sm_80/90/120, never sm_110)"
+            " and has no FlashInfer path",
+        ),
+        (
+            "thor",
+            {"kv-cache-dtype": "fp8", "attention-backend": "TRITON_KITCHEN_SINK"},
+            "thor: kv-cache-dtype 'fp8' cannot be served with attention-backend 'TRITON_KITCHEN_SINK'"
+            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+        ),
+    ],
+)
+def test_validate_error_messages_stay_byte_identical_across_the_availability_refactor(platform, merged, message):
+    """PINNED CONTRACT (cycle 3a): ``validate`` messages are byte-identical
+    before and after the KV_AVAILABILITY refactor (feature.md AC4). Regression
+    guard — green against today's validate by design; any wording, quoting or
+    ordering change to a user-facing message fails here."""
+    with pytest.raises(ValueError) as ei:
+        overlays.validate(platform, merged)
+    assert str(ei.value) == message
+
+
+def test_validate_routes_through_the_availability_table(monkeypatch):
+    """The refactor's point: validate consults ``kv_state`` — a sentinel cell
+    it returns must drive both the decision and the message's why. Duck-typed
+    cell on purpose: the routing contract is what's pinned here, not the
+    availability types."""
+    from types import SimpleNamespace
+
+    seen: list[tuple[str, str, str]] = []
+
+    def fake_kv_state(dtype: str, backend: str, platform: str) -> SimpleNamespace:
+        seen.append((dtype, backend, platform))
+        return SimpleNamespace(state="unavailable", why="sentinel why routed from the availability table.")
+
+    monkeypatch.setattr(overlays, "kv_state", fake_kv_state, raising=False)
+
+    # a combination validate accepts today must now be refused, with the
+    # sentinel's why in the message — proving the cell came from kv_state
+    with pytest.raises(ValueError) as ei:
+        overlays.validate("thor", {"kv-cache-dtype": "fp8", "attention-backend": "FLASHINFER"})
+    assert seen == [("fp8", "FLASHINFER", "thor")]
+    assert "sentinel why routed from the availability table." in str(ei.value)
+
+
+def test_validate_accepts_when_the_availability_table_says_native(monkeypatch):
+    """The routing contract's other half: a native sentinel cell keeps validate
+    silent — the accept decision also comes from the table."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        overlays,
+        "kv_state",
+        lambda dtype, backend, platform: SimpleNamespace(state="native", why="sentinel native."),
+        raising=False,
+    )
+    overlays.validate("spark", {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"})  # refused today
+
+
 # ── fix round 1: an undeclared backend has nothing to contradict ────────────
 # (review cycle 2, IMPROVEMENT 2: with no attention-backend declared, vLLM
 # auto-selects a servable one — the matrix validates declared pairs, so it

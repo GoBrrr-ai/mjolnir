@@ -5,9 +5,10 @@ The rules (plan §0.3): dicts merge recursively, lists replace, scalars
 override. A config dir **without** a ``platforms/`` dir is a legacy
 thor-only config (the pre-overlay layout — zero data churn); with the dir,
 only the listed overlays exist. :func:`validate` checks the merged config
-against the ``kv-cache-dtype`` x attention-backend availability matrix
-(task/research/spark-stack.md) and every error names the platform, the key,
-the value and why — a bad overlay is fixable from the message alone.
+against the ``kv-cache-dtype`` x attention-backend availability table
+(``mjolnir_cli.availability`` — the cycle-2 inline matrix became its data)
+and every error names the platform, the key, the value and why — a bad
+overlay is fixable from the message alone.
 
 Pure merge/validate logic plus thin path I/O; serving code merges
 ``load_overlay`` over the config yaml before serving a leg.
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import yaml
 
+from mjolnir_cli.availability import KV_AVAILABILITY, UNAVAILABLE, backend_class, kv_state
 from mjolnir_cli.platforms import DEFAULT_PLATFORM
 
 
@@ -68,41 +70,12 @@ def merge_config(base: dict, overlay: dict) -> dict:
     return out
 
 
-# ── the availability matrix (task/research/spark-stack.md) ──────────────────
-# Per kv-cache-dtype: the platforms it exists on, and the attention-backend
-# classes that serve it there. Backend classes come from the config's
-# ``attention-backend`` / ``attention-config.backend`` field; FA4 is
-# FLASH_ATTN with flash_attn_version 4 (its hd256 kernel is sm_100-only).
-_ALLOWED: dict[str, dict[str, frozenset[str]]] = {
-    # fp6 (e2m3) KV has no fallback reader: only the Mjolnir kernel serves it,
-    # and only on thor (the kernel is sm_110).
-    "fp6_e2m3": {
-        "thor": frozenset({"MJOLNIR"}),
-    },
-    # fp8 KV: FlashInfer serves it everywhere; on thor also FA4 and Mjolnir.
-    "fp8": {
-        "thor": frozenset({"FLASHINFER", "FLASH_ATTN@4", "MJOLNIR"}),
-        "spark": frozenset({"FLASHINFER"}),
-        "orin": frozenset({"FLASHINFER"}),
-    },
-    # nvfp4 KV rides the FA2 path (its nvfp4 families are sm_80/90/120 —
-    # never sm_110) and is not a FlashInfer path.
-    "nvfp4": {
-        "spark": frozenset({"FLASH_ATTN"}),
-        "orin": frozenset({"FLASH_ATTN"}),
-    },
-}
-_WHYS: dict[str, str] = {
-    "fp6_e2m3": "fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
-    "fp8": "fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
-    "nvfp4": "nvfp4 KV rides the FA2 path (fa2-nvfp4 families are sm_80/90/120, never sm_110) and has no FlashInfer path",
-}
-
-
 def _backend_class(merged: dict) -> str:
     """The attention-backend class a merged config selects: the
     ``attention-backend`` field, else ``attention-config.backend`` — FA4
-    (``flash_attn`` with ``flash_attn_version: 4``) is its own class."""
+    (``flash_attn`` with ``flash_attn_version: 4``) is its own class, named
+    ``FLASH_ATTN@4`` so the field string maps onto :data:`FA4` and errors can
+    quote it. An undeclared backend stays ``""`` so validate can skip."""
     ac = merged.get("attention-config")
     ac = ac if isinstance(ac, dict) else {}
     backend = str(merged.get("attention-backend") or ac.get("backend") or "").upper()
@@ -112,25 +85,26 @@ def _backend_class(merged: dict) -> str:
 
 
 def validate(platform: str, merged: dict) -> None:
-    """Check the merged config against the availability matrix; ValueError
-    names the platform, the key, the value and why when the combination
-    cannot be served. A config without ``kv-cache-dtype``, with a dtype the
-    matrix does not know, or **without a declared attention backend** has
-    nothing to contradict — the matrix validates declared (dtype, backend)
-    pairs; with no backend declared, vLLM auto-selects a servable one."""
+    """Check the merged config against the availability table
+    (:func:`mjolnir_cli.availability.kv_state` decides); ValueError names the
+    platform, the key, the value and why when the combination cannot be
+    served. A config without ``kv-cache-dtype``, with a dtype the table does
+    not know, or **without a declared attention backend** has nothing to
+    contradict — the table validates declared (dtype, backend) pairs; with no
+    backend declared, vLLM auto-selects a servable one."""
     kv = merged.get("kv-cache-dtype")
     if not kv:
         return
     kv = str(kv)
-    table = _ALLOWED.get(kv)
-    if table is None:
+    if kv not in KV_AVAILABILITY:  # unknown dtype: nothing to contradict
         return
     backend = _backend_class(merged)
-    if not backend:
+    if not backend:  # no declared backend: vLLM auto-selects a servable one
         return
-    if backend not in table.get(platform, frozenset()):
+    cell = kv_state(kv, backend_class(backend), platform)
+    if cell.state == UNAVAILABLE:
         raise ValueError(
-            f"{platform}: kv-cache-dtype {kv!r} cannot be served with attention-backend {backend!r} — {_WHYS[kv]}"
+            f"{platform}: kv-cache-dtype {kv!r} cannot be served with attention-backend {backend!r} — {cell.why}"
         )
 
 

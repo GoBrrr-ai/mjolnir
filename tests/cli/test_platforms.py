@@ -51,6 +51,7 @@ EXPECTED: dict[str, dict] = {
         "stock_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
         "vllm_version": "0.32.0",
         "status": "supported",
+        "host_requirements": "JetPack 7.x",
     },
     "spark": {
         "name": "DGX Spark",
@@ -61,6 +62,7 @@ EXPECTED: dict[str, dict] = {
         "stock_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
         "vllm_version": None,
         "status": "research",
+        "host_requirements": "DGX OS + CUDA 13",
     },
     "orin": {
         "name": "Jetson Orin",
@@ -71,6 +73,7 @@ EXPECTED: dict[str, dict] = {
         "stock_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
         "vllm_version": None,
         "status": "research",
+        "host_requirements": "JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
     },
 }
 
@@ -115,6 +118,26 @@ def test_unknown_platform_key_names_the_shipped_platforms():
     msg = str(ei.value)
     assert "bogus" in msg
     assert all(k in msg for k in ("thor", "spark", "orin"))
+
+
+# ── 1b. host_requirements (cycle 3a — renderer-facing data, no behavior) ────
+
+
+@pytest.mark.parametrize(
+    ("key", "requirements"),
+    [
+        ("thor", "JetPack 7.x"),
+        ("orin", "JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)"),
+        ("spark", "DGX OS + CUDA 13"),
+    ],
+)
+def test_host_requirements_present_and_correct_for_every_platform(key, requirements):
+    assert platforms.get(key).host_requirements == requirements
+
+
+def test_host_requirements_is_a_documented_string_on_every_record():
+    for key, record in platforms.REGISTRY.items():
+        assert isinstance(record.host_requirements, str) and record.host_requirements, key
 
 
 # ── 2. the sources ──────────────────────────────────────────────────────────
