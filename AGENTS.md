@@ -312,7 +312,7 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       the ncu stages, the `verify vllm` smoke modes — is set in ONE place:
       `src/mjolnir-cli/mjolnir_cli/legs.py`.
       Opt-in experiment configs carry their switches in the `.env` inside
-      their config dir (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
+      their config dir (`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
 - [ ] **fp6 byte-vs-time gap**: not the 64-byte L2 requests (SW128 tried: ~5% at
       ≥64K only) and **not the 16K–32K hole** — that was an ncu artifact

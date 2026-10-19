@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from mjolnir_cli import cli, dockerctl
-from mjolnir_cli.config import Settings, config_field
+from mjolnir_cli.config import BACKEND_LABELS, Settings, config_field
 from typer.testing import CliRunner
 
 
@@ -51,24 +51,28 @@ def test_calibrate_refuses_while_the_server_runs(monkeypatch, tmp_path):
     assert r.exit_code == 3 and "server is running" in r.output
 
 
-def test_experiment_configs_are_e2m3_plus_env_sidecars():
-    base = _s("NVFP4_MJOLNIR_E2M3")
+def test_removed_variant_configs_are_absent():
+    """Spec change: the VT32K/LMH8 variants were removed entirely — superseded by
+    NVFP4_MJOLNIR_E2M3_LMH8_VT64K (the default quant, which carries both knobs)."""
     for name in (
         "NVFP4_MJOLNIR_E2M3_LMH8",
         "NVFP4_MJOLNIR_E2M3_VT32K",
         "NVFP4_MJOLNIR_E2M3_LMH8_VT32K",
-        "NVFP4_MJOLNIR_E2M3_LMH8_VT64K",
     ):
-        s = _s(name)
-        for key in ("model", "attention-backend", "kv-cache-dtype", "max-model-len", "max-num-seqs"):
-            assert config_field(s.config_path, key) == config_field(base.config_path, key), (name, key)
-    env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3_LMH8"))
+        assert not _s(name).config_path.parent.exists(), name
+        assert name not in BACKEND_LABELS, name
+
+
+def test_experiment_configs_are_e2m3_plus_env_sidecars():
+    base = _s("NVFP4_MJOLNIR_E2M3")
+    fast = _s("NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
+    for key in ("model", "attention-backend", "kv-cache-dtype", "max-model-len", "max-num-seqs"):
+        assert config_field(fast.config_path, key) == config_field(base.config_path, key), key
+    env = dockerctl.backend_env(fast)
     assert "MJOLNIR_LM_HEAD=fp8" in env
-    assert not any(e.startswith("MJOLNIR_LM_HEAD") for e in dockerctl.backend_env(base))
-    env = dockerctl.backend_env(_s("NVFP4_MJOLNIR_E2M3_VT32K"))
     assert "MJOLNIR_DRAFT_VOCAB=/configs/Qwen/Qwen3.8-27B/draft_vocab.json" in env
-    assert "MJOLNIR_DRAFT_VOCAB_SIZE=32768" in env
-    assert not any(e.startswith("MJOLNIR_LM_HEAD") for e in env)  # this config has no fp8 head
+    assert "MJOLNIR_DRAFT_VOCAB_SIZE=65536" in env
+    assert not any(e.startswith("MJOLNIR_LM_HEAD") for e in dockerctl.backend_env(base))
 
 
 def test_vocab_sidecar_env_with_configs_expansion(tmp_path, monkeypatch):

@@ -23,10 +23,7 @@ is not measurement: links only go where data exists (decision 9).
 | [`NVFP4_MJOLNIR_E2M3`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_MJOLNIR_E2M3_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DFLASH2/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DFLASH2/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_MJOLNIR_E2M3_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_LMH8`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_LMH8_VT32K`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT32K/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT32K/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: yes |
-| [`NVFP4_MJOLNIR_E2M3_VT32K`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_VT32K/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_VT32K/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
 | [`NVFP4_DFLASH`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_DFLASH/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_DFLASH/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ✅ | measured: yes |
 | [`NVFP4_MJOLNIR`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ✅ | measured: no |
 | [`NVFP4_MJOLNIR_E2M3`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ✅ | measured: yes |
@@ -43,10 +40,7 @@ is not measurement: links only go where data exists (decision 9).
 - `NVFP4_MJOLNIR_E2M3` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_DFLASH2` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_DSPARK` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
-- `NVFP4_MJOLNIR_E2M3_LMH8` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
-- `NVFP4_MJOLNIR_E2M3_LMH8_VT32K` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
-- `NVFP4_MJOLNIR_E2M3_VT32K` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_DFLASH` on Jetson AGX Thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4_MJOLNIR` on Jetson AGX Thor: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 - `NVFP4_MJOLNIR_E2M3` on Jetson AGX Thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
