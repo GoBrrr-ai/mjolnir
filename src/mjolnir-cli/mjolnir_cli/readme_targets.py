@@ -270,18 +270,13 @@ def _merged_config(config_dir: Path, platform: str) -> dict:
     return merge_config(raw, overlay) if overlay else raw
 
 
-def _env_sidecar(config_dir: Path) -> dict[str, str]:
-    """The ``.env`` sidecar's KEY=VALUE lines (comments stripped)."""
+def _has_env_sidecar(config_dir: Path) -> bool:
+    """Does the config dir carry a `.env` sidecar with KEY=VALUE lines?
+    (The README points at the sidecar; it never quotes it.)"""
     side = config_dir / ".env"
     if not side.is_file():
-        return {}
-    out: dict[str, str] = {}
-    for line in side.read_text().splitlines():
-        line = line.split("#", 1)[0].strip()
-        if "=" in line:
-            k, v = line.split("=", 1)
-            out[k.strip()] = v.strip()
-    return out
+        return False
+    return any("=" in ln.split("#", 1)[0] for ln in side.read_text().splitlines())
 
 
 def exists_on(config_dir: Path, platform: str) -> bool:
@@ -496,7 +491,7 @@ class Config:
             label=_backend_label(self.quant, merged),
             profile=_profile_rows(self.model, self.quant, merged),
             has_overlays=bool(overlay_platforms(c.path)),
-            env=_env_sidecar(c.path),
+            has_env=_has_env_sidecar(c.path),
             platforms=[
                 ConfigPlatform(
                     name=p.name,
@@ -634,14 +629,15 @@ class ConfigPlatform:
 class ConfigContext:
     """The config README's context (cycle 3e): the model is the H1, the
     profile secondary; ``profile`` is the curated meta-table (one cell per
-    platform); ``env`` the .env sidecar (empty → no line)."""
+    platform); ``has_env`` gates the intro's pointer to the `.env` sidecar
+    (whose contents are never rendered)."""
 
     model: str
     quant: str
     label: str
     profile: list[ProfileRow]
     has_overlays: bool
-    env: dict[str, str]
+    has_env: bool
     platforms: list[ConfigPlatform]
     e2e_noise_pct: str = "3"
 

@@ -1,7 +1,7 @@
 # {{ ctx.model }}
 
 `{{ ctx.quant }}` — {{ ctx.label }} · serving profile. Flags live in
-[config.yaml](config.yaml){% if ctx.has_overlays %}, platform deltas in [platforms/](platforms/){% endif %}{% if ctx.env %}, Mjolnir env switches in `.env`{% endif %};
+[config.yaml](config.yaml){% if ctx.has_overlays %}, platform deltas in [platforms/](platforms/){% endif %}{% if ctx.has_env %}, Mjolnir env switches in `.env`{% endif %};
 the numbers in [BENCHMARKS.md](BENCHMARKS.md) and the model's [README](../README.md).
 
 ## Serving profile
@@ -21,8 +21,4 @@ the numbers in [BENCHMARKS.md](BENCHMARKS.md) and the model's [README](../README
 Availability: {{ p.cell.symbol }} {{ p.cell.why }}
 
 {% endfor -%}
-{% if ctx.env -%}
-.env: {% for k, v in ctx.env.items() %}`{{ k }}={{ v }}`{{ " · " if not loop.last }}{% endfor %}
-
-{% endif -%}
 Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config={{ ctx.quant }}).

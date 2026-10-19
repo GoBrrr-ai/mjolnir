@@ -149,16 +149,36 @@ def test_dict_valued_config_keys_never_appear(repo):
         assert key not in page, key
 
 
-# ── 6. the .env compact line (plan §3.6) ────────────────────────────────────
+# ── 6. no .env contents — the pointer only (plan §1, amended 2026-10-20) ────
+
+_ENV_PAIR = re.compile(r"`(?:MJOLNIR|VLLM)_[A-Z_]+=")
 
 
-def test_env_sidecar_becomes_one_compact_line(repo):
+def test_no_env_contents_on_any_config_readme(repo):
+    """The `.env` compact line is DROPPED (user directive 2026-10-20): no
+    KEY=VALUE contents on any generated config README — the intro keeps only
+    the pointer to the sidecar file, and the sidecars themselves are
+    untouched."""
     _render_all()
-    fp6 = _page(repo, M38, FP6_QUANT)
-    lines = [ln for ln in fp6.splitlines() if ln.startswith(".env:")]
-    assert lines == [".env: `MJOLNIR_FP8_LM_HEAD=1` · `MJOLNIR_DRAFT_VOCAB=65536`"]
-    nvfp4 = _page(repo, M38, "NVFP4")  # no sidecar → no line
-    assert [ln for ln in nvfp4.splitlines() if ln.startswith(".env:")] == []
+    for model, quant in CONFIG_PAGES:
+        page = _page(repo, model, quant)
+        assert not [ln for ln in page.splitlines() if ln.startswith(".env:")], (model, quant)
+        assert not _ENV_PAIR.search(page), (model, quant)
+    fp6 = _page(repo, M38, FP6_QUANT)  # the fixture WITH a .env sidecar
+    assert "`.env`" in fp6  # the intro's pointer to the file stays
+
+
+def test_real_tree_config_readmes_carry_no_env_contents():
+    """The .env half of the ratchet (plan §4, amendment 2026-10-20) on the
+    repo's own committed pages: no KEY=VALUE contents, and the intro's
+    pointer appears exactly when the config has a sidecar."""
+    pages = sorted(REPO.glob("configs/*/*/*/README.md"))
+    assert pages, "the repo's generated config pages are missing"
+    for p in pages:
+        text = p.read_text()
+        assert not [ln for ln in text.splitlines() if ln.startswith(".env:")], p
+        assert not _ENV_PAIR.search(text), p
+        assert ("`.env`" in text) == (p.parent / ".env").is_file(), p
 
 
 # ── 7. the line budget (plan §3.7) ──────────────────────────────────────────

@@ -27,6 +27,4 @@ mjolnir serve up --platform thor --config NVFP4_DFLASH
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
-.env: `VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0` · `VLLM_GDN_DECODE_KERNEL=triton`
-
 Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_DFLASH).

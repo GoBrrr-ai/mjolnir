@@ -396,12 +396,13 @@ def test_model_readme_stays_lean(repo):
 # ── config pages (spec targets #6, #7) ──────────────────────────────────────
 
 
-def test_config_readme_renders_static_facts_and_env_keys(repo):
-    """Static facts from config.yaml + the .env sidecar keys (spec row 6)."""
+def test_config_readme_renders_static_facts(repo):
+    """Static facts from config.yaml (spec row 6). Spec change (cycle 3e
+    amendment 2026-10-20): the `.env` sidecar's keys are no longer rendered —
+    the README points at the sidecar, it does not quote it."""
     _render_all()
     page = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
     assert "fp6_e2m3" in page and "MJOLNIR" in page and "256K" in page
-    assert "MJOLNIR_FP8_LM_HEAD" in page and "MJOLNIR_DRAFT_VOCAB" in page
 
 
 def test_config_readme_shows_overlay_deltas_as_columns(repo):

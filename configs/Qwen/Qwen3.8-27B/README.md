@@ -52,7 +52,7 @@ mjolnir serve up --platform orin --config AWQ_FLASHINFER
 
 Any config the platform's overlays allow; the full list is the table above.
 The per-platform flags (KV layout, the config's `.env` switches) come from
-the config itself — [each config's README](AWQ_FLASHINFER/README.md) names them.
+the config itself — each config's `.env` sidecar names them.
 
 ## End to end: the official vLLM image vs Mjolnir
 

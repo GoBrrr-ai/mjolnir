@@ -36,7 +36,7 @@ mjolnir serve up --platform thor --config NVFP4_MJOLNIR_E2M3_LMH8_VT64K
 
 Any config the platform's overlays allow; the full list is the table above.
 The per-platform flags (KV layout, the config's `.env` switches) come from
-the config itself — [each config's README](NVFP4_DFLASH/README.md) names them.
+the config itself — each config's `.env` sidecar names them.
 
 ## End to end: the official vLLM image vs Mjolnir
 
