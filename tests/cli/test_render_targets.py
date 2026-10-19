@@ -404,15 +404,17 @@ def test_config_readme_renders_static_facts_and_env_keys(repo):
     assert "MJOLNIR_FP8_LM_HEAD" in page and "MJOLNIR_DRAFT_VOCAB" in page
 
 
-def test_config_readme_attributes_per_platform_deltas_to_their_file(repo):
-    """Which file contributed each delta (spec row 6): the spark overlay's
-    128K / 0.85 are attributed to platforms/spark.yaml, the base stays the
-    config.yaml's."""
+def test_config_readme_shows_overlay_deltas_as_columns(repo):
+    """Spec change (cycle 3e, documented): the per-platform delta dump
+    (key | value | from) is gone — the overlay delta surfaces as a column of
+    the serving-profile table and the file attribution is the intro's
+    platforms/ link. The base value stays visible (identical-across-platform
+    values repeat per column)."""
     _render_all()
     page = (repo / "configs" / M38 / "NVFP4" / "README.md").read_text()
-    assert "spark.yaml" in page
-    assert "128K" in page  # the overlay delta
-    assert "200K" in page  # the config.yaml base
+    assert "spark.yaml" not in page  # the dump's attribution is gone
+    assert "| parameter | Thor | Spark |" in page  # one column per platform
+    assert "| Max context | 200K | 128K |" in page  # the delta, as a column
 
 
 def test_config_readme_renders_the_serve_argv_per_platform(repo):

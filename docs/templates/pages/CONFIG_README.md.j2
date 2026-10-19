@@ -1,53 +1,28 @@
-# {{ ctx.quant }}
+# {{ ctx.model }}
 
-`{{ ctx.model }}` · `configs/{{ ctx.model }}/{{ ctx.quant }}/` — one serving
-config: the `vllm serve` flags in YAML, the platform deltas in
-`platforms/<platform>.yaml` overlays, the env-only switches in the `.env`
-sidecar. [BENCHMARKS.md](BENCHMARKS.md) carries the numbers; [the model's
-README](../README.md) the sibling configs.
+`{{ ctx.quant }}` — {{ ctx.label }} · serving profile. Flags live in
+[config.yaml](config.yaml){% if ctx.has_overlays %}, platform deltas in [platforms/](platforms/){% endif %}{% if ctx.env %}, Mjolnir env switches in `.env`{% endif %};
+the numbers in [BENCHMARKS.md](BENCHMARKS.md) and the model's [README](../README.md).
 
-## config.yaml
+## Serving profile
 
-| key | value |
-|---|---|
-{% for k, v in ctx.fields -%}
-| `{{ k }}` | `{{ v }}` |
+| parameter{% for p in ctx.platforms %} | {{ p.short }}{% endfor %} |
+|---{% for p in ctx.platforms %}|---{% endfor %}|
+{% for row in ctx.profile -%}
+| {{ row.label }}{% for c in row.cells %} | {{ c }}{% endfor %} |
 {% endfor %}
+## Serve
 
-{% if ctx.env %}
-## .env sidecar
-
-| key | value |
-|---|---|
-{% for k, v in ctx.env.items() -%}
-| `{{ k }}` | `{{ v }}` |
-{% endfor %}
-
-{% endif %}
-## Per platform
-
-One serve line per platform the overlays put this config on; the deltas name
-the file each value came from (the base `config.yaml` or the overlay).
-
-{% for p in ctx.platforms %}
-### {{ p.name }}
-
+{% for p in ctx.platforms -%}
+**{{ p.name }}**
 ```bash
 {{ p.argv }}
 ```
-
-{% if p.deltas %}
-| key | value | from |
-|---|---|---|
-{% for k, v, src in p.deltas -%}
-| `{{ k }}` | `{{ v }}` | {{ src }} |
-{% endfor %}
-{% else %}
-
-No overlay deltas on {{ p.name }} — the base `config.yaml` serves as-is.
-{% endif %}
-
 Availability: {{ p.cell.symbol }} {{ p.cell.why }}
 
-{% endfor %}
+{% endfor -%}
+{% if ctx.env -%}
+.env: {% for k, v in ctx.env.items() %}`{{ k }}={{ v }}`{{ " · " if not loop.last }}{% endfor %}
+
+{% endif -%}
 Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config={{ ctx.quant }}).

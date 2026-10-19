@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import yaml
 
 from mjolnir_cli.config import BACKEND_LABELS
+from mjolnir_cli.overlays import backend_class
 
 
 @dataclass(frozen=True)
@@ -85,10 +86,10 @@ def _profile_rows(model: str, quant: str, merged: list[dict]) -> list[ProfileRow
         return [None if v is None else f"`{v}`" for v in col(key)]
 
     def backend(m: dict) -> str | None:
-        v = m.get("attention-backend")
-        if not v and isinstance(m.get("attention-config"), dict):
-            v = m["attention-config"].get("backend")
-        return str(v).upper() if v else None
+        """The canonical derivation (:func:`mjolnir_cli.overlays.backend_class`
+        — the same one validate and the availability matrix read), None when
+        the config declares no backend."""
+        return backend_class(m) or None
 
     def spec(v: object) -> str | None:
         if not isinstance(v, dict) or not v.get("num_speculative_tokens"):

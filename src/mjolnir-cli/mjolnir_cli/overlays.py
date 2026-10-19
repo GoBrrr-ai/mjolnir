@@ -21,7 +21,8 @@ from pathlib import Path
 
 import yaml
 
-from mjolnir_cli.availability import KV_AVAILABILITY, UNAVAILABLE, backend_class, kv_state
+from mjolnir_cli import availability
+from mjolnir_cli.availability import KV_AVAILABILITY, UNAVAILABLE, kv_state
 from mjolnir_cli.platforms import DEFAULT_PLATFORM
 
 
@@ -70,7 +71,7 @@ def merge_config(base: dict, overlay: dict) -> dict:
     return out
 
 
-def _backend_class(merged: dict) -> str:
+def backend_class(merged: dict) -> str:
     """The attention-backend class a merged config selects: the
     ``attention-backend`` field, else ``attention-config.backend`` — FA4
     (``flash_attn`` with ``flash_attn_version: 4``) is its own class, named
@@ -98,10 +99,10 @@ def validate(platform: str, merged: dict) -> None:
     kv = str(kv)
     if kv not in KV_AVAILABILITY:  # unknown dtype: nothing to contradict
         return
-    backend = _backend_class(merged)
+    backend = backend_class(merged)
     if not backend:  # no declared backend: vLLM auto-selects a servable one
         return
-    cell = kv_state(kv, backend_class(backend), platform)
+    cell = kv_state(kv, availability.backend_class(backend), platform)
     if cell.state == UNAVAILABLE:
         raise ValueError(
             f"{platform}: kv-cache-dtype {kv!r} cannot be served with attention-backend {backend!r} — {cell.why}"
