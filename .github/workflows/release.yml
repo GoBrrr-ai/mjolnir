@@ -115,7 +115,14 @@ jobs:
 
   checks:
     needs: plan
+    # The called workflow's stages may ask for pull-requests (the coverage
+    # comment) — the caller must grant it explicitly: a nested workflow only
+    # gets what this job allows, and GitHub validates the grant statically
+    # even though nothing comments on a Release run (no pull_request event).
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pull-requests: write
 
   tag:
     needs: [plan, checks]
