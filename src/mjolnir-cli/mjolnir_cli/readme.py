@@ -61,7 +61,17 @@ from typing import Any, cast
 import jinja2
 
 from mjolnir_cli import availability, readme_targets
-from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, IMAGE_REPO, RepoLayout, by_model, model_of
+from mjolnir_cli.config import (
+    DEFAULT_MODEL,
+    DEFAULT_PLATFORM,
+    DEFAULT_QUANT,
+    IMAGE_REPO,
+    RepoLayout,
+    by_model,
+    config_speculative,
+    configs_root,
+    model_of,
+)
 from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.verify import results
 from mjolnir_cli.readme_tables import (
@@ -558,6 +568,9 @@ def _features(
     from mjolnir_cli import accuracy, e2e
 
     f: dict = {"geo": ctx.geo_vs_fi or None}
+    spec = config_speculative(configs_root() / DEFAULT_MODEL / DEFAULT_QUANT / "config.yaml")
+    if spec and spec.get("method") == "mtp":
+        f["mtp"] = spec["tokens"]
     off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
     h = e2e.hero(off, mj) if off and mj else None
     if h:
@@ -849,7 +862,7 @@ def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | 
     root = layout.require_repo("rendering the README")
     if template is None and out is None:
         return render_all(layout)
-    tpl = Path(template) if template else root / "docs" / "templates" / "README.md.j2"
+    tpl = Path(template) if template else root / "README.md.j2"
     dest = Path(out) if out else root / "README.md"
     if not tpl.exists():
         raise FileNotFoundError(f"README template not found: {tpl}")

@@ -214,6 +214,7 @@ def repo(tmp_path, monkeypatch):
     (root / "docker" / "vllm-thor").mkdir(parents=True)
     shutil.copy(REPO / "docker" / "vllm-thor" / "Dockerfile", root / "docker" / "vllm-thor" / "Dockerfile")
     shutil.copytree(REPO / "docs" / "templates", root / "docs" / "templates", ignore=shutil.ignore_patterns("*.md"))
+    shutil.copy(REPO / "README.md.j2", root / "README.md.j2")  # the root README template
     for pkg in ("mjolnir/mjolnir", "mjolnir-cli/mjolnir_cli"):
         (root / "src" / pkg).mkdir(parents=True)
         shutil.copy(REPO / "src" / pkg / "__init__.py", root / "src" / pkg / "__init__.py")

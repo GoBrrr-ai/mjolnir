@@ -63,8 +63,8 @@ jobs:
               - 'scripts/check_file_length.py'
             readme:
               - 'src/mjolnir-cli/**'
-              # every template, wherever it lives (docs/templates/README.md.j2,
-              # docker/vllm-thor/README.md.j2, docs/templates/**.md.j2) + the
+              # every template, wherever it lives (README.md.j2 at the repo
+              # root, docker/vllm-thor/README.md.j2, docs/templates/**.md.j2) + the
               # generated surfaces a hand edit must trip the check on
               # (per-platform kernel pages, per-model/config READMEs with
               # their Benchmarks sections, the nested per-pair charts)

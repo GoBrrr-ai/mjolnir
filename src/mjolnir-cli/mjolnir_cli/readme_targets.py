@@ -312,7 +312,7 @@ class Root:
 
     def outputs(self, root: Path, layout: RepoLayout) -> list[tuple[Path, Path, Any]]:
         ctx = self.build_context(layout)
-        return [(root / "docs" / "templates" / "README.md.j2", root / "README.md", ctx)]
+        return [(root / "README.md.j2", root / "README.md", ctx)]
 
 
 @dataclass(frozen=True)

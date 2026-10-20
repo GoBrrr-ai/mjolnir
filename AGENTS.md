@@ -198,7 +198,7 @@ skipped with a hint — nothing blocks on a password.
 - `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
   `history.jsonl`, `logs/` (untracked).
 - `assets/benchmarks/` — generated charts (`*.png`, `manifest.json`).
-- `docs/templates/` — the templates (`README.md.j2` root + `pages/` + `kernel/`).
+- `README.md.j2` (repo root) + `docs/templates/` — the templates (`pages/` + `kernel/`).
 - `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index
   `docs/README.md`.
 - `research/` — autoresearch program, ledger (untracked while live), exported runs.

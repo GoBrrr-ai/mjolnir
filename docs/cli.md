@@ -155,7 +155,7 @@ computed from the committed raw data.
 | option | description | default |
 |---|---|---|
 | `--readme` | also render README.md from the README.md.j2 template (every table + number computed from the committed raw data) | off |
-| `--readme-template` | template override (default: &lt;repo&gt;/docs/templates/README.md.j2) |  |
+| `--readme-template` | template override (default: &lt;repo&gt;/README.md.j2) |  |
 | `--readme-out` | output override (default: &lt;repo&gt;/README.md) |  |
 | `--site` | also build the interactive benchmark site (index.html) into this directory |  |
 

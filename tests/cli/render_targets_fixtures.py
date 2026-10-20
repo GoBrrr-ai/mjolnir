@@ -335,11 +335,14 @@ def _seed_charts(root: Path) -> None:
 
 
 def _copy_templates(root: Path) -> None:
-    """The template home (docs/templates/ — the root README included, cycle
-    3k) — guarded: RED builds without it."""
+    """The template home (docs/templates/) plus the root README template at
+    the repo root — guarded: RED builds without them."""
     src = REPO / "docs" / "templates"
     if src.is_dir():
         shutil.copytree(src, root / "docs" / "templates", ignore=shutil.ignore_patterns("*.md"))
+    root_tpl = REPO / "README.md.j2"
+    if root_tpl.is_file():
+        shutil.copy(root_tpl, root / "README.md.j2")
 
 
 def build_repo(tmp_path: Path, monkeypatch, *, with_data: bool = True, overview: bool = True) -> Path:

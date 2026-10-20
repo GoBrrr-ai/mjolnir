@@ -64,7 +64,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🚀&nbsp;Faster decode</h3>
-      <p><b>+58% tokens/s</b> vs the official vLLM image. MTP with <b>4 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
+      <p><b>+58% tokens/s</b> vs the official vLLM image. MTP with <b>5 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -178,7 +178,7 @@ A served model is a file, not a command line: each config is the `vllm serve` fl
 
 ```bash
 configs/Qwen/Qwen3.8-27B/
-├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K/          # attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 4 drafts
+├── NVFP4_MJOLNIR_E2M3_LMH8_VT64K/          # attention-backend: MJOLNIR · kv-cache-dtype: fp6_e2m3 · MTP, 5 drafts
 │   ├── config.yaml
 │   └── .env                           # MJOLNIR_LM_HEAD=fp8 · MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json
 ├── NVFP4/
@@ -211,7 +211,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 |---|---|---|---|
 | **Mjolnir · e2m3 KV** | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
 | **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
-| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.32.0 FlasInfer for `sm_110` | fp8 e4m3, NHD pages |
+| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.32.0 FlashInfer for `sm_110` | fp8 e4m3, NHD pages |
 | **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.32.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
 <img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
@@ -388,4 +388,4 @@ Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches
 <br />
 
 <p align="center"><sub>⚡ Mjölnir — built on and for the edge ❤️.</sub></p>
-<p align="center"><sub>Generated from <code>docs/templates/README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>
+<p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>

@@ -245,16 +245,19 @@ def test_every_discovered_target_builds_a_context(repo):
 
 @pytest.mark.parametrize(
     "tpl",
-    [f"pages/{p}" for p in PAGE_TEMPLATES]
-    + [f"kernel/{c}.md.j2" for c in CHAPTERS]
-    + ["kernel/_index.md.j2", "README.md.j2"],
+    [f"pages/{p}" for p in PAGE_TEMPLATES] + [f"kernel/{c}.md.j2" for c in CHAPTERS] + ["kernel/_index.md.j2"],
     ids=lambda v: v,
 )
 def test_the_template_home_holds_every_page_and_kernel_template(tpl):
     """docs/templates/ is the single template home (spec §Directory Layout):
-    the five page templates, the kernel chapters, the shared kernel-index
-    partial and — cycle 3k — the root README template live there."""
+    the five page templates, the kernel chapters and the shared kernel-index
+    partial live there — the root README template lives at the repo root
+    (``README.md.j2``)."""
     assert (TEMPLATE_HOME / tpl).is_file(), f"missing docs/templates/{tpl}"
+
+
+def test_the_root_readme_template_lives_at_the_repo_root():
+    assert (REPO / "README.md.j2").is_file()
 
 
 # ── platforms index + platform pages (spec targets #2, #3) ──────────────────

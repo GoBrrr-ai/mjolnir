@@ -51,8 +51,10 @@ def repo(tmp_path, monkeypatch):
     shutil.copy(REPO / "docker" / "vllm-thor" / "Dockerfile", root / "docker" / "vllm-thor" / "Dockerfile")
     shutil.copy(REPO / "docker" / "vllm-thor" / "PATCHES.md", root / "docker" / "vllm-thor" / "PATCHES.md")
     shutil.copy(REPO / "docker" / "vllm-thor" / "README.md.j2", root / "docker" / "vllm-thor" / "README.md.j2")
-    if (REPO / "docs" / "templates").is_dir():  # the cycle-3 template home (root README included, cycle 3k)
+    if (REPO / "docs" / "templates").is_dir():  # the cycle-3 template home
         shutil.copytree(REPO / "docs" / "templates", root / "docs" / "templates", ignore=shutil.ignore_patterns("*.md"))
+    if (REPO / "README.md.j2").is_file():  # the root README template (repo root)
+        shutil.copy(REPO / "README.md.j2", root / "README.md.j2")
     (root / "configs").mkdir()  # sandboxed: render_all must never write the real tree
     for pkg, init in (("mjolnir/mjolnir", "__init__.py"), ("mjolnir-cli/mjolnir_cli", "__init__.py")):
         (root / "src" / pkg).mkdir(parents=True)
@@ -254,5 +256,5 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
 def test_readme_uses_the_hero():
     from mjolnir_cli.config import find_repo_root
 
-    tpl = (find_repo_root() / "docs" / "templates" / "README.md.j2").read_text()
+    tpl = (find_repo_root() / "README.md.j2").read_text()
     assert 'src="assets/hero.png"' in tpl and "header.png" not in tpl
