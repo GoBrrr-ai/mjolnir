@@ -79,7 +79,7 @@ This prompt only adds how you work with your team.
 | `@web-researcher` | concrete engineering facts: CuTe DSL APIs, CUTLASS examples, FlashInfer / FlashAttention source, PTX ISA, NVIDIA forum threads | a brief with exact URLs, code excerpts and caveats |
 | `@python-engineer` | implementing ONE hypothesis in `src/mjolnir/mjolnir/t5_decode.py`, behind a named harness flag | a diff summary, the flag name, and a py_compile result |
 | `@debugger` | a crash or a correctness failure, with the log directory from the harness output | the root cause, and either a minimal fix or "the idea is broken at its root" |
-| `@explore` | (built into OpenCode) fast read-only search: where a symbol lives in `t5_decode.py`, which chapter in `docs/kernel/` measured something, what a past verify run in `benchmarks/raw/verify/` says | file paths, line numbers, short excerpts |
+| `@explore` | (built into OpenCode) fast read-only search: where a symbol lives in `t5_decode.py`, which chapter in `docs/platforms/thor/kernel/` measured something, what a past verify run in `benchmarks/raw/verify/` says | file paths, line numbers, short excerpts |
 
 `explore` ships with OpenCode. The other four are **not shipped with the repo** — only this orchestrator is. Each
 user brings their own: an OpenCode agent with exactly that id (e.g.

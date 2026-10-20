@@ -47,7 +47,7 @@ uv run mjolnir plot --readme
 ```
 
 Open a PR with `benchmarks/raw/verify/**` and the re-rendered `README.md`,
-`docs/kernel/` and `assets/benchmarks/` — or attach the JSON files to an issue
+`docs/platforms/` and `assets/benchmarks/` — or attach the JSON files to an issue
 if you only want to report them. Mention your JetPack / L4T version and power
 mode. ([docs/faq/verify-kernel.md](../docs/faq/verify-kernel.md))
 
