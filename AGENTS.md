@@ -81,7 +81,7 @@ skipped with a hint — nothing blocks on a password.
   2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **e2m3 (fp6) KV** by default
   (`DEFAULT_QUANT` = `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`: fp6 KV with calibrated
   per-channel scales, `mjolnir calibrate`, `docs/faq/fp6-kv.md`; plus an fp8
-  lm_head, a 64K draft vocab and MTP=4); fp8 KV with `NVFP4_MJOLNIR`. Results: README +
+  lm_head, a 64K draft vocab and MTP=5); fp8 KV with `NVFP4_MJOLNIR`. Results: README +
   `docs/platforms/thor/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
@@ -91,16 +91,18 @@ skipped with a hint — nothing blocks on a password.
   vLLM; the FA4 default lives in the enum patch's `fa_utils` hunk). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
 - **The image**: `narandill/mjolnir-vllm:v0.32.0` on
-  `vllm/vllm-openai:v0.32.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
+  `vllm/vllm-openai:v0.32.0-ubuntu2404`; 14 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
   Inventory: `docker/vllm-thor/PATCHES.md`.
 - **Configs** (`configs/Qwen/Qwen3.8-27B/`): `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`
-  (default: Mjolnir, fp6 KV, fp8 lm_head, 64K draft vocab, MTP=4),
+  (default: Mjolnir, fp6 KV, fp8 lm_head, 64K draft vocab, MTP=5),
   `NVFP4_MJOLNIR_E2M3` (Mjolnir, fp6 KV), `NVFP4_MJOLNIR` (Mjolnir, fp8 KV),
   `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV — stock vLLM's
-  choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4).
+  choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4),
+  `AWQ_FLASHINFER` (AWQ int4 W4A16 weights + fp8 KV on FlashInfer — the Orin
+  serving config).
   Opt-in drafter legs (`legs.OPTIONAL`, `bench e2e --optional`;
   `docs/faq/spec-drafters.md`): `NVFP4_DSPARK` / `NVFP4_DFLASH2` (official
   image) and `NVFP4_MJOLNIR_E2M3_DSPARK` / `…_DFLASH2` (Mjolnir) — DSpark or
@@ -111,12 +113,16 @@ skipped with a hint — nothing blocks on a password.
   bf16 KV + FlashInfer. Not yet run on a Thor.
 - **Configs** (`configs/nvidia/Qwen3.6-35B-A3B/`, MoE 256x8, hybrid
   Gated-DeltaNet + 10 full-attention layers): `NVFP4_MJOLNIR_E2M3`
-  (Mjolnir, fp6 KV, MTP=5; the lm_head is already ModelOpt-quantized, so no LMH8) and `NVFP4_DFLASH` (native baseline:
-  a production server's flags, fp8 KV, DFlash K=12, official image only).
-  Production shape: 262K, one sequence, 0.45. Keep the Qwen3.8 extras
-  (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT, mamba align) out, and
-  no draft vocab: `MJOLNIR_DRAFT_VOCAB` on this model adds ~40 GB at startup
-  (#25). Open: a silent Thor hard hang with the E2M3 worker idle (#27).
+  (Mjolnir, fp6 KV, MTP=5; the lm_head is already ModelOpt-quantized, so no
+  LMH8), `NVFP4_MJOLNIR_E2M3_VT64K` (+ the calibrated 64K draft vocab) and
+  `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` (+ the fp8-quantized drafter head),
+  `NVFP4_MJOLNIR` (fp8 KV; the calibration config) and `NVFP4_DFLASH`
+  (native baseline: a production server's flags, fp8 KV, DFlash K=12,
+  official image only). Production shape: 262K, one sequence, 0.45. Keep the
+  Qwen3.8 extras (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT,
+  mamba align) out. #25 (VocabTrim on a quantized head adding ~40 GB at
+  startup) predates the native-quant VT path — the LMH8_VT64K retest came up
+  healthy. Open: a silent Thor hard hang with the E2M3 worker idle (#27).
 - **Platform layer (detection-first)**: no `platform set`/remembered state — every command
   resolves flag > `MJOLNIR_PLATFORM` env > two-source detection (`mjolnir platform` is
   read-only list/show with confidence + provenance). Config overlays
@@ -125,7 +131,7 @@ skipped with a hint — nothing blocks on a password.
   platforms (Orin: JP 7.2.1+, Spark: DGX OS + CUDA 13). thor supported, spark/orin research
   (official-image baselines only); records carry `platform` + `gpu`; `mjolnir.platforms` +
   `mjolnir/arch/` map arch → kernel — MJOLNIR serves on `sm_110` (thor) only.
-- **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
+- **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|chart|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
   `debugger` from the user's global OpenCode config; none ship with the repo). The loop
@@ -212,7 +218,7 @@ mjolnir verify sweep                      # Mjolnir vs FlashInfer vs FA2 (ncu)
 mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing
 mjolnir verify vllm                       # the backend inside vLLM
 mjolnir verify kv-cache-size              # KV tokens per config (restarts the server per leg; refuses while one runs)
-mjolnir verify spec                       # MTP acceptance per position + decode t/s for 1-4 drafts per config (same)
+mjolnir verify spec                       # MTP acceptance per position + decode t/s for 1-7 drafts per config (same)
 mjolnir verify profile                    # torch-profiler trace per config: graph replays, eager kernels, GPU idle (same)
 mjolnir verify bench | all                # every stage once (+ correctness)
 mjolnir verify <stage> --dry-run          # the docker commands, nothing run
