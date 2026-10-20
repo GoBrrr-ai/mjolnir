@@ -18,7 +18,7 @@ def test_reference_covers_every_command():
 def test_readme_overview_names_real_commands():
     from pathlib import Path
 
-    t = (Path(__file__).resolve().parents[2] / "README.md.j2").read_text()
+    t = (Path(__file__).resolve().parents[2] / "docs" / "templates" / "README.md.j2").read_text()
     block = t[t.index("## The CLI") : t.index("## Contributing")]
     named = clidoc.block_commands(block)
     have = {c.path for c in clidoc.walk(app)}

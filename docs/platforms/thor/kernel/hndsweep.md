@@ -61,4 +61,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Headline L-sweep](sweep.md) · [case study](README.md) · [KV layouts and formats →](kvfmt.md)
+[← Headline L-sweep](sweep.md) · [case study](../README.md#kernel) · [KV layouts and formats →](kvfmt.md)

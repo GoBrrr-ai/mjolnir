@@ -57,12 +57,12 @@ mode. ([docs/faq/verify-kernel.md](../docs/faq/verify-kernel.md))
 bit-faithful emulator. The order is fixed: correctness first, then a same-run
 A/B, then the defaults, then the vLLM side.
 
-- each chapter in [`docs/platforms/thor/kernel/`](../docs/platforms/thor/kernel/README.md)
+- each chapter in [`docs/platforms/thor/kernel/`](../docs/platforms/thor/README.md#kernel)
   ends with **open
   ideas** — pick one;
 - new paths go behind a harness flag; flip a default only with an A/B win
   across L (`mjolnir verify ab`);
-- update the chapter's template (`docs/kernel/<stage>.md.j2`) with what you
+- update the chapter's template (`docs/templates/kernel/<stage>.md.j2`) with what you
   learned — negative results included.
 
 Workflow: [`.opencode/skills/kernel-iteration/SKILL.md`](../.opencode/skills/kernel-iteration/SKILL.md).

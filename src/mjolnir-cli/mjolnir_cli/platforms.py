@@ -58,6 +58,12 @@ class Platform:
     # Renderer-facing data (cycle 3e): the short label for tables whose
     # columns are platforms (the config README's serving-profile table).
     short: str = ""
+    # Renderer-facing data (cycle 3k): the platform's pinned headline model —
+    # the pair its kernel index and `## End to end` section render for. Empty
+    # until a platform has a measured model (thor: the repo's default model —
+    # the same value as config.DEFAULT_MODEL, kept literal here because the
+    # registry cannot import config).
+    headline_model: str = ""
 
 
 REGISTRY: dict[str, Platform] = {
@@ -73,6 +79,7 @@ REGISTRY: dict[str, Platform] = {
         status="supported",
         host_requirements="JetPack 7.x",
         short="Thor",
+        headline_model="Qwen/Qwen3.8-27B",
     ),
     # Research rows: no Mjolnir kernel/image exists yet (baselines only until
     # one lands), so the upstream image is the default.

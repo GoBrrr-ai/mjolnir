@@ -39,9 +39,10 @@ from render_targets_fixtures import FP6_QUANT, M36, M38, build_repo
 REPO = Path(__file__).resolve().parents[2]
 TEMPLATE_HOME = REPO / "docs" / "templates"
 
-# the spec §Directory Layout chapter set (docs/templates/kernel/)
+# the spec §Directory Layout chapter set (docs/templates/kernel/) — cycle 3k:
+# the case-study README is no longer a chapter (the index lives on the
+# platform page's `## Kernel` section, built from kernel/_index.md.j2)
 CHAPTERS = (
-    "README",
     "sweep",
     "hndsweep",
     "kvfmt",
@@ -244,12 +245,15 @@ def test_every_discovered_target_builds_a_context(repo):
 
 @pytest.mark.parametrize(
     "tpl",
-    [f"pages/{p}" for p in PAGE_TEMPLATES] + [f"kernel/{c}.md.j2" for c in CHAPTERS],
+    [f"pages/{p}" for p in PAGE_TEMPLATES]
+    + [f"kernel/{c}.md.j2" for c in CHAPTERS]
+    + ["kernel/_index.md.j2", "README.md.j2"],
     ids=lambda v: v,
 )
 def test_the_template_home_holds_every_page_and_kernel_template(tpl):
     """docs/templates/ is the single template home (spec §Directory Layout):
-    the five page templates and the moved kernel chapters live there."""
+    the five page templates, the kernel chapters, the shared kernel-index
+    partial and — cycle 3k — the root README template live there."""
     assert (TEMPLATE_HOME / tpl).is_file(), f"missing docs/templates/{tpl}"
 
 
@@ -266,42 +270,45 @@ def test_platforms_index_lists_every_platform_with_status_and_links(repo):
         assert f"{p}/README.md" in page  # cross-linking map: index → platform pages
 
 
-def test_platform_readme_shows_the_models_quants_matrix(repo):
-    """The matrix is config-scan × availability: on the platform ⇒ the
-    availability symbol; not on the platform ⇒ '—' (spec §Data→Page Mapping)."""
+def test_platform_readme_has_one_row_per_model_with_a_default_config(repo):
+    """Cycle 3k §1: the models table is ONE row per `<org>/<model>` (linked to
+    the model README) — never per config — with a default-config column
+    (linked) and a measured ✅/—. The default-config rule (documented on the
+    builder): no registry record carries a per-platform default config yet, so
+    it is the model page's quickstart rule — DEFAULT_QUANT when the platform's
+    overlays allow it, else the first config they allow (scan order)."""
     _render_all()
     thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
+    serving = _section(thor, "Serving")
+    rows = [ln for ln in serving.splitlines() if ln.startswith("| [`")]
+    assert len(rows) == 2, f"one row per model, got {len(rows)}: {rows}"
+    m38 = _line(serving, f"configs/{M38}/README.md")
+    assert f"[`{FP6_QUANT}`](../../../configs/{M38}/{FP6_QUANT}/README.md)" in m38
+    m36 = _line(serving, f"configs/{M36}/README.md")
+    # no M36 config is DEFAULT_QUANT, so the rule falls to the scan-first
+    # config the overlays allow (NVFP4_FA2, a legacy thor-only dir)
+    assert f"[`NVFP4_FA2`](../../../configs/{M36}/NVFP4_FA2/README.md)" in m36
+    # the availability-prose legend is gone: per-config availability lives on
+    # the model page (cycle 3k §1)
+    assert f"`{FP6_QUANT}` on Jetson AGX Thor:" not in thor
     spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    assert "✅" in _line(thor, FP6_QUANT)  # exists on thor, fp6+MJOLNIR native
-    assert "—" in _line(thor, "AWQ_FLASHINFER")  # orin-only: not on thor
-    assert "—" in _line(spark, "AWQ_FLASHINFER")  # orin-only: not on spark
-    assert "✅" in _line(spark, "NVFP4", exact=("NVFP4",))  # fp8+FLASHINFER native on spark
-    assert "❌" in _line(spark, FP6_QUANT)  # exists on spark, combo unavailable there
+    spark_rows = [ln for ln in _section(spark, "Serving").splitlines() if ln.startswith("| [`")]
+    assert len(spark_rows) == 2
+    # spark's overlays serve NVFP4 first for M38; M36 has no spark config
+    assert "[`NVFP4`](../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md)" in _line(spark, f"configs/{M38}/README.md")
+    assert "| — | — |" in _line(spark, f"configs/{M36}/README.md")
 
 
-def test_availability_cells_render_the_table_states_and_whys(repo):
-    """AC3: availability cells come ONLY from availability.py — every rendered
-    cell shows the module's symbol and why for that (dtype/backend/platform),
-    never a duplicated table (states pulled from the module, not typed here)."""
+def test_platform_readme_measured_column_follows_the_pair_history(repo):
+    """The measured column is ✅ when the (platform, model) pair has e2e
+    history, — otherwise (availability ≠ measured, decision 9)."""
     _render_all()
     thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
+    assert "✅" in _line(_section(thor, "Serving"), f"configs/{M38}/README.md")
+    assert "✅" in _line(_section(thor, "Serving"), f"configs/{M36}/README.md")
     spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    orin = (repo / "docs" / "platforms" / "orin" / "README.md").read_text()
-    m36 = (repo / "configs" / M36 / "README.md").read_text()
-    cells = [
-        (thor, FP6_QUANT, availability.kv_state("fp6_e2m3", "MJOLNIR", "thor")),
-        (spark, FP6_QUANT, availability.kv_state("fp6_e2m3", "MJOLNIR", "spark")),
-        (spark, "NVFP4", availability.kv_state("fp8", "FLASHINFER", "spark")),
-        (m36, "NVFP4_FA2", availability.kv_state("nvfp4", "FA2", "thor")),
-    ]
-    for page, row, cell in cells:
-        assert SYMBOL[cell.state] in _line(page, row), f"{row}: cell symbol missing"
-        assert cell.why in page, f"{row}: the table's why is not rendered"
-    # weights-driven cell: the AWQ name maps to int4-w4a16 (spec §Directory
-    # Layout: 'AWQ_FLASHINFER — int4 W4A16 weights')
-    cell = availability.weights_state("int4-w4a16", "orin")
-    assert SYMBOL[cell.state] in _line(orin, "AWQ_FLASHINFER")
-    assert cell.why in orin
+    assert "✅" in _line(_section(spark, "Serving"), f"configs/{M38}/README.md")
+    assert "| — |" in _line(_section(spark, "Serving"), f"configs/{M36}/README.md")
 
 
 @pytest.mark.parametrize(
@@ -318,30 +325,44 @@ def test_platform_readme_carries_host_requirements(repo, platform, req):
     assert req in (repo / "docs" / "platforms" / platform / "README.md").read_text()
 
 
-def test_platform_readme_marks_measured_rows(repo):
-    """Availability ≠ measured (decision 9): rows carry 'measured: yes/no'
-    from history.jsonl — the spark NVFP4 pair is measured, the fp6 config on
-    spark has no data, the orin-only config has none anywhere."""
-    _render_all()
-    spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    orin = (repo / "docs" / "platforms" / "orin" / "README.md").read_text()
-    assert "measured: yes" in _line(spark, "NVFP4", exact=("NVFP4",))
-    assert "measured: no" in _line(spark, FP6_QUANT)
-    assert "measured: no" in _line(orin, "AWQ_FLASHINFER")
-
-
 @pytest.mark.parametrize(
-    ("platform", "linked"),
+    ("platform", "indexed"),
     [("thor", True), ("spark", False)],
 )
-def test_platform_readme_links_the_kernel_case_study_only_with_raws(repo, platform, linked):
-    """Spec #3/#4: the kernel link appears only when the platform has raws;
-    spark gets the research-status note instead."""
+def test_platform_readme_carries_the_kernel_index_only_with_raws(repo, platform, indexed):
+    """Cycle 3k §1: `## Kernel` embeds the old case-study index (headline
+    findings, chart, chapter table) only when the platform has raws; a rawless
+    platform renders no kernel section at all — and the kernel README is never
+    emitted (its content moved into the section)."""
     _render_all()
     page = (repo / "docs" / "platforms" / platform / "README.md").read_text()
-    assert ("kernel/README.md" in page) is linked
-    if not linked:
-        assert "research" in page
+    assert ("## Kernel" in page) is indexed
+    if indexed:
+        assert "Where it stands" in page  # the headline finding, reused
+        assert "](kernel/sweep.md)" in page  # the chapter table links the chapters
+        assert "<img" in page  # the pair's kernel-speedup chart
+    assert "kernel/README.md" not in page  # the index is the section, not a page
+
+
+def test_the_kernel_readme_is_never_rendered(repo):
+    """Cycle 3k §1: docs/platforms/thor/kernel/README.md is deleted — the
+    chapter pages stay, the README does not come back."""
+    _render_all()
+    assert not (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").exists()
+
+
+def test_platform_readme_renders_the_default_model_e2e_only_with_data(repo):
+    """Cycle 3k §1: the registry's headline model + a measured pair → an
+    `## End to end` section with the model-page A/B row (compact table) and
+    the pair's e2e charts; no headline model (spark) → no section."""
+    _render_all()
+    thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
+    e2e = _section(thor, "End to end")
+    assert f"`{FP6_QUANT}`" in e2e and "`NVFP4`" in e2e  # both sides named
+    assert fx.THOR_GAIN in e2e  # the same pair data the model page renders
+    assert "e2e-decode.png" in e2e  # the pair-scoped chart
+    spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
+    assert "## End to end" not in spark  # no headline model pinned yet
 
 
 def test_platform_readme_inlines_the_hand_written_overview(repo):
@@ -525,21 +546,31 @@ def test_benchmarks_chart_references_resolve_from_the_config_dir(repo):
 
 
 def _md_links(text: str) -> list[str]:
-    """Relative markdown link/image targets (external + anchors skipped)."""
+    """Relative markdown link/image targets, `#anchor` kept (external skipped)."""
     out = []
     for target in (
         re.findall(r"\]\(([^)\s]+)\)", text)
         + re.findall(r'<img src="([^"\s]+)"', text)  # chart() emits plain dark <img>s
     ):
-        if target.startswith(("http", "#", "mailto:")) or "{{" in target:
+        if target.startswith(("http", "mailto:")) or "{{" in target:
             continue
-        out.append(target.split("#")[0])
+        out.append(target)
     return out
+
+
+def _gh_anchors(text: str) -> set[str]:
+    """GitHub-style slugs of every heading (fenced code blocks carry none)."""
+    body = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    return {
+        re.sub(r"[^\w\- ]", "", h.lower()).replace(" ", "-").strip()
+        for h in re.findall(r"^#{1,6} (.+)$", body, flags=re.MULTILINE)
+    }
 
 
 def test_every_relative_link_in_every_rendered_page_resolves(repo):
     """Every relative link/image on every generated page names a file that
-    exists in the rendered tree (spec §Cross-Linking Map, all arrows)."""
+    exists in the rendered tree, and every `#anchor` names a real heading of
+    its target file (spec §Cross-Linking Map, all arrows)."""
     _render_all()
     pages = [repo / "README.md", repo / "docs" / "platforms" / "README.md"]
     pages += sorted((repo / "docs" / "platforms").glob("*/README.md"))
@@ -553,12 +584,20 @@ def test_every_relative_link_in_every_rendered_page_resolves(repo):
     assert len(config_pages) == 6  # every fixture config's README — the only config page (cycle 3f)
     pages += config_pages
     assert len(pages) > 10  # the full target set rendered
-    broken = [
-        f"{page.relative_to(repo)} -> {target}"
-        for page in pages
-        for target in _md_links(page.read_text())
-        if not (page.parent / target).exists()
-    ]
+    broken = []
+    for page in pages:
+        text = page.read_text()
+        for target in _md_links(text):
+            path, _, anchor = target.partition("#")
+            if not anchor:
+                ok = (page.parent / path).exists()
+            elif not path:  # same-file anchor
+                ok = anchor in _gh_anchors(text)
+            else:
+                f = page.parent / path
+                ok = f.exists() and anchor in _gh_anchors(f.read_text())
+            if not ok:
+                broken.append(f"{page.relative_to(repo)} -> {target}")
     assert not broken, broken
 
 

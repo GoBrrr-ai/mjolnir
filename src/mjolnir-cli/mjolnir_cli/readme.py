@@ -778,7 +778,14 @@ def _env(layout: RepoLayout, ctx: Any, out_path: Path) -> jinja2.Environment:
             return ""
         return f'<img src="{prefix + m["dark"]}" alt="{alt or name}" width="{width}">'
 
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True, autoescape=False)
+    env = jinja2.Environment(
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+        autoescape=False,
+        # repo-root-relative, so templates can {% include %} shared partials
+        # (the kernel-index partial the platform pages embed)
+        loader=jinja2.FileSystemLoader(str(layout.repo_root or out_path.parent)),
+    )
     # jinja2 leaves Environment.globals unannotated, so a checker infers the
     # DEFAULT_NAMESPACE value union for it: cast to the mapping it actually is
     cast(dict[str, Any], env.globals).update(
@@ -842,7 +849,7 @@ def render_readme(layout: RepoLayout, template: Path | None = None, out: Path | 
     root = layout.require_repo("rendering the README")
     if template is None and out is None:
         return render_all(layout)
-    tpl = Path(template) if template else root / "README.md.j2"
+    tpl = Path(template) if template else root / "docs" / "templates" / "README.md.j2"
     dest = Path(out) if out else root / "README.md"
     if not tpl.exists():
         raise FileNotFoundError(f"README template not found: {tpl}")

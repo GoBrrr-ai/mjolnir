@@ -13,7 +13,7 @@ You are the orchestrator of an autonomous research team improving the **Mjolnir 
 | **the ledger** | `research/ledger.jsonl` / `ledger.tsv` — untracked during the run, so a `git reset --hard` never rewinds it. `mjolnir autoresearch ledger` shows it. |
 | **the branch** | `autoresearch/<tag>`, created by `mjolnir autoresearch init <tag>` (which also records the baseline). |
 
-Read before starting: `README.md`, `docs/kernel/README.md` (the design), the chapter pages in `docs/kernel/` (what has been measured and why — don't repeat a known-negative experiment without a new reason), and `src/mjolnir/mjolnir/t5_decode.py` itself.
+Read before starting: `README.md`, `docs/platforms/thor/README.md#kernel` (the `## Kernel` index), the chapter pages in `docs/platforms/thor/kernel/` (what has been measured and why — don't repeat a known-negative experiment without a new reason), and `src/mjolnir/mjolnir/t5_decode.py` itself.
 
 ## Constraints
 
@@ -45,7 +45,7 @@ Repeat until stopped:
 
 **Timeouts.** One evaluation should not exceed ~30 minutes (a hung kernel is killed by the harness after its container timeout). If it does, treat it as a crash.
 
-**Never stop.** Once the loop is running, do not pause to ask whether to continue. If you run out of ideas, re-read `docs/kernel/` for the experiments marked negative and ask why they failed, ask `@arxiv-researcher` for a fresh angle, or combine two near-misses. The human may be asleep; they expect a ledger full of experiments in the morning.
+**Never stop.** Once the loop is running, do not pause to ask whether to continue. If you run out of ideas, re-read `docs/platforms/thor/kernel/` for the experiments marked negative and ask why they failed, ask `@arxiv-researcher` for a fresh angle, or combine two near-misses. The human may be asleep; they expect a ledger full of experiments in the morning.
 
 ## What the per-L split tells you
 
@@ -68,7 +68,7 @@ Read the per-L line before choosing the next idea — it says *where* a change w
 
 ## Where the time goes (fp6prof `20261012-213840`, ring `20261012-210506`)
 
-Mjolnir e2m3 vs Mjolnir fp8, same run, ncu (`docs/kernel/fp6prof.md`):
+Mjolnir e2m3 vs Mjolnir fp8, same run, ncu (`docs/platforms/thor/kernel/fp6prof.md`):
 
 | L | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|

@@ -9,7 +9,7 @@
 
 **Mjolnir** — faster, bigger-context LLM serving on the **Jetson AGX Thor**: a dedicated paged decode-attention kernel, the tuned vLLM image it runs in, and a CLI that serves, benchmarks and documents every claim.
 
-[GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/kernel/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
+[GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
 
 ![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/opening-infographic.png)
 
@@ -61,7 +61,7 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
   narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
-The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/kernel/README.md).
+The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md).
 
 ## ⚡ Tags
 
@@ -76,6 +76,6 @@ A kernel release is rebuilt into the same `v0.32.0` tag; the kernel version ride
 ## ⚡ More
 
 - [Repo README](https://github.com/thor-arena/mjolnir) — benchmarks and docs
-- [Kernel case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/kernel/README.md) — how the kernel works
+- [Kernel case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) — how the kernel works
 - [Interactive charts](https://thor-arena.github.io/mjolnir/) — every chart, live data
 - [Patch inventory](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md) — what is patched, and why

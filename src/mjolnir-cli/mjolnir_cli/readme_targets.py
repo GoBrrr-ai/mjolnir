@@ -8,9 +8,11 @@ data and yields one :class:`Target` per spec render target
 * :class:`Root` — the root ``README.md`` (status matrix, measured-pair index,
   the headline pinned to (thor, the default model) — decision 3);
 * :class:`PlatformsIndex` — ``docs/platforms/README.md``;
-* :class:`Platform` — ``docs/platforms/<p>/README.md`` plus, when the platform
-  has verify raws for its headline model, its kernel case study under
-  ``kernel/`` (``chapters`` — spec #4; never for a research platform);
+* :class:`Platform` — ``docs/platforms/<p>/README.md`` — cycle 3k: one row
+  per model, the kernel index in its ``## Kernel`` section and the
+  headline model's A/B in ``## End to end`` — plus the kernel chapters
+  under ``kernel/`` when the platform has verify raws for its headline
+  model (``chapters`` — spec #4; never for a research platform);
 * :class:`Model` — ``configs/<vendor>/<model>/README.md``;
 * :class:`Config` — ``configs/…/<quant>/README.md`` (cycle 3f: the old
   ``BENCHMARKS.md`` is folded into it as the Benchmarks section — the
@@ -66,11 +68,12 @@ from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, STATUS_ICON, platf
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import STAGES
 
-# The spec §Directory Layout chapter set (docs/templates/kernel/): the case
-# study's README plus one chapter per verify stage. Membership is what
-# discovery pins; order is the reading order.
+# The spec §Directory Layout chapter set (docs/templates/kernel/): one
+# chapter per verify stage. Cycle 3k: the case-study README is gone — the
+# index (headline findings, chart, chapter table) is the platform page's
+# `## Kernel` section, built from the shared kernel/_index.md.j2 partial.
+# Membership is what discovery pins; order is the reading order.
 CASE_STUDY_CHAPTERS: tuple[str, ...] = (
-    "README",
     "sweep",
     "hndsweep",
     "kvfmt",
@@ -84,7 +87,7 @@ CASE_STUDY_CHAPTERS: tuple[str, ...] = (
     "spec",
     "kv-cache-size",
 )
-STAGE_CHAPTERS = tuple(c for c in CASE_STUDY_CHAPTERS if c != "README")
+STAGE_CHAPTERS = CASE_STUDY_CHAPTERS
 # verify stages that never carry a case-study chapter
 _UNCHARTED = ("timing", "profile", "vllm")
 
@@ -248,16 +251,6 @@ def exists_on(config_dir: Path, platform: str) -> bool:
     return platform in (overlay_platforms(config_dir) or (DEFAULT_PLATFORM,))
 
 
-def matrix_on(config_dir: Path, platform: str) -> bool:
-    """The platform pages' matrix rule: a config with explicit overlays
-    appears only on its listed platforms (an em-dash elsewhere); a legacy
-    config — no ``platforms/`` dir, the pre-overlay layout — is scanned on
-    every platform and the availability cell says whether it can serve
-    there (the fp6 scheme is ❌ everywhere but thor)."""
-    plats = overlay_platforms(config_dir)
-    return platform in plats if plats else True
-
-
 # ── shared context rows ─────────────────────────────────────────────────────
 
 
@@ -319,7 +312,7 @@ class Root:
 
     def outputs(self, root: Path, layout: RepoLayout) -> list[tuple[Path, Path, Any]]:
         ctx = self.build_context(layout)
-        return [(root / "README.md.j2", root / "README.md", ctx)]
+        return [(root / "docs" / "templates" / "README.md.j2", root / "README.md", ctx)]
 
 
 @dataclass(frozen=True)
@@ -337,29 +330,30 @@ class PlatformsIndex:
 @dataclass(frozen=True)
 class Platform:
     """``docs/platforms/<p>/README.md`` + the platform's kernel case study
-    (spec #3/#4): the chapter set follows the platform's raws."""
+    (spec #3/#4): the chapter set follows the platform's raws. Cycle 3k: the
+    case-study README is gone — the index lives on this page's ``## Kernel``
+    section, and the config matrix became one row per model."""
 
     key: str
     chapters: tuple[str, ...] = ()
 
     def build_context(self, layout: RepoLayout) -> PlatformContext:
         rec = REGISTRY[self.key]
+        model = rec.headline_model or DEFAULT_MODEL
         rows = []
         history = load_records(layout.history_file) if layout.history_file.exists() else []
+        by_model: dict[str, list[ConfigDir]] = {}
         for c in scan_configs(layout):
-            on = matrix_on(c.path, self.key)
-            measured = any(
-                platform_of(r) == self.key and model_of(r) == c.model and r.get("config") == c.quant for r in history
-            )
-            rows.append(
-                MatrixRow(
-                    model=c.model,
-                    quant=c.quant,
-                    exists=on,
-                    cell=_cell_of(c.path, c.quant, self.key) if on else None,
-                    measured=measured,
-                )
-            )
+            by_model.setdefault(c.model, []).append(c)
+        for m, dirs in by_model.items():
+            # the default config rule (cycle 3k §1): no registry record
+            # carries a per-platform default config yet, so it is the model
+            # page's quickstart rule — DEFAULT_QUANT when the platform's
+            # overlays allow it, else the first config they allow (scan order).
+            serving = [c for c in dirs if exists_on(c.path, self.key)]
+            dflt = next((c for c in serving if c.quant == DEFAULT_QUANT), serving[0] if serving else None)
+            measured = any(platform_of(r) == self.key and model_of(r) == m for r in history)
+            rows.append(PlatformModel(model=m, default_config=dflt.quant if dflt else "", measured=measured))
         overview = Path("")
         if layout.repo_root:
             overview = layout.repo_root / "docs" / "platforms" / self.key / "overview.md"
@@ -367,7 +361,8 @@ class Platform:
         if self.chapters:
             from mjolnir_cli import readme  # lazy: the pair-scoped kernel context
 
-            kernel = readme.collect_context(layout, platform=self.key, model=DEFAULT_MODEL)
+            kernel = readme.collect_context(layout, platform=self.key, model=model)
+        e2e = _ab_row(layout, self.key, model, rec.name) if rec.headline_model else None
         return PlatformContext(
             key=rec.key,
             name=rec.name,
@@ -378,6 +373,8 @@ class Platform:
             overview=overview.read_text() if overview.is_file() else "",
             chapters=self.chapters,
             kernel=kernel,
+            e2e=e2e,
+            chart_pair=(self.key, model) if (kernel or e2e) else None,
         )
 
     def outputs(self, root: Path, layout: RepoLayout) -> list[tuple[Path, Path, Any]]:
@@ -489,7 +486,10 @@ def discover_targets(layout: RepoLayout) -> list[Root | PlatformsIndex | Platfor
     config dir (one page each — the merged Benchmarks section rides it)."""
     targets: list[Root | PlatformsIndex | Platform | Model | Config] = [Root(), PlatformsIndex()]
     targets += [
-        Platform(key=p.key, chapters=CASE_STUDY_CHAPTERS if has_kernel_raws(layout, p.key) else ())
+        Platform(
+            key=p.key,
+            chapters=CASE_STUDY_CHAPTERS if has_kernel_raws(layout, p.key, p.headline_model or DEFAULT_MODEL) else (),
+        )
         for p in REGISTRY.values()
     ]
     models = sorted({c.model for c in scan_configs(layout)})
@@ -507,14 +507,14 @@ class PlatformsIndexContext:
 
 
 @dataclass(frozen=True)
-class MatrixRow:
-    """One config row of a platform page's matrix: on the platform ⇒ the
-    availability cell; not on it ⇒ the em-dash."""
+class PlatformModel:
+    """One row of a platform page's models table (cycle 3k §1): the model,
+    its default config on the platform and whether the (platform, model)
+    pair has end-to-end data. The default-config rule lives on
+    :meth:`Platform.build_context`."""
 
     model: str
-    quant: str
-    exists: bool
-    cell: Cell | None
+    default_config: str
     measured: bool
 
 
@@ -525,10 +525,15 @@ class PlatformContext:
     status: str
     sm_family: str
     host_requirements: str
-    rows: list[MatrixRow]
+    rows: list[PlatformModel]
     overview: str
     chapters: tuple[str, ...]
     kernel: Any | None  # the pair-scoped ReadmeContext when the case study renders
+    # cycle 3k §1: the headline model's A/B row (None without a pinned
+    # headline model or without pair data) and the pair the page's charts
+    # resolve for (None when neither section renders)
+    e2e: ABRow | None = None
+    chart_pair: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)

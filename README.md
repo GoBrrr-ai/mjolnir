@@ -26,7 +26,7 @@
   <a href="#jetson-thor-benchmarks">Benchmarks</a> •
   <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
   <a href="#platforms">Platforms</a> •
-  <a href="docs/platforms/thor/kernel/README.md">Case study</a> •
+  <a href="docs/platforms/thor/README.md#kernel">Case study</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -159,7 +159,7 @@ kernel results exist for its headline model — its own kernel case study.
 
 | platform | status | kernel | host requirements |
 |---|---|---|---|
-| **[Jetson AGX Thor](docs/platforms/thor/README.md)** | ✅ supported | [case study](docs/platforms/thor/kernel/README.md) | JetPack 7.x |
+| **[Jetson AGX Thor](docs/platforms/thor/README.md)** | ✅ supported | [case study](docs/platforms/thor/README.md#kernel) | JetPack 7.x |
 | **[DGX Spark](docs/platforms/spark/README.md)** | ⏳ research | — | DGX OS + CUDA 13 |
 | **[Jetson Orin](docs/platforms/orin/README.md)** | ⏳ research | — | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
 
@@ -296,7 +296,7 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 | 🪶 | **6-bit KV (e2m3) read directly by the MMA** (`kind::f8f6f4`, TMA unpacks to byte containers) | 25% fewer bytes at near-fp8 accuracy: [kvfmt](docs/platforms/thor/kernel/kvfmt.md), [quant](docs/platforms/thor/kernel/quant.md), [capacity](docs/platforms/thor/kernel/kv-cache-size.md) |
 | 🚿 | **L2 evict-first on K/V loads**, a 2-stage ring for fp6 | KV is streamed once; keep L2 for the rest of the model: [ring](docs/platforms/thor/kernel/ring.md), [ab](docs/platforms/thor/kernel/ab.md) |
 
-The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the **[kernel case study](docs/platforms/thor/kernel/README.md)** (thor; every platform with raws has its own under `docs/platforms/<p>/kernel/`):
+The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the **[kernel case study](docs/platforms/thor/README.md#kernel)** (thor; every platform with raws carries the same index on its own page):
 
 | chapter | question it answers |
 |---|---|
@@ -388,4 +388,4 @@ Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches
 <br />
 
 <p align="center"><sub>⚡ Mjölnir — built on and for the edge ❤️.</sub></p>
-<p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>
+<p align="center"><sub>Generated from <code>docs/templates/README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>

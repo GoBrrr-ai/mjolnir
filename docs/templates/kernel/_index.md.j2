@@ -1,0 +1,28 @@
+{#- The kernel index: the headline finding, its chart and the chapter table.
+    Cycle 3k: extracted from the old kernel README template so the platform
+    page's `## Kernel` section reuses it verbatim (one source, no duplicated
+    logic). Expects in the including context:
+
+      kctx     — the (platform, headline model) pair's ReadmeContext
+      kprefix  — the relative link prefix to the kernel chapter dir
+                 ("" on a kernel page, "kernel/" on a platform page)
+
+    Self-contained on purpose: it reads kctx, never the page context's
+    globals (`has()` is bound to the page's own ctx; `chart()` gets the pair
+    explicitly). `stages` and `how` are env globals. -#}
+{% if kctx.has_sweep -%}
+**Where it stands:** {{ kctx.geo_vs_fi }}× FlashInfer (geomean over L = {{ kctx.ls }}){% if kctx.geo_vs_fa2 %}, {{ kctx.geo_vs_fa2 }}× FlashAttention 2{% endif %}{% if kctx.correctness %}, {{ kctx.correctness }} correctness checks{% endif %} — run `{{ kctx.sweep_run }}`.
+
+{{ how("kernel") }}
+
+{{ chart("kernel-speedup", "Mjolnir decode speedup over FlashInfer", pair=kctx.chart_pair) }}
+{%- else -%}
+> No headline run in this checkout yet — `mjolnir verify bench`.
+{%- endif %}
+
+| # | chapter | question | status |
+|---|---|---|---|
+{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] -%}
+| {{ loop.index }} | [{{ stages[name].title }}]({{ kprefix }}{{ name }}.md) | {{ stages[name].summary }} | {% if name in kctx.runs %}✅ run `{{ kctx.runs[name] }}`{% else %}⏳ pending{% endif %} |
+{% endfor -%}
+| 13 | [Accuracy]({{ kprefix }}accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | {% if kctx.accuracy_runs %}✅ run `{{ kctx.accuracy_runs[-1] }}`{% else %}⏳ pending{% endif %} |

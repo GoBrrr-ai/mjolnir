@@ -4,7 +4,7 @@ This repo is **the Mjolnir decode-attention kernel for the NVIDIA Jetson AGX
 Thor** (`sm_110`, 20 SMs) and everything around it: the vLLM image it ships in
 (`narandill/mjolnir-vllm`), the `MJOLNIR` vLLM attention backend, and the
 `mjolnir` CLI that serves, verifies and benchmarks it. Every result in the
-README and `docs/kernel/` is rendered from committed raw data. This file is the
+README and `docs/platforms/**` is rendered from committed raw data. This file is the
 operational doc: critical rules, layout, how to work. Read it before doing any
 work here.
 
@@ -82,7 +82,7 @@ skipped with a hint — nothing blocks on a password.
   (`DEFAULT_QUANT` = `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`: fp6 KV with calibrated
   per-channel scales, `mjolnir calibrate`, `docs/faq/fp6-kv.md`; plus an fp8
   lm_head, a 64K draft vocab and MTP=4); fp8 KV with `NVFP4_MJOLNIR`. Results: README +
-  `docs/kernel/`.
+  `docs/platforms/thor/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
   CUSTOM` on stock vLLM 0.32.0 (the `vllm.general_plugins` entry point
@@ -192,7 +192,7 @@ skipped with a hint — nothing blocks on a password.
 - `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
   `history.jsonl`, `logs/` (untracked).
 - `assets/benchmarks/` — generated charts (`*.png`, `manifest.json`).
-- `README.md.j2`, `docs/kernel/*.md.j2` — the templates.
+- `docs/templates/` — the templates (`README.md.j2` root + `pages/` + `kernel/`).
 - `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index
   `docs/README.md`.
 - `research/` — autoresearch program, ledger (untracked while live), exported runs.
@@ -250,7 +250,7 @@ before blaming the kernel);
 tool-eval-bench, pinned commit via `uvx`: the standard 69 tool-call scenarios +
 28 Hard Mode by default; anything after `--` is forwarded, e.g. `-- --gsm8k
 --mmlu --ifeval --skip-tool-eval`; legs as in `bench ab`, restarts per leg;
-`benchmarks/raw/accuracy/<run>/accuracy.json` → `docs/kernel/accuracy.md`);
+`benchmarks/raw/accuracy/<run>/accuracy.json` → `docs/platforms/thor/kernel/accuracy.md`);
 `mjolnir bench ab` (default legs in `legs.py`; legs
 are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.
@@ -431,7 +431,8 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - **Commit style:** short, imperative, grouped by concern (see `git log`).
 
 ## Pointers
-- The kernel case study: `docs/kernel/README.md`.
+- The kernel case study: `docs/platforms/thor/README.md` (the `## Kernel`
+  index; the chapters under `docs/platforms/thor/kernel/`).
 - Kernel package + env knobs: `src/mjolnir/README.md`.
 - Patch inventory: `docker/vllm-thor/PATCHES.md`.
 - Measurement discipline: `docs/methodology/benchmarking.md`.

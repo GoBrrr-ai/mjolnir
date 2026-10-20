@@ -844,7 +844,7 @@ def plot(
         "data)",
     ),
     readme_template: Path | None = typer.Option(
-        None, "--readme-template", help="template override (default: <repo>/README.md.j2)"
+        None, "--readme-template", help="template override (default: <repo>/docs/templates/README.md.j2)"
     ),
     readme_out: Path | None = typer.Option(None, "--readme-out", help="output override (default: <repo>/README.md)"),
     site: Path | None = typer.Option(

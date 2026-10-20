@@ -51,8 +51,7 @@ def repo(tmp_path, monkeypatch):
     shutil.copy(REPO / "docker" / "vllm-thor" / "Dockerfile", root / "docker" / "vllm-thor" / "Dockerfile")
     shutil.copy(REPO / "docker" / "vllm-thor" / "PATCHES.md", root / "docker" / "vllm-thor" / "PATCHES.md")
     shutil.copy(REPO / "docker" / "vllm-thor" / "README.md.j2", root / "docker" / "vllm-thor" / "README.md.j2")
-    shutil.copy(REPO / "README.md.j2", root / "README.md.j2")
-    if (REPO / "docs" / "templates").is_dir():  # the cycle-3 template home
+    if (REPO / "docs" / "templates").is_dir():  # the cycle-3 template home (root README included, cycle 3k)
         shutil.copytree(REPO / "docs" / "templates", root / "docs" / "templates", ignore=shutil.ignore_patterns("*.md"))
     (root / "configs").mkdir()  # sandboxed: render_all must never write the real tree
     for pkg, init in (("mjolnir/mjolnir", "__init__.py"), ("mjolnir-cli/mjolnir_cli", "__init__.py")):
@@ -100,12 +99,11 @@ def test_full_render_from_fixture_data(repo):
     assert "https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.png" in dh
     # the patch inventory re-emitted verbatim from docker/vllm-thor/PATCHES.md
     assert "| File | PR | What it fixes |" in dh and "thor-fp6-e2m3-kv-cache.patch" in dh
-    # the case study renders under the platform tree; the geomean headline and
-    # the chapter content survive the move (same fixture data, same findings)
-    assert (
-        "**Where it stands:** 1.26× FlashInfer"
-        in (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").read_text()
-    )
+    # the kernel index lives on the platform page's `## Kernel` section (cycle
+    # 3k): the headline finding is reused there, the kernel README is gone
+    thor_page = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
+    assert "**Where it stands:** 1.26× FlashInfer" in thor_page
+    assert not (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").exists()
     assert '<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in text
     assert "<picture>" not in text and "srcset" not in text and "prefers-color-scheme" not in text
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
@@ -159,7 +157,6 @@ def test_kernel_chapters_render_under_docs_platforms_thor_kernel(repo):
     charts.render_all(layout)
     readme.render_all(layout)
     for chapter in (
-        "README",
         "sweep",
         "hndsweep",
         "kvfmt",
@@ -257,5 +254,5 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
 def test_readme_uses_the_hero():
     from mjolnir_cli.config import find_repo_root
 
-    tpl = (find_repo_root() / "README.md.j2").read_text()
+    tpl = (find_repo_root() / "docs" / "templates" / "README.md.j2").read_text()
     assert 'src="assets/hero.png"' in tpl and "header.png" not in tpl

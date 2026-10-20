@@ -94,4 +94,4 @@ A bare config runs on the Mjolnir image; `<image>:<config>` pins the image (as i
 
 ---
 
-[← case study](README.md) · [Speculative decoding](spec.md)
+[← case study](../README.md#kernel) · [Speculative decoding](spec.md)

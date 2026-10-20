@@ -69,4 +69,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV format accuracy](quant.md) · [case study](README.md) · [Speculative decoding →](spec.md)
+[← KV format accuracy](quant.md) · [case study](../README.md#kernel) · [Speculative decoding →](spec.md)

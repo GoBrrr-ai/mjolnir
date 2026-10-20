@@ -335,7 +335,8 @@ def _seed_charts(root: Path) -> None:
 
 
 def _copy_templates(root: Path) -> None:
-    """The template home (docs/templates/) — guarded: RED builds without it."""
+    """The template home (docs/templates/ — the root README included, cycle
+    3k) — guarded: RED builds without it."""
     src = REPO / "docs" / "templates"
     if src.is_dir():
         shutil.copytree(src, root / "docs" / "templates", ignore=shutil.ignore_patterns("*.md"))
@@ -349,7 +350,6 @@ def build_repo(tmp_path: Path, monkeypatch, *, with_data: bool = True, overview:
     (root / "docker" / "vllm-thor").mkdir(parents=True)
     for name in ("Dockerfile", "PATCHES.md", "README.md.j2"):
         shutil.copy(REPO / "docker" / "vllm-thor" / name, root / "docker" / "vllm-thor" / name)
-    shutil.copy(REPO / "README.md.j2", root / "README.md.j2")
     _copy_templates(root)
     gh = root / ".github"
     gh.mkdir()

@@ -79,4 +79,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Programmatic dependent launch](pdl.md) · [case study](README.md)
+[← Programmatic dependent launch](pdl.md) · [case study](../README.md#kernel)

@@ -8,42 +8,42 @@
 
 ## Serving on {{ ctx.name }}
 
-Every serving config in `configs/`, whether it exists on {{ ctx.name }} (the
-overlay rule), its availability there — one cell, read from the in-code
-availability table — and whether the pair has end-to-end data. Availability
-is not measurement: links only go where data exists (decision 9).
+One row per model in `configs/` — the config the platform's overlays serve
+by default (the model page's quickstart rule) and whether the
+(platform, model) pair has end-to-end data. Per-config availability lives
+on each [model page](../../../configs/).
 
-| config | model | on {{ ctx.name }} | measured |
-|---|---|---|---|
+| model | default config | measured |
+|---|---|---|
 {% for r in ctx.rows -%}
-| {% if r.exists %}[`{{ r.quant }}`](../../../configs/{{ r.model }}/{{ r.quant }}/README.md){% else %}`{{ r.quant }}`{% endif %} | `{{ r.model }}` | {% if r.exists %}{{ r.cell.symbol }}{% else %}—{% endif %} | measured: {{ "yes" if r.measured else "no" }} |
+| [`{{ r.model }}`](../../../configs/{{ r.model }}/README.md) | {% if r.default_config %}[`{{ r.default_config }}`](../../../configs/{{ r.model }}/{{ r.default_config }}/README.md){% else %}—{% endif %} | {{ "✅" if r.measured else "—" }} |
 {% endfor %}
 
-{% for r in ctx.rows if r.exists -%}
-- `{{ r.quant }}` on {{ ctx.name }}: {{ r.cell.symbol }} {{ r.cell.why }}
-{% endfor %}
+{% if ctx.kernel %}
+## Kernel
 
-## Kernel case study
+Mjolnir on {{ ctx.name }}, measured chapter by chapter and pinned to the
+headline model ({{ ctx.kernel.model }}) — every chart and table rendered
+from raw results in [`benchmarks/raw/verify/`]({{ root }}benchmarks/raw/verify/)
+by `mjolnir plot --readme`; every chapter ends with the command that
+reproduces it.
 
-{% if ctx.chapters -%}
-The [{{ ctx.name }} kernel case study](kernel/README.md) — one chapter per
-experiment, each with its chart, data table and the command that reproduces
-it, pinned to the platform's headline model ({{ ctx.kernel.model }}).
-{% for name in ["correctness", "sweep", "hndsweep", "kvfmt", "quant", "kv-cache-size", "spec", "fp6prof", "ring", "prefetch", "pdl", "ab"] | select("in", ctx.chapters) -%}
-{%- if not loop.first %} · {% endif %}[{{ name }}](kernel/{{ name }}.md)
-{%- endfor %}
-{% else -%}
-No kernel results for {{ ctx.name }} yet. {{ ctx.name }} is a **{{ ctx.status }}**
-platform: native baselines (the upstream vLLM image) until a Mjolnir kernel
-lands for it — this page's matrix and the config pages' Benchmarks sections
-carry its data as it arrives.
+{% set kctx = ctx.kernel %}{% set kprefix = "kernel/" %}{% include "docs/templates/kernel/_index.md.j2" %}
 {% endif %}
-
+{% if ctx.e2e %}
 ## End to end
 
-The per-config A/B rows live on each [model page](../../../configs/) — one
-row per platform, from that platform's own history; the per-config cells in
-each config's Benchmarks section likewise. Platform-level kernel
-charts: under `kernel/` above, when they exist.
+The official vLLM image vs Mjolnir on {{ ctx.name }} — the headline model's
+own history (`latest_pair`), decode tokens/s per request at 1 request.
 
+| official | Mjolnir | official t/s | Mjolnir t/s | change | at |
+|---|---|--:|--:|--:|---|
+| `{{ ctx.e2e.official }}` | `{{ ctx.e2e.mjolnir }}` | {{ ctx.e2e.official_decode }} | {{ ctx.e2e.mjolnir_decode }} | {{ ctx.e2e.change }} | {{ ctx.e2e.ctx }} |
+
+{{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
+
+{{ chart("e2e-prefill", "End-to-end prompt processing: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
+
+{{ how("e2e") }}
+{% endif %}
 Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform={{ ctx.key }}).
