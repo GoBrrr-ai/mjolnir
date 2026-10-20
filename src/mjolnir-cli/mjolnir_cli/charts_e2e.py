@@ -6,7 +6,7 @@ from pathlib import Path
 from collections.abc import Callable
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, model_of, model_short
+from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, model_of
 from mjolnir_cli.history import load_records
 from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import Mode
@@ -336,7 +336,6 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     white, dim, faint = "#ffffff", "#b4bfcc", "#7f8a97"
     c_off, c_mj = theme.DARK.flashinfer, theme.LIGHT.mjolnir
     ver = str(off.get("image", "")).split(":")[-1].split("-")[0].lstrip("v")
-    model = model_short(mj)
     quant = str(mj.get("config", "")).split("_")[0]
     kv = "fp6 KV" if "E2M3" in str(mj.get("config", "")) else "fp8 KV"
 
@@ -369,8 +368,8 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     T(
         BL,
         BY + 0.065,
-        f"1 request  ·  {e2e.ctx_label(h['ctx'])} context  ·  {model} {quant}  ·  {kv}  ·  {e2e.spec_short(off, mj)}"
-        "  ·  vs the official image's native FlashInfer",
+        f"1 request  ·  {e2e.ctx_label(h['ctx'])} context  · {quant}  ·  {kv}  ·  {e2e.spec_short(off, mj)}"
+        "  ·  vs the official vllm",
         10.5,
         dim,
         path_effects=halo,
@@ -378,17 +377,17 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     T(
         BL,
         BY + 0.020,
-        f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy, gated clean windows",
+        f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy",
         8.5,
         faint,
     )
 
     # ── right: four stat blocks ────────────────────────────────────────────
     blocks = (
-        ("tg_tps", "faster decode", "slower decode", "tokens / s", "{:.1f}"),
-        ("pp_tps", "faster prefill", "slower prefill", "prompt tokens / s", "{:,.0f}"),
-        ("ttft_ms", "lower TTFT", "higher TTFT", "time to first token", None),
-        ("itl_ms", "lower ITL", "higher ITL", "inter-token latency", "{:.1f} ms"),
+        ("tg_tps", "faster decode", "slower decode", "", "{:.1f}"),
+        ("pp_tps", "faster prefill", "slower prefill", "", "{:,.0f}"),
+        ("ttft_ms", "lower TTFT", "higher TTFT", "", None),
+        ("itl_ms", "lower ITL", "higher ITL", "", "{:.1f} ms"),
     )
     L, R, gap = 0.56, 0.96, 0.045
     cw = (R - L - gap) / 2
