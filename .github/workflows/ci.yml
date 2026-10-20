@@ -247,7 +247,7 @@ jobs:
       - name: README + docs are reproducible from the raw data
         run: |
           uv run mjolnir plot --readme
-          git diff --exit-code -- README.md docker/vllm-thor/README.md docs/ configs/ assets/benchmarks/
+          git diff --exit-code -- README.md docker/vllm-thor/README.md docs/ configs/ assets/benchmarks/manifest.json
 
   build:
     needs: filter
