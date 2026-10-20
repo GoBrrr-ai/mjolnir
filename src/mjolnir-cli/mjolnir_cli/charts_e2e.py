@@ -296,7 +296,13 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     comes from the latest history pair (:func:`mjolnir_cli.e2e.latest_pair`)
     — one request at the smallest context both sides measured
     (:func:`mjolnir_cli.e2e.infographic_row`) — native FlashInfer on the
-    official vLLM image vs the Mjolnir backend on the Mjolnir image."""
+    official vLLM image vs the Mjolnir backend on the Mjolnir image.
+
+    Thor-only today. When Orin/DGX Spark pairs exist, render one chart per
+    platform (``opening-infographic-<platform>.png``; a platform suffix on a
+    per-platform chart is a data dimension, not the banned theme suffix) and
+    let the root template pick by the page's platform.
+    """
     import numpy as np
     from matplotlib.patches import FancyBboxPatch
 
