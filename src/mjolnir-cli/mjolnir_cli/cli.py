@@ -46,11 +46,13 @@ from mjolnir_cli.config import (
     user_configs_dir,
 )
 from mjolnir_cli import cachectl, charts, dockerctl, litellm, perses, picker, readme, tasks, thor
+from mjolnir_cli.cli_platform import platform_app
 from mjolnir_cli.verify.cli import app as verify_app
 from mjolnir_cli.autoresearch import app as autoresearch_app
 from mjolnir_cli.cli_bench import app as bench_app
 
 from mjolnir_cli.cli_shared import _HELP_CTX, _console, _load_state, _save_state, _settings, _state_file
+from mjolnir_cli.platforms import UnknownPlatform, resolve_platform
 
 
 def _picker_group(bare_fn) -> type[TyperGroup]:
@@ -146,6 +148,7 @@ app.add_typer(serve_app, name="serve")
 app.add_typer(bench_app, name="bench")
 app.add_typer(model_app, name="model")
 app.add_typer(image_app, name="image")
+app.add_typer(platform_app, name="platform")
 app.add_typer(verify_app, name="verify")
 app.add_typer(autoresearch_app, name="autoresearch")
 app.add_typer(litellm_app, name="litellm")
@@ -427,7 +430,8 @@ def hw_setup(
     MAXN power mode. Idempotent — safe to re-run; the script asks for
     sudo."""
     try:
-        rc = thor.run_setup(
+        rc = thor.dispatch(
+            resolve_platform(None),
             yes=yes,
             upgrade=upgrade,
             keep_gui=keep_gui,
@@ -437,6 +441,9 @@ def hw_setup(
             reboot=reboot,
             dry_run=dry_run,
         )
+    except UnknownPlatform as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from None
     except (ValueError, FileNotFoundError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4) from e
@@ -712,8 +719,8 @@ def calibrate(
     out: Path | None = typer.Option(
         None,
         "--out",
-        help="default: the model's kv_scales.json next to the config dirs — kv_scales.json inside the config "
-        "dir for a config whose own drafter (DSpark) runs on Mjolnir",
+        help="default: the model's kv_scales/<format>.json next to the config dirs — kv_scales/<drafter>.kv_scales.json "
+        "for a config whose own drafter (DSpark) runs on Mjolnir",
     ),
     prompts: int = typer.Option(48, "--prompts", help="short prompts"),
     long: int = typer.Option(6, "--long", help="long-context prompts"),
@@ -730,8 +737,8 @@ def calibrate(
 
     Runs the config's model on fp8 KV in the Mjolnir image, records the
     per-channel amax of every K/V written to the cache over a varied prompt set,
-    and writes ``kv_scales.json`` next to the config — what an
-    ``kv-cache-dtype: fp6_e2m3`` config is served with. Needs the GPU to
+    and writes the per-format ``kv_scales/<format>.json`` next to the config —
+    what an ``kv-cache-dtype: fp6_e2m3`` config is served with. Needs the GPU to
     itself: refuses while the vLLM server is up (stop it with
     ``mjolnir serve down`` in a window you own)."""
     s = _settings(model, config, image, None)
@@ -743,15 +750,7 @@ def calibrate(
             err=True,
         )
         raise typer.Exit(3)
-    target = out or (
-        dockerctl.kv_scales_host_path(s).with_name("draft_vocab.json")
-        if draft_vocab
-        else dockerctl.kv_scales_host_path(s)
-    )
-    if not os.access(target.parent if target.parent.exists() else Path.home(), os.W_OK):
-        from mjolnir_cli.config import user_configs_dir
-
-        target = user_configs_dir() / s.model / target.name
+    target = dockerctl.calibrate_targets(s, out, draft_vocab)
     target.parent.mkdir(parents=True, exist_ok=True)
     mounts = [(str(target.parent.resolve()), "/out")]
     env = []
@@ -848,7 +847,7 @@ def plot(
         None, "--site", help="also build the interactive benchmark site (index.html) into this directory"
     ),
 ):
-    """Render every chart (light + dark PNGs in assets/benchmarks/, from the
+    """Render every chart (PNGs in assets/benchmarks/, from the
     latest default `mjolnir verify` run of each stage + the e2e history).
     --readme also renders README.md and docs/**/*.md from their .md.j2
     templates; --site builds the interactive GitHub Pages site. Everything is
@@ -931,5 +930,18 @@ def version():
     typer.echo(f"mjolnir {__version__}")
 
 
+def main() -> None:
+    """The console-script entry point: a host that detection cannot name must
+    fail every resolving command with the probe instructions (exit 2), never
+    a raw traceback (review cycle 2, IMPROVEMENT 3). ``platform show`` and
+    ``hw`` keep their own handlers and exits; a bad flag/env value keeps its
+    ``ValueError``."""
+    try:
+        app()
+    except UnknownPlatform as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise SystemExit(2) from None
+
+
 if __name__ == "__main__":
-    app()
+    sys.exit(main())

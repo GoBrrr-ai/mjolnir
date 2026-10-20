@@ -9,14 +9,14 @@ contexts), and the result is written as a ``mjolnir.kv_scales/2`` file —
 what ``MJOLNIR_ATTN_KV_SCALES`` points ``--kv-cache-dtype fp6_e2m3`` at.
 
     python -m mjolnir.calibrate --config /configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/config.yaml \\
-        --out /out/kv_scales.json --download-dir /data/models/huggingface
+        --out /out/e2m3.json --download-dir /data/models/huggingface
     python -m mjolnir.calibrate --model Qwen/Qwen3-0.6B --out /tmp/scales.json   # small models / tests
 
 The scales cover every attention layer that runs on the Mjolnir backend,
 drafters included (drafting writes its KV too): the built-in MTP head, and an
 external drafter whose ``speculative-config.attention_backend`` is MJOLNIR
 (DSpark: its 5 layers come out as layers 64-68). ``mjolnir calibrate`` runs this in the image and writes a config
-with its own drafter to ``<config>.kv_scales.json``.
+with its own drafter to ``kv_scales/<method>.kv_scales.json``.
 """
 
 from __future__ import annotations

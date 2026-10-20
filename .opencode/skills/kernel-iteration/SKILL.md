@@ -46,9 +46,9 @@ Use this when changing the kernel or its defaults by hand (the autonomous loop i
    container logs in `benchmarks/logs/verify-<run_id>/`.
 4. **Publish** — when a change is a win: `mjolnir verify bench` (one headline run
    per stage), then `uv run mjolnir plot --readme`; commit the raw JSON, the
-   re-rendered `README.md`, `docs/kernel/*.md` and `assets/benchmarks/`. CI fails
+   re-rendered `README.md`, `docs/platforms/thor/kernel/*.md` and `assets/benchmarks/`. CI fails
    if the README does not reproduce from the committed data.
-5. **Write it up** — the chapter in `docs/kernel/<stage>.md.j2` (question /
+5. **Write it up** — the chapter in `docs/templates/kernel/<stage>.md.j2` (question /
    method / result / ideas). Text that states a number comes from the data via
    the template, never typed by hand.
 

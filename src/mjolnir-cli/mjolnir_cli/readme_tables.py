@@ -326,7 +326,7 @@ def kvcache_label(r: dict) -> str:
     if r.get("side") != "official":
         extra = "".join(
             f" + {name}"
-            for tag, name in (("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab"), ("VT32K", "32K draft vocab"))
+            for tag, name in (("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab"))
             if tag in str(r.get("config", "")).split("_")
         )
         return f"Mjolnir · {kv} KV{extra}"

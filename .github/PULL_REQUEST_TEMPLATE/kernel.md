@@ -19,5 +19,5 @@
 
 ## Notes
 
-<!-- what surprised you; negative results belong in the docs/kernel/<stage>.md.j2
+<!-- what surprised you; negative results belong in the docs/templates/kernel/<stage>.md.j2
      chapter ("open ideas" section) as well. -->

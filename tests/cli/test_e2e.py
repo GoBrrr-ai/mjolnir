@@ -18,8 +18,11 @@ def _cell(conc, ctx, tg, pp, ttfr):
     }
 
 
-def _rec(image, config, epoch, cells, model="Qwen/Qwen3.8-27B"):
-    return {"model": model, "image": image, "config": config, "epoch": epoch, "backend": "x", "cells": cells}
+def _rec(image, config, epoch, cells, model="Qwen/Qwen3.8-27B", platform=None):
+    rec = {"model": model, "image": image, "config": config, "epoch": epoch, "backend": "x", "cells": cells}
+    if platform:
+        rec["platform"] = platform
+    return rec
 
 
 def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
@@ -43,6 +46,51 @@ def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
     assert round(hero["ttft_ms"][2], 1) == round((3900 - 3200) / 3900 * 100, 1) == 17.9
     assert round(e2e.change_pct(3900, 3200), 1) == -17.9
     assert round(hero["itl_ms"][1], 3) == round(1000 / 30, 3)
+
+
+def test_infographic_row_is_the_one_smallest_measured_c1_context(tmp_path):
+    """The infographic reads ONE row — C=1 at the smallest context both sides
+    measured — for all four metrics: never the best-gain cell, never C=2 or
+    the ctx=0 decode-only cell."""
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec(
+            "vllm/vllm-openai:v0.32.0",
+            "NVFP4",
+            1,
+            [
+                _cell(1, 0, 20, 0, 800),
+                _cell(1, 4096, 18, 2000, 4000),
+                _cell(1, 8192, 15, 1900, 5000),  # higher decode gain than 4K — still not the row
+                _cell(2, 8192, 90, 9000, 1000),
+            ],
+        ),
+        _rec(
+            "narandill/mjolnir-vllm:v0.32.0",
+            "NVFP4_MJOLNIR",
+            2,
+            [
+                _cell(1, 0, 30, 0, 600),
+                _cell(1, 4096, 25, 5000, 3000),
+                _cell(1, 8192, 25, 6000, 3600),
+                _cell(2, 8192, 99, 9900, 900),
+            ],
+        ),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR")
+    assert off and mj
+    row = e2e.infographic_row(off, mj)
+    assert row
+    assert row["ctx"] == 4096
+    assert row["tg_tps"][:2] == (18.0, 25.0)  # values from the 4K row, not 8K or ctx=0
+    assert round(row["tg_tps"][2], 1) == round((25 / 18 - 1) * 100, 1)
+    assert row["pp_tps"][:2] == (2000.0, 5000.0)
+    assert round(row["pp_tps"][2], 1) == 150.0
+    assert round(row["ttft_ms"][1], 3) == 3000.0  # TTFT falls back to ttfr like hero
+    assert round(row["ttft_ms"][2], 1) == 25.0
+    assert round(row["itl_ms"][1], 3) == round(1000 / 25, 3)  # ITL falls back to 1000/tg at c=1
+    assert round(row["itl_ms"][2], 1) == 28.0
 
 
 def test_benchy_cells_carry_ttft_and_itl():
@@ -343,3 +391,67 @@ def test_compare_defaults_to_the_models_own_mjolnir_config(tmp_path):
     off, mj = e2e.latest_pair(h, model=q36)
     assert off and mj
     assert off["config"] == "NVFP4_DFLASH" and mj["config"] == "NVFP4_MJOLNIR_E2M3"
+
+
+# ── the platform dimension (plan §2 scenarios 34-38) ────────────────────────
+
+
+def test_latest_pair_platform_filter_ignores_other_platforms_rows(tmp_path):
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.32.0-ubuntu2404", "NVFP4", 1, [_cell(1, 8192, 20, 2000, 4000)], platform="spark"),
+        _rec("narandill/mjolnir-vllm:v0.32.0", "NVFP4_MJOLNIR", 2, [_cell(1, 8192, 30, 2600, 3200)], platform="spark"),
+        _rec("vllm/vllm-openai:v0.32.0-ubuntu2404", "NVFP4", 3, [_cell(1, 8192, 22, 2100, 3900)]),  # thor
+        _rec("narandill/mjolnir-vllm:v0.32.0", "NVFP4_MJOLNIR", 4, [_cell(1, 8192, 32, 2700, 3100)]),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR", platform="thor")
+    assert off and mj
+    assert off["epoch"] == 3 and mj["epoch"] == 4  # the spark rows with the same config are ignored
+
+
+def test_latest_pair_never_pairs_across_platform_boundaries(tmp_path):
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.32.0-ubuntu2404", "NVFP4", 1, [_cell(1, 8192, 20, 2000, 4000)], platform="spark"),
+        _rec("narandill/mjolnir-vllm:v0.32.0", "NVFP4_MJOLNIR", 2, [_cell(1, 8192, 30, 2600, 3200)], platform="spark"),
+        _rec("vllm/vllm-openai:v0.32.0-ubuntu2404", "NVFP4", 3, [_cell(1, 8192, 22, 2100, 3900)]),  # thor
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR", platform="thor")
+    assert off is not None and off["epoch"] == 3
+    assert mj is None  # the spark Mjolnir row never stands in for a thor one
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR", platform="spark")
+    assert off is not None and off["epoch"] == 1
+    assert mj is not None and mj["epoch"] == 2  # and the thor rows are invisible to spark
+
+
+def test_legacy_platform_less_rows_pair_as_thor(tmp_path):
+    # the repo's committed history has no platform field: it pairs as thor
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 8192, 20, 2000, 4000)]),
+        _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR", 2, [_cell(1, 8192, 30, 2600, 3200)]),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR", platform="thor")
+    assert off and mj and off["epoch"] == 1 and mj["epoch"] == 2
+
+
+def test_is_mjolnir_recognizes_registry_image_repos_and_legacy_names():
+    import mjolnir_cli.platforms as platforms
+
+    for key in ("thor", "spark", "orin"):
+        repo = platforms.REGISTRY[key].image_repo
+        assert e2e.is_mjolnir({"image": f"{repo}:v1"}), key
+    assert e2e.is_mjolnir({"image": "mjolnir/vllm-thor:old"})  # the legacy names keep classifying
+    assert e2e.is_mjolnir({"image": "narandill/mjolnir-vllm:v0.32.0"})
+
+
+def test_is_official_is_true_for_a_stock_image_on_any_platform():
+    import mjolnir_cli.platforms as platforms
+
+    for key in ("thor", "spark", "orin"):
+        stock = platforms.REGISTRY[key].stock_image
+        assert stock and e2e.is_official({"image": stock}), key  # official = the stock image, any platform
+    assert not e2e.is_official({"image": "narandill/mjolnir-vllm:v0.32.0"})

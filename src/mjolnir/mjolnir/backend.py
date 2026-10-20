@@ -40,6 +40,7 @@ from typing import Any, ClassVar
 import torch
 
 from . import banner
+from .platforms import unsupported_reason
 from .runner import (
     SUPPORTED_PAGE_SIZES,
     StepPlan,
@@ -238,6 +239,13 @@ def ineligible_reason(kv_cache_spec, layer_names, vllm_config) -> str | None:
     return None
 
 
+def _unsupported_arch_reason(device) -> str | None:
+    """None on a supported compute capability; else the platform registry's
+    verdict (torch-free leaf), routed into the same t5=None fallback as every
+    ineligible config."""
+    return unsupported_reason(torch.cuda.get_device_capability(device))
+
+
 # --------------------------------------------------------------------------
 # fp6 (e2m3) KV: preconditions and per-channel scales
 # --------------------------------------------------------------------------
@@ -395,6 +403,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         self._fp6 = self._kv_format == "e2m3"
         self._page = kv_cache_spec.block_size
         self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
+        if self._t5_reason is None:
+            # platform guard (surgical): a GPU without a Mjolnir kernel
+            # degrades exactly like any other ineligible config
+            self._t5_reason = _unsupported_arch_reason(device)
         # Diagnosis knobs for the draft path (MTP / EAGLE drafter layers):
         # MJOLNIR_ATTN_DRAFT_T5=0 runs every drafter step on the fallback;
         # MJOLNIR_ATTN_FUSED_DRAFT=0 makes vLLM rebuild the draft metadata

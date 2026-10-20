@@ -1,0 +1,108 @@
+# {{ ctx.model }}
+
+`{{ ctx.quant }}` — {{ ctx.label }} · serving profile. Flags live in
+[config.yaml](config.yaml){% if ctx.has_overlays %}, platform deltas in [platforms/](platforms/){% endif %}{% if ctx.has_env %}, Mjolnir env switches in `.env`{% endif %}; every number on
+this page derives from the committed raw data ([history]({{ root }}benchmarks/history.jsonl), [raw]({{ root }}benchmarks/raw/)). The model's [README](../README.md).
+
+## Serving profile
+
+| parameter{% for p in ctx.platforms %} | {{ p.short }}{% endfor %} |
+|---{% for p in ctx.platforms %}|---{% endfor %}|
+{% for row in ctx.profile -%}
+| {{ row.label }}{% for c in row.cells %} | {{ c }}{% endfor %} |
+{% endfor %}
+## Serve
+
+{% for p in ctx.platforms -%}
+**{{ p.name }}**
+```bash
+{{ p.argv }}
+```
+Availability: {{ p.cell.symbol }} {{ p.cell.why }}
+
+{% endfor -%}
+Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config={{ ctx.quant }}).
+
+## Benchmarks
+{%- if ctx.bench.no_data %}
+
+{{ ctx.bench.no_data }}
+{%- endif %}
+{%- set e2e_secs = ctx.bench.sections | selectattr("e2e") | list %}
+{%- if e2e_secs %}
+{% for s in e2e_secs %}{{ "\n\n" if not loop.first }}{% if e2e_secs | length == 1 %}### End to end ({{ s.e2e.label }}){% else %}### End to end — {{ s.name }} ({{ s.e2e.label }}){% endif %}
+
+{% if s.e2e.kind == "pair" %}| metric | official `{{ s.e2e.official }}` | Mjolnir `{{ s.e2e.mjolnir }}` | change |
+|---|--:|--:|--:|
+{%- for r in s.e2e.rows %}
+| {{ r.metric }} ({{ r.unit }}) | {{ r.official }} | {{ r.mjolnir }} | {{ r.change }} |
+{%- endfor %}
+{%- set img = chart("e2e-decode", "End-to-end decode throughput", pair=s.e2e.chart_pair) %}
+{%- if img %}
+
+{{ img }}
+{%- endif %}
+{%- else %}
+| metric | `{{ s.e2e.config }}` |
+|---|--:|
+{%- for r in s.e2e.rows %}
+| {{ r.metric }} ({{ r.unit }}) | {{ r.value }} |
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- if e2e_secs | selectattr("e2e.kind", "equalto", "pair") | list %}
+
+{{ how("e2e") }}
+{%- endif %}
+{%- endif %}
+{%- set spec_secs = ctx.bench.sections | selectattr("spec") | list %}
+{%- if spec_secs %}
+
+<details>
+<summary>Speculative decoding</summary>
+
+{%- for s in spec_secs %}
+{%- set hdr = "\n**" ~ s.name ~ "**\n\n" if spec_secs | length > 1 else "\n" %}
+{{ hdr }}{{ s.spec }}
+
+{{ how("spec") }}
+{%- endfor %}
+</details>
+{%- endif %}
+{%- set kv_secs = ctx.bench.sections | selectattr("kv") | list %}
+{%- if kv_secs %}
+
+<details>
+<summary>KV capacity</summary>
+
+{%- for s in kv_secs %}
+{%- set hdr = "\n**" ~ s.name ~ "**\n\n" if kv_secs | length > 1 else "\n" %}
+{{ hdr }}{{ s.kv }}
+
+{{ how("kvcache") }}
+{%- endfor %}
+</details>
+{%- endif %}
+{%- set acc_secs = ctx.bench.sections | selectattr("accuracy") | list %}
+{%- if acc_secs %}
+
+<details>
+<summary>Model quality (per suite)</summary>
+
+{%- for s in acc_secs %}
+{%- set hdr = "\n**" ~ s.name ~ "**\n\n" if acc_secs | length > 1 else "\n" %}
+{{ hdr }}| suite | score |
+|---|--:|
+{%- for label, score in s.accuracy %}
+| {{ label }} | {{ score }} |
+{%- endfor %}
+
+{{ how("accuracy") }}
+{%- endfor %}
+</details>
+{%- endif %}
+{%- set ks_secs = ctx.bench.sections | selectattr("kernel_study") | list %}
+{%- if ks_secs %}
+
+The per-stage kernel numbers — findings, charts and raw provenance — live in the{% for s in ks_secs %}{{ " ·" if not loop.first }} [{{ s.name }} kernel case study]({{ root }}docs/platforms/{{ s.key }}/README.md#kernel){% endfor %}, one chapter per verify stage.
+{%- endif %}

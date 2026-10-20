@@ -1,0 +1,4 @@
+# Thor overlay for NVFP4: the base config is the thor serving config as-is
+# (fp8 KV via FlashInfer) — the delta is empty; this file marks the config as
+# existing on thor (a platforms/ dir lists exactly the platforms it serves).
+{}

@@ -12,9 +12,10 @@ from rich.table import Table
 
 from mjolnir_cli import benchy, charts, dockerctl, e2e, readme
 from mjolnir_cli import legs as legs_
-from mjolnir_cli.cli_shared import _HELP_CTX, _settings
+from mjolnir_cli.cli_shared import _HELP_CTX, _platform_leg, _settings
 from mjolnir_cli.config import (
     DEFAULT_IMAGE,
+    DEFAULT_PLATFORM,
     DEFAULT_QUANT,
     E2E_DEPTHS,
     STOCK_IMAGE,
@@ -32,6 +33,17 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 bench_app = app
+
+
+def _platform_backends(ctx: typer.Context, s: Settings, stage: str, backends: str) -> str:
+    """``--backends`` sentinel semantics: the import-time typer default is the
+    default platform's leg table, so on another platform an unset flag
+    re-resolves the legs there (filtered to configs that exist for the model);
+    an explicit flag always wins."""
+    platform = s.platform or DEFAULT_PLATFORM  # a direct Settings serves the default table
+    resolved = _platform_leg(ctx, "backends", platform, backends, legs_.bench_legs(stage, platform, s.model))
+    assert resolved is not None  # `backends` is a str: the sentinel never nulls an explicit value
+    return resolved
 
 
 @bench_app.command("perf")
@@ -146,6 +158,7 @@ def _ab_legs(
 
 @bench_app.command("ab")
 def bench_ab(
+    ctx: typer.Context,
     backends: str = typer.Option(
         legs_.bench_legs("bench.ab"),
         "--backends",
@@ -186,7 +199,7 @@ def bench_ab(
     layout = load_layout()
     entries = scan_all_configs(layout)
     try:
-        legs = _ab_legs(backends, s.model, s.image, entries)
+        legs = _ab_legs(_platform_backends(ctx, s, "bench.ab", backends), s.model, s.image, entries)
     except ValueError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4) from e
@@ -244,15 +257,15 @@ def bench_accuracy(
     `-- --gsm8k --mmlu --ifeval --skip-tool-eval --gsm8k-limit 200`.
     Results: benchmarks/raw/accuracy/<run>/accuracy.json (committed; the
     tool's SQLite, reports and the server log stay next to it, untracked);
-    docs/kernel/accuracy.md is rendered from the newest result per config and
-    suite."""
+    docs/platforms/<platform>/kernel/accuracy.md is rendered from the newest
+    result per config and suite."""
     from mjolnir_cli import accuracy
 
     s = _settings(model, None, image, port)
     layout = load_layout()
     entries = scan_all_configs(layout)
     try:
-        legs = _ab_legs(backends, s.model, s.image, entries)
+        legs = _ab_legs(_platform_backends(ctx, s, "bench.accuracy", backends), s.model, s.image, entries)
     except ValueError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4) from e
@@ -400,6 +413,7 @@ def _print_compare(
 
 @bench_app.command("e2e")
 def bench_e2e(
+    ctx: typer.Context,
     official_image: str = typer.Option(STOCK_IMAGE, "--official-image", help="the upstream vLLM image (baseline)"),
     official_config: str = typer.Option(
         legs_.side_configs("bench.e2e", legs_.OFFICIAL)[0],
@@ -457,27 +471,44 @@ def bench_e2e(
     def ints(v: str) -> list[int]:
         return [int(x) for x in v.replace(" ", ",").split(",") if x.strip()]
 
-    legs = [
-        (s.model, official_image, official_config, f"vLLM {VLLM_VERSION} (official image)"),
-        (s.model, image, config, None),
-    ]
+    # The typer defaults are the default platform's leg table, bound at import
+    # time — on another platform an unset flag re-resolves there (the sentinel
+    # shared with bench ab / accuracy); an explicit flag always wins. On a
+    # research platform the Mjolnir side is empty: no Mjolnir leg is served.
+    platform = s.platform or DEFAULT_PLATFORM  # resolve() always sets it; a direct Settings serves the default table
+    plat_ls = legs_.available_serving_legs("bench.e2e", platform, s.model)
+    plat_official = next((q for side, q in plat_ls if side == legs_.OFFICIAL), None)
+    plat_mj = [q for side, q in plat_ls if side == legs_.MJOLNIR]
+    official_cfg = _platform_leg(ctx, "official_config", platform, official_config, plat_official)
+    mj_cfg = _platform_leg(ctx, "config", platform, config, plat_mj[0] if plat_mj else None)
+    also_cfg = _platform_leg(ctx, "also", platform, also, ",".join(plat_mj[1:])) or ""
+    official_label = f"vLLM {VLLM_VERSION} (official image)"
+
+    def leg_for(side: str, q: str) -> tuple:
+        return (
+            s.model,
+            official_image if side == legs_.OFFICIAL else image,
+            q,
+            official_label if side == legs_.OFFICIAL else None,
+        )
+
+    pair = [(legs_.OFFICIAL, official_cfg), (legs_.MJOLNIR, mj_cfg)]
     if only:
         side = only.strip().lower()
         if side not in ("mjolnir", "official"):
             typer.secho(f"--only must be 'mjolnir' or 'official', got {only!r}", fg=typer.colors.RED, err=True)
             raise typer.Exit(2)
-        legs = [legs[1] if side == "mjolnir" else legs[0]]
-    extra = [legs_.parse_leg(q) for q in also.split(",") if q.strip()]
+        pair = [(sd, q) for sd, q in pair if sd == side]
+    legs = [leg_for(sd, q) for sd, q in pair if q]
+    extra = [legs_.parse_leg(q) for q in also_cfg.split(",") if q.strip()]
     if optional:
         extra += list(legs_.OPTIONAL["bench.e2e"])
     side_only = only.strip().lower() if only else None
     for side, q in dict.fromkeys(extra):
         if side_only and side != side_only:
             continue
-        if side == legs_.OFFICIAL and q != official_config:
-            legs.append((s.model, official_image, q, f"vLLM {VLLM_VERSION} (official image)"))
-        elif side == legs_.MJOLNIR and q != config:
-            legs.append((s.model, image, q, None))
+        if (side == legs_.OFFICIAL and q != official_cfg) or (side == legs_.MJOLNIR and q != mj_cfg):
+            legs.append(leg_for(side, q))
     stale = dockerctl.stale_image(image) if any(leg[1] == image for leg in legs) else None
     if stale and not dry_run:
         if not allow_stale_image:
@@ -505,8 +536,8 @@ def bench_e2e(
         pp=pp,
         tg=tg,
     )
-    _print_compare(layout, config, official_config=official_config, model=s.model)
-    measured = [(img, q) for _, img, q, _ in legs if q not in (config, official_config)]
+    _print_compare(layout, mj_cfg or config, official_config=official_cfg, model=s.model)
+    measured = [(img, q) for _, img, q, _ in legs if q not in (mj_cfg, official_cfg)]
     if measured:
         typer.echo("optional legs — compare them with:")
         offs = [q for img, q in measured if img == official_image]

@@ -20,6 +20,16 @@ from pathlib import Path
 
 import yaml
 
+# platform_of / series_key: re-exported beside model_of so existing imports
+# stay one stop apart (tests pin the identity: config.platform_of is platforms.platform_of)
+from mjolnir_cli.platforms import (
+    DEFAULT_PLATFORM,
+    REGISTRY,
+    resolve_platform,
+    platform_of as platform_of,
+    series_key as series_key,
+)
+
 # ── Model / config ───────────────────────────────────────────────────────────
 DEFAULT_MODEL = "Qwen/Qwen3.8-27B"
 
@@ -59,10 +69,16 @@ SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
 # ── Image / serving ──────────────────────────────────────────────────────────
 # The image tag follows the upstream vLLM version it overlays (see
 # .github/workflows/docker-image.yml): narandill/mjolnir-vllm:v<vllm>.
-IMAGE_REPO = "narandill/mjolnir-vllm"
+# The default platform's record (mjolnir_cli.platforms) is the source of truth
+# for these constants; they are re-exported here for every existing consumer.
+# The literal VLLM_VERSION line below is grepped by docker-image.yml (`sed
+# 's/^VLLM_VERSION = "..."'`) to sync with the Dockerfile's BASE_IMAGE — keep
+# it equal to the record's vllm_version (tests pin both sides).
 VLLM_VERSION = "0.32.0"
-DEFAULT_IMAGE = f"{IMAGE_REPO}:v{VLLM_VERSION}"
-STOCK_IMAGE = f"vllm/vllm-openai:v{VLLM_VERSION}-ubuntu2404"
+_thor = REGISTRY[DEFAULT_PLATFORM]
+IMAGE_REPO = _thor.image_repo
+DEFAULT_IMAGE = _thor.default_image
+STOCK_IMAGE = _thor.stock_image
 DEFAULT_PORT = 6001  # host port; vLLM metrics live on the same port
 CONTAINER_NAME = "mjolnir-vllm"
 
@@ -70,10 +86,8 @@ CONTAINER_NAME = "mjolnir-vllm"
 BACKEND_LABELS = {
     "NVFP4_MJOLNIR": "Mjolnir",
     "NVFP4_MJOLNIR_E2M3": "Mjolnir fp6 KV",
-    "NVFP4_MJOLNIR_E2M3_LMH8": "Mjolnir fp6 KV + fp8 lm_head",
-    "NVFP4_MJOLNIR_E2M3_VT32K": "Mjolnir fp6 KV + 32K draft vocab",
-    "NVFP4_MJOLNIR_E2M3_LMH8_VT32K": "Mjolnir fp6 KV + fp8 lm_head + 32K draft vocab",
     "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": "Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab",
+    "NVFP4_MJOLNIR_E2M3_VT64K": "Mjolnir fp6 KV + 64K draft vocab",
     "NVFP4_MJOLNIR_E2M3_DSPARK": "Mjolnir fp6 KV + DSpark",
     "NVFP4_MJOLNIR_E2M3_DFLASH2": "Mjolnir fp6 KV + DFlash2",
     "NVFP4": "FlashInfer",
@@ -82,6 +96,7 @@ BACKEND_LABELS = {
     "NVFP4_DFLASH2": "FlashInfer + DFlash2",
     "NVFP4_FA2": "FlashAttention 2",
     "NVFP4_FA4hd256": "FlashAttention 4 hd256",
+    "AWQ_FLASHINFER": "AWQ int4 + FlashInfer",
 }
 
 # The repo marker: a checkout has the image build context.
@@ -106,9 +121,9 @@ class ConfigEntry:
 def scan_configs(configs_dir: Path) -> list[ConfigEntry]:
     """Scan ``configs/<vendor>/<model>/<quant>/config.yaml`` into pickable
     entries. Everything config-specific lives in the config dir: the
-    ``.env`` sidecar and a drafter's ``kv_scales.json``; the model-level files
-    (shared ``kv_scales.json``, ``draft_vocab.json``, chat template) stay
-    next to it."""
+    ``.env`` sidecar; the model-level files (``kv_scales/<format>.json`` —
+    a drafter's ``kv_scales/<drafter>.kv_scales.json`` included,
+    ``draft_vocab.json``, chat template) stay next to it."""
     out: list[ConfigEntry] = []
     if not configs_dir.is_dir():
         return out
@@ -193,7 +208,7 @@ def config_drafter_on_mjolnir(path: Path) -> bool:
     ``speculative-config.attention_backend`` (MJOLNIR / CUSTOM): vLLM gives a
     DSpark / DFlash drafter its own backend choice — auto unless set there,
     never the target's. Its layers then need fp6 scales of their own,
-    calibrated with the config (``<config>.kv_scales.json``)."""
+    calibrated with the config (``kv_scales/<method>.kv_scales.json``)."""
     try:
         data = yaml.safe_load(Path(path).read_text())
     except Exception:  # noqa: BLE001 - a malformed config is simply not offered
@@ -334,6 +349,7 @@ class Settings:
 
     model: str = field(default_factory=lambda: _env("MJOLNIR_MODEL", DEFAULT_MODEL))
     quant: str = field(default_factory=lambda: _env("MJOLNIR_QUANT", DEFAULT_QUANT))
+    platform: str | None = None  # unresolved until resolve() (flag > env > host detection)
     image: str = field(default_factory=lambda: _env("MJOLNIR_IMAGE", DEFAULT_IMAGE))
     port: int = field(default_factory=lambda: _env_int("MJOLNIR_PORT", DEFAULT_PORT))
     data_dir: Path = field(default_factory=lambda: Path("~/.local/share/mjolnir").expanduser())
@@ -383,15 +399,29 @@ class Settings:
         return self.label or BACKEND_LABELS.get(self.quant, self.quant)
 
 
-def resolve(cli_model: str | None, cli_quant: str | None, cli_image: str | None, cli_port: int | None) -> Settings:
-    """CLI flags > env vars > defaults."""
-    s = Settings()
+def resolve(
+    cli_model: str | None,
+    cli_quant: str | None,
+    cli_image: str | None,
+    cli_port: int | None,
+    cli_platform: str | None = None,
+) -> Settings:
+    """CLI flags > env vars > host detection (there is no remembered
+    platform state). An unknown flag or env value raises ``ValueError``
+    naming the shipped keys; an unidentifiable host raises
+    ``UnknownPlatform`` naming the probes. The image default follows the
+    platform: on a non-default platform with no explicit image, its record's
+    default image is used instead of the default platform's."""
+    platform = resolve_platform(cli_platform)
+    s = Settings(platform=platform)
     if cli_model:
         s.model = cli_model
     if cli_quant:
         s.quant = cli_quant
     if cli_image:
         s.image = cli_image
+    elif platform != DEFAULT_PLATFORM and s.image == DEFAULT_IMAGE:
+        s.image = REGISTRY[platform].default_image  # no $MJOLNIR_IMAGE: the platform's own default
     if cli_port:
         s.port = cli_port
     return s

@@ -4,7 +4,7 @@ This repo is **the Mjolnir decode-attention kernel for the NVIDIA Jetson AGX
 Thor** (`sm_110`, 20 SMs) and everything around it: the vLLM image it ships in
 (`narandill/mjolnir-vllm`), the `MJOLNIR` vLLM attention backend, and the
 `mjolnir` CLI that serves, verifies and benchmarks it. Every result in the
-README and `docs/kernel/` is rendered from committed raw data. This file is the
+README and `docs/platforms/**` is rendered from committed raw data. This file is the
 operational doc: critical rules, layout, how to work. Read it before doing any
 work here.
 
@@ -43,9 +43,11 @@ the agents run on**. When doing anything on the GPU:
   every parameter is the stage default — only those feed headline charts).
 - End-to-end results: `mjolnir bench perf|ab` → `benchmarks/raw/perf-<ts>/` +
   one row per run in `benchmarks/history.jsonl`.
-- `README.md`, `docs/kernel/*.md` and `assets/benchmarks/` are **generated**
-  (`uv run mjolnir plot --readme`) from `README.md.j2` / `docs/kernel/*.md.j2` and
-  the raw data. Never hand-edit them; CI fails if they don't reproduce.
+- `README.md`, `docs/platforms/**`, `configs/**/README.md` (the Benchmarks
+  section included) and
+  `assets/benchmarks/` are **generated** (`uv run mjolnir plot --readme`) from
+  `README.md.j2` / `docs/templates/**.md.j2` and the raw data. Never hand-edit
+  them; CI fails if they don't reproduce.
 
 ### The page-cache clear
 `mjolnir_cli/cachectl.py` clears the host page cache (`sysctl -w
@@ -79,8 +81,8 @@ skipped with a hint — nothing blocks on a password.
   2-stage ring for fp6 at 2 CTAs/SM**; vLLM serves **e2m3 (fp6) KV** by default
   (`DEFAULT_QUANT` = `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`: fp6 KV with calibrated
   per-channel scales, `mjolnir calibrate`, `docs/faq/fp6-kv.md`; plus an fp8
-  lm_head, a 64K draft vocab and MTP=4); fp8 KV with `NVFP4_MJOLNIR`. Results: README +
-  `docs/kernel/`.
+  lm_head, a 64K draft vocab and MTP=5); fp8 KV with `NVFP4_MJOLNIR`. Results: README +
+  `docs/platforms/thor/kernel/`.
 - **The backend**: `vllm serve <model> --attention-backend MJOLNIR` on the image
   (enum patch `thor-mjolnir-attention-backend.patch`); `--attention-backend
   CUSTOM` on stock vLLM 0.32.0 (the `vllm.general_plugins` entry point
@@ -89,33 +91,47 @@ skipped with a hint — nothing blocks on a password.
   vLLM; the FA4 default lives in the enum patch's `fa_utils` hunk). Knobs: `MJOLNIR_ATTN_*`
   (legacy `THOR_T5_*` honored) — `src/mjolnir/README.md`.
 - **The image**: `narandill/mjolnir-vllm:v0.32.0` on
-  `vllm/vllm-openai:v0.32.0-ubuntu2404`; 13 vLLM patches + 1 FlashInfer patch,
+  `vllm/vllm-openai:v0.32.0-ubuntu2404`; 14 vLLM patches + 1 FlashInfer patch,
   applied and verified at build time; the kernel package installed from
   `src/mjolnir`. Tags follow the **upstream vLLM version**
   (`v<vllm>`, `v<vllm>-<sha>`, `latest`), built by `docker-image.yml`.
   Inventory: `docker/vllm-thor/PATCHES.md`.
 - **Configs** (`configs/Qwen/Qwen3.8-27B/`): `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`
-  (default: Mjolnir, fp6 KV, fp8 lm_head, 64K draft vocab, MTP=4),
+  (default: Mjolnir, fp6 KV, fp8 lm_head, 64K draft vocab, MTP=5),
   `NVFP4_MJOLNIR_E2M3` (Mjolnir, fp6 KV), `NVFP4_MJOLNIR` (Mjolnir, fp8 KV),
   `NVFP4` (FlashInfer), `NVFP4_FA2` (FlashAttention 2, bf16 KV — stock vLLM's
-  choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4).
+  choice on Thor without FlashInfer), `NVFP4_FA4hd256` (patched FA4),
+  `AWQ_FLASHINFER` (AWQ int4 W4A16 weights + fp8 KV on FlashInfer — the Orin
+  serving config).
   Opt-in drafter legs (`legs.OPTIONAL`, `bench e2e --optional`;
   `docs/faq/spec-drafters.md`): `NVFP4_DSPARK` / `NVFP4_DFLASH2` (official
   image) and `NVFP4_MJOLNIR_E2M3_DSPARK` / `…_DFLASH2` (Mjolnir) — DSpark or
   DFlash2, K=7, instead of MTP. DSpark on Mjolnir runs its drafter on Mjolnir
-  + fp6 too: its own calibration (`<config>.kv_scales.json`, `mjolnir
+  + fp6 too: its own calibration (`kv_scales/dspark.kv_scales.json`, `mjolnir
   calibrate --config …`) and the kernel's non-causal variant for its block
   steps (`MJOLNIR_ATTN_NONCAUSAL`). DFlash2's sliding-window drafter stays on
   bf16 KV + FlashInfer. Not yet run on a Thor.
 - **Configs** (`configs/nvidia/Qwen3.6-35B-A3B/`, MoE 256x8, hybrid
   Gated-DeltaNet + 10 full-attention layers): `NVFP4_MJOLNIR_E2M3`
-  (Mjolnir, fp6 KV, MTP=5; the lm_head is already ModelOpt-quantized, so no LMH8) and `NVFP4_DFLASH` (native baseline:
-  a production server's flags, fp8 KV, DFlash K=12, official image only).
-  Production shape: 262K, one sequence, 0.45. Keep the Qwen3.8 extras
-  (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT, mamba align) out, and
-  no draft vocab: `MJOLNIR_DRAFT_VOCAB` on this model adds ~40 GB at startup
-  (#25). Open: a silent Thor hard hang with the E2M3 worker idle (#27).
-- **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|export`
+  (Mjolnir, fp6 KV, MTP=5; the lm_head is already ModelOpt-quantized, so no
+  LMH8), `NVFP4_MJOLNIR_E2M3_VT64K` (+ the calibrated 64K draft vocab) and
+  `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` (+ the fp8-quantized drafter head),
+  `NVFP4_MJOLNIR` (fp8 KV; the calibration config) and `NVFP4_DFLASH`
+  (native baseline: a production server's flags, fp8 KV, DFlash K=12,
+  official image only). Production shape: 262K, one sequence, 0.45. Keep the
+  Qwen3.8 extras (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT,
+  mamba align) out. #25 (VocabTrim on a quantized head adding ~40 GB at
+  startup) predates the native-quant VT path — the LMH8_VT64K retest came up
+  healthy. Open: a silent Thor hard hang with the E2M3 worker idle (#27).
+- **Platform layer (detection-first)**: no `platform set`/remembered state — every command
+  resolves flag > `MJOLNIR_PLATFORM` env > two-source detection (`mjolnir platform` is
+  read-only list/show with confidence + provenance). Config overlays
+  (`<quant>/platforms/<platform>.yaml`, deep-merge, lists replace) gate per-platform serving;
+  the kv-dtype × backend matrix is validated at serve time. ONE image targets all three
+  platforms (Orin: JP 7.2.1+, Spark: DGX OS + CUDA 13). thor supported, spark/orin research
+  (official-image baselines only); records carry `platform` + `gpu`; `mjolnir.platforms` +
+  `mjolnir/arch/` map arch → kernel — MJOLNIR serves on `sm_110` (thor) only.
+- **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|chart|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
   `debugger` from the user's global OpenCode config; none ship with the repo). The loop
@@ -176,13 +192,13 @@ skipped with a hint — nothing blocks on a password.
   `PATCHES.md`, canary scripts.
 - `configs/<vendor>/<model>/<quant>/config.yaml` — serving configs, each in its
   own dir (with a `.env` sidecar inside when it has env switches); the model's
-  calibration files (`kv_scales.json`, `draft_vocab.json`) sit next to the
-  config dirs. User-local configs in `~/.local/share/mjolnir/configs/`
+  calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to
+  the config dirs. User-local configs in `~/.local/share/mjolnir/configs/`
   (`$MJOLNIR_CONFIGS_DIR`), same layout.
 - `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
   `history.jsonl`, `logs/` (untracked).
-- `assets/benchmarks/` — generated charts (`*.png`, `*-dark.png`, `manifest.json`).
-- `README.md.j2`, `docs/kernel/*.md.j2` — the templates.
+- `assets/benchmarks/` — generated charts (`*.png`, `manifest.json`).
+- `README.md.j2` (repo root) + `docs/templates/` — the templates (`pages/` + `kernel/`).
 - `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index
   `docs/README.md`.
 - `research/` — autoresearch program, ledger (untracked while live), exported runs.
@@ -202,7 +218,7 @@ mjolnir verify sweep                      # Mjolnir vs FlashInfer vs FA2 (ncu)
 mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing
 mjolnir verify vllm                       # the backend inside vLLM
 mjolnir verify kv-cache-size              # KV tokens per config (restarts the server per leg; refuses while one runs)
-mjolnir verify spec                       # MTP acceptance per position + decode t/s for 1-4 drafts per config (same)
+mjolnir verify spec                       # MTP acceptance per position + decode t/s for 1-7 drafts per config (same)
 mjolnir verify profile                    # torch-profiler trace per config: graph replays, eager kernels, GPU idle (same)
 mjolnir verify bench | all                # every stage once (+ correctness)
 mjolnir verify <stage> --dry-run          # the docker commands, nothing run
@@ -215,11 +231,11 @@ Default L for every stage and chart: **128 4096 8192 16384 32768 65536 131072
 
 ### Charts, README, site
 ```
-uv run mjolnir plot --readme              # charts + README.md + docs/kernel/*.md
+uv run mjolnir plot --readme              # charts + README.md + docs/platforms/** + configs/**/README.md
 uv run mjolnir plot --site _site          # the interactive page (pages.yml publishes it)
 ```
 New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir
-orange, FlashInfer blue, FA2 aqua — never ad-hoc colors; light + dark variants),
+orange, FlashInfer blue, FA2 aqua — never ad-hoc colors),
 registered in `render_all`; new table → `readme.py` `TABLES`; reference both from
 the template. Sentences that state a result come from `readme.py` findings,
 not hand-typed numbers.
@@ -240,7 +256,7 @@ before blaming the kernel);
 tool-eval-bench, pinned commit via `uvx`: the standard 69 tool-call scenarios +
 28 Hard Mode by default; anything after `--` is forwarded, e.g. `-- --gsm8k
 --mmlu --ifeval --skip-tool-eval`; legs as in `bench ab`, restarts per leg;
-`benchmarks/raw/accuracy/<run>/accuracy.json` → `docs/kernel/accuracy.md`);
+`benchmarks/raw/accuracy/<run>/accuracy.json` → `docs/platforms/thor/kernel/accuracy.md`);
 `mjolnir bench ab` (default legs in `legs.py`; legs
 are `<config>` or `<image>:<config>`) — **it restarts the server per leg**: only on
 purpose, in a window you own.
@@ -291,19 +307,19 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       486 in layer 0, rounded the other channels to 0 — wrong first token);
       scales are now per (layer, KV head, channel), `kv_scales/2` (a `/1` file
       still loads but is per head: re-calibrate after model changes:
-      `mjolnir calibrate`, commit `configs/<model>/kv_scales.json`).
+      `mjolnir calibrate`, commit `configs/<model>/kv_scales/e2m3.json`).
 - [ ] **e2e at the shapes that matter**: decode gains need long contexts
       (64K+) and concurrency; `mjolnir verify sweep --batch 4 --q-len 4`
       measures the MTP=3 verify shape in ncu.
 - [ ] **Decode beyond attention**: the ranked experiment list with A/B
-      commands is `docs/research/decode-experiments.md` (draft-step overhead,
-      fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
+      commands: draft-step overhead,
+      fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L.
       What every bench measures by default — serving legs of `verify
       spec|kv-cache-size|profile` and `bench ab|e2e|accuracy`, kernel legs of
       the ncu stages, the `verify vllm` smoke modes — is set in ONE place:
       `src/mjolnir-cli/mjolnir_cli/legs.py`.
       Opt-in experiment configs carry their switches in the `.env` inside
-      their config dir (`NVFP4_MJOLNIR_E2M3_LMH8`, `…_VT32K`, `…_LMH8_VT32K`, `…_LMH8_VT64K`;
+      their config dir (`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
 - [ ] **fp6 byte-vs-time gap**: not the 64-byte L2 requests (SW128 tried: ~5% at
       ≥64K only) and **not the 16K–32K hole** — that was an ncu artifact
@@ -311,8 +327,8 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       fixed 2026-10-17: fastest-launch snapshot, wall shows a flat 0.84–0.86×
       fp8 at every L) and not the block table (E2a readahead: no win, impl in
       git history `39fa326`). What remains is a uniform ~10–17% latency floor
-      vs the byte ratio at every L (`docs/kernel/fp6prof.md`, ranked ideas in
-      `research/program.md`).
+      vs the byte ratio at every L (`docs/platforms/thor/kernel/fp6prof.md`,
+      ranked ideas in `research/program.md`).
 - [x] Fuse the split-KV merge into the last CTA per sequence — tried
       (autoresearch run 1): 0.56× at 4K; retired in favour of a cheaper merge.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
@@ -321,10 +337,7 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
 FA4's dedicated hd256 kernel is bf16-only upstream (asserts
 `descale_tensors is None`), and vLLM downgrades FA4→FA2 for hd256 + any
 quantized KV — so **FlashInfer remains the only FP8-KV path for the hd256
-layers** (FA4+FP8 for hd≤128 *is* proven on Thor —
-`docs/thor-stack/fa4-fp8kv-sm110.md`). Depth:
-`docs/thor-stack/fa4-hd256-route-trace.md` (kernel/policy trace),
-`docs/research/fa4-hd256-upstream-status.md` (upstream status).
+layers** (FA4+FP8 for hd≤128 *is* proven on Thor).
 
 Plan (as probe-gated patches, same pattern as the shipped ones):
 1. Wait for (or request early access to) the upstream FP8-descale branch for
@@ -364,8 +377,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
      20-SM Thor for our decode shapes (48 clusters > 20 SMs → 0 splits) —
      corroborates our in-tree NO-WIN. NOT the FP8-descale work (still private
      per #2456), and NOT in vLLM 0.30.0's or 0.31.0's vendored FA4 (pre-#2916), so the fa4
-     patch group is unaffected. Depth:
-     `docs/research/fa4-hd256-upstream-status.md` (2026-09-26 update).
+     patch group is unaffected.
    - Open: persistent-cluster scheduler (the 20-SM small-batch lever),
      sliding-window (#2749), hd256 backward + seqused (#2891), hd512 (#2877).
 - FlashInfer: no hd256+FP8 work; XQA sm_110 gap open, unassigned
@@ -390,8 +402,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   - FlashInfer [PR #3871](https://github.com/flashinfer-ai/flashinfer/pull/3871)
     (merged Jul 2026): graph-safe uniform multi-token decode; design statement
     confirms frozen plan_info depends only on (batch, total_rows, uniform_q_len)
-    — the property our c1 regression study relies on
-    (`docs/draft-cudagraph/c1-regression-study.md`).
+    — the property our c1 regression fix relies on.
 
 ## Conventions
 - **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**
@@ -426,7 +437,8 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - **Commit style:** short, imperative, grouped by concern (see `git log`).
 
 ## Pointers
-- The kernel case study: `docs/kernel/README.md`.
+- The kernel case study: `docs/platforms/thor/README.md` (the `## Kernel`
+  index; the chapters under `docs/platforms/thor/kernel/`).
 - Kernel package + env knobs: `src/mjolnir/README.md`.
 - Patch inventory: `docker/vllm-thor/PATCHES.md`.
 - Measurement discipline: `docs/methodology/benchmarking.md`.

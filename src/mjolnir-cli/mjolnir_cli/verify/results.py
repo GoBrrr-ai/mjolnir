@@ -38,10 +38,13 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import platform
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import platform as host_platform
+
+from mjolnir_cli.platforms import platform_of
 
 SCHEMA = "mjolnir.verify/1"
 
@@ -70,19 +73,35 @@ def git_info(root: Path | None) -> dict[str, Any]:
         return {}
 
 
-def header(stage: str, run_id: str, *, image: str, default: bool, params: dict, kernel: dict, gate: dict) -> dict:
-    return {
+def header(
+    stage: str,
+    run_id: str,
+    *,
+    image: str,
+    default: bool,
+    params: dict,
+    kernel: dict,
+    gate: dict,
+    platform: str | None = None,
+    gpu: str | None = None,
+) -> dict:
+    doc = {
         "schema": SCHEMA,
         "stage": stage,
         "run_id": run_id,
         "ts": _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds"),
         "default": default,
-        "host": platform.node(),
+        "host": host_platform.node(),
         "image": image,
         "kernel": kernel,
         "gate": gate,
         "params": params,
     }
+    if platform is not None:
+        doc["platform"] = platform
+    if gpu is not None:
+        doc["gpu"] = gpu
+    return doc
 
 
 def stage_dir(verify_dir: Path, stage: str) -> Path:
@@ -119,11 +138,23 @@ def runs(verify_dir: Path, stage: str) -> list[dict]:
     return out
 
 
-def latest(verify_dir: Path, stage: str, default_only: bool = True) -> dict | None:
+def latest(
+    verify_dir: Path,
+    stage: str,
+    default_only: bool = True,
+    platform: str | None = None,
+    model: str | None = None,
+) -> dict | None:
     """The newest run of a stage — the newest *default-parameter* run unless
     ``default_only`` is False (then any run). Falls back to any run when the
-    stage has no default run yet."""
+    stage has no default run yet. ``platform`` resolves platform-less (legacy)
+    documents as thor; ``model`` skips model-less documents (mirrors
+    :func:`model_of` — a guessed model is how two models' runs get compared)."""
     rs = runs(verify_dir, stage)
+    if platform is not None:
+        rs = [r for r in rs if platform_of(r) == platform]
+    if model is not None:
+        rs = [r for r in rs if (r.get("model") or None) == model]
     if not rs:
         return None
     if default_only:

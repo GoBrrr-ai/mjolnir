@@ -3,6 +3,10 @@ and record assembly (what the charts + the CI substrate gate consume)."""
 
 from __future__ import annotations
 
+import subprocess
+
+import pytest
+
 from mjolnir_cli.config import Settings
 from mjolnir_cli.history import append_record, load_records, make_record, parse_benchy_json
 
@@ -58,7 +62,9 @@ def test_parse_benchy_json_empty():
 
 
 def test_make_record_maps_settings():
-    s = Settings(image="img:v1", model="Qwen/Qwen3.8-27B", quant="NVFP4")
+    # a resolved Settings (platform set) and an explicit gpu: the record is
+    # written without probing the host (hermetic — CI has no GPU)
+    s = Settings(image="img:v1", model="Qwen/Qwen3.8-27B", quant="NVFP4", platform="thor")
     rec = make_record(
         s,
         gate_summary={"clean": True, "confirm": 3},
@@ -67,6 +73,7 @@ def test_make_record_maps_settings():
         exact_tg=True,
         cells=[{"concurrency": 1, "context": 0, "prompt": 2048, "gen": 128}],
         raw_relpath="raw/perf-x/",
+        gpu="",
     )
     assert rec["image"] == "img:v1"
     assert rec["model"] == "Qwen/Qwen3.8-27B"
@@ -76,3 +83,65 @@ def test_make_record_maps_settings():
     assert rec["runs"] == 5 and rec["warmup_runs"] == 2 and rec["exact_tg"] is True
     assert rec["raw"] == "raw/perf-x/"
     assert "ts" in rec and "epoch" in rec and "host" in rec
+
+
+# ── the platform + gpu record fields (cycle 2: detection-first) ─────────────
+
+
+def _fake_smi(monkeypatch, stdout="Fake GPU, 11.0\n"):
+    """Point the nvidia-smi subprocess at a canned csv answer."""
+    from platform_fixtures import fake_smi
+
+    fake_smi(monkeypatch, stdout)
+
+
+def _record(s, **kw):
+    return make_record(s, gate_summary=None, runs=1, warmup_runs=0, exact_tg=True, cells=[], raw_relpath="raw/x/", **kw)
+
+
+def test_make_record_platform_comes_from_detection(monkeypatch):
+    # no explicit platform, no env: the record's platform is the detected one
+    # (spark here), and the gpu line comes from the same nvidia-smi answer
+    from platform_fixtures import install
+
+    _fake_smi(monkeypatch, "DGX Spark, 12.1\n")
+    install(monkeypatch, smi="DGX Spark, 12.1\n")
+    s = Settings(image="img:v1", model="Qwen/Qwen3.8-27B", quant="NVFP4")
+    rec = _record(s)
+    assert rec["platform"] == "spark"
+    assert rec["gpu"] == "DGX Spark"
+
+
+def test_make_record_explicit_platform_and_gpu_win_over_detection(monkeypatch):
+    _fake_smi(monkeypatch, stdout="Should Not Be Consulted, 11.0\n")
+    s = Settings(image="img:v1", model="m", quant="c")
+    rec = _record(s, platform="spark", gpu="Other GPU")
+    assert rec["platform"] == "spark" and rec["gpu"] == "Other GPU"
+
+
+def test_make_record_uses_the_resolved_settings_platform_without_detecting(monkeypatch):
+    # a resolved Settings (s.platform set) is authoritative: no detection probe
+    from platform_fixtures import install
+
+    _fake_smi(monkeypatch)  # the gpu line still parses nvidia-smi — faked, never the host
+    install(monkeypatch, smi=None, jetson=None, dmi=None)  # detection would fail
+    s = Settings(image="img:v1", model="m", quant="c", platform="orin")
+    rec = _record(s)
+    assert rec["platform"] == "orin"
+
+
+def test_make_record_detection_failure_is_explicit(monkeypatch):
+    # no GPU, no board files: the record cannot be written — the error names
+    # the probes instead of guessing a platform
+    import mjolnir_cli.platforms as platforms
+    from platform_fixtures import install
+
+    def boom(*a, **k):
+        raise FileNotFoundError("nvidia-smi")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    install(monkeypatch, smi=None, jetson=None, dmi=None)
+    s = Settings(image="img:v1", model="m", quant="c")
+    with pytest.raises(platforms.UnknownPlatform) as ei:
+        _record(s)
+    assert "nvidia-smi" in str(ei.value) and "MJOLNIR_PLATFORM" in str(ei.value)

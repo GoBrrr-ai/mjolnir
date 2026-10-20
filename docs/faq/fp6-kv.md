@@ -43,11 +43,12 @@ vLLM 0.31 has no runtime KV-scale calculation, so Mjolnir calibrates offline:
 ```bash
 mjolnir serve down                  # calibration loads the model itself — in a window you own
 mjolnir calibrate                   # the active model; fp8 KV, varied prompts, ~minutes
-# -> configs/<model>/kv_scales.json  (per layer, KV head and channel amax of K and V)
+# -> configs/<model>/kv_scales/e2m3.json  (per layer, KV head and channel amax of K and V)
 mjolnir serve up --config NVFP4_MJOLNIR_E2M3
 ```
 
-`mjolnir serve` points `MJOLNIR_ATTN_KV_SCALES` at the `kv_scales.json` next
+`mjolnir serve` points `MJOLNIR_ATTN_KV_SCALES` at the per-format
+`kv_scales/e2m3.json` next
 to the config dirs; set it yourself to use another file. Commit the file with the
 config — it is part of the serving setup. Without it, the server refuses to
 start with fp6 (no silent bad scales). Files from before per-channel scales
@@ -57,9 +58,10 @@ accuracy — re-run `mjolnir calibrate`.
 A config whose own drafter runs on Mjolnir (`NVFP4_MJOLNIR_E2M3_DSPARK`) has
 layers the model's file does not: calibrate that config
 (`mjolnir calibrate --config NVFP4_MJOLNIR_E2M3_DSPARK`). It gets its own
-`kv_scales.json` inside its config dir, with the target's and the drafter's
+`kv_scales/dspark.kv_scales.json` in the model's `kv_scales/` dir, with the
+target's and the drafter's
 layers, and
-the model's `kv_scales.json` is left alone. See
+the model's `kv_scales/e2m3.json` is left alone. See
 [spec-drafters.md](spec-drafters.md).
 
 Knobs: `MJOLNIR_ATTN_KV_SCALE_HEADROOM` (default 1.0) multiplies every scale —

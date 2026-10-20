@@ -1,0 +1,52 @@
+# {{ ctx.short }}
+
+`{{ ctx.model }}` — served as `{{ ctx.served }}` — with {{ ctx.rows | length }}
+serving configs in `configs/{{ ctx.model }}/`. Everything on this page is
+derived from the config tree and the raw results; there is no hand-written
+model prose (decision 7).
+
+## Serving configs
+
+One dir per config (`format_backend_suffix`, never a platform name — the
+platform comes from the overlay). The availability cells are the in-code
+table's states for that config's KV dtype × backend class (or its weights
+format) on each platform.
+
+| config | backend |{% for key in ctx.rows[0].cells %} {{ key }} |{% endfor %}
+|---|---|{% for _ in ctx.rows[0].cells %}---|{% endfor %}
+{% for r in ctx.rows -%}
+| [`{{ r.quant }}`]({{ r.quant }}/README.md) | {{ r.label }} |{% for key, cell in r.cells.items() %} {{ cell.symbol }} |{% endfor %}
+{% endfor %}
+
+{% for r in ctx.rows -%}
+{% for key, cell in r.cells.items() if cell.why -%}
+- `{{ r.quant }}` on {{ key }}: {{ cell.symbol }} {{ cell.why }}
+{% endfor -%}
+{% endfor %}
+
+## Quickstart
+
+```bash
+{% for p in ctx.platforms -%}
+mjolnir serve up --config {{ p.quickstart }}
+{% endfor %}```
+
+Any config the platform's overlays allow; the full list is the table above.
+The per-platform flags (KV layout, the config's `.env` switches) come from
+the config itself — each config's `.env` sidecar names them.
+
+## End to end: the official vLLM image vs Mjolnir
+
+One row per platform — each from that platform's own history
+(`latest_pair(platform, model)`), decode tokens/s per request at 1 request,
+longest shared context.
+
+| platform | official | Mjolnir | official t/s | Mjolnir t/s | change | at |
+|---|---|---|--:|--:|--:|---|
+{% for p in ctx.platforms if p.ab -%}
+| {{ p.ab.platform }} | `{{ p.ab.official }}` | `{{ p.ab.mjolnir }}` | {{ p.ab.official_decode }} | {{ p.ab.mjolnir_decode }} | {{ p.ab.change }} | {{ p.ab.ctx }} |
+{% endfor %}
+
+{{ how("e2e") }}
+
+> <sub>From [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl). Platform pages: {% for p in ctx.platforms %}[{{ p.name }}](../../../docs/platforms/{{ p.key }}/README.md){{ " · " if not loop.last }}{% endfor %}.</sub>
