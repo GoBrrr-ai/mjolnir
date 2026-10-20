@@ -20,7 +20,7 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity-dark.png" alt="KV cache capacity per config" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.png" alt="KV cache capacity per config" width="100%">
 
 - **Mjolnir · fp6 e2m3 KV** holds **2,645,421 tokens**, +31% vs official vLLM · FlashInfer · fp8 KV (2,022,204).
 - **Mjolnir · fp6 e2m3 KV** holds **2,645,421 tokens**, +32% vs Mjolnir · fp8 KV (1,998,478).

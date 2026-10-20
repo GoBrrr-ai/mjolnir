@@ -28,7 +28,7 @@ format) on each platform.
 
 ```bash
 {% for p in ctx.platforms -%}
-mjolnir serve up --platform {{ p.key }} --config {{ p.quickstart }}
+mjolnir serve up --config {{ p.quickstart }}
 {% endfor %}```
 
 Any config the platform's overlays allow; the full list is the table above.

@@ -492,7 +492,7 @@ render_infographic = charts_e2e.render_infographic
 
 
 def render_all(layout: RepoLayout) -> dict[str, dict]:
-    """Render every chart that has data, dark-only; write the manifest.
+    """Render every chart that has data; write the manifest.
 
     Manifest v2 (spec #8): a chart belongs to a (platform, model) pair — the
     verify-stage charts render once per measured pair into
@@ -503,12 +503,11 @@ def render_all(layout: RepoLayout) -> dict[str, dict]:
     pair's PNGs are written for the site but its entry yields the flat id.
     The accuracy charts span every measured model at once, so they stay flat
     with a null identity; ``hero``/``opening-infographic`` are root-page
-    one-offs. Dark-only (user decision): GitHub renders the ``-dark.png``
-    images (``chart()`` emits a plain ``<img>``), the Pages site is
-    interactive Plotly — so only ``theme.DARK`` is rendered and entries carry
-    a single ``dark`` path. Readers (``readme._env``'s ``chart()``) resolve an
-    identity entry only for the matching pair and keep resolving legacy flat
-    paths. Returns ``{chart: {"stage", "platform", "model", "dark"}}``."""
+    one-offs. Charts render ``theme.DARK`` (``chart()`` emits a plain
+    ``<img>``) and entries carry a single ``dark`` path. Readers
+    (``readme._env``'s ``chart()``) resolve an identity entry only for the
+    matching pair and keep resolving legacy flat paths. Returns
+    ``{chart: {"stage", "platform", "model", "dark"}}``."""
     plt = _plt()
     from mjolnir_cli import readme_targets
 
@@ -519,7 +518,7 @@ def render_all(layout: RepoLayout) -> dict[str, dict]:
         fig = build(theme.DARK)
         if fig is None:
             return False
-        p = _save(fig, out / f"{entry['name']}{theme.DARK.suffix}.png")
+        p = _save(fig, out / f"{entry['name']}.png")
         plt.close(fig)
         entry["dark"] = str(p.relative_to(layout.repo_root) if layout.repo_root else p)
         return True
@@ -570,5 +569,5 @@ def render_all(layout: RepoLayout) -> dict[str, dict]:
         }
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
-    print(f"[mjolnir] {len(manifest)} charts (dark) -> {out_dir}")
+    print(f"[mjolnir] {len(manifest)} charts -> {out_dir}")
     return manifest

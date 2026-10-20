@@ -12,7 +12,7 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time-dark.png" alt="Bytes vs time per KV format" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png" alt="Bytes vs time per KV format" width="100%">
 
 - `e2m3-hnd`: kernel time **0.90×** the baseline for 0.75× the bytes — 40% of the byte saving becomes speed (mean over L).
 - `e2m1-hnd`: kernel time **0.61×** the baseline for 0.50× the bytes — 78% of the byte saving becomes speed (mean over L).

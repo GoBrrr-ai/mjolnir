@@ -3,17 +3,15 @@
 
 Cycle 3b: the render loop is ``readme.render_all`` (plan §1) over the spec's
 target set; the kernel chapters render under ``docs/platforms/thor/kernel/``
-from the moved ``docs/templates/kernel/`` templates, chart paths gain the
-``assets/benchmarks/<platform>/<model-short>/`` identity, and ``docs/kernel/``
-becomes a redirect stub. The rewritten tests are listed in
-task/tests/red_state.md under "Spec changes" — the generated outputs
-legitimately move/change (spec §Directory Layout, §Naming).
+from the moved ``docs/templates/kernel/`` templates and chart paths gain the
+``assets/benchmarks/<platform>/<model-short>/`` identity. The rewritten tests
+are listed in task/tests/red_state.md under "Spec changes" — the generated
+outputs legitimately move/change (spec §Directory Layout, §Naming).
 
-Spec changes: dark-only charts (user decision — GitHub renders the dark
-images, the Pages site is interactive Plotly): ``chart()`` emits a plain
-``<img src="…-dark.png">`` (no ``<picture>``/srcset), ``render_all`` writes
-only ``*-dark.png`` files and manifest v2 entries carry a ``dark`` path and no
-``light`` key."""
+Spec changes: static charts render the dark palette (the Pages site is
+interactive Plotly): ``chart()`` emits a plain ``<img src="<id>.png">`` (no
+``<picture>``/srcset), ``render_all`` writes ``<id>.png`` files and manifest
+v2 entries carry a single ``dark`` path."""
 
 from __future__ import annotations
 
@@ -89,9 +87,9 @@ def test_full_render_from_fixture_data(repo):
     ):
         assert name in manifest, name
         assert (repo / manifest[name]["dark"]).is_file()
-    # dark-only (user decision): no light variants anywhere under assets/benchmarks
+    # no legacy ``-dark`` suffix anywhere under assets/benchmarks
     pngs = list((repo / "assets" / "benchmarks").rglob("*.png"))
-    assert pngs and all(p.name.endswith("-dark.png") for p in pngs)
+    assert pngs and all("-dark" not in p.name for p in pngs)
     readme.render_all(layout)
     text = (repo / "README.md").read_text()
     assert "{{" not in text and "{%" not in text
@@ -108,10 +106,10 @@ def test_full_render_from_fixture_data(repo):
         "**Where it stands:** 1.26× FlashInfer"
         in (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").read_text()
     )
-    assert '<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png"' in text
+    assert '<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in text
     assert "<picture>" not in text and "srcset" not in text and "prefers-color-scheme" not in text
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
-    assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png" in page  # relative to the page
+    assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" in page  # relative to the page
     assert "Fastest variant at the most context lengths" in page
     # the render loop still writes the CLI reference; site keeps building (v2:
     # the lazy per-pair payload replaces the v1 single-page data.json)
@@ -181,34 +179,22 @@ def test_kernel_chapters_render_under_docs_platforms_thor_kernel(repo):
     assert "How the % and × here are calculated" in page  # the how("variant") panel survives
     assert "benchmarks/raw/verify/ring/20261010-120000.json" in page  # raw provenance
     assert "srcset" not in page and "<picture>" not in page
-    assert '<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png"' in page
+    assert '<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png"' in page
     assert not (repo / "docs" / "kernel" / "ring.md").exists()  # the old home is gone
-
-
-def test_docs_kernel_readme_is_a_one_line_redirect_stub(repo):
-    """docs/kernel/ is removed; a one-line redirect stub survives one release
-    cycle for inbound links (spec §Directory Layout)."""
-    layout = load_layout()
-    write_all(layout.verify_dir)
-    _stamp(layout.verify_dir)
-    readme.render_all(layout)
-    stub = (repo / "docs" / "kernel" / "README.md").read_text()
-    assert "docs/platforms/thor/kernel/" in stub
-    assert len(stub.strip().splitlines()) <= 3
 
 
 def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
     """Manifest v2 (spec #8): entries carry the (platform, model) identity and
-    resolve to the dark asset assets/benchmarks/<platform>/<model-short>/<id>-dark.png
-    — dark-only (user decision), so no ``light`` key and no light PNGs;
-    pairs without data render no charts (no orin anything)."""
+    resolve to the asset assets/benchmarks/<platform>/<model-short>/<id>.png
+    — a single ``dark`` path, no ``light`` key; pairs without data render no
+    charts (no orin anything)."""
     layout = load_layout()
     write_all(layout.verify_dir)
     _stamp(layout.verify_dir)
     manifest = charts.render_all(layout)
     entry = manifest["kernel-speedup"]
     assert entry["platform"] == "thor" and entry["model"] == DEFAULT_MODEL
-    assert entry["dark"] == "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup-dark.png"
+    assert entry["dark"] == "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png"
     assert (repo / entry["dark"]).is_file()
     for name, e in manifest.items():
         assert "light" not in e, name
@@ -221,21 +207,21 @@ def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
 
 def test_chart_manifest_v2_legacy_entries_still_resolve(repo):
     """The reader falls back: committed flat entries (no identity fields) keep
-    resolving through chart() — old manifests never break a render. Dark-only
-    (user decision): the fixture entry carries a flat ``dark`` path and the
-    page quotes it as a plain ``<img>``."""
+    resolving through chart() — old manifests never break a render. The
+    fixture entry carries a flat ``dark`` path and the page quotes it as a
+    plain ``<img>``."""
     layout = load_layout()
     charts_dir = layout.charts_dir
     charts_dir.mkdir(parents=True)
-    (charts_dir / "ring-heatmap-dark.png").write_bytes(b"\x89PNG legacy")
+    (charts_dir / "ring-heatmap.png").write_bytes(b"\x89PNG legacy")
     (charts_dir / "manifest.json").write_text(
-        json.dumps({"ring-heatmap": {"stage": "ring", "dark": "assets/benchmarks/ring-heatmap-dark.png"}})
+        json.dumps({"ring-heatmap": {"stage": "ring", "dark": "assets/benchmarks/ring-heatmap.png"}})
     )
     write_all(layout.verify_dir)
     _stamp(layout.verify_dir)
     readme.render_all(layout)
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
-    assert '<img src="../../../../assets/benchmarks/ring-heatmap-dark.png"' in page
+    assert '<img src="../../../../assets/benchmarks/ring-heatmap.png"' in page
 
 
 def test_hero_overlays_the_background_under_the_logotype(tmp_path):

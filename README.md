@@ -23,7 +23,7 @@
 <p align="center">
   <a href="#-key-features">Features</a> •
   <a href="#quickstart">Quickstart</a> •
-  <a href="#benchmarks">Benchmarks</a> •
+  <a href="#jetson-thor-benchmarks">Benchmarks</a> •
   <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
   <a href="#platforms">Platforms</a> •
   <a href="docs/platforms/thor/kernel/README.md">Case study</a> •
@@ -41,26 +41,6 @@ mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
 Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.32.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
-
-## Platforms
-
-Mjolnir is detection-first: the CLI resolves the host platform (never a silent
-guess), every platform gets [its own page](docs/platforms/README.md) and — once
-kernel results exist for its headline model — its own kernel case study.
-
-| platform | status | kernel | host requirements |
-|---|---|---|---|
-| [Jetson AGX Thor](docs/platforms/thor/README.md) | supported | [case study](docs/platforms/thor/kernel/README.md) | JetPack 7.x |
-| [DGX Spark](docs/platforms/spark/README.md) | research | — | DGX OS + CUDA 13 |
-| [Jetson Orin](docs/platforms/orin/README.md) | research | — | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
-
-
-Measured (platform, model) pairs — each model's page carries its configs,
-per-platform quickstart and A/B rows:
-
-- [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) — Jetson AGX Thor
-- [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) — Jetson AGX Thor
-
 
 ## ⚡ Key Features
 
@@ -171,11 +151,30 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
   narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
-## Models as Code
+## Supported Hardware
 
-A served model is a file, not a command line. Each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — in its own directory, `configs/<vendor>/<model>/<config>/config.yaml`.
+Mjolnir is detection-first: the CLI resolves the host platform (never a silent
+guess), every platform gets [its own page](docs/platforms/README.md) and — once
+kernel results exist for its headline model — its own kernel case study.
 
-What YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into the config dir's optional `.env` sidecar of `KEY=VALUE` switches, and the model's calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to the config dirs:
+| platform | status | kernel | host requirements |
+|---|---|---|---|
+| **[Jetson AGX Thor](docs/platforms/thor/README.md)** | ✅ supported | [case study](docs/platforms/thor/kernel/README.md) | JetPack 7.x |
+| **[DGX Spark](docs/platforms/spark/README.md)** | ⏳ research | — | DGX OS + CUDA 13 |
+| **[Jetson Orin](docs/platforms/orin/README.md)** | ⏳ research | — | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
+
+
+## Supported Models
+
+| model | [Jetson AGX Thor](docs/platforms/thor/README.md) | [DGX Spark](docs/platforms/spark/README.md) | [Jetson Orin](docs/platforms/orin/README.md) |
+|---|---|---|---|
+| [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) | <span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span> | ✅ | ✅ |
+| [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) | <span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span> | — | — |
+
+
+> <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
+
+A served model is a file, not a command line: each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — in its own directory, `configs/<vendor>/<model>/<config>/config.yaml`; what YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into the config dir's optional `.env` sidecar of `KEY=VALUE` switches, the model's calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to the config dirs, and your own configs drop into `~/.local/share/mjolnir/configs/` (same layout) to appear next to the repo's:
 
 ```bash
 configs/Qwen/Qwen3.8-27B/
@@ -199,15 +198,9 @@ mjolnir serve up --config NVFP4_MJOLNIR_E2M3    # or serve one explicitly
 
 More: [adding a model config](docs/faq/new-model-config.md) · [the default model and config](docs/faq/default-model-quant.md) · [serving](docs/faq/serve-server.md) · [which setting wins](docs/faq/settings-precedence.md) · [fp6 KV and calibration](docs/faq/fp6-kv.md).
 
-## Benchmarks
+## Jetson Thor Benchmarks
 
-Measured (platform, model) pairs — each model's page carries its configs,
-per-platform quickstart and A/B rows; each config a README with its
-per-platform Benchmarks cells:
-
-- [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) — Jetson AGX Thor
-- [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) — Jetson AGX Thor
-
+Measured models and their per-platform serving cells: [Supported Models](#supported-models) — each model's page carries its configs, per-platform quickstart and A/B rows; each config a README with its Benchmarks section.
 
 ### Mjolnir Kernel
 
@@ -221,7 +214,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 | **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.32.0 FlasInfer for `sm_110` | fp8 e4m3, NHD pages |
 | **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.32.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
-<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png" alt="Decode latency per step vs context length" width="100%">
+<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
 
 | L | FlashInfer | FA2 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA2 | e2m3 vs FA2 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
@@ -247,15 +240,15 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 </details><br />
 
-<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth-dark.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
+<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
 
 ### E2E: Official vLLM image vs Mjolnir
 
 Native vLLM 0.32.0 — FlashInfer, on the **official** `vllm/vllm-openai` image against the Mjolnir backend on the Mjolnir image: same model, same serving config — **speculative decoding on both sides: MTP, 3 speculative tokens vs MTP, 5 speculative tokens** — measured back to back by `mjolnir bench e2e`.
 
-<img src="assets/benchmarks/thor/Qwen3.8-27B/e2e-decode-dark.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
+<img src="assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
-<img src="assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill-dark.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
+<img src="assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
 
 Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
 
@@ -373,7 +366,7 @@ Every command, sub-command and option, with defaults: **[the CLI reference](docs
 ├── docker/vllm-thor/           the image: Dockerfile, patches/, apply/verify gates, PATCHES.md
 ├── configs/                    model configs (NVFP4_MJOLNIR_E2M3_LMH8_VT64K default, NVFP4 = FlashInfer, NVFP4_FA2)
 ├── benchmarks/raw/verify/      raw verify results (one JSON per stage run) — the charts' only input
-├── assets/benchmarks/          generated charts (`*-dark.png`)
+├── assets/benchmarks/          generated charts (`*.png`)
 ├── docs/platforms/             per-platform pages + the kernel case studies (rendered)
 ├── research/                   the autoresearch program + ledger
 └── .opencode/                  OpenCode agents (autoresearch, researchers, engineer, debugger)

@@ -45,9 +45,9 @@ format) on each platform.
 ## Quickstart
 
 ```bash
-mjolnir serve up --platform thor --config NVFP4_MJOLNIR_E2M3_LMH8_VT64K
-mjolnir serve up --platform spark --config NVFP4
-mjolnir serve up --platform orin --config AWQ_FLASHINFER
+mjolnir serve up --config NVFP4_MJOLNIR_E2M3_LMH8_VT64K
+mjolnir serve up --config NVFP4
+mjolnir serve up --config AWQ_FLASHINFER
 ```
 
 Any config the platform's overlays allow; the full list is the table above.

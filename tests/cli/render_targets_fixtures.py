@@ -320,12 +320,12 @@ def _patch_verify_raws(verify_dir: Path) -> None:
 
 
 def _seed_charts(root: Path) -> None:
-    """A v2 manifest + dark dummy PNGs for the charts the pages reference —
-    the reader side of manifest v2, no matplotlib needed. Dark-only (user
-    decision): entries carry a ``dark`` path and no ``light`` key."""
+    """A v2 manifest + dummy PNGs for the charts the pages reference — the
+    reader side of manifest v2, no matplotlib needed. Entries carry a single
+    ``dark`` path."""
     manifest = {}
     for name, stage in SEEDED_CHARTS.items():
-        dark = f"assets/benchmarks/thor/Qwen3.8-27B/{name}-dark.png"
+        dark = f"assets/benchmarks/thor/Qwen3.8-27B/{name}.png"
         p = root / dark
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"\x89PNG fixture")

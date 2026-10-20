@@ -23,7 +23,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 
 **Jetson AGX Thor**
 ```bash
-mjolnir serve up --platform thor --config NVFP4_MJOLNIR_E2M3
+mjolnir serve up --config NVFP4_MJOLNIR_E2M3
 ```
 Availability: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 
@@ -117,9 +117,9 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup-dark.png" alt="Headline L-sweep" width="100%">
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png" alt="Headline L-sweep" width="100%">
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth-dark.png" alt="Headline L-sweep" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png" alt="Headline L-sweep" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Headline L-sweep" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Headline L-sweep" width="100%">
 
 
 **Head-major pages**
@@ -138,7 +138,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/hnd-layout-dark.png" alt="Head-major pages" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.png" alt="Head-major pages" width="100%">
 
 
 **KV layouts and formats**
@@ -156,8 +156,8 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap-dark.png" alt="KV layouts and formats" width="100%">
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff-dark.png" alt="KV layouts and formats" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap.png" alt="KV layouts and formats" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.png" alt="KV layouts and formats" width="100%">
 
 
 **KV format accuracy**
@@ -179,7 +179,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy-dark.png" alt="KV format accuracy" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.png" alt="KV format accuracy" width="100%">
 
 
 **KV ring depth**
@@ -197,7 +197,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png" alt="KV ring depth" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" alt="KV ring depth" width="100%">
 
 
 **L2 prefetch**
@@ -215,7 +215,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap-dark.png" alt="L2 prefetch" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.png" alt="L2 prefetch" width="100%">
 
 
 **Flag A/B**
@@ -234,7 +234,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap-dark.png" alt="Flag A/B" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.png" alt="Flag A/B" width="100%">
 
 
 **Programmatic dependent launch**
@@ -250,7 +250,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/pdl-delta-dark.png" alt="Programmatic dependent launch" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.png" alt="Programmatic dependent launch" width="100%">
 
 
 **Full profiles per KV format**
@@ -267,7 +267,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time-dark.png" alt="Full profiles per KV format" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png" alt="Full profiles per KV format" width="100%">
 
 
 **KV cache capacity**
@@ -290,7 +290,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity-dark.png" alt="KV cache capacity" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.png" alt="KV cache capacity" width="100%">
 
 
 **Speculative decoding**
@@ -317,7 +317,7 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/spec-drafts-dark.png" alt="Speculative decoding" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.png" alt="Speculative decoding" width="100%">
 
 
 </details>

@@ -1,36 +1,36 @@
 {
  "ab-heatmap": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "ab"
  },
  "accuracy-categories": {
-  "dark": "assets/benchmarks/accuracy-categories-dark.png",
+  "dark": "assets/benchmarks/accuracy-categories.png",
   "model": null,
   "platform": null,
   "stage": "accuracy"
  },
  "accuracy-suites": {
-  "dark": "assets/benchmarks/accuracy-suites-dark.png",
+  "dark": "assets/benchmarks/accuracy-suites.png",
   "model": null,
   "platform": null,
   "stage": "accuracy"
  },
  "e2e-decode": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-decode-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "e2e"
  },
  "e2e-prefill": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "e2e"
  },
  "fp6prof-bytes-vs-time": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "fp6prof"
@@ -40,43 +40,43 @@
   "stage": "readme"
  },
  "hnd-layout": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/hnd-layout-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "hndsweep"
  },
  "kernel-bandwidth": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "sweep"
  },
  "kernel-latency": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "sweep"
  },
  "kernel-speedup": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "sweep"
  },
  "kv-cache-capacity": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "kv-cache-size"
  },
  "kvfmt-heatmap": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "kvfmt"
  },
  "kvfmt-tradeoff": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "kvfmt"
@@ -86,31 +86,31 @@
   "stage": "e2e"
  },
  "pdl-delta": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/pdl-delta-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "pdl"
  },
  "prefetch-heatmap": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "prefetch"
  },
  "quant-accuracy": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "quant"
  },
  "ring-heatmap": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "ring"
  },
  "spec-drafts": {
-  "dark": "assets/benchmarks/thor/Qwen3.8-27B/spec-drafts-dark.png",
+  "dark": "assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.png",
   "model": "Qwen/Qwen3.8-27B",
   "platform": "thor",
   "stage": "spec"

@@ -133,8 +133,7 @@ Rules that keep the numbers honest:
 ## 5. End-to-end (serving) benchmark protocol
 
 - **Harness:** `llama-benchy` (directly, not via a wrapper that discards raw
-  data — see [research/tool-eval-bench-perf-runs.md](../research/tool-eval-bench-perf-runs.md)).
-  The mjolnir wrapper is `mjolnir_cli/benchy.py`; raw JSON lands in
+  data). The mjolnir wrapper is `mjolnir_cli/benchy.py`; raw JSON lands in
   `benchmarks/raw/perf-<timestamp>/`.
 - **Protocol flags:** `--runs` = measured runs per cell (default 6),
   `--exact-tg` (pin output tokens — kills EOS early-stop variance), `--no-cache`
@@ -167,5 +166,4 @@ Rules that keep the numbers honest:
    vN-same results.
 4. **Ratios, not absolutes, for wall-clock.** See §3.
 5. **Bumps invalidate comparisons.** Bumping the vLLM nightly base
-   ([thor-stack/nightly-bump-process.md](../thor-stack/nightly-bump-process.md))
    starts a new comparison epoch; old numbers stay cited with their tag.

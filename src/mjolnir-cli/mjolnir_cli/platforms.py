@@ -105,6 +105,12 @@ REGISTRY: dict[str, Platform] = {
 }
 
 
+# Renderer-facing data (cycle 3g): the root README's hardware table renders
+# the status as icon + word. Keyed by status — a new status needs a new entry
+# here, never a platform-name branch.
+STATUS_ICON: dict[str, str] = {"supported": "✅", "research": "⏳", "not_supported": "❌"}
+
+
 def get(key: str) -> Platform:
     """The record for ``key``; KeyError names the shipped platforms."""
     try:

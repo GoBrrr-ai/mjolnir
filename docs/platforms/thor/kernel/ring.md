@@ -12,7 +12,7 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png" alt="KV ring depth" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" alt="KV ring depth" width="100%">
 
 - Fastest variant at the most context lengths: **`stages=5`** (2 of 8).
 - Best geomean vs FlashInfer: **`stages=2`** (1.25×); worst: `stages=6` (1.16×).

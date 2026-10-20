@@ -57,7 +57,8 @@ mode. ([docs/faq/verify-kernel.md](../docs/faq/verify-kernel.md))
 bit-faithful emulator. The order is fixed: correctness first, then a same-run
 A/B, then the defaults, then the vLLM side.
 
-- each chapter in [`docs/kernel/`](../docs/kernel/README.md) ends with **open
+- each chapter in [`docs/platforms/thor/kernel/`](../docs/platforms/thor/kernel/README.md)
+  ends with **open
   ideas** — pick one;
 - new paths go behind a harness flag; flip a default only with an A/B win
   across L (`mjolnir verify ab`);
@@ -67,9 +68,9 @@ A/B, then the defaults, then the vLLM side.
 Workflow: [`.opencode/skills/kernel-iteration/SKILL.md`](../.opencode/skills/kernel-iteration/SKILL.md).
 
 Good first projects: a vLLM cache-write path for fp6 KV (the kernel already
-reads it — see [`kvfmt`](../docs/kernel/kvfmt.md)); fusing the split-KV merge
+reads it — see [`kvfmt`](../docs/platforms/thor/kernel/kvfmt.md)); fusing the split-KV merge
 into the last CTA; closing the fp6 byte-vs-time gap
-([`fp6prof`](../docs/kernel/fp6prof.md)).
+([`fp6prof`](../docs/platforms/thor/kernel/fp6prof.md)).
 
 ### 3. Run (or share) an autoresearch session
 

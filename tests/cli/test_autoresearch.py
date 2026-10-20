@@ -129,5 +129,5 @@ def test_progress_chart_renders(tmp_path):
         {"id": 4, **_row(dict.fromkeys(LS, 1.06)), "status": "keep", "score": 1.06, "hypothesis": "z"},
     ]  # fmt: skip
     p = ar._render_progress(tmp_path, rows, tmp_path / "progress.png")
-    assert p and (tmp_path / "progress.png").exists() and (tmp_path / "progress-dark.png").exists()
+    assert p and (tmp_path / "progress.png").exists() and not list(tmp_path.glob("*-dark*"))
     assert ar._render_progress(tmp_path, [], tmp_path / "empty.png")  # the placeholder

@@ -14,7 +14,7 @@
 
 </details><br />
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup-dark.png" alt="Mjolnir decode speedup over FlashInfer" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png" alt="Mjolnir decode speedup over FlashInfer" width="100%">
 
 ## The problem: decode is a memory stream
 

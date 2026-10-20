@@ -12,7 +12,7 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap-dark.png" alt="Flag A/B" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.png" alt="Flag A/B" width="100%">
 
 - Fastest variant at the most context lengths: **`pdl`** (3 of 8).
 - Best geomean vs FlashInfer: **`evict`** (1.28×); worst: `base` (1.26×).

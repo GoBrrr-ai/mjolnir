@@ -62,7 +62,7 @@ from mjolnir_cli.config_bench import (
 from mjolnir_cli.config_profile import ProfileRow, _backend_label, _profile_rows
 from mjolnir_cli.history import load_records
 from mjolnir_cli.overlays import load_overlay, merge_config, overlay_platforms
-from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, STATUS_ICON, platform_of
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import STAGES
 
@@ -271,6 +271,9 @@ class PlatformRow:
     status: str
     sm_family: str
     host_requirements: str
+    # Renderer-facing data (cycle 3g): the status icon of the root README's
+    # hardware table (platforms.STATUS_ICON) — icon + word in the status cell.
+    status_icon: str = ""
 
 
 def platform_rows() -> list[PlatformRow]:
@@ -282,6 +285,7 @@ def platform_rows() -> list[PlatformRow]:
             status=p.status,
             sm_family=p.sm_family,
             host_requirements=p.host_requirements,
+            status_icon=STATUS_ICON[p.status],
         )
         for p in REGISTRY.values()
     ]
@@ -460,7 +464,7 @@ class Config:
                 ConfigPlatform(
                     name=p.name,
                     short=p.short,
-                    argv=f"mjolnir serve up --platform {p.key} --config {self.quant}",
+                    argv=f"mjolnir serve up --config {self.quant}",
                     cell=_cell_of(c.path, self.quant, p.key),
                 )
                 for p in plats

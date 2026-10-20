@@ -23,19 +23,19 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 
 **Jetson AGX Thor**
 ```bash
-mjolnir serve up --platform thor --config NVFP4
+mjolnir serve up --config NVFP4
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
 **DGX Spark**
 ```bash
-mjolnir serve up --platform spark --config NVFP4
+mjolnir serve up --config NVFP4
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
 **Jetson Orin**
 ```bash
-mjolnir serve up --platform orin --config NVFP4
+mjolnir serve up --config NVFP4
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
@@ -51,7 +51,7 @@ Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjo
 | TTFT (ms) | 19,964 | 11,222 | −43.8% |
 | ITL (ms) | 40.6 | 31.3 | −23.1% |
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode-dark.png" alt="End-to-end decode throughput" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -131,9 +131,9 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup-dark.png" alt="Headline L-sweep" width="100%">
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png" alt="Headline L-sweep" width="100%">
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth-dark.png" alt="Headline L-sweep" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png" alt="Headline L-sweep" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Headline L-sweep" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Headline L-sweep" width="100%">
 
 
 **Head-major pages**
@@ -152,7 +152,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/hnd-layout-dark.png" alt="Head-major pages" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.png" alt="Head-major pages" width="100%">
 
 
 **KV layouts and formats**
@@ -170,8 +170,8 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap-dark.png" alt="KV layouts and formats" width="100%">
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff-dark.png" alt="KV layouts and formats" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap.png" alt="KV layouts and formats" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.png" alt="KV layouts and formats" width="100%">
 
 
 **KV format accuracy**
@@ -193,7 +193,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy-dark.png" alt="KV format accuracy" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.png" alt="KV format accuracy" width="100%">
 
 
 **KV ring depth**
@@ -211,7 +211,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap-dark.png" alt="KV ring depth" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" alt="KV ring depth" width="100%">
 
 
 **L2 prefetch**
@@ -229,7 +229,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap-dark.png" alt="L2 prefetch" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.png" alt="L2 prefetch" width="100%">
 
 
 **Flag A/B**
@@ -248,7 +248,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap-dark.png" alt="Flag A/B" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.png" alt="Flag A/B" width="100%">
 
 
 **Programmatic dependent launch**
@@ -264,7 +264,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/pdl-delta-dark.png" alt="Programmatic dependent launch" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.png" alt="Programmatic dependent launch" width="100%">
 
 
 **Full profiles per KV format**
@@ -281,7 +281,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time-dark.png" alt="Full profiles per KV format" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png" alt="Full profiles per KV format" width="100%">
 
 
 **KV cache capacity**
@@ -304,7 +304,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity-dark.png" alt="KV cache capacity" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.png" alt="KV cache capacity" width="100%">
 
 
 **Speculative decoding**
@@ -331,7 +331,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/spec-drafts-dark.png" alt="Speculative decoding" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.png" alt="Speculative decoding" width="100%">
 
 
 </details>

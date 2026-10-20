@@ -23,7 +23,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 
 **Jetson Orin**
 ```bash
-mjolnir serve up --platform orin --config AWQ_FLASHINFER
+mjolnir serve up --config AWQ_FLASHINFER
 ```
 Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 

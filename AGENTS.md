@@ -191,7 +191,7 @@ skipped with a hint — nothing blocks on a password.
   (`$MJOLNIR_CONFIGS_DIR`), same layout.
 - `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
   `history.jsonl`, `logs/` (untracked).
-- `assets/benchmarks/` — generated charts (`*.png`, `*-dark.png`, `manifest.json`).
+- `assets/benchmarks/` — generated charts (`*.png`, `manifest.json`).
 - `README.md.j2`, `docs/kernel/*.md.j2` — the templates.
 - `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index
   `docs/README.md`.
@@ -229,8 +229,7 @@ uv run mjolnir plot --readme              # charts + README.md + docs/platforms/
 uv run mjolnir plot --site _site          # the interactive page (pages.yml publishes it)
 ```
 New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir
-orange, FlashInfer blue, FA2 aqua — never ad-hoc colors; dark-only variant,
-`<id>-dark.png` — the Pages site is interactive Plotly),
+orange, FlashInfer blue, FA2 aqua — never ad-hoc colors),
 registered in `render_all`; new table → `readme.py` `TABLES`; reference both from
 the template. Sentences that state a result come from `readme.py` findings,
 not hand-typed numbers.
@@ -307,8 +306,8 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       (64K+) and concurrency; `mjolnir verify sweep --batch 4 --q-len 4`
       measures the MTP=3 verify shape in ncu.
 - [ ] **Decode beyond attention**: the ranked experiment list with A/B
-      commands is `docs/research/decode-experiments.md` (draft-step overhead,
-      fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L).
+      commands: draft-step overhead,
+      fp8 lm_head, VocabTrim draft head, fp8 MTP layer, draft length, long L.
       What every bench measures by default — serving legs of `verify
       spec|kv-cache-size|profile` and `bench ab|e2e|accuracy`, kernel legs of
       the ncu stages, the `verify vllm` smoke modes — is set in ONE place:
@@ -322,8 +321,8 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       fixed 2026-10-17: fastest-launch snapshot, wall shows a flat 0.84–0.86×
       fp8 at every L) and not the block table (E2a readahead: no win, impl in
       git history `39fa326`). What remains is a uniform ~10–17% latency floor
-      vs the byte ratio at every L (`docs/kernel/fp6prof.md`, ranked ideas in
-      `research/program.md`).
+      vs the byte ratio at every L (`docs/platforms/thor/kernel/fp6prof.md`,
+      ranked ideas in `research/program.md`).
 - [x] Fuse the split-KV merge into the last CTA per sequence — tried
       (autoresearch run 1): 0.56× at 4K; retired in favour of a cheaper merge.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
@@ -332,10 +331,7 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
 FA4's dedicated hd256 kernel is bf16-only upstream (asserts
 `descale_tensors is None`), and vLLM downgrades FA4→FA2 for hd256 + any
 quantized KV — so **FlashInfer remains the only FP8-KV path for the hd256
-layers** (FA4+FP8 for hd≤128 *is* proven on Thor —
-`docs/thor-stack/fa4-fp8kv-sm110.md`). Depth:
-`docs/thor-stack/fa4-hd256-route-trace.md` (kernel/policy trace),
-`docs/research/fa4-hd256-upstream-status.md` (upstream status).
+layers** (FA4+FP8 for hd≤128 *is* proven on Thor).
 
 Plan (as probe-gated patches, same pattern as the shipped ones):
 1. Wait for (or request early access to) the upstream FP8-descale branch for
@@ -375,8 +371,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
      20-SM Thor for our decode shapes (48 clusters > 20 SMs → 0 splits) —
      corroborates our in-tree NO-WIN. NOT the FP8-descale work (still private
      per #2456), and NOT in vLLM 0.30.0's or 0.31.0's vendored FA4 (pre-#2916), so the fa4
-     patch group is unaffected. Depth:
-     `docs/research/fa4-hd256-upstream-status.md` (2026-09-26 update).
+     patch group is unaffected.
    - Open: persistent-cluster scheduler (the 20-SM small-batch lever),
      sliding-window (#2749), hd256 backward + seqused (#2891), hd512 (#2877).
 - FlashInfer: no hd256+FP8 work; XQA sm_110 gap open, unassigned
@@ -401,8 +396,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   - FlashInfer [PR #3871](https://github.com/flashinfer-ai/flashinfer/pull/3871)
     (merged Jul 2026): graph-safe uniform multi-token decode; design statement
     confirms frozen plan_info depends only on (batch, total_rows, uniform_q_len)
-    — the property our c1 regression study relies on
-    (`docs/draft-cudagraph/c1-regression-study.md`).
+    — the property our c1 regression fix relies on.
 
 ## Conventions
 - **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**

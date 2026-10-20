@@ -12,7 +12,7 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/pdl-delta-dark.png" alt="Programmatic dependent launch" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.png" alt="Programmatic dependent launch" width="100%">
 
 - 12 of 16 measurements move by less than the ±3% noise band (range -3.4% … +5.7%).
 

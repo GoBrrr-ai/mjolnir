@@ -524,11 +524,7 @@ shipped (see below).
   1CTA == 2CTA == fp32-ref within fp8 tolerance (1CTA-vs-2CTA max diff
   9.77e-4 @ L=2048 / 4.88e-4 @ L=8192 vs tolerances 1.52e-2 / 1.35e-2 —
   both cluster forms equally correct; the residual is fp8/softmax
-  numerics, not a cluster-form difference). Depth:
-  `docs/fa4-hd256-fp8/decode-kernel-feasibility.md` (DK-0 go/no-go),
-  `dk1a-1cta-paged.md` (DK-1a trigger + production wiring),
-  `decode-1cta-clean.md` (DK-1/DK-2 clean validation),
-  `v11-1cta-patch.md` (patch provenance).
+  numerics, not a cluster-form difference).
 - **Status.** Built into the v11 image (`mjolnir/vllm-thor:
   qwen38-sm110-v11`, same pinned base digest, no Dockerfile change). Full
   v11 flow simulation on the expanded v10 site-packages: all v10 patches
@@ -538,7 +534,7 @@ shipped (see below).
   micro-bench measured (`cmp` clean). No `verify_patches.py` sentinel was
   added — the hunk re-wraps an existing expression (adding only the
   `hd256_decode_1cta` local), and the gate verifies the existing fixes,
-  which all remain present (`v11-1cta-patch.md` §Registration).
+  which all remain present.
 - **Residual gap.** 1CTA is still ~2.9× FlashInfer at L=8192, M=1 (207.1
   µs vs the isolated-clean FI reference 72.5 µs; 2.25× in-window) — the
   remaining lever is a FlashInfer-inspired GEMV-style decode kernel (the
@@ -555,12 +551,12 @@ deliberately excluded from v11, and the shipped interface never enables
 `num_splits > 1` on hd256; the machinery stays in the live tree as a
 correctness-verified harness for future kernel work):
 
-- **2CTA path** (`docs/fa4-hd256-fp8/splitkv-sweep.md`, 2026-09-23): ns>1
+- **2CTA path** (2026-09-23): ns>1
   is slower at every L — 40/40 cells (L∈{256…8192} × M∈{1,4} ×
   ns∈{2,4,8,16}) above serial; the best case (ns=2, L=8192) is still
   1.24× *slower*, and the per-split penalty shows no amortization knee as
   L grows.
-- **1CTA path** (`docs/fa4-hd256-fp8/real-splitkv-bench.md`, 2026-09-24):
+- **1CTA path** (2026-09-24):
   real SplitKV was enabled on the 1CTA path (num_splits clamp lifted,
   per-ns compile key, `num_splits` as a constructor constant — a trailing
   FFI argument breaks CuTe DSL IR verification) and verified correct
@@ -839,10 +835,9 @@ gate, and the flashinfer GDN hunk clean.
 **FA4 side note:** the 0.30.0 vendored `vllm_flash_attn/cute/` tree is
 **pre-#2916/#2917** (flash-attention's hd256 2CTA SplitKV, merged to FA
 `main` 2026-09-25, after the 0.30.0 cut — the vendored kernel still asserts
-`not is_split_kv`), so the fa4 patch group is unaffected; see
-`docs/research/fa4-hd256-upstream-status.md` (2026-09-26 update) for the
-impact analysis (auto-SplitKV disables itself on the 20-SM Thor by the
-upstream heuristic's own arithmetic, corroborating the in-tree NO-WIN).
+`not is_split_kv`), so the fa4 patch group is unaffected: auto-SplitKV
+disables itself on the 20-SM Thor by the
+upstream heuristic's own arithmetic, corroborating the in-tree NO-WIN.
 
 Build gates (no-GPU build on Thor; the two kernel tests self-skip, T10/T1
 execute): `all 12 vllm fixes verified` + `all 1 flashinfer fix verified`,

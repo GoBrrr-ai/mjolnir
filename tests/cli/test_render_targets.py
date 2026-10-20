@@ -377,14 +377,18 @@ def test_model_readme_shows_the_per_platform_e2e_ab_rows(repo):
 
 
 def test_model_readme_quickstart_argv_follows_the_platform(repo):
-    """Per-platform quickstart (spec §Data→Page Mapping): the argv names the
-    platform and a config that exists there — spark's is the FlashInfer one."""
+    """Per-platform quickstart (spec §Data→Page Mapping). Spec change
+    (cycle 3h — detection-first): no ``--platform`` on the serve line; each
+    line names a config that exists on that platform — spark's is the
+    FlashInfer one."""
     _render_all()
     page = (repo / "configs" / M38 / "README.md").read_text()
-    thor_ln = _line(page, "--platform thor")
-    spark_ln = _line(page, "--platform spark")
-    assert "--config NVFP4_MJOLNIR_E2M3_LMH8_VT64K" in thor_ln
-    assert "--config NVFP4 " in spark_ln or spark_ln.rstrip().endswith("--config NVFP4")
+    thor_ln = _line(page, "--config NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
+    spark_ln = _line(page, "--config NVFP4", exact=("NVFP4",))
+    for ln in (thor_ln, spark_ln):
+        assert "mjolnir serve up --config" in ln
+        assert "--platform" not in ln
+    assert "--platform" not in page
 
 
 def test_model_readme_stays_lean(repo):
@@ -420,15 +424,17 @@ def test_config_readme_shows_overlay_deltas_as_columns(repo):
 
 
 def test_config_readme_renders_the_serve_argv_per_platform(repo):
-    """`mjolnir serve --platform <p>` rendered argv per platform (spec row 6):
-    one line per platform the config exists on, naming the config."""
+    """`mjolnir serve up` rendered per platform (spec row 6). Spec change
+    (cycle 3h — detection-first): the flagless line, one serve block per
+    platform the config exists on, naming the config."""
     _render_all()
     fp6 = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
-    ln = _line(fp6, "mjolnir serve", "--platform thor")
+    ln = _line(fp6, "mjolnir serve up")
     assert f"--config {FP6_QUANT}" in ln
+    assert "--platform" not in ln
     nvfp4 = (repo / "configs" / M38 / "NVFP4" / "README.md").read_text()
-    for platform in ("thor", "spark"):
-        assert "--config NVFP4" in _line(nvfp4, "mjolnir serve", f"--platform {platform}")
+    assert nvfp4.count("mjolnir serve up") == 2  # one block per platform (thor, spark)
+    assert "--platform" not in nvfp4
 
 
 def test_config_readme_badges_come_from_the_availability_table(repo):
@@ -512,7 +518,7 @@ def test_benchmarks_chart_references_resolve_from_the_config_dir(repo):
     config page's references resolve from four directories deep."""
     _render_all()
     page = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
-    assert "../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode-dark.png" in page
+    assert "../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" in page
 
 
 # ── cross-linking (spec §Cross-Linking Map) + root README (spec target #1) ──
@@ -595,6 +601,114 @@ def test_root_headline_stays_pinned_to_thor(repo):
     text = (repo / "README.md").read_text()
     assert "+30.8%" in text or "+31%" in text, "the pinned (thor, Qwen3.8-27B) gain must show"
     assert "+28.9%" not in text and "+29%" not in text
+
+
+# ── the root README's hardware + models tables (cycle 3g) ───────────────────
+
+
+def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
+    """Plan §1: the status cell is icon + word driven by the registry status
+    (supported → ✅, research → ⏳) and platform names are bold + linked."""
+    _render_all()
+    hw = _section((repo / "README.md").read_text(), "Supported Hardware")
+    assert "| **[Jetson AGX Thor](docs/platforms/thor/README.md)** | ✅ supported |" in hw
+    assert "| **[DGX Spark](docs/platforms/spark/README.md)** | ⏳ research |" in hw
+    assert "| **[Jetson Orin](docs/platforms/orin/README.md)** | ⏳ research |" in hw
+
+
+def test_status_icon_map_is_data_driven(monkeypatch):
+    """A registry platform with status ``not_supported`` renders ❌ — the icon
+    is map data keyed by status, never a platform-name branch."""
+    from mjolnir_cli import platforms, readme_targets
+
+    retired = platforms.Platform(
+        key="retired",
+        name="Retired Board",
+        sm=(9, 9),
+        sm_family="sm_99",
+        image_repo="x/y",
+        default_image="x:y",
+        stock_image=None,
+        vllm_version=None,
+        status="not_supported",
+    )
+    monkeypatch.setitem(platforms.REGISTRY, "retired", retired)
+    rows = {r.key: r for r in readme_targets.platform_rows()}
+    assert rows["retired"].status_icon == "❌"
+    assert rows["thor"].status_icon == "✅"
+    assert rows["spark"].status_icon == "⏳"
+
+
+def test_models_table_cells_native_with_history_native_without_and_no_configs(repo):
+    """Plan §2 cell semantics on the fixture: (a) thor has native configs and
+    (1, 0) history → `✅ <t/s> t/s`, fastest config wins (the fp6 config's
+    52.7 beats NVFP4's 40.3, its name in the cell title); (b) spark/orin have
+    a native config but no (1, 0) history → the bare ✅; (d) Qwen3.6 targets
+    only thor (all its configs are thor-only) → — on spark/orin."""
+    _render_all()
+    models = _section((repo / "README.md").read_text(), "Supported Models")
+    m38 = _line(models, "configs/Qwen/Qwen3.8-27B/README.md")
+    assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 52.7 t/s</span>' in m38
+    assert m38.endswith("| ✅ | ✅ |")  # spark + orin: native, no (1, 0) data
+    m36 = _line(models, "configs/nvidia/Qwen3.6-35B-A3B/README.md")
+    assert "| ✅ | — | — |" in m36  # thor native; spark/orin: no config targets them
+
+
+def test_models_table_marks_every_config_unavailable(repo):
+    """(c) every config of the model targeting the platform is explicitly
+    unavailable there → ❌. Test-local tweak: the fp6 config gains a spark
+    overlay (the Mjolnir kernel is the only fp6 reader — thor only), making
+    it Qwen3.6's only spark-targeting config."""
+    d = repo / "configs" / M36 / "NVFP4_MJOLNIR_E2M3" / "platforms"
+    d.mkdir(exist_ok=True)
+    (d / "spark.yaml").write_text("{}\n")
+    _render_all()
+    models = _section((repo / "README.md").read_text(), "Supported Models")
+    assert "| ❌ |" in _line(models, "configs/nvidia/Qwen3.6-35B-A3B/README.md")
+
+
+def test_models_table_fastest_config_tie_breaks_on_scan_order(repo):
+    """Fastest config wins; an exact tie resolves deterministically to the
+    scan-first config (configs/ glob order), pinned via the cell title."""
+    import json
+
+    layout = load_layout()
+    recs = fx.history_records()
+    for r in recs:
+        if r["platform"] == "thor" and r["model"] == M38:
+            for c in r["cells"]:
+                if c["concurrency"] == 1 and (c.get("context") or 0) == 0:
+                    c["tg_tps"]["mean"] = 50.0
+    layout.history_file.write_text("".join(json.dumps(r) + "\n" for r in recs))
+    _render_all()
+    models = _section((repo / "README.md").read_text(), "Supported Models")
+    assert '<span title="NVFP4">✅ 50.0 t/s</span>' in _line(models, "configs/Qwen/Qwen3.8-27B/README.md")
+
+
+def test_models_table_header_and_row_links_and_footnote(repo):
+    """Plan §2/§3: one linked column per registry platform, one linked row per
+    scanned model, and the footnote's cell definition + history provenance."""
+    _render_all()
+    models = _section((repo / "README.md").read_text(), "Supported Models")
+    for p in REGISTRY:
+        assert f"](docs/platforms/{p}/README.md)" in models
+    assert "](configs/Qwen/Qwen3.8-27B/README.md)" in models
+    assert "](configs/nvidia/Qwen3.6-35B-A3B/README.md)" in models
+    assert "1 request" in models and "0 context" in models
+    assert "[benchmarks/history.jsonl](benchmarks/history.jsonl)" in models
+
+
+def test_both_measured_pairs_lists_are_gone(repo):
+    """Plan §3: no `Measured (platform, model) pairs` list anywhere — the
+    models table replaces both copies and the Benchmarks section keeps at
+    most a one-line pointer at the Supported Models table."""
+    _render_all()
+    text = (repo / "README.md").read_text()
+    assert "Measured (platform, model) pairs" not in text
+    assert "- [" not in _section(text, "Supported Models")
+    bench_intro = _section(text, "Benchmarks").split("###")[0]
+    assert "- [" not in bench_intro
+    assert "#supported-models" in bench_intro
 
 
 def test_no_generated_page_carries_trailing_whitespace(repo):

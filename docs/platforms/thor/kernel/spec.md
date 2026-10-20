@@ -16,7 +16,7 @@ For every config and every draft count k the server is started with `--speculati
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/spec-drafts-dark.png" alt="Decode rate vs draft tokens" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.png" alt="Decode rate vs draft tokens" width="100%">
 
 - official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s per request, 3.46 tokens per step, +4.9% vs 3 drafts.
 - official vLLM · FlashInfer fp8, 4 requests: best with **4 drafts** — 24.8 t/s per request, 3.50 tokens per step, +0.9% vs 3 drafts.

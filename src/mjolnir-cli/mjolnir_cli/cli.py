@@ -851,7 +851,7 @@ def plot(
         None, "--site", help="also build the interactive benchmark site (index.html) into this directory"
     ),
 ):
-    """Render every chart (dark-only PNGs in assets/benchmarks/, from the
+    """Render every chart (PNGs in assets/benchmarks/, from the
     latest default `mjolnir verify` run of each stage + the e2e history).
     --readme also renders README.md and docs/**/*.md from their .md.j2
     templates; --site builds the interactive GitHub Pages site. Everything is

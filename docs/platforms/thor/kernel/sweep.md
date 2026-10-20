@@ -15,11 +15,11 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup-dark.png" alt="Mjolnir speedup over FlashInfer" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png" alt="Mjolnir speedup over FlashInfer" width="100%">
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency-dark.png" alt="Decode latency per step" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step" width="100%">
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth-dark.png" alt="Effective KV bandwidth" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth" width="100%">
 
 - **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.26×**, from 1.03× (L=16K) to 1.72× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
 - **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.17×**, from 1.06× (L=16K) to 1.68× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.

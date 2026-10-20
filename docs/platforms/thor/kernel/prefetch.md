@@ -12,7 +12,7 @@ Distances 0 (off), 1, 2, 4 on fp8 KV (the prefetch path is not wired for NVFP4) 
 
 ## Result
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap-dark.png" alt="L2 prefetch distance" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.png" alt="L2 prefetch distance" width="100%">
 
 - Fastest variant at the most context lengths: **`prefetch=0`** (7 of 8).
 - Best geomean vs FlashInfer: **`prefetch=0`** (1.14×); worst: `prefetch=4` (1.02×).

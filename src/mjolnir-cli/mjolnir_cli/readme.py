@@ -4,8 +4,8 @@ computed from the committed raw data.
 ``mjolnir plot --readme`` renders the render-target set (cycle 3b; discovery
 + contexts in :mod:`mjolnir_cli.readme_targets`):
 
-* ``README.md``                          the root: status matrix, measured-pair
-                                         index, the headline pinned to
+* ``README.md``                          the root: hardware + models tables,
+                                         the headline pinned to
                                          (thor, the default model)
 * ``docs/platforms/README.md``           the platform index
 * ``docs/platforms/<p>/README.md``       one per shipped platform (+ its
@@ -41,7 +41,7 @@ Template contract (Jinja2, StrictUndefined — a typo fails loud):
                        per-stage findings ``ctx.findings[stage]`` and
                        ``ctx.pending``); the pages read their own dataclasses
                        from ``readme_targets``
-* ``chart(name, alt)`` — a dark ``<img>`` for a chart in the
+* ``chart(name, alt)`` — an ``<img>`` for a chart in the
                        manifest (``""`` when the chart has no data for this
                        page's (platform, model) pair yet)
 * ``has(stage)``     — the stage has a saved run
@@ -60,7 +60,7 @@ from typing import Any, cast
 
 import jinja2
 
-from mjolnir_cli import readme_targets
+from mjolnir_cli import availability, readme_targets
 from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, IMAGE_REPO, RepoLayout, by_model, model_of
 from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.verify import results
@@ -318,7 +318,9 @@ class ReadmeContext:
     chart_pair: tuple[str, str] | None = None
     platform: Any = None
     platforms: list = field(default_factory=list)
-    measured_pairs: list = field(default_factory=list)
+    # the root README's Supported Models table (cycle 3g): one row per
+    # scanned model, one availability (+ t/s) cell per registry platform
+    models: list = field(default_factory=list)
 
 
 def _vllm_base_version(layout: RepoLayout) -> str:
@@ -380,7 +382,7 @@ def collect_context(
     ctx.chart_pair = (platform, model)
     ctx.platform = next((p for p in readme_targets.platform_rows() if p.key == platform), None)
     ctx.platforms = readme_targets.platform_rows()
-    ctx.measured_pairs = _measured_pairs(layout)
+    ctx.models = _models_table(layout)
     ctx.image = f"{IMAGE_REPO}:v{ctx.vllm_version}" if ctx.vllm_version else IMAGE_REPO
     if layout.repo_root is not None:
         ctx.kernel_version = _version_from(layout.repo_root / "src" / "mjolnir" / "mjolnir" / "__init__.py")
@@ -476,29 +478,71 @@ def collect_context(
     return ctx
 
 
-def _measured_pairs(layout: RepoLayout) -> list[dict]:
-    """The root README's measured-pair index rows: one entry per measured
-    model, its platforms (display names) and — when the model has a config
-    dir — the link target (spec row 1)."""
-    scan = {c.model for c in readme_targets.scan_configs(layout)}
-    by_m: dict[str, set[str]] = {}
+@dataclass(frozen=True)
+class ModelCell:
+    """One (model, platform) cell of the Supported Models table: the
+    availability symbol plus — when history has it — the decode t/s at
+    concurrency 1 / context 0 of the fastest config's latest run (its name
+    goes into the cell's title)."""
+
+    symbol: str
+    tps: str  # "" when no config has a (1, 0) cell
+    config: str  # the fastest config's name; "" without data
+
+
+@dataclass(frozen=True)
+class ModelsRow:
+    """One row of the Supported Models table: a config-tree model and one
+    cell per registry platform (insertion order follows the registry)."""
+
+    model: str
+    short: str
+    cells: dict[str, ModelCell]
+
+
+def _models_table(layout: RepoLayout) -> list[ModelsRow]:
+    """The root README's Supported Models table (cycle 3g): one row per
+    scanned model, one cell per registry platform. ✅ when ≥1 of the model's
+    configs targets the platform and is natively available (the availability
+    table), ❌ when every targeting config is explicitly unavailable, — when
+    none targets it. "Targets" is the overlay rule
+    (:func:`readme_targets.exists_on`) — the same rule the model pages'
+    per-platform sections use. The t/s reuses the e2e cell readers: decode
+    tokens/s at (1, 0) from the fastest targeting config's latest merged
+    history run; an exact tie keeps the scan-first config."""
+    from mjolnir_cli import e2e
     from mjolnir_cli.history import load_records
 
-    for rec in load_records(layout.history_file):
-        m = model_of(rec)
-        if m and rec.get("cells"):
-            by_m.setdefault(m, set()).add(platform_of(rec))
-    out = []
-    for m, plats in sorted(by_m.items()):
-        out.append(
-            {
-                "model": m,
-                "short": m.split("/")[-1],
-                "platforms": ", ".join(REGISTRY[p].name for p in sorted(plats)),
-                "linked": m in scan,
-            }
-        )
-    return out
+    scan = readme_targets.scan_configs(layout)
+    history: dict[tuple[str, str | None, str], list[dict]] = {}
+    if layout.history_file.exists():
+        for r in load_records(layout.history_file):
+            if r.get("cells"):
+                history.setdefault((platform_of(r), model_of(r), str(r.get("config") or "")), []).append(r)
+    rows = []
+    for model in sorted({c.model for c in scan}):
+        cells: dict[str, ModelCell] = {}
+        for p in REGISTRY.values():
+            configs = [c for c in scan if c.model == model and readme_targets.exists_on(c.path, p.key)]
+            if not configs:
+                cells[p.key] = ModelCell("—", "", "")
+                continue
+            states = [readme_targets.config_cell(c.path, c.quant, p.key).state for c in configs]
+            if availability.NATIVE in states:
+                symbol = readme_targets.SYMBOLS[availability.NATIVE]
+            elif set(states) == {availability.UNAVAILABLE}:
+                symbol = readme_targets.SYMBOLS[availability.UNAVAILABLE]
+            else:
+                symbol = readme_targets.SYMBOLS[availability.FALLBACK]
+            best: tuple[float, str] | None = None
+            for c in configs:
+                merged = e2e._merge(history.get((p.key, model, c.quant), []))
+                v = e2e.value(e2e.cell(merged, 1, 0), "tg_tps") if merged else None
+                if v is not None and (best is None or v > best[0]):
+                    best = (v, c.quant)
+            cells[p.key] = ModelCell(symbol, f"{best[0]:.1f}" if best else "", best[1] if best else "")
+        rows.append(ModelsRow(model=model, short=model.split("/")[-1], cells=cells))
+    return rows
 
 
 def _features(
@@ -721,12 +765,11 @@ def _env(layout: RepoLayout, ctx: Any, out_path: Path) -> jinja2.Environment:
     prefix = "" if root_rel == "." else root_rel + "/"
 
     def chart(name: str, alt: str = "", width: str = "100%", pair: tuple[str, str] | None = None) -> str:
-        """A plain dark ``<img>`` for a manifest chart (dark-only: GitHub
-        renders markdown against a dark surface; the Pages site is Plotly).
-        A pair-scoped entry (manifest v2) resolves only for the page's own
-        (platform, model) pair — ``pair`` overrides it (the config pages'
-        kernel sections quote the headline pair's charts); entries without an
-        identity (legacy flat paths, hero, accuracy) resolve everywhere."""
+        """A plain ``<img>`` for a manifest chart. A pair-scoped entry
+        (manifest v2) resolves only for the page's own (platform, model)
+        pair — ``pair`` overrides it (the config pages' kernel sections
+        quote the headline pair's charts); entries without an identity
+        (legacy flat paths, hero, accuracy) resolve everywhere."""
         m = manifest.get(name)
         if not m:
             return ""
@@ -759,10 +802,6 @@ def render_file(layout: RepoLayout, tpl: Path, out: Path, ctx: Any) -> Path:
     return out
 
 
-# the one-release-cycle redirect for the pre-cycle-3 case-study links
-REDIRECT_STUB = "The kernel case study moved to [docs/platforms/thor/kernel/](../platforms/thor/kernel/README.md).\n"
-
-
 def render_all(layout: RepoLayout, root_override: tuple[Path, Path] | None = None) -> list[Path]:
     """Render every target (plan §1): the root README, the platform tree
     (``docs/platforms/`` — index, per-platform pages and the kernel case
@@ -790,12 +829,6 @@ def render_all(layout: RepoLayout, root_override: tuple[Path, Path] | None = Non
             if not tpl.is_file():
                 raise FileNotFoundError(f"template not found: {tpl}")
             written.append(render_file(layout, tpl, out, ctx))
-    # the one-release-cycle redirect stub for inbound docs/kernel/ links
-    # (spec §Directory Layout) — same content every render
-    stub = root / "docs" / "kernel" / "README.md"
-    stub.parent.mkdir(parents=True, exist_ok=True)
-    stub.write_text(REDIRECT_STUB)
-    written.append(stub)
     for p in written:
         print(f"[mjolnir] wrote {p}")
     return written
