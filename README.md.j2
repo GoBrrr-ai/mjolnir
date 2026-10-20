@@ -56,19 +56,19 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <tr>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🚀&nbsp;Faster decode</h3>
+      <h3><a href="docs/platforms/thor/README.md#end-to-end">🚀&nbsp;Faster decode</a></h3>
       <p>{% if ctx.feat.get('decode') %}<b>{{ ctx.feat.get('decode') }} tokens/s</b> vs the official vLLM image{% else %}More tokens per second per request than the official vLLM image{% endif %}. MTP with <b>{{ ctx.feat.get("mtp") }} draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>⏱️&nbsp;Faster prompts</h3>
+      <h3><a href="docs/platforms/thor/README.md#end-to-end">⏱️&nbsp;Faster prompts</a></h3>
       <p>{% if ctx.feat.get('prefill') %}<b>{{ ctx.feat.get('prefill') }}</b> prefill throughput{% if ctx.feat.get('ttft') %}, <b>{{ ctx.feat.get('ttft') }}</b> time to first token{% endif %}{% else %}Faster prefill and a shorter wait for the first token{% endif %}.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🧠&nbsp;More context per GB</h3>
+      <h3><a href="docs/platforms/thor/kernel/kv-cache-size.md">🧠&nbsp;More context per GB</a></h3>
       <p>The 6-bit <code>e2m3</code> KV cache holds {% if ctx.feat.get('kv') %}<b>{{ ctx.feat.get('kv') }} tokens</b>{% else %}25% fewer bytes per token, so more tokens{% endif %} in the same memory.</p>
       <br>
     </td>
@@ -76,19 +76,19 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <tr>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🎯&nbsp;Same accuracy</h3>
+      <h3><a href="docs/platforms/thor/kernel/accuracy.md">🎯&nbsp;Same accuracy</a></h3>
       <p>{% if ctx.feat.get('acc') %}Tool calling within <b>±{{ ctx.feat.get('acc') }} points</b> of the stock FlashInfer fp8 baseline{% else %}Measured against the stock FlashInfer fp8 baseline{% endif %}.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🐳&nbsp;Dockerized</h3>
+      <h3><a href="docker/vllm-thor/PATCHES.md">🐳&nbsp;Dockerized</a></h3>
       <p>Official vLLM {{ ctx.vllm_version }} + Mjolnir + Jetson Thor patches.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>📄&nbsp;Models as Code</h3>
+      <h3><a href="configs/Qwen/Qwen3.8-27B/README.md">📄&nbsp;Models as Code</a></h3>
       <p>Each model is a YAML file of serve flags. <code>mjolnir serve up</code> does the rest.</p>
       <br>
     </td>
@@ -96,19 +96,19 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <tr>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🧪&nbsp;Calibrated per model</h3>
+      <h3><a href="docs/faq/fp6-kv.md">🧪&nbsp;Calibrated per model</a></h3>
       <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>📊&nbsp;Benchmarks you can rerun</h3>
+      <h3><a href="docs/methodology/benchmarking.md">📊&nbsp;Benchmarks you can rerun</a></h3>
       <p>Kernel, serving and accuracy benches in one CLI, raw JSON for every table, chart and number on this page.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🔬&nbsp;Autoresearch</h3>
+      <h3><a href="docs/faq/autoresearch.md">🔬&nbsp;Autoresearch</a></h3>
       <p>An agent loop proposes, tests and logs kernel experiments; every try leaves data behind.</p>
       <br>
     </td>
@@ -164,7 +164,7 @@ kernel results exist for its headline model — its own kernel case study.
 | [{{ m.short }}](configs/{{ m.model }}/README.md) {% for c in m.cells.values() %}| {% if c.config %}<span title="{{ c.config }}">{{ c.symbol }} {{ c.tps }} t/s</span>{% else %}{{ c.symbol }}{% endif %} {% endfor %}|
 {% endfor %}
 
-> <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
+### Model Configs
 
 A served model is a file, not a command line: each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — in its own directory, `configs/<vendor>/<model>/<config>/config.yaml`; what YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into the config dir's optional `.env` sidecar of `KEY=VALUE` switches, the model's calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to the config dirs, and your own configs drop into `~/.local/share/mjolnir/configs/` (same layout) to appear next to the repo's:
 
