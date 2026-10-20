@@ -264,6 +264,24 @@ def hero(off: dict, mj: dict, max_ctx: int | None = MAX_CTX) -> dict | None:
     return best
 
 
+def infographic_row(off: dict, mj: dict) -> dict | None:
+    """The opening infographic's ONE scenario row: C=1 at the smallest context
+    both sides measured (4K in the latest pair) — every panel reads that
+    single row, decode / TTFT / ITL included (no ctx=0 special-casing).
+    Same shape as :func:`hero`: ``{ctx, <key>: (official, mjolnir, gain)}``;
+    ``None`` when the pair shares no C=1 context cell."""
+    for conc, ctx in shared_cells(off, mj):
+        if conc != 1 or not ctx:
+            continue
+        a, b = cell(off, 1, ctx), cell(mj, 1, ctx)
+        out: dict = {"ctx": ctx}
+        for key in ("tg_tps", "pp_tps", "ttft_ms", "itl_ms"):
+            va, vb = value(a, key), value(b, key)
+            out[key] = (va, vb, gain_pct(key, va, vb) if va and vb else None)
+        return out
+    return None
+
+
 def ctx_label(ctx: int) -> str:
     if not ctx:
         return "no ctx"

@@ -48,6 +48,51 @@ def test_pair_prefers_mjolnir_backend_and_latest(tmp_path):
     assert round(hero["itl_ms"][1], 3) == round(1000 / 30, 3)
 
 
+def test_infographic_row_is_the_one_smallest_measured_c1_context(tmp_path):
+    """The infographic reads ONE row — C=1 at the smallest context both sides
+    measured — for all four metrics: never the best-gain cell, never C=2 or
+    the ctx=0 decode-only cell."""
+    h = tmp_path / "history.jsonl"
+    rows = [
+        _rec(
+            "vllm/vllm-openai:v0.32.0",
+            "NVFP4",
+            1,
+            [
+                _cell(1, 0, 20, 0, 800),
+                _cell(1, 4096, 18, 2000, 4000),
+                _cell(1, 8192, 15, 1900, 5000),  # higher decode gain than 4K — still not the row
+                _cell(2, 8192, 90, 9000, 1000),
+            ],
+        ),
+        _rec(
+            "narandill/mjolnir-vllm:v0.32.0",
+            "NVFP4_MJOLNIR",
+            2,
+            [
+                _cell(1, 0, 30, 0, 600),
+                _cell(1, 4096, 25, 5000, 3000),
+                _cell(1, 8192, 25, 6000, 3600),
+                _cell(2, 8192, 99, 9900, 900),
+            ],
+        ),
+    ]
+    h.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    off, mj = e2e.latest_pair(h, "NVFP4_MJOLNIR")
+    assert off and mj
+    row = e2e.infographic_row(off, mj)
+    assert row
+    assert row["ctx"] == 4096
+    assert row["tg_tps"][:2] == (18.0, 25.0)  # values from the 4K row, not 8K or ctx=0
+    assert round(row["tg_tps"][2], 1) == round((25 / 18 - 1) * 100, 1)
+    assert row["pp_tps"][:2] == (2000.0, 5000.0)
+    assert round(row["pp_tps"][2], 1) == 150.0
+    assert round(row["ttft_ms"][1], 3) == 3000.0  # TTFT falls back to ttfr like hero
+    assert round(row["ttft_ms"][2], 1) == 25.0
+    assert round(row["itl_ms"][1], 3) == round(1000 / 25, 3)  # ITL falls back to 1000/tg at c=1
+    assert round(row["itl_ms"][2], 1) == 28.0
+
+
 def test_benchy_cells_carry_ttft_and_itl():
     raw = {
         "benchmarks": [

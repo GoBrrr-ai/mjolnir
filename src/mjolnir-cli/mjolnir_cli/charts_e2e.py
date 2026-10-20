@@ -8,6 +8,7 @@ from collections.abc import Callable
 from mjolnir_cli import theme
 from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, model_of, model_short
 from mjolnir_cli.history import load_records
+from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import Mode
 
 from mjolnir_cli.charts_base import (
@@ -198,6 +199,16 @@ def _rgba(hex_color: str) -> tuple[int, int, int, int]:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
 
 
+def big_value(key: str, v: float) -> str:
+    """The BIG absolute value of a stat block: int t/s with ``k`` scaling at
+    ≥10k (decode, prefill); seconds at ≥1 s else ms (TTFT); ms (ITL)."""
+    if key in ("tg_tps", "pp_tps"):
+        return f"{v / 1000:.0f}k t/s" if v >= 10_000 else f"{v:.0f} t/s"
+    if key == "ttft_ms":
+        return f"{v / 1000:.2f} s" if v >= 1000 else f"{v:.0f} ms"
+    return f"{v:.1f} ms"
+
+
 def render_hero(layout: RepoLayout) -> Path | None:
     """``assets/hero.png`` — the README header: ``assets/hero-background.png``
     with the slogan (two lines, centred under the MJOLNIR logotype) and a row
@@ -277,13 +288,15 @@ def render_infographic(layout: RepoLayout) -> Path | None:
 
     ``assets/background.jpeg`` (the Thor-as-Mjolnir art on the left) stays
     untouched. Four stat blocks fill the dark right half — decode, prefill,
-    time to first token, inter-token latency — each with the gain as the big
-    number and the two measured values as bars; the claim, the scenario and
-    the provenance sit bottom-left, under the hammer (a bottom scrim keeps
-    them readable over the handle). Every number comes from the latest
-    history pair (:func:`mjolnir_cli.e2e.latest_pair`): native FlashInfer on
-    the official vLLM image vs the Mjolnir backend on the Mjolnir image, one
-    request at the longest context both measured."""
+    time to first token, inter-token latency — each with the Mjolnir-side
+    absolute value as the big number and the change + direction as the
+    subtitle, over the two measured values as bars; the claim, the model +
+    platform, the scenario and the provenance sit bottom-left, under the
+    hammer (a bottom scrim keeps them readable over the handle). Every number
+    comes from the latest history pair (:func:`mjolnir_cli.e2e.latest_pair`)
+    — one request at the smallest context both sides measured
+    (:func:`mjolnir_cli.e2e.infographic_row`) — native FlashInfer on the
+    official vLLM image vs the Mjolnir backend on the Mjolnir image."""
     import numpy as np
     from matplotlib.patches import FancyBboxPatch
 
@@ -294,7 +307,7 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     off, mj = e2e.latest_pair(layout.history_file)
     if not off or not mj:
         return None
-    h = e2e.hero(off, mj)
+    h = e2e.infographic_row(off, mj)
     bg_path = layout.repo_root / "assets" / "background.jpeg"
     if not h or not bg_path.exists():
         print("[mjolnir] no official-vLLM / Mjolnir e2e pair in history — infographic skipped (run: mjolnir bench e2e)")
@@ -336,14 +349,14 @@ def render_infographic(layout: RepoLayout) -> Path | None:
             xf * W, yf * H, text, fontsize=size, color=color, weight=weight, ha=ha, family=disp, zorder=6, **kw
         )
 
-    # ── bottom-left: claim, scenario, provenance ──────────────────────────
+    # ── bottom-left: claim, model + platform, scenario, provenance ─────────
     BL, BY = 0.035, 0.05  # left margin; lift of the whole block off the bottom edge
-    T(BL, BY + 0.255, "JETSON AGX THOR   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
-    title = T(BL, BY + 0.145, "Mjolnir", 34, white, "bold", path_effects=halo)
+    T(BL, BY + 0.275, "JETSON AGX THOR   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
+    title = T(BL, BY + 0.185, "Mjolnir", 34, white, "bold", path_effects=halo)
     x_after = title.get_window_extent(renderer=fig.canvas.get_renderer()).x1
     ax.text(
         x_after + 14,
-        (BY + 0.145) * H,
+        (BY + 0.185) * H,
         f"vs vLLM {ver}",
         fontsize=34,
         color=dim,
@@ -351,9 +364,11 @@ def render_infographic(layout: RepoLayout) -> Path | None:
         zorder=6,
         path_effects=halo,
     )
+    plat = REGISTRY.get(platform_of(mj))
+    T(BL, BY + 0.120, f"{mj.get('model', '')} on {plat.name if plat else platform_of(mj)}", 22, dim, path_effects=halo)
     T(
         BL,
-        BY + 0.085,
+        BY + 0.065,
         f"1 request  ·  {e2e.ctx_label(h['ctx'])} context  ·  {model} {quant}  ·  {kv}  ·  {e2e.spec_short(off, mj)}"
         "  ·  vs the official image's native FlashInfer",
         10.5,
@@ -362,7 +377,7 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     )
     T(
         BL,
-        BY + 0.035,
+        BY + 0.020,
         f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy, gated clean windows",
         8.5,
         faint,
@@ -388,16 +403,15 @@ def render_infographic(layout: RepoLayout) -> Path | None:
             continue
         x0 = L + (i % 2) * (cw + gap)
         y0 = tops[i // 2]
-        # throughput: the change in tokens/s, a doubling or more as a multiple
-        # (+200% reads "3×"); latency: the change in ms (−27% = 27% fewer ms —
-        # a reduction, never the reciprocal speedup)
-        if key in ("ttft_ms", "itl_ms"):
-            big = e2e.pct(-gain).replace(".0%", "%")
-        else:
-            big = multiple(gain) if gain >= 100 else e2e.pct(gain)
-        T(x0, y0 - 0.115, big, 50, white, "bold")
-        T(x0, y0 - 0.178, better if gain >= 0 else worse, 16.5, white)
-        T(x0 + cw, y0 - 0.178, unit, 10.5, faint, ha="right")
+        # the BIG number is the Mjolnir-side absolute value; the subtitle
+        # carries the change + direction. Throughput: the change in tokens/s,
+        # a doubling or more as a multiple (+200% reads "3×"); latency: the
+        # change in ms (−27% = 27% fewer ms — a reduction, never the
+        # reciprocal speedup)
+        change = e2e.pct(-gain) if key in ("ttft_ms", "itl_ms") else multiple(gain) if gain >= 100 else e2e.pct(gain)
+        T(x0, y0 - 0.115, big_value(key, vb), 50, white, "bold")
+        T(x0 + cw, y0 - 0.030, unit, 10.5, faint, ha="right")  # above the big value's caps
+        T(x0, y0 - 0.178, f"{change} {better if gain >= 0 else worse}", 16.5, white)
         X, BW = x0 * W, cw * W
         vmax = max(va, vb)
         for j, (lbl, v, col) in enumerate((("vLLM", va, c_off), ("Mjolnir", vb, c_mj))):
