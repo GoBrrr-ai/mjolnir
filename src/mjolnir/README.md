@@ -113,7 +113,7 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_DRAFT_T5` | `1` | `0`: the drafter's layers (MTP / EAGLE) run on the fallback — isolates the draft-step cost (`mjolnir verify profile`). fp8 KV only: refused on fp6 KV, whose fallback cannot be CUDA-graphed |
 | `MJOLNIR_ATTN_NONCAUSAL` | `1` | `0`: a parallel drafter's non-causal block steps (DSpark / DFlash) go to the fallback instead of the decode kernel — fp8 KV only for the same reason as above |
 | `MJOLNIR_ATTN_FUSED_DRAFT` | `1` | `0`: tell vLLM the backend cannot advance draft metadata in place → one graph replay per draft step instead of the fused draft loop |
-| `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8`); the bf16 copy is freed automatically (untied heads only, +2.5 GB KV) |
+| `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`); the bf16 copy is freed automatically (untied heads only, +2.5 GB KV) |
 | `MJOLNIR_DRAFT_VOCAB` | – | path to a `draft_vocab.json` (`mjolnir calibrate --draft-vocab`): the drafter's logits only over those tokens (VocabTrim); `MJOLNIR_DRAFT_VOCAB_SIZE` keeps the first N (a shorter file is padded with the lowest unused ids, with a warning). The kept head stays in the drafter's native quant (NVFP4 4-bit in-kernel, FP8 row-slice) — never up-scaled to bf16; a bf16 head is the one exception (fp8 only when `MJOLNIR_LM_HEAD=fp8` is set). `MJOLNIR_DRAFT_VOCAB_NATIVE=0` forces the dequant→fp8 path |
  | `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
  | `MJOLNIR_ATTN_BANNER` | `1` | `0`: skip the Mjolnir hammer banner in the vLLM boot log (`mjolnir.banner.emit`, once per start, coloured with the server's formatter) |
@@ -138,8 +138,8 @@ expands the pages a prefill / mixed step reads to e4m3 for the FA4 fallback
 (channel scales applied, one descale per head). The scales come from a calibration run on fp8 KV:
 
 ```bash
-python -m mjolnir.calibrate --config <serve.yaml> --out kv_scales.json   # in the image
-MJOLNIR_ATTN_KV_SCALES=kv_scales.json vllm serve ... --kv-cache-dtype fp6_e2m3 --attention-backend MJOLNIR
+python -m mjolnir.calibrate --config <serve.yaml> --out kv_scales/e2m3.json   # in the image
+MJOLNIR_ATTN_KV_SCALES=kv_scales/e2m3.json vllm serve ... --kv-cache-dtype fp6_e2m3 --attention-backend MJOLNIR
 ```
 
 (`mjolnir calibrate` / `mjolnir serve` do both for you —
@@ -156,6 +156,31 @@ How they compare in speed and accuracy:
 [`kvfmt`](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/kvfmt.md) and
 [`quant`](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/quant.md).
 Wiring a vLLM cache-write path for fp6 is an open contribution.
+
+## Platforms and architectures
+
+The kernel is written for one architecture today — Thor (`sm_110`) — but the
+package is organized by platform: `mjolnir/arch/` is the implemented-kernel
+registry (`mjolnir.arch.thor` re-exports the exact runner surface the backend
+consumes), and `mjolnir/platforms.py` is the torch-free leaf that maps a
+compute capability to it. Thor is implemented; DGX Spark (`sm_121`) and Jetson
+Orin (`sm_87`) are declared research — named in the matrix, no kernel yet.
+
+`kernel_for((11, 0))` returns `mjolnir.arch.thor`; any other compute
+capability raises `PlatformNotSupported` naming the requested `sm_XX` and the
+shipped platforms. The vLLM backend never sees that exception: its metadata
+builder consults the pure `unsupported_reason()` and takes the normal
+ineligible-config path — that layer's decode steps run on the fallback
+backend, the serve continues. On a host without a usable CUDA device,
+`MJOLNIR_ARCH` (`sm_110` or `11.0`) pins the architecture instead of the
+torch read (the standalone harness).
+
+There is no remembered platform state anywhere in the stack: the CLI side
+resolves its platform per invocation (flag > `$MJOLNIR_PLATFORM` > host
+detection — four source classes with provenance, the `/tmp/nv_jetson_model`
+model copy corroboration-only), so the kernel is always resolved from the
+device the run actually happens on. See
+[docs/faq/platforms.md](../../docs/faq/platforms.md).
 
 ## Tests
 
@@ -185,6 +210,8 @@ is printed as information.
 | `mjolnir/t5_decode.py` | the CuTe-DSL kernel, the split-KV merge, the harness and the emulator |
 | `mjolnir/runner.py` | plan buffers, compile cache, launch, KV views (no vLLM import) |
 | `mjolnir/backend.py` | the vLLM backend, metadata builder, impl |
+| `mjolnir/platforms.py` | arch → kernel resolution (`kernel_for`, `PlatformNotSupported`), `MJOLNIR_ARCH` detection — torch-free |
+| `mjolnir/arch/thor.py` | the Thor (`sm_110`) kernel surface: re-exports of the runner |
 | `mjolnir/__init__.py` | `register()` — the vLLM plugin entry point |
 
 Apache-2.0, except `mjolnir/t5_decode.py`, which is derived from an NVIDIA

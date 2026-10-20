@@ -353,21 +353,20 @@ PROGRESS = LEDGER_DIR / "progress.png"
 
 
 def _render_progress(root: Path, rows: list[dict] | None = None, out: Path | None = None) -> Path | None:
-    """research/progress.png (+ -dark): every experiment on one chart, the
-    kept staircase, and the per-L split vs the baseline. Best effort — a
-    missing matplotlib never fails an evaluation."""
+    """research/progress.png: every experiment on one chart, the kept
+    staircase, and the per-L split vs the baseline. Best effort — a missing
+    matplotlib never fails an evaluation."""
     rows = rows if rows is not None else load_ledger(root)
     try:
         from mjolnir_cli import charts, theme
 
         plt = charts._plt()
         out = out or root / PROGRESS
-        for mode in theme.MODES:
-            fig = charts.chart_autoresearch(rows, mode)
-            if fig is None:
-                return None
-            charts._save(fig, out.with_name(f"{out.stem}{mode.suffix}{out.suffix}"))
-            plt.close(fig)
+        fig = charts.chart_autoresearch(rows, theme.DARK)
+        if fig is None:
+            return None
+        charts._save(fig, out)
+        plt.close(fig)
         return out
     except Exception as e:  # noqa: BLE001 — a chart must never cost a ledger row
         console.print(f"[dim]progress chart skipped: {e!r}[/dim]")

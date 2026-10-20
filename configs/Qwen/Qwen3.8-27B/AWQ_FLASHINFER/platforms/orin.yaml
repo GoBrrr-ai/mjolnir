@@ -1,0 +1,11 @@
+# AGX Orin 64GB — the platform tuning the platform-neutral config.yaml does
+# not set: on the 64GB Orin the AWQ checkpoint plus an fp8 KV pool at 0.9
+# utilization leaves room for a 190K context across at most 5 sequences, and
+# the 8K token batch with a 32-token prefix-match unit is the Orin scheduler
+# tuning (smaller prefill chunks and finer prefix blocks for its memory
+# bandwidth). This is the config's only overlay: it exists on Orin only.
+max-num-seqs: 5
+max-model-len: 190K
+max-num-batched-tokens: 8K
+gpu-memory-utilization: 0.9
+prefix-match-unit: 32

@@ -1,0 +1,77 @@
+# AWQ_FLASHINFER — the Orin serving config for Qwen3.8-27B: twolven's AWQ
+# (compressed-tensors int4 W4A16) checkpoint with the built-in MTP head. The
+# weights ride Marlin W4A16 (the native int4 compute path on sm_87) and the
+# fp8 KV rides FlashInfer — both native on Orin in the availability table.
+# The AGX Orin 64GB memory/batch tuning lives in platforms/orin.yaml; this
+# file is the platform-neutral config.
+model: twolven/Qwen3.8-27B-abliterated-AWQ-MTP
+served-model-name: Qwen/Qwen3.8-27B
+
+quantization: compressed-tensors
+dtype: bfloat16
+load-format: safetensors
+
+performance-mode: throughput
+optimization-level: 3
+compilation-config:
+  cudagraph_num_of_warmups: 5
+  custom_ops:
+    - +rotary_embedding
+  pass_config:
+    eliminate_noops: true
+    fuse_allreduce_rms: false
+
+disable-custom-all-reduce: true
+trust-remote-code: true
+enforce-eager: false
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention / linear backends ─────────────────────────────────────────────
+attention-backend: flashinfer
+enable-flashinfer-autotune: true
+linear-backend: auto
+
+# ── KV Cache ─────────────────────────────────────────────────────────────
+# fp8 KV via FlashInfer is a native (dtype, backend) row on every shipped
+# platform — the stock FlashInfer path, not the Mjolnir reader: no scales,
+# no calibration file.
+kv-cache-dtype: fp8
+kv-cache-dtype-skip-layers: sliding_window
+mamba-cache-mode: align
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+# ── Multimodal ─────────────────────────────────────────────────────────────
+language-model-only: true
+mm-encoder-tp-mode: data
+mm-processor-cache-type: shm
+
+# ── Caching & Scheduling ─────────────────────────────────────────────────
+enable-prefix-caching: true
+enable-chunked-prefill: true
+async-scheduling: true
+
+# ── Speculative Decoding — MTP (built-in head), K=3 ─────────────────────
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
+
+# ── Generation defaults (the provided Orin launch pins them server-side) ────
+override-generation-config:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# ── Chat Template ──────────────────────────────────────────────────────────
+default-chat-template-kwargs:
+  reasoning_effort: medium
+  preserve_thinking: true
+  enable_thinking: true
+
+chat-template: /configs/Qwen/Qwen3.8_chat_template.jinja

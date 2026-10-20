@@ -1,8 +1,7 @@
 """The Mjolnir chart design system — one visual language, light AND dark.
 
-Every chart is rendered twice (``<name>.png`` light, ``<name>-dark.png``
-dark) and the README switches with ``<picture>`` + ``prefers-color-scheme``,
-so a chart always sits on its own surface on GitHub.
+Static charts render the dark palette to ``assets/benchmarks/`` (``<name>.png``);
+the interactive site renders both palettes client-side from ``MODES``.
 
 Color = identity, and identities are fixed (never assigned by rank):
 
@@ -39,7 +38,6 @@ class Mode:
     flashinfer: str
     fa2: str
     neutral: str  # diverging midpoint / "other" marks
-    suffix: str  # file-name suffix
 
 
 LIGHT = Mode(
@@ -53,7 +51,6 @@ LIGHT = Mode(
     flashinfer="#2a78d6",
     fa2="#1baf7a",
     neutral="#f0efec",
-    suffix="",
 )
 
 DARK = Mode(
@@ -67,7 +64,6 @@ DARK = Mode(
     flashinfer="#3987e5",
     fa2="#199e70",
     neutral="#383835",
-    suffix="-dark",
 )
 
 MODES = (LIGHT, DARK)

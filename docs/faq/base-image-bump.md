@@ -79,10 +79,7 @@ new base:
 ## Record it
 
 Every bump that needed re-adaptation gets: a `PATCHES.md` note on the
-affected patch, a depth doc under `docs/thor-stack/` (per-patch outcomes +
-canary transcript — worked examples:
-[`base-bump-2026-09-26.md`](../thor-stack/base-bump-2026-09-26.md),
-[`nightly-bump-process.md`](../thor-stack/nightly-bump-process.md)), and a
+affected patch (per-patch outcomes + canary transcript), and a
 commit that groups the Dockerfile + patch + doc changes. The process
 reference is in the Dockerfile's "BUMPING TO A NEWER vLLM" block.
 

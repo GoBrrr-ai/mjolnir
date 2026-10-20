@@ -13,7 +13,7 @@
 
 - [ ] raw JSON committed (`benchmarks/raw/...`)
 - [ ] e2e: row appended to `benchmarks/history.jsonl`
-- [ ] re-rendered: `uv run mjolnir plot --readme` → `README.md`, `docs/kernel/`, `assets/benchmarks/`
+- [ ] re-rendered: `uv run mjolnir plot --readme` → `README.md`, `docs/platforms/`, `assets/benchmarks/`
 - [ ] clean window: stages gate themselves by default; if in doubt, attach the `mjolnir gate --once` output or the run log
 
 ## What the numbers say

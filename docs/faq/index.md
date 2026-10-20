@@ -23,6 +23,7 @@ trust or publish any number.
 | What wins: flag, state, env var, or baked-in default? | [settings-precedence.md](settings-precedence.md) |
 | Run the LiteLLM proxy stack (independent of the vLLM server) | [litellm-proxy.md](litellm-proxy.md) |
 | Serve on a 6-bit (e2m3) KV cache: calibrate, serve, check | [fp6-kv.md](fp6-kv.md) |
+| Run on — or bench for — another GPU: `mjolnir platform` (thor / spark / orin) | [platforms.md](platforms.md) |
 
 ## Benchmarking
 

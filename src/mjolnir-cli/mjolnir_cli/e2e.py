@@ -27,11 +27,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, IMAGE_REPO, model_of
+from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
 from mjolnir_cli.history import load_records
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
 
-# Older images of this project (kept so history rows still classify).
-_MJOLNIR_IMAGE_PREFIXES = (IMAGE_REPO, "narandill/mjolnir-", "mjolnir/vllm-thor")
+# Every platform's image repo, plus the legacy names (kept so history rows
+# still classify): the shared narandill/mjolnir-* namespace and the
+# pre-registry image.
+_MJOLNIR_IMAGE_PREFIXES = (
+    *(p.image_repo for p in REGISTRY.values()),
+    "narandill/mjolnir-",
+    "mjolnir/vllm-thor",
+)
 
 
 @dataclass(frozen=True)
@@ -107,6 +114,7 @@ def latest_pair(
     mjolnir_config: str | None = None,
     official_config: str | None = None,
     model: str | None = None,
+    platform: str | None = None,
 ) -> tuple[dict | None, dict | None]:
     """(official, mjolnir): each side's runs merged cell by cell, newest run
     first (:func:`_merge`) — a stock config on the official image, and the
@@ -119,11 +127,16 @@ def latest_pair(
     config — so an optional official leg (``bench e2e --optional``: DSpark,
     DFlash2 on stock vLLM) never replaces the baseline by being newer.
 
-    Both sides are runs of one ``model`` (default ``DEFAULT_MODEL``): another
-    model's run under the same config name is never paired with them."""
+    Both sides are runs of one (``model``, ``platform``) pair (defaults: the
+    default model, ``thor``): another model's — or another platform's — run
+    under the same config name is never paired with them. Platform-less
+    (legacy) records resolve to ``thor``."""
     model = model or DEFAULT_MODEL
+    platform = platform or DEFAULT_PLATFORM
     base = official_config or BASELINE_QUANT
-    recs = [r for r in load_records(history_file) if r.get("cells") and model_of(r) == model]
+    recs = [
+        r for r in load_records(history_file) if r.get("cells") and model_of(r) == model and platform_of(r) == platform
+    ]
     want = mjolnir_config
     if want is None:
         mine = [r for r in recs if is_mjolnir(r)]
@@ -249,6 +262,24 @@ def hero(off: dict, mj: dict, max_ctx: int | None = MAX_CTX) -> dict | None:
         if best is None or out["tg_tps"][2] > best["tg_tps"][2]:
             best = out
     return best
+
+
+def infographic_row(off: dict, mj: dict) -> dict | None:
+    """The opening infographic's ONE scenario row: C=1 at the smallest context
+    both sides measured (4K in the latest pair) — every panel reads that
+    single row, decode / TTFT / ITL included (no ctx=0 special-casing).
+    Same shape as :func:`hero`: ``{ctx, <key>: (official, mjolnir, gain)}``;
+    ``None`` when the pair shares no C=1 context cell."""
+    for conc, ctx in shared_cells(off, mj):
+        if conc != 1 or not ctx:
+            continue
+        a, b = cell(off, 1, ctx), cell(mj, 1, ctx)
+        out: dict = {"ctx": ctx}
+        for key in ("tg_tps", "pp_tps", "ttft_ms", "itl_ms"):
+            va, vb = value(a, key), value(b, key)
+            out[key] = (va, vb, gain_pct(key, va, vb) if va and vb else None)
+        return out
+    return None
 
 
 def ctx_label(ctx: int) -> str:

@@ -18,8 +18,7 @@ assumptions; the fix is to hand re-adapt the patch, not to weaken the gate.
 **The image tag is the upstream vLLM version** (`v0.31.0`), independent of the
 PyPI package versions.
 
-Background: `docs/faq/base-image-bump.md`,
-`docs/thor-stack/nightly-bump-process.md`. The Dockerfile's "BUMPING TO A NEWER
+Background: `docs/faq/base-image-bump.md`. The Dockerfile's "BUMPING TO A NEWER
 vLLM" block is the short form.
 
 ## Procedure
@@ -80,8 +79,8 @@ mjolnir bench ab --image narandill/mjolnir-vllm:v<X.Y.Z>         # Mjolnir vs FI
 - `uv run mjolnir plot --readme` so the README badges and tables follow.
 
 ### 7. Record + commit
-- If any patch was re-adapted: `docs/thor-stack/base-bump-<YYYY-MM-DD>.md`
-  (old→new base, per-patch deltas, gate outputs).
+- If any patch was re-adapted: record the old→new base, per-patch deltas and
+  gate outputs on the patch's `PATCHES.md` note and in the commit message.
 - Commits grouped by concern: patch re-adaptation(s) / Dockerfile + `VLLM_VERSION` /
   data + re-rendered docs. Merging to `main` publishes the image.
 

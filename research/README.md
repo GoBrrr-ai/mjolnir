@@ -19,10 +19,7 @@ mjolnir autoresearch export            # research/runs/oct10/ — commit it with
 
 Inside an OpenCode session, `/autoresearch` resumes the loop.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="progress-dark.png">
-  <img alt="Autoresearch progress: the score of every experiment, the kept staircase, and each experiment per L against the baseline" src="progress.png">
-</picture>
+<img alt="Autoresearch progress: the score of every experiment, the kept staircase, and each experiment per L against the baseline" src="progress.png">
 
 *Rendered by `mjolnir plot` (and after every `evaluate`) from the live ledger,
 else from the newest exported run in `runs/<tag>/`: every experiment's score,

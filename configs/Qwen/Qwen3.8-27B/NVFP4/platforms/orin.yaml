@@ -1,0 +1,5 @@
+# Orin overlay for NVFP4: the base config serves unchanged — fp8 KV rides
+# FlashInfer on every platform (the availability matrix), and the Thor-only
+# knobs it does not set (ViT workaround, perf-mode) stay model-layer. The
+# delta is empty; this file marks the config as existing on orin.
+{}

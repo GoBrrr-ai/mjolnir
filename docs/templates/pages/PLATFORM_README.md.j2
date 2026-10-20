@@ -1,0 +1,49 @@
+# {{ ctx.name }}
+
+> **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
+
+{% if ctx.overview %}
+{{ ctx.overview }}
+{% endif %}
+
+## Serving on {{ ctx.name }}
+
+One row per model in `configs/` — the config the platform's overlays serve
+by default (the model page's quickstart rule) and whether the
+(platform, model) pair has end-to-end data. Per-config availability lives
+on each [model page](../../../configs/).
+
+| model | default config | measured |
+|---|---|---|
+{% for r in ctx.rows -%}
+| [`{{ r.model }}`](../../../configs/{{ r.model }}/README.md) | {% if r.default_config %}[`{{ r.default_config }}`](../../../configs/{{ r.model }}/{{ r.default_config }}/README.md){% else %}—{% endif %} | {{ "✅" if r.measured else "—" }} |
+{% endfor %}
+
+{% if ctx.kernel %}
+## Kernel
+
+Mjolnir on {{ ctx.name }}, measured chapter by chapter and pinned to the
+headline model ({{ ctx.kernel.model }}) — every chart and table rendered
+from raw results in [`benchmarks/raw/verify/`]({{ root }}benchmarks/raw/verify/)
+by `mjolnir plot --readme`; every chapter ends with the command that
+reproduces it.
+
+{% set kctx = ctx.kernel %}{% set kprefix = "kernel/" %}{% include "docs/templates/kernel/_index.md.j2" %}
+{% endif %}
+{% if ctx.e2e %}
+## End to end
+
+The official vLLM image vs Mjolnir on {{ ctx.name }} — the headline model's
+own history (`latest_pair`), decode tokens/s per request at 1 request.
+
+| official | Mjolnir | official t/s | Mjolnir t/s | change | at |
+|---|---|--:|--:|--:|---|
+| `{{ ctx.e2e.official }}` | `{{ ctx.e2e.mjolnir }}` | {{ ctx.e2e.official_decode }} | {{ ctx.e2e.mjolnir_decode }} | {{ ctx.e2e.change }} | {{ ctx.e2e.ctx }} |
+
+{{ chart("e2e-decode", "End-to-end decode throughput: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
+
+{{ chart("e2e-prefill", "End-to-end prompt processing: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
+
+{{ how("e2e") }}
+{% endif %}
+Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform={{ ctx.key }}).

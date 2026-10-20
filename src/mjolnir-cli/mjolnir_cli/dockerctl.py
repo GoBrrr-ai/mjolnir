@@ -18,12 +18,14 @@ import time
 import urllib.request
 from pathlib import Path
 
-from mjolnir_cli import cachectl
+from mjolnir_cli import cachectl, overlays
 from mjolnir_cli.config import (
     CONTAINER_NAME,
     HFCacheError,
     Settings,
+    config_drafter_on_mjolnir,
     config_field,
+    config_speculative,
     configs_root,
     host_hf_hub,
     user_configs_dir,
@@ -131,9 +133,10 @@ def container_exists(name: str = CONTAINER_NAME) -> bool:
 # MJOLNIR configs get it by default.
 MJOLNIR_ENV_DEFAULTS = {"VLLM_KV_CACHE_LAYOUT": "HND"}
 
-# fp6 (e2m3) KV needs per-channel scales from `mjolnir calibrate`, stored next
-# to the model's configs (mounted at /configs in the container).
-KV_SCALES_FILE = "kv_scales.json"
+# fp6 (e2m3) KV needs per-channel scales from `mjolnir calibrate`, stored
+# beside the model's configs (mounted at /configs in the container): one file
+# per KV format in kv_scales/ (KV_SCALES_DIR).
+KV_SCALES_DIR = "kv_scales"
 
 
 # What the image's installed mjolnir package is built from: `mjolnir image
@@ -188,23 +191,64 @@ def stale_image(image: str) -> str | None:
     )
 
 
+def _kv_format(path: Path) -> str:
+    """The calibration file's stem for a config's ``kv-cache-dtype``:
+    ``fp6_e2m3`` -> ``e2m3``, ``fp8_e5m2`` -> ``e5m2``, ``fp8`` -> ``fp8``.
+    Defaults to the fp6 (e2m3) cache ``mjolnir calibrate`` produces."""
+    dtype = config_field(path, "kv-cache-dtype") or "fp6_e2m3"
+    return dtype.split("_", 1)[-1] if "_" in dtype else dtype
+
+
+def _drafter(path: Path) -> str:
+    """The drafter file's name: the config's speculative ``method``
+    (``dspark`` -> ``dspark.kv_scales.json``). The method, not the drafter's
+    marketing name — one method serves several (``dflash``: DFlash,
+    DFlash2)."""
+    spec = config_speculative(path) or {}
+    return str(spec.get("method") or "drafter")
+
+
 def kv_scales_host_path(s: Settings) -> Path:
-    """Where `mjolnir calibrate` writes, and an fp6 config's scales are read
-    from (repo or user-local configs dir).
+    """Where an fp6 config's scales are read from (repo or user-local
+    configs dir).
 
-    ``kv_scales.json`` is the model's — next to the config dirs, shared by
-    every config without its own drafter (the built-in MTP head is part of
-    the model). A config whose external drafter (DSpark, DFlash, ...) runs
-    on the Mjolnir backend has layers no other config has: it gets its own
-    ``kv_scales.json`` inside its config dir, target and drafter layers in
-    one file, written by ``mjolnir calibrate --config <config>``."""
-    from mjolnir_cli.config import config_drafter_on_mjolnir
+    The calibration is the model's, one file per KV format:
+    ``kv_scales/<format>.json`` beside the config dirs — ``e2m3`` for the
+    fp6 (e2m3) cache, shared by every config calibrated for that format. A
+    config whose external drafter (DSpark, DFlash, ...) runs on the Mjolnir
+    backend has layers no other config has: its scales are
+    ``kv_scales/<drafter>.kv_scales.json``, written by
+    ``mjolnir calibrate --config <config>``."""
+    if config_drafter_on_mjolnir(s.config_path):
+        return s.config_path.parent.parent / KV_SCALES_DIR / f"{_drafter(s.config_path)}.kv_scales.json"
+    return s.config_path.parent.parent / KV_SCALES_DIR / f"{_kv_format(s.config_path)}.json"
 
-    cdir = s.config_path.parent
-    own = cdir / KV_SCALES_FILE
-    if own.exists() or config_drafter_on_mjolnir(s.config_path):
-        return own
-    return cdir.parent / KV_SCALES_FILE
+
+def calibrate_targets(s: Settings, out: Path | None, draft_vocab: bool) -> Path:
+    """Where one ``mjolnir calibrate`` run writes: the per-format file, or
+    the explicit ``--out`` (``--draft-vocab`` writes its one file too). An
+    unwritable configs dir (the wheel-installed CLI's bundled copy) moves
+    the whole model-relative layout under the user configs dir."""
+    if draft_vocab:
+        target = out or kv_scales_host_path(s).with_name("draft_vocab.json")
+    elif out is not None:
+        target = out
+    elif config_drafter_on_mjolnir(s.config_path):
+        target = s.config_path.parent.parent / KV_SCALES_DIR / f"{_drafter(s.config_path)}.kv_scales.json"
+    else:
+        target = s.config_path.parent.parent / KV_SCALES_DIR / f"{_kv_format(s.config_path)}.json"
+    if os.access(target.parent if target.parent.exists() else Path.home(), os.W_OK):
+        return target
+    root = user_configs_dir() / s.model
+    return root / _model_rel(s, target)
+
+
+def _model_rel(s: Settings, p: Path) -> Path:
+    """``p`` relative to the model's config dir (flat for paths outside it)."""
+    try:
+        return p.relative_to(s.config_path.parent.parent)
+    except ValueError:
+        return Path(p.name)
 
 
 def missing_kv_scales(s: Settings) -> str | None:
@@ -374,8 +418,9 @@ def build_run_args(
         mounts.append((str(hf_hub), HF_DOWNLOAD_DIR))
     # A user-local model config (outside the repo's configs/) is mounted as
     # its whole model dir at /configs-local/<model> (config dirs + the model's
-    # kv_scales.json / draft_vocab.json), beside — not inside — the read-only
-    # /configs mount; repo files (chat templates) stay reachable under /configs.
+    # kv_scales/ calibration + draft_vocab.json), beside — not inside — the
+    # read-only /configs mount; repo files (chat templates) stay reachable
+    # under /configs.
     if is_local_config(s):
         mounts.append((str(user_configs_dir() / s.model), f"{config_model_dir(s)}:ro"))
     mounts += list(extra_mounts)
@@ -460,6 +505,10 @@ def serve_up(
     if dry_run:
         print(" ".join(cmd))
         return
+    try:
+        overlays.validate_serving(s.config_path, s.platform)
+    except ValueError as e:
+        raise DockerError(str(e)) from None
     why = missing_kv_scales(s)
     if why:
         raise DockerError(why)

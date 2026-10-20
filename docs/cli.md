@@ -8,7 +8,7 @@
 | [`mjolnir calibrate`](#mjolnir-calibrate) | Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache (or, with --draft-vocab, the drafter's vocabulary for VocabTrim). |
 | [`mjolnir grant-permissions`](#mjolnir-grant-permissions) | Check for — and, if missing, install — the NOPASSWD sudo grant the kernel benches use to clear the page cache. |
 | [`mjolnir drop-caches`](#mjolnir-drop-caches) | Clear the host page cache (`sysctl -w vm.drop_caches=3`) for a clean kernel-bench baseline. Uses the NOPASSWD grant (run `mjolnir grant-permissions` if it's missing); never prompts. |
-| [`mjolnir plot`](#mjolnir-plot) | Render every chart (light + dark PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
+| [`mjolnir plot`](#mjolnir-plot) | Render every chart (PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
 | [`mjolnir history`](#mjolnir-history) | Bench results at a glance: decode throughput (t/s) per recent run. |
 | [`mjolnir version`](#mjolnir-version) | Print the version. |
 | [`mjolnir serve`](#mjolnir-serve) | Drive the vLLM container (the patched image). |
@@ -30,6 +30,9 @@
 | [`mjolnir image list`](#mjolnir-image-list) | List local docker images (● = the active one). |
 | [`mjolnir image build`](#mjolnir-image-build) | Build the Mjolnir vLLM image: the patch stack + the mjolnir-kernel package from this checkout (repo-root build context). |
 | [`mjolnir image gates`](#mjolnir-image-gates) | Run the sm_110 gate-probe canaries against the image (fresh container, no server needed). |
+| [`mjolnir platform`](#mjolnir-platform) | The active platform (thor supported; spark / orin research): list, show. |
+| [`mjolnir platform list`](#mjolnir-platform-list) | Every shipped platform: architecture, images, maturity. |
+| [`mjolnir platform show`](#mjolnir-platform-show) | The active platform (flag &gt; env `MJOLNIR_PLATFORM` &gt; detection), its detection confidence and one provenance line per source that probed. |
 | [`mjolnir verify`](#mjolnir-verify) | Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA2), saved as raw data for the charts. |
 | [`mjolnir verify correctness`](#mjolnir-verify-correctness) | Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len and Q dtype. |
 | [`mjolnir verify sweep`](#mjolnir-verify-sweep) | The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks). |
@@ -96,8 +99,8 @@ Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache
 
 Runs the config's model on fp8 KV in the Mjolnir image, records the
 per-channel amax of every K/V written to the cache over a varied prompt set,
-and writes `kv_scales.json` next to the config — what an
-`kv-cache-dtype: fp6_e2m3` config is served with. Needs the GPU to
+and writes the per-format `kv_scales/<format>.json` next to the config —
+what an `kv-cache-dtype: fp6_e2m3` config is served with. Needs the GPU to
 itself: refuses while the vLLM server is up (stop it with
 `mjolnir serve down` in a window you own).
 
@@ -106,7 +109,7 @@ itself: refuses while the vLLM server is up (stop it with
 | `--model` | vendor/Model (default: the active one) |  |
 | `--config` | the config to calibrate (default: the active one) |  |
 | `--image` | the Mjolnir image |  |
-| `--out` | default: the model's kv_scales.json next to the config dirs — kv_scales.json inside the config dir for a config whose own drafter (DSpark) runs on Mjolnir |  |
+| `--out` | default: the model's kv_scales/&lt;format&gt;.json next to the config dirs — kv_scales/&lt;drafter&gt;.kv_scales.json for a config whose own drafter (DSpark) runs on Mjolnir |  |
 | `--prompts` | short prompts | `48` |
 | `--long` | long-context prompts | `6` |
 | `--max-model-len` |  | `32768` |
@@ -143,7 +146,7 @@ kernel-bench baseline. Uses the NOPASSWD grant (run
 
 ## `mjolnir plot`
 
-Render every chart (light + dark PNGs in assets/benchmarks/, from the
+Render every chart (PNGs in assets/benchmarks/, from the
 latest default `mjolnir verify` run of each stage + the e2e history).
 --readme also renders README.md and docs/**/*.md from their .md.j2
 templates; --site builds the interactive GitHub Pages site. Everything is
@@ -322,8 +325,8 @@ added), e.g. `-- run --hardmode --no-think --trials 3` or
 `-- --gsm8k --mmlu --ifeval --skip-tool-eval --gsm8k-limit 200`.
 Results: benchmarks/raw/accuracy/&lt;run&gt;/accuracy.json (committed; the
 tool's SQLite, reports and the server log stay next to it, untracked);
-docs/kernel/accuracy.md is rendered from the newest result per config and
-suite.
+docs/platforms/&lt;platform&gt;/kernel/accuracy.md is rendered from the newest
+result per config and suite.
 
 | option | description | default |
 |---|---|---|
@@ -482,6 +485,30 @@ no server needed).
 | `--dry-run` | print what would run, run nothing | off |
 
 
+<a id="mjolnir-platform"></a>
+
+## `mjolnir platform`
+
+The active platform (thor supported; spark / orin research): list, show.
+
+Sub-commands: [`mjolnir platform list`](#mjolnir-platform-list), [`mjolnir platform show`](#mjolnir-platform-show).
+
+
+<a id="mjolnir-platform-list"></a>
+
+## `mjolnir platform list`
+
+Every shipped platform: architecture, images, maturity.
+
+
+<a id="mjolnir-platform-show"></a>
+
+## `mjolnir platform show`
+
+The active platform (flag &gt; env `MJOLNIR_PLATFORM` &gt; detection), its
+detection confidence and one provenance line per source that probed.
+
+
 <a id="mjolnir-verify"></a>
 
 ## `mjolnir verify`
@@ -515,7 +542,7 @@ Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len a
 
 The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks).
 
-`--batch 4 --q-len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
+`--batch 4 --q_len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
 with MTP=3 at 4 concurrent requests (saved as a non-default run).
 
 | option | description | default |

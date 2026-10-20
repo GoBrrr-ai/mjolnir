@@ -6,8 +6,9 @@ from pathlib import Path
 from collections.abc import Callable
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of, model_short
+from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, model_of
 from mjolnir_cli.history import load_records
+from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import Mode
 
 from mjolnir_cli.charts_base import (
@@ -36,17 +37,22 @@ E2E_SERIES = (
 MJOLNIR_E2E_CONFIGS = ("NVFP4_MJOLNIR", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
 
 
-def e2e_rows(layout: RepoLayout, model: str = DEFAULT_MODEL) -> dict[str, dict]:
+def e2e_rows(layout: RepoLayout, model: str = DEFAULT_MODEL, platform: str | None = None) -> dict[str, dict]:
     """Latest history record per series: stock configs on the official vLLM
     image, the Mjolnir config on a Mjolnir image. Stock backends measured on
     the Mjolnir image are ignored (that image patches FlashInfer too). One
-    model's runs: a series is one config of one model."""
+    model's runs: a series is one config of one model. ``platform`` narrows
+    the series to one platform's records (None = any — the callers that
+    predate per-pair payloads keep their behaviour)."""
     from mjolnir_cli import e2e
+    from mjolnir_cli.platforms import platform_of
 
     latest: dict[str, dict] = {}
     for r in load_records(layout.history_file):
         cfg = r.get("config")
         if not r.get("cells") or model_of(r) != model:
+            continue
+        if platform is not None and platform_of(r) != platform:
             continue
         ok = (cfg in MJOLNIR_E2E_CONFIGS and e2e.is_mjolnir(r)) or (
             cfg in ("NVFP4", "NVFP4_FA2") and e2e.is_official(r)
@@ -67,7 +73,16 @@ def _e2e_series(rec: dict) -> tuple[str, str]:
     return ("NVFP4_MJOLNIR_E2M3" if "MJOLNIR" in cfg else "NVFP4"), label
 
 
-def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: str, sub: str):
+def _e2e_chart(
+    layout: RepoLayout,
+    mode: Mode,
+    metric: str,
+    ylabel: str,
+    ttl: str,
+    sub: str,
+    platform: str = DEFAULT_PLATFORM,
+    model: str = DEFAULT_MODEL,
+):
     """The README table as bars: the same pair (official vLLM vs the Mjolnir
     config, :func:`mjolnir_cli.e2e.latest_pair` — each side's runs merged cell
     by cell), every (requests, context) cell either side measured, one panel
@@ -75,7 +90,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     of being dropped."""
     from mjolnir_cli import e2e
 
-    off, mj = e2e.latest_pair(layout.history_file)
+    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
     if not off or not mj:
         return None
     cells = e2e.all_cells(off, mj)
@@ -152,7 +167,7 @@ def _e2e_chart(layout: RepoLayout, mode: Mode, metric: str, ylabel: str, ttl: st
     return fig
 
 
-def chart_e2e_decode(layout: RepoLayout, mode: Mode):
+def chart_e2e_decode(layout: RepoLayout, mode: Mode, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL):
     return _e2e_chart(
         layout,
         mode,
@@ -160,10 +175,12 @@ def chart_e2e_decode(layout: RepoLayout, mode: Mode):
         "decode tokens/s (higher is better)",
         "End-to-end decode throughput",
         "official image (native FlashInfer) vs the Mjolnir image · the README table's cells",
+        platform,
+        model,
     )
 
 
-def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
+def chart_e2e_prefill(layout: RepoLayout, mode: Mode, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL):
     return _e2e_chart(
         layout,
         mode,
@@ -171,6 +188,8 @@ def chart_e2e_prefill(layout: RepoLayout, mode: Mode):
         "prompt tokens/s (higher is better)",
         "End-to-end prompt processing",
         "official image (native FlashInfer) vs the Mjolnir image · the README table's cells",
+        platform,
+        model,
     )
 
 
@@ -178,6 +197,16 @@ def _rgba(hex_color: str) -> tuple[int, int, int, int]:
     """``#rrggbb`` -> the opaque RGBA tuple PIL would produce for it."""
     h = hex_color.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
+
+
+def big_value(key: str, v: float) -> str:
+    """The BIG absolute value of a stat block: int t/s with ``k`` scaling at
+    ≥10k (decode, prefill); seconds at ≥1 s else ms (TTFT); ms (ITL)."""
+    if key in ("tg_tps", "pp_tps"):
+        return f"{v / 1000:.0f}k t/s" if v >= 10_000 else f"{v:.0f} t/s"
+    if key == "ttft_ms":
+        return f"{v / 1000:.2f} s" if v >= 1000 else f"{v:.0f} ms"
+    return f"{v:.1f} ms"
 
 
 def render_hero(layout: RepoLayout) -> Path | None:
@@ -259,13 +288,21 @@ def render_infographic(layout: RepoLayout) -> Path | None:
 
     ``assets/background.jpeg`` (the Thor-as-Mjolnir art on the left) stays
     untouched. Four stat blocks fill the dark right half — decode, prefill,
-    time to first token, inter-token latency — each with the gain as the big
-    number and the two measured values as bars; the claim, the scenario and
-    the provenance sit bottom-left, under the hammer (a bottom scrim keeps
-    them readable over the handle). Every number comes from the latest
-    history pair (:func:`mjolnir_cli.e2e.latest_pair`): native FlashInfer on
-    the official vLLM image vs the Mjolnir backend on the Mjolnir image, one
-    request at the longest context both measured."""
+    time to first token, inter-token latency — each with the Mjolnir-side
+    absolute value as the big number and the change + direction as the
+    subtitle, over the two measured values as bars; the claim, the model +
+    platform, the scenario and the provenance sit bottom-left, under the
+    hammer (a bottom scrim keeps them readable over the handle). Every number
+    comes from the latest history pair (:func:`mjolnir_cli.e2e.latest_pair`)
+    — one request at the smallest context both sides measured
+    (:func:`mjolnir_cli.e2e.infographic_row`) — native FlashInfer on the
+    official vLLM image vs the Mjolnir backend on the Mjolnir image.
+
+    Thor-only today. When Orin/DGX Spark pairs exist, render one chart per
+    platform (``opening-infographic-<platform>.png``; a platform suffix on a
+    per-platform chart is a data dimension, not the banned theme suffix) and
+    let the root template pick by the page's platform.
+    """
     import numpy as np
     from matplotlib.patches import FancyBboxPatch
 
@@ -276,7 +313,7 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     off, mj = e2e.latest_pair(layout.history_file)
     if not off or not mj:
         return None
-    h = e2e.hero(off, mj)
+    h = e2e.infographic_row(off, mj)
     bg_path = layout.repo_root / "assets" / "background.jpeg"
     if not h or not bg_path.exists():
         print("[mjolnir] no official-vLLM / Mjolnir e2e pair in history — infographic skipped (run: mjolnir bench e2e)")
@@ -305,7 +342,6 @@ def render_infographic(layout: RepoLayout) -> Path | None:
     white, dim, faint = "#ffffff", "#b4bfcc", "#7f8a97"
     c_off, c_mj = theme.DARK.flashinfer, theme.LIGHT.mjolnir
     ver = str(off.get("image", "")).split(":")[-1].split("-")[0].lstrip("v")
-    model = model_short(mj)
     quant = str(mj.get("config", "")).split("_")[0]
     kv = "fp6 KV" if "E2M3" in str(mj.get("config", "")) else "fp8 KV"
 
@@ -318,14 +354,14 @@ def render_infographic(layout: RepoLayout) -> Path | None:
             xf * W, yf * H, text, fontsize=size, color=color, weight=weight, ha=ha, family=disp, zorder=6, **kw
         )
 
-    # ── bottom-left: claim, scenario, provenance ──────────────────────────
+    # ── bottom-left: claim, model + platform, scenario, provenance ─────────
     BL, BY = 0.035, 0.05  # left margin; lift of the whole block off the bottom edge
-    T(BL, BY + 0.255, "JETSON AGX THOR   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
-    title = T(BL, BY + 0.145, "Mjolnir", 34, white, "bold", path_effects=halo)
+    T(BL, BY + 0.275, "JETSON AGX THOR   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
+    title = T(BL, BY + 0.185, "Mjolnir", 34, white, "bold", path_effects=halo)
     x_after = title.get_window_extent(renderer=fig.canvas.get_renderer()).x1
     ax.text(
         x_after + 14,
-        (BY + 0.145) * H,
+        (BY + 0.185) * H,
         f"vs vLLM {ver}",
         fontsize=34,
         color=dim,
@@ -333,29 +369,31 @@ def render_infographic(layout: RepoLayout) -> Path | None:
         zorder=6,
         path_effects=halo,
     )
+    plat = REGISTRY.get(platform_of(mj))
+    T(BL, BY + 0.120, f"{mj.get('model', '')} on {plat.name if plat else platform_of(mj)}", 22, dim, path_effects=halo)
     T(
         BL,
-        BY + 0.085,
-        f"1 request  ·  {e2e.ctx_label(h['ctx'])} context  ·  {model} {quant}  ·  {kv}  ·  {e2e.spec_short(off, mj)}"
-        "  ·  vs the official image's native FlashInfer",
+        BY + 0.065,
+        f"1 request  ·  {e2e.ctx_label(h['ctx'])} context  · {quant}  ·  {kv}  ·  {e2e.spec_short(off, mj)}"
+        "  ·  vs the official vllm",
         10.5,
         dim,
         path_effects=halo,
     )
     T(
         BL,
-        BY + 0.035,
-        f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy, gated clean windows",
+        BY + 0.020,
+        f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy",
         8.5,
         faint,
     )
 
     # ── right: four stat blocks ────────────────────────────────────────────
     blocks = (
-        ("tg_tps", "faster decode", "slower decode", "tokens / s", "{:.1f}"),
-        ("pp_tps", "faster prefill", "slower prefill", "prompt tokens / s", "{:,.0f}"),
-        ("ttft_ms", "lower TTFT", "higher TTFT", "time to first token", None),
-        ("itl_ms", "lower ITL", "higher ITL", "inter-token latency", "{:.1f} ms"),
+        ("tg_tps", "faster decode", "slower decode", "", "{:.1f}"),
+        ("pp_tps", "faster prefill", "slower prefill", "", "{:,.0f}"),
+        ("ttft_ms", "lower TTFT", "higher TTFT", "", None),
+        ("itl_ms", "lower ITL", "higher ITL", "", "{:.1f} ms"),
     )
     L, R, gap = 0.56, 0.96, 0.045
     cw = (R - L - gap) / 2
@@ -370,16 +408,15 @@ def render_infographic(layout: RepoLayout) -> Path | None:
             continue
         x0 = L + (i % 2) * (cw + gap)
         y0 = tops[i // 2]
-        # throughput: the change in tokens/s, a doubling or more as a multiple
-        # (+200% reads "3×"); latency: the change in ms (−27% = 27% fewer ms —
-        # a reduction, never the reciprocal speedup)
-        if key in ("ttft_ms", "itl_ms"):
-            big = e2e.pct(-gain).replace(".0%", "%")
-        else:
-            big = multiple(gain) if gain >= 100 else e2e.pct(gain)
-        T(x0, y0 - 0.115, big, 50, white, "bold")
-        T(x0, y0 - 0.178, better if gain >= 0 else worse, 16.5, white)
-        T(x0 + cw, y0 - 0.178, unit, 10.5, faint, ha="right")
+        # the BIG number is the Mjolnir-side absolute value; the subtitle
+        # carries the change + direction. Throughput: the change in tokens/s,
+        # a doubling or more as a multiple (+200% reads "3×"); latency: the
+        # change in ms (−27% = 27% fewer ms — a reduction, never the
+        # reciprocal speedup)
+        change = e2e.pct(-gain) if key in ("ttft_ms", "itl_ms") else multiple(gain) if gain >= 100 else e2e.pct(gain)
+        T(x0, y0 - 0.115, big_value(key, vb), 50, white, "bold")
+        T(x0 + cw, y0 - 0.030, unit, 10.5, faint, ha="right")  # above the big value's caps
+        T(x0, y0 - 0.178, f"{change} {better if gain >= 0 else worse}", 16.5, white)
         X, BW = x0 * W, cw * W
         vmax = max(va, vb)
         for j, (lbl, v, col) in enumerate((("vLLM", va, c_off), ("Mjolnir", vb, c_mj))):

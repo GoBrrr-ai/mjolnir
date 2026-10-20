@@ -22,8 +22,11 @@ import sys
 
 import typer
 
+from mjolnir_cli import legs as legs_
+from mjolnir_cli.cli_shared import _unset_flag
 from mjolnir_cli.config import DEFAULT_IMAGE, load_layout, resolve
 from mjolnir_cli.legs import KERNEL, SMOKE_MODES
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, gpu_name
 from mjolnir_cli.verify import results, stages
 from mjolnir_cli.verify.kvcache import DEFAULT_LEGS as KV_LEGS
 from mjolnir_cli.verify.profile import DEFAULT_LEGS as PROFILE_LEGS
@@ -70,6 +73,30 @@ def _kernel_info(layout) -> dict:
 PREFLIGHT_RC = 2
 
 
+def _platform_legs(
+    stage: str, params: dict, defaults: dict, platform: str | None, legs_unset: bool
+) -> tuple[dict, dict]:
+    """The verify legs sentinel (plan §0.5): the stage defaults are the
+    default platform's leg table, so on another platform an **unset**
+    ``--legs`` re-resolves there — and stays the stage's default parameters
+    *for that platform*, so ``is_default`` keeps meaning "stage defaults".
+    Unset is the typer parameter source (``cli_shared._unset_flag``), not
+    string equality: an explicitly passed flag wins unchanged even when it
+    spells the default-platform table. Stages without a ``--legs`` option
+    pass ``legs_unset=True`` (nothing explicit to win); an unresolved
+    Settings (platform ``None``) serves the default table."""
+    if platform is None or platform == DEFAULT_PLATFORM or not legs_unset:
+        return params, defaults
+    name = f"verify.{stage}"  # stages are registered bare; the legs tables are verify.-prefixed
+    if name in legs_.SERVING:
+        resolved: str | None = legs_.verify_legs(name, platform)
+    elif name in legs_.KERNEL:
+        resolved = legs_.kernel_legs(name, platform)
+    else:
+        return params, defaults
+    return {**params, "legs": resolved}, {**defaults, "legs": resolved}
+
+
 def execute(
     stage: str,
     params: dict,
@@ -84,9 +111,11 @@ def execute(
     save: bool,
     plot: bool,
     page: int = 128,
+    legs_unset: bool = True,
 ) -> tuple[int, dict | None]:
     layout = load_layout()
     s = resolve(None, None, image, None)
+    params, defaults = _platform_legs(stage, params, defaults, s.platform, legs_unset)
     if shutil.which("docker") is None and not dry_run:
         console.print("[red]docker not found on PATH[/red]")
         return PREFLIGHT_RC, None
@@ -150,6 +179,8 @@ def execute(
         },
         kernel=_kernel_info(layout),
         gate=ctx.gate_log,
+        platform=s.platform,
+        gpu=gpu_name(),
     )
     doc["ref_image"] = runner.ref_image  # where the FlashInfer / FA2 legs ran (stock vLLM)
     doc.update(body)
@@ -194,7 +225,21 @@ PLOT = typer.Option(False, "--plot/--no-plot", help="re-render charts + README a
 PAGE = typer.Option(128, "--page-size", help="KV page size for every leg")
 
 
-def _run(stage: str, params: dict, defaults: dict, image, ls, iters, gate, dry_run, timeout, save, plot, page=128):
+def _run(
+    stage: str,
+    params: dict,
+    defaults: dict,
+    image,
+    ls,
+    iters,
+    gate,
+    dry_run,
+    timeout,
+    save,
+    plot,
+    page=128,
+    legs_unset: bool = True,
+):
     raise typer.Exit(
         _execute(
             stage,
@@ -209,6 +254,7 @@ def _run(stage: str, params: dict, defaults: dict, image, ls, iters, gate, dry_r
             save=save,
             plot=plot,
             page=page,
+            legs_unset=legs_unset,
         )
     )
 
@@ -232,6 +278,7 @@ def correctness(
 
 @app.command()
 def sweep(
+    ctx: typer.Context,
     legs: str = typer.Option(KERNEL["verify.sweep"], "--legs", help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"),
     image: str | None = IMAGE,
     ls: str | None = LS,
@@ -247,7 +294,7 @@ def sweep(
 ):
     """The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks).
 
-    `--batch 4 --q-len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
+    `--batch 4 --q_len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
     with MTP=3 at 4 concurrent requests (saved as a non-default run)."""
     _run(
         "sweep",
@@ -262,11 +309,13 @@ def sweep(
         save,
         plot,
         page,
+        legs_unset=_unset_flag(ctx, "legs"),
     )
 
 
 @app.command()
 def hndsweep(
+    ctx: typer.Context,
     legs: str = typer.Option(KERNEL["verify.hndsweep"], "--legs"),
     image: str | None = IMAGE,
     ls: str | None = LS,
@@ -292,6 +341,7 @@ def hndsweep(
         save,
         plot,
         page,
+        legs_unset=_unset_flag(ctx, "legs"),
     )
 
 
@@ -530,6 +580,7 @@ def timing(
 
 @app.command("profile")
 def profile(
+    ctx: typer.Context,
     legs: str = typer.Option(
         PROFILE_LEGS,
         "--legs",
@@ -571,11 +622,13 @@ def profile(
         timeout,
         save,
         False,
+        legs_unset=_unset_flag(ctx, "legs"),
     )
 
 
 @app.command("spec")
 def spec(
+    ctx: typer.Context,
     legs: str = typer.Option(
         SPEC_LEGS,
         "--legs",
@@ -627,11 +680,13 @@ def spec(
         timeout,
         save,
         plot,
+        legs_unset=_unset_flag(ctx, "legs"),
     )
 
 
 @app.command("kv-cache-size")
 def kv_cache_size(
+    ctx: typer.Context,
     legs: str = typer.Option(
         KV_LEGS,
         "--legs",
@@ -665,6 +720,7 @@ def kv_cache_size(
         timeout,
         save,
         plot,
+        legs_unset=_unset_flag(ctx, "legs"),
     )
 
 

@@ -18,7 +18,7 @@ it would go behind (e.g. `--merge_fused`).
 ## Evidence / prior art
 
 Papers (arXiv ids), CUTLASS / FlashInfer / FlashAttention code, ncu numbers
-from `mjolnir verify fp6prof`, the kernel chapter it relates to (`docs/kernel/…`).
+from `mjolnir verify fp6prof`, the kernel chapter it relates to (`docs/platforms/thor/kernel/…`).
 
 ## Results (if you ran it)
 
