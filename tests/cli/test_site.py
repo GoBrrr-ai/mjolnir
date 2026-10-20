@@ -78,10 +78,13 @@ def test_manifest_lists_measured_pairs_with_stages_charts_and_sizes(
 ) -> None:
     out, _ = _emit(tmp_path, monkeypatch)
     m = _manifest(out)
+    # cycle 3f re-pin: the fixture's solo NVFP4_FA2 history record measures
+    # (thor, M36) — an e2e-only pair, exactly like the real tree's
     pairs = {(p["platform"], p["model"]) for p in m["pairs"]}
-    assert pairs == {("thor", M38), ("spark", M38)}
-    assert ("thor", M36) not in pairs, "an unmeasured pair gets no manifest entry"
-    thor = next(p for p in m["pairs"] if p["platform"] == "thor")
+    assert pairs == {("thor", M38), ("spark", M38), ("thor", M36)}
+    m36 = next(p for p in m["pairs"] if (p["platform"], p["model"]) == ("thor", M36))
+    assert m36["stages"] == [] and m36["charts"] == [], "history-only pair: e2e payload only"
+    thor = next(p for p in m["pairs"] if p["platform"] == "thor" and p["model"] == M38)
     spark = next(p for p in m["pairs"] if p["platform"] == "spark")
     assert thor["short"] == "Qwen3.8-27B" and spark["short"] == "Qwen3.8-27B"
     assert "sweep" in thor["stages"] and "spec" in thor["stages"]
@@ -123,7 +126,10 @@ def test_payload_only_for_measured_pairs(tmp_path: Path, monkeypatch: pytest.Fix
     out, _ = _emit(tmp_path, monkeypatch)
     assert (out / "data" / "thor" / "Qwen3.8-27B.json").is_file()
     assert (out / "data" / "spark" / "Qwen3.8-27B.json").is_file()
-    assert not (out / "data" / "thor" / "Qwen3.6-35B-A3B.json").exists()
+    # cycle 3f re-pin: the fixture's solo FA2 history record measures
+    # (thor, M36) — it gets its (e2e-only) payload like the real tree's
+    assert (out / "data" / "thor" / "Qwen3.6-35B-A3B.json").is_file()
+    assert not (out / "data" / "orin").exists()  # an unmeasured pair gets no payload
 
 
 def test_payload_is_slim_and_carries_stages_e2e_configs(tmp_path: Path, monkeypatch: pytest.FixtureRequest) -> None:

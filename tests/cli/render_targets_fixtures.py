@@ -26,8 +26,8 @@ Layout (plan §2: 2 models × multi configs × overlays × platforms):
 
 Data: the pinned (thor, Qwen3.8-27B) e2e A/B pair (+30.8% decode at 1 request)
 plus a spark pair (+28.9%) the root headline must ignore; verify raws for
-(thor, Qwen3.8-27B) only — spec + kv-cache-size docs are built here so
-BENCHMARKS.md has per-config sections; one accuracy run with two legs. A v2
+(thor, Qwen3.8-27B) only — spec + kv-cache-size docs feed the merged config
+pages' per-platform sections; one accuracy run with two legs. A v2
 chart manifest (+ dummy PNGs) is seeded so pages' ``chart()`` references
 resolve without matplotlib.
 """
@@ -161,13 +161,15 @@ OVERVIEW = (
 )
 
 # charts the seeded v2 manifest offers (identity = the pinned thor pair);
-# chart() resolves them without matplotlib ever being imported
+# chart() resolves them without matplotlib ever being imported. e2e-decode
+# rides along from cycle 3f: the merged README's open A/B chart.
 SEEDED_CHARTS = {
     "kernel-speedup": "sweep",
     "kernel-latency": "sweep",
     "ring-heatmap": "ring",
     "spec-drafts": "spec",
     "kv-cache-capacity": "kv-cache-size",
+    "e2e-decode": "e2e",
 }
 
 
@@ -213,12 +215,15 @@ def _mjolnir_cells() -> list:
 
 def history_records() -> list[dict]:
     """The pinned (thor, Qwen3.8) A/B pair + a spark pair whose gain must
-    never leak into the root headline (the pin is (thor, Qwen3.8-27B))."""
+    never leak into the root headline (the pin is (thor, Qwen3.8-27B)), and
+    — cycle 3f — a solo NVFP4_FA2 run (own rows, no official-image partner:
+    the merged README's solo end-to-end state)."""
     return [
         _rec(OFFICIAL_IMAGE, "NVFP4", 10, _official_cells(), M38, "thor"),
         _rec(MJOR_IMAGE, FP6_QUANT, 11, _mjolnir_cells(), M38, "thor"),
         _rec(OFFICIAL_IMAGE, "NVFP4", 20, [_cell(1, 8192, 45.0, 8000.0, 300.0, 22.2)], M38, "spark"),
         _rec(SPARK_IMAGE, "NVFP4_MJOLNIR", 21, [_cell(1, 8192, 58.0, 8600.0, 260.0, 17.2)], M38, "spark"),
+        _rec(OFFICIAL_IMAGE, "NVFP4_FA2", 5, [_cell(1, 8192, 44.0, 8800.0, 310.0, 21.5)], M36, "thor"),
     ]
 
 

@@ -14,11 +14,11 @@ format) on each platform.
 
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
-| [`NVFP4_DFLASH`](NVFP4_DFLASH/README.md) · [BENCHMARKS](NVFP4_DFLASH/BENCHMARKS.md) | FlashInfer + DFlash | ✅ | — | — |
-| [`NVFP4_MJOLNIR`](NVFP4_MJOLNIR/README.md) · [BENCHMARKS](NVFP4_MJOLNIR/BENCHMARKS.md) | Mjolnir | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3`](NVFP4_MJOLNIR_E2M3/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3/BENCHMARKS.md) | Mjolnir fp6 KV | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/BENCHMARKS.md) | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3_VT64K`](NVFP4_MJOLNIR_E2M3_VT64K/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3_VT64K/BENCHMARKS.md) | Mjolnir fp6 KV + 64K draft vocab | ✅ | — | — |
+| [`NVFP4_DFLASH`](NVFP4_DFLASH/README.md) | FlashInfer + DFlash | ✅ | — | — |
+| [`NVFP4_MJOLNIR`](NVFP4_MJOLNIR/README.md) | Mjolnir | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3`](NVFP4_MJOLNIR_E2M3/README.md) | Mjolnir fp6 KV | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3_VT64K`](NVFP4_MJOLNIR_E2M3_VT64K/README.md) | Mjolnir fp6 KV + 64K draft vocab | ✅ | — | — |
 
 
 - `NVFP4_DFLASH` on thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.

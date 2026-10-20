@@ -14,17 +14,17 @@ format) on each platform.
 
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
-| [`AWQ_FLASHINFER`](AWQ_FLASHINFER/README.md) · [BENCHMARKS](AWQ_FLASHINFER/BENCHMARKS.md) | AWQ int4 + FlashInfer | — | — | ✅ |
-| [`NVFP4`](NVFP4/README.md) · [BENCHMARKS](NVFP4/BENCHMARKS.md) | FlashInfer | ✅ | ✅ | ✅ |
-| [`NVFP4_DFLASH2`](NVFP4_DFLASH2/README.md) · [BENCHMARKS](NVFP4_DFLASH2/BENCHMARKS.md) | FlashInfer + DFlash2 | ✅ | — | — |
-| [`NVFP4_DSPARK`](NVFP4_DSPARK/README.md) · [BENCHMARKS](NVFP4_DSPARK/BENCHMARKS.md) | FlashInfer + DSpark | ✅ | — | — |
-| [`NVFP4_FA2`](NVFP4_FA2/README.md) · [BENCHMARKS](NVFP4_FA2/BENCHMARKS.md) | FlashAttention 2 | ✅ | — | — |
-| [`NVFP4_FA4hd256`](NVFP4_FA4hd256/README.md) · [BENCHMARKS](NVFP4_FA4hd256/BENCHMARKS.md) | FlashAttention 4 hd256 | ❌ | — | — |
-| [`NVFP4_MJOLNIR`](NVFP4_MJOLNIR/README.md) · [BENCHMARKS](NVFP4_MJOLNIR/BENCHMARKS.md) | Mjolnir | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3`](NVFP4_MJOLNIR_E2M3/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3/BENCHMARKS.md) | Mjolnir fp6 KV | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3_DFLASH2`](NVFP4_MJOLNIR_E2M3_DFLASH2/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3_DFLASH2/BENCHMARKS.md) | Mjolnir fp6 KV + DFlash2 | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3_DSPARK`](NVFP4_MJOLNIR_E2M3_DSPARK/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3_DSPARK/BENCHMARKS.md) | Mjolnir fp6 KV + DSpark | ✅ | — | — |
-| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) · [BENCHMARKS](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/BENCHMARKS.md) | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | ✅ | — | — |
+| [`AWQ_FLASHINFER`](AWQ_FLASHINFER/README.md) | AWQ int4 + FlashInfer | — | — | ✅ |
+| [`NVFP4`](NVFP4/README.md) | FlashInfer | ✅ | ✅ | ✅ |
+| [`NVFP4_DFLASH2`](NVFP4_DFLASH2/README.md) | FlashInfer + DFlash2 | ✅ | — | — |
+| [`NVFP4_DSPARK`](NVFP4_DSPARK/README.md) | FlashInfer + DSpark | ✅ | — | — |
+| [`NVFP4_FA2`](NVFP4_FA2/README.md) | FlashAttention 2 | ✅ | — | — |
+| [`NVFP4_FA4hd256`](NVFP4_FA4hd256/README.md) | FlashAttention 4 hd256 | ❌ | — | — |
+| [`NVFP4_MJOLNIR`](NVFP4_MJOLNIR/README.md) | Mjolnir | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3`](NVFP4_MJOLNIR_E2M3/README.md) | Mjolnir fp6 KV | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3_DFLASH2`](NVFP4_MJOLNIR_E2M3_DFLASH2/README.md) | Mjolnir fp6 KV + DFlash2 | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3_DSPARK`](NVFP4_MJOLNIR_E2M3_DSPARK/README.md) | Mjolnir fp6 KV + DSpark | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | ✅ | — | — |
 
 
 - `AWQ_FLASHINFER` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.

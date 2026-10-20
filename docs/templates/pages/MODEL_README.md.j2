@@ -15,7 +15,7 @@ format) on each platform.
 | config | backend |{% for key in ctx.rows[0].cells %} {{ key }} |{% endfor %}
 |---|---|{% for _ in ctx.rows[0].cells %}---|{% endfor %}
 {% for r in ctx.rows -%}
-| [`{{ r.quant }}`]({{ r.quant }}/README.md) · [BENCHMARKS]({{ r.quant }}/BENCHMARKS.md) | {{ r.label }} |{% for key, cell in r.cells.items() %} {{ cell.symbol }} |{% endfor %}
+| [`{{ r.quant }}`]({{ r.quant }}/README.md) | {{ r.label }} |{% for key, cell in r.cells.items() %} {{ cell.symbol }} |{% endfor %}
 {% endfor %}
 
 {% for r in ctx.rows -%}

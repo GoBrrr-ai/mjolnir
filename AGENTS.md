@@ -43,7 +43,8 @@ the agents run on**. When doing anything on the GPU:
   every parameter is the stage default — only those feed headline charts).
 - End-to-end results: `mjolnir bench perf|ab` → `benchmarks/raw/perf-<ts>/` +
   one row per run in `benchmarks/history.jsonl`.
-- `README.md`, `docs/platforms/**`, `configs/**/{README,BENCHMARKS}.md` and
+- `README.md`, `docs/platforms/**`, `configs/**/README.md` (the Benchmarks
+  section included) and
   `assets/benchmarks/` are **generated** (`uv run mjolnir plot --readme`) from
   `README.md.j2` / `docs/templates/**.md.j2` and the raw data. Never hand-edit
   them; CI fails if they don't reproduce.
@@ -224,7 +225,7 @@ Default L for every stage and chart: **128 4096 8192 16384 32768 65536 131072
 
 ### Charts, README, site
 ```
-uv run mjolnir plot --readme              # charts + README.md + docs/platforms/** + configs/**/{README,BENCHMARKS}.md
+uv run mjolnir plot --readme              # charts + README.md + docs/platforms/** + configs/**/README.md
 uv run mjolnir plot --site _site          # the interactive page (pages.yml publishes it)
 ```
 New chart → a function in `charts.py` using `theme.py` (series colors: Mjolnir

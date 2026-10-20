@@ -202,8 +202,8 @@ More: [adding a model config](docs/faq/new-model-config.md) · [the default mode
 ## Benchmarks
 
 Measured (platform, model) pairs — each model's page carries its configs,
-per-platform quickstart and A/B rows; each config a README and a BENCHMARKS
-with per-platform cells:
+per-platform quickstart and A/B rows; each config a README with its
+per-platform Benchmarks cells:
 
 - [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) — Jetson AGX Thor
 - [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) — Jetson AGX Thor

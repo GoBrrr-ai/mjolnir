@@ -66,8 +66,8 @@ jobs:
               # every template, wherever it lives (README.md.j2,
               # docker/vllm-thor/README.md.j2, docs/templates/**.md.j2) + the
               # generated surfaces a hand edit must trip the check on
-              # (per-platform kernel pages, per-model/config README +
-              # BENCHMARKS pages, the nested per-pair charts)
+              # (per-platform kernel pages, per-model/config READMEs with
+              # their Benchmarks sections, the nested per-pair charts)
               - '**/*.md.j2'
               - 'README.md'
               - 'docker/vllm-thor/README.md'
@@ -231,10 +231,10 @@ jobs:
   readme:
     # README.md + docker/vllm-thor/README.md (the Docker Hub description) +
     # docs/platforms/** (the per-platform kernel case study) +
-    # configs/**/{README,BENCHMARKS}.md are rendered from their .md.j2
-    # templates and the committed raw data (benchmarks/raw/verify,
-    # history.jsonl) — a hand edit, or raw data committed without
-    # re-rendering, fails here.
+    # configs/**/README.md (with the Benchmarks section) are rendered from
+    # their .md.j2 templates and the committed raw data
+    # (benchmarks/raw/verify, history.jsonl) — a hand edit, or raw data
+    # committed without re-rendering, fails here.
     needs: filter
     if: always() && (github.event_name != 'pull_request' || needs.filter.outputs.readme == 'true')
     runs-on: ubuntu-latest

@@ -1,8 +1,8 @@
 # Qwen/Qwen3.8-27B
 
 `AWQ_FLASHINFER` — AWQ int4 + FlashInfer · serving profile. Flags live in
-[config.yaml](config.yaml), platform deltas in [platforms/](platforms/);
-the numbers in [BENCHMARKS.md](BENCHMARKS.md) and the model's [README](../README.md).
+[config.yaml](config.yaml), platform deltas in [platforms/](platforms/); every number on
+this page derives from the committed raw data ([history](../../../../benchmarks/history.jsonl), [raw](../../../../benchmarks/raw/)). The model's [README](../README.md).
 
 ## Serving profile
 
@@ -28,3 +28,7 @@ mjolnir serve up --platform orin --config AWQ_FLASHINFER
 Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 
 Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=AWQ_FLASHINFER).
+
+## Benchmarks
+
+**no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `Qwen/Qwen3.8-27B` / `AWQ_FLASHINFER` on Jetson Orin so far.

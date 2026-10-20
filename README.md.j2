@@ -194,8 +194,8 @@ More: [adding a model config](docs/faq/new-model-config.md) · [the default mode
 ## Benchmarks
 
 Measured (platform, model) pairs — each model's page carries its configs,
-per-platform quickstart and A/B rows; each config a README and a BENCHMARKS
-with per-platform cells:
+per-platform quickstart and A/B rows; each config a README with its
+per-platform Benchmarks cells:
 
 {% for m in ctx.measured_pairs -%}
 - {% if m.linked %}[{{ m.short }}](configs/{{ m.model }}/README.md){% else %}{{ m.short }}{% endif %} — {{ m.platforms }}

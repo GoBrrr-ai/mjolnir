@@ -13,22 +13,22 @@ is not measurement: links only go where data exists (decision 9).
 
 | config | model | on Jetson Orin | measured |
 |---|---|---|---|
-| [`AWQ_FLASHINFER`](../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4`](../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4_FA2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_FA2/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_FA2/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
-| [`NVFP4_FA4hd256`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_FA4hd256/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_FA4hd256/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DFLASH2/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DFLASH2/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) · [benchmarks](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/BENCHMARKS.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
-| [`NVFP4_DFLASH`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_DFLASH/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_DFLASH/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ✅ | measured: no |
-| [`NVFP4_MJOLNIR`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
-| [`NVFP4_MJOLNIR_E2M3_VT64K`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_VT64K/README.md) · [benchmarks](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_VT64K/BENCHMARKS.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
+| [`AWQ_FLASHINFER`](../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
+| [`NVFP4`](../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
+| [`NVFP4_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DFLASH2/README.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
+| [`NVFP4_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_DSPARK/README.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
+| [`NVFP4_FA2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_FA2/README.md) | `Qwen/Qwen3.8-27B` | ✅ | measured: no |
+| [`NVFP4_FA4hd256`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_FA4hd256/README.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR/README.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3/README.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3_DFLASH2`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DFLASH2/README.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3_DSPARK`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_DSPARK/README.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) | `Qwen/Qwen3.8-27B` | ❌ | measured: no |
+| [`NVFP4_DFLASH`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_DFLASH/README.md) | `nvidia/Qwen3.6-35B-A3B` | ✅ | measured: no |
+| [`NVFP4_MJOLNIR`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR/README.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3/README.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
+| [`NVFP4_MJOLNIR_E2M3_VT64K`](../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_VT64K/README.md) | `nvidia/Qwen3.6-35B-A3B` | ❌ | measured: no |
 
 
 - `AWQ_FLASHINFER` on Jetson Orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
@@ -53,15 +53,15 @@ is not measurement: links only go where data exists (decision 9).
 
 No kernel results for Jetson Orin yet. Jetson Orin is a **research**
 platform: native baselines (the upstream vLLM image) until a Mjolnir kernel
-lands for it — this page's matrix and the config BENCHMARKS pages carry its
-data as it arrives.
+lands for it — this page's matrix and the config pages' Benchmarks sections
+carry its data as it arrives.
 
 
 ## End to end
 
 The per-config A/B rows live on each [model page](../../../configs/) — one
 row per platform, from that platform's own history; the per-config cells in
-the [BENCHMARKS.md](../../../configs/) pages likewise. Platform-level kernel
+each config's Benchmarks section likewise. Platform-level kernel
 charts: under `kernel/` above, when they exist.
 
 Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform=orin).

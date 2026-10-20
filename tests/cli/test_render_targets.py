@@ -60,7 +60,6 @@ PAGE_TEMPLATES = (
     "PLATFORM_README.md.j2",
     "MODEL_README.md.j2",
     "CONFIG_README.md.j2",
-    "CONFIG_BENCHMARKS.md.j2",
 )
 
 SYMBOL = {
@@ -100,7 +99,7 @@ def _ident(t) -> tuple:
     if isinstance(t, rt.Model):
         return ("model", t.model)
     if isinstance(t, rt.Config):
-        return ("config", t.model, t.quant, t.include_benchmarks)
+        return ("config", t.model, t.quant)
     raise AssertionError(f"unexpected target type: {t!r}")
 
 
@@ -113,12 +112,12 @@ def _expected_idents(thor_chapters: tuple = CHAPTERS) -> set[tuple]:
         ("platform", "orin", ()),
         ("model", M38),
         ("model", M36),
-        ("config", M38, "NVFP4_MJOLNIR_E2M3_LMH8_VT64K", True),
-        ("config", M38, "NVFP4", True),
-        ("config", M38, "AWQ_FLASHINFER", True),
-        ("config", M36, "NVFP4_MJOLNIR_E2M3", True),
-        ("config", M36, "NVFP4_FA2", True),
-        ("config", M36, "NVFP4_FA4", True),
+        ("config", M38, "NVFP4_MJOLNIR_E2M3_LMH8_VT64K"),
+        ("config", M38, "NVFP4"),
+        ("config", M38, "AWQ_FLASHINFER"),
+        ("config", M36, "NVFP4_MJOLNIR_E2M3"),
+        ("config", M36, "NVFP4_FA2"),
+        ("config", M36, "NVFP4_FA4"),
     }
 
 
@@ -163,13 +162,14 @@ def test_discover_targets_yields_the_spec_target_set(layout):
 
 
 @pytest.mark.parametrize(("model", "quant"), [(m, q) for m, qs in fx.CONFIGS.items() for q in qs], ids=lambda v: str(v))
-def test_config_targets_always_include_benchmarks(repo, model, quant):
-    """Spec target #7: BENCHMARKS.md is ALWAYS generated — include_benchmarks
-    is True on every Config target, data or not."""
+def test_config_targets_emit_a_single_page(repo, model, quant):
+    """Spec change (cycle 3f): BENCHMARKS.md is folded into the config
+    README — each Config target emits exactly one page (the README)."""
     layout = load_layout()
     cfgs = [t for t in _discover(layout) if _ident(t)[:3] == ("config", model, quant)]
     assert len(cfgs) == 1
-    assert cfgs[0].include_benchmarks is True
+    outs = cfgs[0].outputs(repo, layout)
+    assert len(outs) == 1 and outs[0][1].name == "README.md"
 
 
 def test_kernel_chapters_follow_the_platforms_headline_model_raws(layout):
@@ -443,76 +443,76 @@ def test_config_readme_badges_come_from_the_availability_table(repo):
     assert SYMBOL[cell.state] in fa2 and cell.why in fa2
 
 
-# ── BENCHMARKS.md (spec target #7) ──────────────────────────────────────────
+# ── the merged Benchmarks section (cycle 3f: BENCHMARKS.md folded into the
+#    config README; the old BENCHMARKS.md pins re-pointed to the new shape) ──
 
 
 @pytest.mark.parametrize(
-    ("model", "quant", "platforms", "no_data"),
-    [
-        (M38, FP6_QUANT, ("Thor",), 0),
-        (M38, "NVFP4", ("Thor", "DGX Spark"), 0),
-        (M38, "AWQ_FLASHINFER", ("Jetson Orin",), 1),
-        (M36, "NVFP4_MJOLNIR_E2M3", ("Thor",), 1),
-    ],
+    ("model", "quant", "state"),
+    [(M38, FP6_QUANT, "pair"), (M36, "NVFP4_FA2", "solo"), (M38, "AWQ_FLASHINFER", "none")],
 )
-def test_benchmarks_md_has_a_section_per_platform_the_config_exists_on(repo, model, quant, platforms, no_data):
-    """Sections follow the overlay rule (a config exists where its overlays
-    put it); a section with no (platform, model, config) data shows the
-    'no data yet' placeholder (spec #7 sparseness rule)."""
+def test_benchmarks_open_section_covers_pair_solo_and_no_data(repo, model, quant, state):
+    """The open end-to-end state per config cell (cycle 3f §1): the A/B table
+    + chart when the config is a side of the (platform, model) pair, its own
+    rows when it has history but no partner, the honest one-liner otherwise."""
     _render_all()
-    page = (repo / "configs" / model / quant / "BENCHMARKS.md").read_text()
-    for name in platforms:
-        assert name in page, name
-    assert page.count("no data yet") == no_data
+    page = (repo / "configs" / model / quant / "README.md").read_text()
+    fold = page.split("<details>")[0]
+    if state == "pair":
+        assert "### End to end (" in fold and "| change |" in fold
+    elif state == "solo":
+        assert "### End to end" in fold and "| metric | `NVFP4_FA2` |" in fold
+        assert "| change |" not in fold
+    else:
+        assert "no data yet" in fold and "### End to end" not in fold
 
 
-def test_benchmarks_md_empty_cell_shows_no_data_yet(repo):
-    """A config whose cell has no rows: the placeholder in its platform
-    section — while the platform-level kernel stages still render (they come
-    from the headline model's raws, spec row 7)."""
+def test_benchmarks_data_lives_in_the_merged_readme(repo):
+    """The (platform, model, config) cell + platform-level kernel stages all
+    render in the README's Benchmarks section — every number from raw data."""
     _render_all()
-    page = (repo / "configs" / M36 / "NVFP4_MJOLNIR_E2M3" / "BENCHMARKS.md").read_text()
-    thor_sec = _section(page, "Thor")
-    assert "no data yet" in thor_sec
-    assert "1.26" in thor_sec  # the fixture sweep's geomean — kernel stages are platform-level
+    page = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
+    bench = _section(page, "Benchmarks")
+    assert "52.7" in bench  # history.jsonl decode t/s at 1 request
+    assert "46.9" in bench  # spec raw: best k=4 decode t/s for this config
+    assert re.search(r"410[,\s]?000", bench)  # kv-cache-size raw: fp6 tokens
+    assert "Tool calls" in bench  # accuracy.json suite row
+    assert "1.26" in bench  # sweep geomean (kernel stage summary)
+    assert "benchmarks/raw/verify/" in bench  # per-stage raw provenance
 
 
-def test_benchmarks_md_fills_the_thor_cell_from_the_raws(repo):
-    """The measured cell: e2e decode from history (52.7), spec acceptance from
-    the spec raw (46.9), KV tokens from the kv-cache-size raw (410,000),
-    accuracy suite rows, kernel stages — every number from raw data."""
+def test_benchmarks_multi_platform_sections_carry_platform_headers(repo):
+    """A config serving (and measured) on several platforms: the Benchmarks
+    section's open sub-blocks carry per-platform headings, and the accuracy
+    rows follow their platform (the fixture's accuracy legs are thor legs)."""
     _render_all()
-    page = (repo / "configs" / M38 / FP6_QUANT / "BENCHMARKS.md").read_text()
-    thor_sec = _section(page, "Thor")
-    assert "52.7" in thor_sec  # history.jsonl decode t/s at 1 request
-    assert "46.9" in thor_sec  # spec raw: best k=4 decode t/s for this config
-    assert re.search(r"410[,\s]?000", thor_sec)  # kv-cache-size raw: fp6 tokens
-    assert "Tool calls" in thor_sec  # accuracy.json suite row
-    assert "1.26" in thor_sec  # sweep geomean (kernel stage summary)
-    assert "benchmarks/raw/verify/" in page  # per-stage raw provenance (cross-linking map)
+    page = (repo / "configs" / M38 / "NVFP4" / "README.md").read_text()
+    bench = _section(page, "Benchmarks")
+    assert "### End to end — Jetson AGX Thor (NVFP4 vs" in bench
+    assert "### End to end — DGX Spark (NVFP4 vs NVFP4_MJOLNIR," in bench
+    acc = page.split("<summary>Model quality (per suite)</summary>")[1].split("<details>")[0]
+    assert "Tool calls" in acc  # the thor cell keeps its suite rows
+    assert "DGX Spark" not in acc  # never presented as another platform's data
 
 
-def test_benchmarks_md_accuracy_rows_follow_their_platform(repo):
-    """Accuracy is platform-scoped (spec #7: every number from raw data *for
-    this cell*): a multi-platform config whose only accuracy legs ran on thor
-    shows no accuracy table under its spark section — thor-measured scores are
-    never presented as another platform's data, and a section whose only data
-    would have been leaked accuracy counts as empty (`has_data`)."""
+def test_benchmarks_no_data_line_leaves_the_kernel_stages(repo):
+    """A config cell with no data: the honest line — while the platform-level
+    kernel stages still render (they come from the headline model's raws)."""
     _render_all()
-    page = (repo / "configs" / M38 / "NVFP4" / "BENCHMARKS.md").read_text()
-    spark_sec = _section(page, "DGX Spark")
-    assert "Model quality" not in spark_sec  # the fixture's accuracy legs are thor legs
-    assert "Tool calls" not in spark_sec
-    thor_sec = _section(page, "Thor")
-    assert "Tool calls" in thor_sec  # the thor cell keeps its suite rows
+    page = (repo / "configs" / M36 / "NVFP4_MJOLNIR_E2M3" / "README.md").read_text()
+    assert "no data yet" in page.split("<details>")[0]
+    kernel = page.split("<summary>Kernel stages (case-study scope)</summary>")[1].split(
+        "<summary>Raw provenance</summary>"
+    )[0]
+    assert "1.26" in kernel
 
 
-def test_benchmarks_md_references_the_v2_chart_paths(repo):
+def test_benchmarks_chart_references_resolve_from_the_config_dir(repo):
     """Charts live under assets/benchmarks/<platform>/<model-short>/ and the
-    config page's references resolve from three directories deep."""
+    config page's references resolve from four directories deep."""
     _render_all()
-    page = (repo / "configs" / M38 / FP6_QUANT / "BENCHMARKS.md").read_text()
-    assert "../../../assets/benchmarks/thor/Qwen3.8-27B/" in page
+    page = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
+    assert "../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode-dark.png" in page
 
 
 # ── cross-linking (spec §Cross-Linking Map) + root README (spec target #1) ──
@@ -542,11 +542,9 @@ def test_every_relative_link_in_every_rendered_page_resolves(repo):
         if (repo / "docs" / "platforms" / "thor" / "kernel").is_dir()
         else []
     )
-    pages += sorted((repo / "configs").glob("*/*/README.md")) + sorted((repo / "configs").glob("*/*/BENCHMARKS.md"))
-    config_pages = sorted((repo / "configs").glob("*/*/*/README.md")) + sorted(
-        (repo / "configs").glob("*/*/*/BENCHMARKS.md")
-    )
-    assert len(config_pages) == 12  # every fixture config's README + BENCHMARKS link-checked
+    pages += sorted((repo / "configs").glob("*/*/README.md"))
+    config_pages = sorted((repo / "configs").glob("*/*/*/README.md"))
+    assert len(config_pages) == 6  # every fixture config's README — the only config page (cycle 3f)
     pages += config_pages
     assert len(pages) > 10  # the full target set rendered
     broken = [
@@ -575,6 +573,19 @@ def test_root_readme_renders_the_measured_pair_index(repo):
     _render_all()
     text = (repo / "README.md").read_text()
     assert f"configs/{M38}/README.md" in text
+
+
+def test_model_and_platform_pages_link_only_the_config_readme(repo):
+    """Re-pin ripple (cycle 3f §2): the model table's config cell and the
+    platform matrix keep ONE link per config — the README; the BENCHMARKS
+    links are gone."""
+    _render_all()
+    model = (repo / "configs" / M38 / "README.md").read_text()
+    assert "BENCHMARKS" not in model
+    assert f"]({FP6_QUANT}/README.md)" in model
+    thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
+    assert "BENCHMARKS" not in thor
+    assert f"../../../configs/{M38}/{FP6_QUANT}/README.md" in thor
 
 
 def test_root_headline_stays_pinned_to_thor(repo):
@@ -620,7 +631,6 @@ def test_render_all_is_idempotent_across_the_target_set(repo):
         repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md",
         repo / "configs" / M38 / "README.md",
         repo / "configs" / M38 / FP6_QUANT / "README.md",
-        repo / "configs" / M38 / FP6_QUANT / "BENCHMARKS.md",
     ]
     first = [p.read_bytes() for p in sample]
     _render_all()

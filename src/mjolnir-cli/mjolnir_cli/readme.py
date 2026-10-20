@@ -12,7 +12,9 @@ computed from the committed raw data.
                                          kernel case study under ``kernel/``
                                          when it has raws)
 * ``configs/<vendor>/<model>/README.md``                  one per model dir
-* ``configs/…/<quant>/README.md`` + ``BENCHMARKS.md``     one per config dir
+* ``configs/…/<quant>/README.md``                         one per config dir
+                                                          (its Benchmarks
+                                                          section included)
 * ``docs/cli.md``                        the CLI reference (from the commands)
 * ``docker/vllm-thor/README.md``         the Docker Hub description: plain
                                          markdown only (Docker Hub does not
@@ -722,8 +724,8 @@ def _env(layout: RepoLayout, ctx: Any, out_path: Path) -> jinja2.Environment:
         """A plain dark ``<img>`` for a manifest chart (dark-only: GitHub
         renders markdown against a dark surface; the Pages site is Plotly).
         A pair-scoped entry (manifest v2) resolves only for the page's own
-        (platform, model) pair — ``pair`` overrides it (the BENCHMARKS pages'
-        kernel stages quote the headline pair's charts); entries without an
+        (platform, model) pair — ``pair`` overrides it (the config pages'
+        kernel sections quote the headline pair's charts); entries without an
         identity (legacy flat paths, hero, accuracy) resolve everywhere."""
         m = manifest.get(name)
         if not m:
@@ -764,11 +766,12 @@ REDIRECT_STUB = "The kernel case study moved to [docs/platforms/thor/kernel/](..
 def render_all(layout: RepoLayout, root_override: tuple[Path, Path] | None = None) -> list[Path]:
     """Render every target (plan §1): the root README, the platform tree
     (``docs/platforms/`` — index, per-platform pages and the kernel case
-    studies), every model README and every config's README + BENCHMARKS —
-    plus the CLI reference and the docker README. The target set and the
-    contexts come from :mod:`mjolnir_cli.readme_targets`. ``root_override``
-    (template, out) redirects the root README render (the
-    ``plot --readme-template/--readme-out`` flags)."""
+    studies), every model README and every config's README (the merged
+    Benchmarks section included) — plus the CLI reference and the docker
+    README. The target set and the contexts come from
+    :mod:`mjolnir_cli.readme_targets`. ``root_override`` (template, out)
+    redirects the root README render (the ``plot --readme-template
+    --readme-out`` flags)."""
     root = layout.require_repo("rendering the README")
     from mjolnir_cli import clidoc
     from mjolnir_cli.cli import app as cli_app

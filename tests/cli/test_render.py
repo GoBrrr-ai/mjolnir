@@ -124,7 +124,8 @@ def test_full_render_from_fixture_data(repo):
 def test_render_without_verify_data_is_pending(tmp_path, monkeypatch):
     """Sparseness (spec §Render Targets): with no data at all every PAGE
     still renders (placeholders) — while the raws-gated kernel tree does not
-    exist and every BENCHMARKS section shows its 'no data yet'."""
+    exist and every config README's Benchmarks section shows its honest
+    no-data state (cycle 3f: BENCHMARKS.md is folded into the README)."""
     from render_targets_fixtures import FP6_QUANT, M38, build_repo
 
     root = build_repo(tmp_path, monkeypatch, with_data=False)
@@ -132,8 +133,9 @@ def test_render_without_verify_data_is_pending(tmp_path, monkeypatch):
     assert (root / "README.md").is_file()
     assert (root / "docs" / "platforms" / "thor" / "README.md").is_file()
     assert not (root / "docs" / "platforms" / "thor" / "kernel").exists()
-    benchmarks = (root / "configs" / M38 / FP6_QUANT / "BENCHMARKS.md").read_text()
-    assert benchmarks.count("no data yet") == 1
+    assert not list(root.glob("configs/**/BENCHMARKS.md"))
+    page = (root / "configs" / M38 / FP6_QUANT / "README.md").read_text()
+    assert "no data yet" in page.split("<details>")[0]
 
 
 def test_render_is_idempotent(repo):

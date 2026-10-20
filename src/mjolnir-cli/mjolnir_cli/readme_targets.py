@@ -12,10 +12,9 @@ data and yields one :class:`Target` per spec render target
   has verify raws for its headline model, its kernel case study under
   ``kernel/`` (``chapters`` — spec #4; never for a research platform);
 * :class:`Model` — ``configs/<vendor>/<model>/README.md``;
-* :class:`Config` — ``configs/…/<quant>/README.md`` **and**
-  ``BENCHMARKS.md`` (``include_benchmarks`` is always True: both files are
-  always generated, with placeholders where a cell has no data — spec #6/#7,
-  decision 13).
+* :class:`Config` — ``configs/…/<quant>/README.md`` (cycle 3f: the old
+  ``BENCHMARKS.md`` is folded into it as the Benchmarks section — the
+  per-platform section builders live in :mod:`mjolnir_cli.config_bench`).
 
 Every target renders through :meth:`Target.outputs` — the
 ``(template, output, context)`` triples ``readme.render_all`` writes — and
@@ -53,6 +52,13 @@ from mjolnir_cli.config import (
     config_field,
     model_of,
 )
+from mjolnir_cli.config_bench import (
+    BenchContext,
+    _decode_pair,
+    _e2e_noise_pct,
+    accuracy_pair_platform,
+    bench_context,
+)
 from mjolnir_cli.config_profile import ProfileRow, _backend_label, _profile_rows
 from mjolnir_cli.history import load_records
 from mjolnir_cli.overlays import load_overlay, merge_config, overlay_platforms
@@ -81,35 +87,6 @@ CASE_STUDY_CHAPTERS: tuple[str, ...] = (
 STAGE_CHAPTERS = tuple(c for c in CASE_STUDY_CHAPTERS if c != "README")
 # verify stages that never carry a case-study chapter
 _UNCHARTED = ("timing", "profile", "vllm")
-# chart ids per stage (the read side of charts.KERNEL_CHARTS)
-STAGE_CHARTS: dict[str, tuple[str, ...]] = {
-    "sweep": ("kernel-speedup", "kernel-latency", "kernel-bandwidth"),
-    "hndsweep": ("hnd-layout",),
-    "kvfmt": ("kvfmt-heatmap", "kvfmt-tradeoff"),
-    "quant": ("quant-accuracy",),
-    "ring": ("ring-heatmap",),
-    "prefetch": ("prefetch-heatmap",),
-    "ab": ("ab-heatmap",),
-    "pdl": ("pdl-delta",),
-    "fp6prof": ("fp6prof-bytes-vs-time",),
-    "kv-cache-size": ("kv-cache-capacity",),
-    "spec": ("spec-drafts",),
-}
-# the "how is this calculated" panel kind per stage (None: no % or × in its findings)
-_STAGE_HOW: dict[str, str | None] = {
-    "sweep": "kernel",
-    "hndsweep": "kernel",
-    "kvfmt": "variant",
-    "ring": "variant",
-    "prefetch": "variant",
-    "ab": "variant",
-    "fp6prof": "fp6prof",
-    "pdl": "pdl",
-    "kv-cache-size": "kvcache",
-    "spec": "spec",
-    "quant": "kernel",
-    "correctness": None,
-}
 
 # availability symbols (the table's three states, as the pages render them)
 SYMBOLS = {availability.NATIVE: "✅", availability.FALLBACK: "⚠️", availability.UNAVAILABLE: "❌"}
@@ -171,8 +148,8 @@ def _stage_doc(layout: RepoLayout, stage: str, platform: str, model: str) -> dic
 
 def pair_docs(layout: RepoLayout, platform: str, model: str) -> dict[str, dict]:
     """The newest default run of every verify stage for one (platform, model)
-    pair — the case-study data scope (spec #4) and the BENCHMARKS kernel
-    scope (spec #7: platform-level, headline model)."""
+    pair — the case-study data scope (spec #4) and the config pages'
+    kernel-section scope (spec #7: platform-level, headline model)."""
     out: dict[str, dict] = {}
     for stage in STAGES:
         if stage in _UNCHARTED:
@@ -187,20 +164,6 @@ def has_kernel_raws(layout: RepoLayout, platform: str, model: str = DEFAULT_MODE
     """Does the platform have verify raws for its headline model? (spec #4's
     render gate — the kernel tree exists only then.)"""
     return any(_stage_doc(layout, stage, platform, model) for stage in STAGE_CHAPTERS)
-
-
-def leg_platform(leg: dict) -> str:
-    """The platform an accuracy leg ran on: its image's registry namespace."""
-    image = str(leg.get("image", ""))
-    return next((p.key for p in REGISTRY.values() if image.startswith(p.image_repo)), DEFAULT_PLATFORM)
-
-
-def accuracy_pair_platform(rows: list[dict]) -> str:
-    """One accuracy row set's platform: its Mjolnir-image legs' platform (a
-    run serves its configs on one platform), else the default."""
-    repos = tuple(p.image_repo for p in REGISTRY.values())
-    mine = [leg_platform(r) for r in rows if str(r.get("image", "")).startswith(repos)]
-    return mine[0] if mine else DEFAULT_PLATFORM
 
 
 def measured_pairs(layout: RepoLayout) -> list[tuple[str, str]]:
@@ -470,17 +433,18 @@ class Model:
 
 @dataclass(frozen=True)
 class Config:
-    """``configs/…/<quant>/README.md`` + ``BENCHMARKS.md`` (spec #6/#7) —
-    both always generated (``include_benchmarks`` pinned True)."""
+    """``configs/…/<quant>/README.md`` (spec #6) — cycle 3f: the old
+    ``BENCHMARKS.md`` is folded in as the page's Benchmarks section; the
+    per-platform data comes from :mod:`mjolnir_cli.config_bench`."""
 
     model: str
     quant: str
-    include_benchmarks: bool = True
 
     def build_context(self, layout: RepoLayout) -> ConfigContext:
-        """The config README (cycle 3e): the model is the page and the
+        """The config README (cycles 3e+3f): the model is the page and the
         profile secondary; ONE curated meta-table with a column per serving
-        platform — overlay deltas surface as columns (plan §1). No
+        platform — overlay deltas surface as columns (plan §1) — and the
+        merged Benchmarks section (open end-to-end, collapsed rest). No
         config.yaml / .env / delta dumps."""
         c = self._dir(layout)
         plats = [p for p in platform_rows() if exists_on(c.path, p.key)]
@@ -501,27 +465,14 @@ class Config:
                 )
                 for p in plats
             ],
+            bench=bench_context(layout, self.model, self.quant, plats),
             e2e_noise_pct=_e2e_noise_pct(),
         )
-
-    def build_benchmarks(self, layout: RepoLayout) -> BenchmarksContext:
-        """The BENCHMARKS.md context: one section per platform the config
-        exists on, each with the (platform, model, config) cell — or the
-        single "no data yet" placeholder — plus the platform-level kernel
-        stages (the headline model's raws, spec #7)."""
-        c = self._dir(layout)
-        sections = [
-            _bench_section(p, self.model, self.quant, layout) for p in platform_rows() if exists_on(c.path, p.key)
-        ]
-        return BenchmarksContext(model=self.model, quant=self.quant, sections=sections, e2e_noise_pct=_e2e_noise_pct())
 
     def outputs(self, root: Path, layout: RepoLayout) -> list[tuple[Path, Path, Any]]:
         pages = root / "docs" / "templates" / "pages"
         out_dir = root / "configs" / self.model / self.quant
-        return [
-            (pages / "CONFIG_README.md.j2", out_dir / "README.md", self.build_context(layout)),
-            (pages / "CONFIG_BENCHMARKS.md.j2", out_dir / "BENCHMARKS.md", self.build_benchmarks(layout)),
-        ]
+        return [(pages / "CONFIG_README.md.j2", out_dir / "README.md", self.build_context(layout))]
 
     def _dir(self, layout: RepoLayout) -> ConfigDir:
         return next(c for c in scan_configs(layout) if c.model == self.model and c.quant == self.quant)
@@ -531,7 +482,7 @@ def discover_targets(layout: RepoLayout) -> list[Root | PlatformsIndex | Platfor
     """Every render target of the checkout, in render order. Root + index +
     one Platform per registry record (with ``chapters`` when its headline
     model has verify raws) + one Model per config-tree model + one Config per
-    config dir (``include_benchmarks`` always True)."""
+    config dir (one page each — the merged Benchmarks section rides it)."""
     targets: list[Root | PlatformsIndex | Platform | Model | Config] = [Root(), PlatformsIndex()]
     targets += [
         Platform(key=p.key, chapters=CASE_STUDY_CHAPTERS if has_kernel_raws(layout, p.key) else ())
@@ -627,10 +578,11 @@ class ConfigPlatform:
 
 @dataclass(frozen=True)
 class ConfigContext:
-    """The config README's context (cycle 3e): the model is the H1, the
+    """The config README's context (cycles 3e+3f): the model is the H1, the
     profile secondary; ``profile`` is the curated meta-table (one cell per
     platform); ``has_env`` gates the intro's pointer to the `.env` sidecar
-    (whose contents are never rendered)."""
+    (whose contents are never rendered); ``bench`` is the merged Benchmarks
+    section (:mod:`mjolnir_cli.config_bench`)."""
 
     model: str
     quant: str
@@ -639,57 +591,8 @@ class ConfigContext:
     has_overlays: bool
     has_env: bool
     platforms: list[ConfigPlatform]
+    bench: BenchContext
     e2e_noise_pct: str = "3"
-
-
-@dataclass(frozen=True)
-class PlatformBench:
-    """One platform section of a BENCHMARKS.md: the (platform, model, config)
-    cell — or the placeholder — plus the platform-level kernel stages."""
-
-    key: str
-    name: str
-    headline: str
-    has_data: bool
-    e2e: dict | None
-    spec: str | None
-    kv: str | None
-    accuracy: list[tuple[str, str]]
-    stages: dict[str, dict]
-    chart_pair: tuple[str, str] | None
-
-
-@dataclass(frozen=True)
-class BenchmarksContext:
-    model: str
-    quant: str
-    sections: list[PlatformBench]
-    e2e_noise_pct: str = "3"
-
-
-# ── cell builders (spec #7: every number from raw data) ─────────────────────
-
-
-def _e2e_noise_pct() -> str:
-    from mjolnir_cli.e2e import E2E_NOISE_PCT
-
-    return f"{E2E_NOISE_PCT:.0f}"
-
-
-def _decode_pair(off: dict, mj: dict) -> tuple[str, float, float] | None:
-    """(context label, official, mjolnir) decode t/s at 1 request, at the
-    longest shared context — the A/B row's numbers."""
-    from mjolnir_cli import e2e
-
-    best = None
-    for conc, ctx in e2e.shared_cells(off, mj):
-        if conc != 1:
-            continue
-        a = e2e.value(e2e.cell(off, 1, ctx), "tg_tps")
-        b = e2e.value(e2e.cell(mj, 1, ctx), "tg_tps")
-        if a and b:
-            best = (ctx, a, b)  # shared_cells ascends: the last hit is the longest
-    return None if best is None else (e2e.ctx_label(best[0]), best[1], best[2])
 
 
 def _ab_row(layout: RepoLayout, platform: str, model: str, name: str) -> ABRow | None:
@@ -713,147 +616,3 @@ def _ab_row(layout: RepoLayout, platform: str, model: str, name: str) -> ABRow |
         change=e2e.pct(e2e.change_pct(a, b)),
         ctx=ctx,
     )
-
-
-def _bench_section(p: PlatformRow, model: str, quant: str, layout: RepoLayout) -> PlatformBench:
-    from mjolnir_cli import readme  # the findings live beside the tables
-
-    docs = pair_docs(layout, p.key, DEFAULT_MODEL) if has_kernel_raws(layout, p.key) else {}
-    stages = {
-        s: {
-            "title": STAGES[s].title,
-            "findings": readme._findings(s, docs[s]),
-            "how": _STAGE_HOW.get(s),
-            "charts": STAGE_CHARTS.get(s, ()),
-            "run": docs[s].get("run_id", ""),
-        }
-        for s in STAGE_CHARTS
-        if s in docs
-    }
-    e2e_cell = _e2e_cell(layout, p.key, model, quant)
-    spec = _spec_cell(docs, quant)
-    kv = _kv_cell(docs, quant)
-    acc = _accuracy_cell(layout, p.key, model, quant)
-    has_data = e2e_cell is not None or spec is not None or kv is not None or bool(acc)
-    return PlatformBench(
-        key=p.key,
-        name=p.name,
-        headline=DEFAULT_MODEL,
-        has_data=has_data,
-        e2e=e2e_cell,
-        spec=spec,
-        kv=kv,
-        accuracy=acc,
-        stages=stages,
-        chart_pair=(p.key, DEFAULT_MODEL) if stages else None,
-    )
-
-
-def _e2e_cell(layout: RepoLayout, platform: str, model: str, quant: str) -> dict | None:
-    """The (platform, model, config) end-to-end cell: the pair's A/B when the
-    config is one of its sides, else the config's own records; None when the
-    cell has no data at all."""
-    from mjolnir_cli import e2e
-
-    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
-    if off and mj and quant in (str(off.get("config", "")), str(mj.get("config", ""))):
-        pass  # this config is a side of the pair: the A/B is its cell
-    else:
-        recs = [
-            r
-            for r in load_records(layout.history_file)
-            if platform_of(r) == platform and model_of(r) == model and r.get("config") == quant
-        ]
-        off = e2e._merge([r for r in recs if e2e.is_official(r)])
-        mj = e2e._merge([r for r in recs if e2e.is_mjolnir(r)])
-        if not off and not mj:
-            return None
-    if not off or not mj:
-        return {
-            "ctx": "",
-            "official": str(off.get("config", "")) if off else "",
-            "mjolnir": str(mj.get("config", "")) if mj else "",
-            "rows": [],
-        }
-    pair = _decode_pair(off, mj)
-    if pair is None:
-        return {"ctx": "", "official": str(off.get("config", "")), "mjolnir": str(mj.get("config", "")), "rows": []}
-    ctx, _a, _b = pair
-    conc = 1
-    at = max((x for c, x in e2e.shared_cells(off, mj) if c == conc), default=0)
-    rows = []
-    for m in e2e.METRICS:
-        va, vb = e2e.value(e2e.cell(off, conc, at), m.key), e2e.value(e2e.cell(mj, conc, at), m.key)
-        rows.append(
-            {
-                "metric": m.label,
-                "unit": m.unit,
-                "official": "—" if va is None else m.fmt.format(va),
-                "mjolnir": "—" if vb is None else m.fmt.format(vb),
-                "change": "—" if va is None or vb is None else e2e.pct(e2e.change_pct(va, vb)),
-            }
-        )
-    return {"ctx": ctx, "official": str(off.get("config", "")), "mjolnir": str(mj.get("config", "")), "rows": rows}
-
-
-def _spec_cell(docs: dict[str, dict], quant: str) -> str | None:
-    """This config's best speculative-decoding point from the pair's spec raw."""
-    doc = docs.get("spec")
-    if not doc:
-        return None
-    from mjolnir_cli.readme_tables import spec_label
-    from mjolnir_cli.verify.spec import best_k
-
-    rows = [r for r in doc.get("rows", []) if r.get("decode_tps") and r.get("config") == quant]
-    parts = [
-        f"{spec_label(cfg)}, {conc} request{'s' if conc > 1 else ''}: best with **{b['k']} draft"
-        f"{'s' if b['k'] > 1 else ''}** — {b['decode_tps']:.1f} t/s per request, "
-        f"{b['acceptance_length']:.2f} tokens per step."
-        for (cfg, conc), b in sorted(best_k(rows).items())
-    ]
-    return " ".join(parts) or None
-
-
-def _kv_cell(docs: dict[str, dict], quant: str) -> str | None:
-    """This config's KV-capacity row from the pair's kv-cache-size raw."""
-    doc = docs.get("kv-cache-size")
-    if not doc:
-        return None
-    from mjolnir_cli.charts_base import L_label
-    from mjolnir_cli.readme_tables import kvcache_label
-
-    out = []
-    for r in doc.get("rows", []):
-        if not r.get("kv_tokens") or r.get("config") != quant:
-            continue
-        line = f"**{kvcache_label(r)}**: **{r['kv_tokens']:,} tokens**"
-        if r.get("max_concurrency"):
-            line += (
-                f", {r['max_concurrency']:.1f} requests at the full {L_label(r.get('max_model_len') or 0)} context"
-                " (vLLM's own estimate)."
-            )
-        out.append(line)
-    return " ".join(out) or None
-
-
-def _accuracy_cell(layout: RepoLayout, platform: str, model: str, quant: str) -> list[tuple[str, str]]:
-    """This (platform, model, config) cell's accuracy suite scores: (suite
-    label, score cell) — a leg measured on another platform never shows here."""
-    from mjolnir_cli import accuracy
-
-    rows = [
-        r
-        for r in accuracy.latest_legs(accuracy.load_runs(layout))
-        if leg_platform(r) == platform and model_of(r) == model and r.get("config") == quant
-    ]
-    if not rows:
-        return []
-    base = accuracy.baseline(rows)
-    out: list[tuple[str, str]] = []
-    for r in rows:
-        for n in accuracy.suites_in(rows):
-            v = (r["suites"].get(n) or {}).get("score")
-            if v is None:
-                continue
-            out.append((accuracy.suite_label(n), f"{v:.1f}{accuracy.fmt_delta(accuracy.delta(r, base, n))}"))
-    return out
