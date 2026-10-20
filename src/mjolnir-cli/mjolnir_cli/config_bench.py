@@ -22,40 +22,9 @@ from typing import TYPE_CHECKING
 from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of
 from mjolnir_cli.history import load_records
 from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
-from mjolnir_cli.verify.stages import STAGES
 
 if TYPE_CHECKING:
     from mjolnir_cli.readme_targets import PlatformRow
-
-# chart ids per stage (the read side of charts.KERNEL_CHARTS)
-STAGE_CHARTS: dict[str, tuple[str, ...]] = {
-    "sweep": ("kernel-speedup", "kernel-latency", "kernel-bandwidth"),
-    "hndsweep": ("hnd-layout",),
-    "kvfmt": ("kvfmt-heatmap", "kvfmt-tradeoff"),
-    "quant": ("quant-accuracy",),
-    "ring": ("ring-heatmap",),
-    "prefetch": ("prefetch-heatmap",),
-    "ab": ("ab-heatmap",),
-    "pdl": ("pdl-delta",),
-    "fp6prof": ("fp6prof-bytes-vs-time",),
-    "kv-cache-size": ("kv-cache-capacity",),
-    "spec": ("spec-drafts",),
-}
-# the "how is this calculated" panel kind per stage (None: no % or × in its findings)
-_STAGE_HOW: dict[str, str | None] = {
-    "sweep": "kernel",
-    "hndsweep": "kernel",
-    "kvfmt": "variant",
-    "ring": "variant",
-    "prefetch": "variant",
-    "ab": "variant",
-    "fp6prof": "fp6prof",
-    "pdl": "pdl",
-    "kv-cache-size": "kvcache",
-    "spec": "spec",
-    "quant": "kernel",
-    "correctness": None,
-}
 
 
 def _e2e_noise_pct() -> str:
@@ -81,8 +50,10 @@ def accuracy_pair_platform(rows: list[dict]) -> str:
 @dataclass(frozen=True)
 class PlatformBench:
     """One platform's benchmarks data for the merged config README: the
-    (platform, model, config) cell — or the placeholder — plus the
-    platform-level kernel stages."""
+    (platform, model, config) cell — or the placeholder — plus whether the
+    platform has kernel raws (the case-study link renders; the per-stage
+    summaries never do — they are the 13 chapter pages' content, byte-identical
+    across a model's sibling config pages otherwise)."""
 
     key: str
     name: str
@@ -92,8 +63,7 @@ class PlatformBench:
     spec: str | None
     kv: str | None
     accuracy: list[tuple[str, str]]
-    stages: dict[str, dict]
-    chart_pair: tuple[str, str] | None
+    kernel_study: bool
 
 
 @dataclass(frozen=True)
@@ -139,23 +109,11 @@ def _decode_pair(off: dict, mj: dict) -> tuple[str, float, float] | None:
 
 
 def _bench_section(p: PlatformRow, model: str, quant: str, layout: RepoLayout) -> PlatformBench:
-    from mjolnir_cli import readme  # the findings live beside the tables
     from mjolnir_cli import readme_targets  # the (platform, model) data scope
 
     docs = (
         readme_targets.pair_docs(layout, p.key, DEFAULT_MODEL) if readme_targets.has_kernel_raws(layout, p.key) else {}
     )
-    stages = {
-        s: {
-            "title": STAGES[s].title,
-            "findings": readme._findings(s, docs[s]),
-            "how": _STAGE_HOW.get(s),
-            "charts": STAGE_CHARTS.get(s, ()),
-            "run": docs[s].get("run_id", ""),
-        }
-        for s in STAGE_CHARTS
-        if s in docs
-    }
     e2e_cell = _e2e_cell(layout, p.key, model, quant)
     spec = _spec_cell(docs, quant)
     kv = _kv_cell(docs, quant)
@@ -170,8 +128,7 @@ def _bench_section(p: PlatformRow, model: str, quant: str, layout: RepoLayout) -
         spec=spec,
         kv=kv,
         accuracy=acc,
-        stages=stages,
-        chart_pair=(p.key, DEFAULT_MODEL) if stages else None,
+        kernel_study=bool(docs),
     )
 
 

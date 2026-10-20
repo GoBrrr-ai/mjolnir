@@ -33,7 +33,9 @@ def local(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     cdir.mkdir(parents=True)
     (cdir / "config.yaml").write_text("model: org/new-model\nattention-backend: MJOLNIR\nkv-cache-dtype: fp6_e2m3\n")
     (cdir / ".env").write_text("MJOLNIR_DRAFT_VOCAB={configs}/draft_vocab.json\n")
-    (root / MODEL / "kv_scales.json").write_text("{}")
+    ks = root / MODEL / "kv_scales"
+    ks.mkdir()
+    (ks / "e2m3.json").write_text("{}")
     monkeypatch.setenv("MJOLNIR_CONFIGS_DIR", str(root))
     return root
 
@@ -52,7 +54,7 @@ def test_local_env_and_scales_point_into_the_local_mount(local: Path, tmp_path: 
     s = Settings(model=MODEL, quant=QUANT, data_dir=tmp_path)
     envs = _envs(dockerctl.build_run_args(s))
     assert f"MJOLNIR_DRAFT_VOCAB=/configs-local/{MODEL}/draft_vocab.json" in envs
-    assert f"MJOLNIR_ATTN_KV_SCALES=/configs-local/{MODEL}/kv_scales.json" in envs
+    assert f"MJOLNIR_ATTN_KV_SCALES=/configs-local/{MODEL}/kv_scales/e2m3.json" in envs
 
 
 def test_one_shot_command_paths_follow_the_config(local: Path, tmp_path: Path) -> None:

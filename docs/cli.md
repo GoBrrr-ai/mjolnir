@@ -100,8 +100,7 @@ Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache
 Runs the config's model on fp8 KV in the Mjolnir image, records the
 per-channel amax of every K/V written to the cache over a varied prompt set,
 and writes the per-format `kv_scales/<format>.json` next to the config —
-what an `kv-cache-dtype: fp6_e2m3` config is served with (plus the
-pre-migration single file, one compat cycle). Needs the GPU to
+what an `kv-cache-dtype: fp6_e2m3` config is served with. Needs the GPU to
 itself: refuses while the vLLM server is up (stop it with
 `mjolnir serve down` in a window you own).
 
@@ -110,7 +109,7 @@ itself: refuses while the vLLM server is up (stop it with
 | `--model` | vendor/Model (default: the active one) |  |
 | `--config` | the config to calibrate (default: the active one) |  |
 | `--image` | the Mjolnir image |  |
-| `--out` | default: the model's kv_scales/&lt;format&gt;.json next to the config dirs — kv_scales/&lt;drafter&gt;.kv_scales.json for a config whose own drafter (DSpark) runs on Mjolnir (the legacy single file is written too, one compat cycle) |  |
+| `--out` | default: the model's kv_scales/&lt;format&gt;.json next to the config dirs — kv_scales/&lt;drafter&gt;.kv_scales.json for a config whose own drafter (DSpark) runs on Mjolnir |  |
 | `--prompts` | short prompts | `48` |
 | `--long` | long-context prompts | `6` |
 | `--max-model-len` |  | `32768` |

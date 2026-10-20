@@ -80,17 +80,34 @@ class Probe:
 
 # ── weights: format × platform (quants.md §1) ───────────────────────────────
 
+# Identical why-sentences shared by several platforms are hoisted here (the
+# emitted cells are byte-identical to the per-platform literals they replaced).
 _UNQUANTIZED = (
     "UnquantizedLinearMethod serves bf16 and fp16 everywhere; bf16 itself needs compute capability 8.0 or newer."
 )
 _FP8_NATIVE = "CUTLASS fp8 scaled-mm GEMM runs on the native fp8 tensor cores (compute capability 89 and up)."
+_INT8_W8A8 = (
+    "CutlassInt8ScaledMM runs W8A8 on the int8 tensor cores every one of these platforms has "
+    "(the c2x kernels are built for sm_87 too)."
+)
+_MARLIN_W4A16 = (
+    "Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format."
+)
+_NO_FP4 = (
+    "No supported native FP4 GEMM: vLLM falls back to weight-only Marlin W4A16 — the memory win only, "
+    "never W4A4 compute."
+)
+_HUMMING = (
+    "The Humming kernel (SM75+) serves OCP MXFP6 weights (e2m3/e3m2) when the optional humming "
+    "package is installed in the image."
+)
+_MXFP8_MARLIN = "ModelOpt MXFP8 rides the Marlin kernel on SM80+ (OCP microscaling with E8M0 scales)."
+_NO_FP6_WEIGHTS = (
+    "No stock fp6 weights path exists in vLLM 0.32.0: Mjolnir's fp6 scheme is a KV-cache format, not a weights format."
+)
 
 WEIGHTS_AVAILABILITY: dict[str, dict[str, Availability]] = {
-    "bf16": {
-        "thor": Availability(NATIVE, _UNQUANTIZED),
-        "orin": Availability(NATIVE, _UNQUANTIZED),
-        "spark": Availability(NATIVE, _UNQUANTIZED),
-    },
+    "bf16": {p: Availability(NATIVE, _UNQUANTIZED) for p in PLATFORMS},
     "fp8-w8a8": {
         "thor": Availability(NATIVE, _FP8_NATIVE),
         # no fp8 tensor cores on sm_87: vLLM loads the checkpoint anyway and
@@ -102,38 +119,12 @@ WEIGHTS_AVAILABILITY: dict[str, dict[str, Availability]] = {
         ),
         "spark": Availability(NATIVE, _FP8_NATIVE),
     },
-    "int8-w8a8": {
-        "thor": Availability(
-            NATIVE,
-            "CutlassInt8ScaledMM runs W8A8 on the int8 tensor cores every one of these platforms has "
-            "(the c2x kernels are built for sm_87 too).",
-        ),
-        "orin": Availability(
-            NATIVE,
-            "CutlassInt8ScaledMM runs W8A8 on the int8 tensor cores every one of these platforms has "
-            "(the c2x kernels are built for sm_87 too).",
-        ),
-        "spark": Availability(
-            NATIVE,
-            "CutlassInt8ScaledMM runs W8A8 on the int8 tensor cores every one of these platforms has "
-            "(the c2x kernels are built for sm_87 too).",
-        ),
-    },
+    "int8-w8a8": {p: Availability(NATIVE, _INT8_W8A8) for p in PLATFORMS},
     "int4-w4a16": {
-        "thor": Availability(
-            NATIVE,
-            "Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.",
-        ),
+        "thor": Availability(NATIVE, _MARLIN_W4A16),
         # probe gap 2: Marlin's effective perf on sm_87 (8.0+PTX JIT on the iGPU)
-        "orin": Availability(
-            NATIVE,
-            "Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.",
-            probe=True,
-        ),
-        "spark": Availability(
-            NATIVE,
-            "Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.",
-        ),
+        "orin": Availability(NATIVE, _MARLIN_W4A16, probe=True),
+        "spark": Availability(NATIVE, _MARLIN_W4A16),
     },
     "nvfp4": {
         # probe gap 4: which NVFP4 GEMM kernel actually wins on thor 0.32.0
@@ -143,62 +134,16 @@ WEIGHTS_AVAILABILITY: dict[str, dict[str, Availability]] = {
             "for dense GEMM, the per-load log line decides.",
             probe=True,
         ),
-        "orin": Availability(
-            FALLBACK,
-            "No supported native FP4 GEMM: vLLM falls back to weight-only Marlin W4A16 — the memory win only, "
-            "never W4A4 compute.",
-        ),
+        "orin": Availability(FALLBACK, _NO_FP4),
         "spark": Availability(NATIVE, "SM12x scaled-mm kernels plus FlashInfer's 120f cubins run NVFP4 W4A4 natively."),
     },
     # OCP microscaling weights: both ride the optional Humming kernel (probe gap 5:
     # humming is not in the image requirements, so its presence is per image)
-    "mxfp6": {
-        "thor": Availability(
-            NATIVE,
-            "The Humming kernel (SM75+) serves OCP MXFP6 weights (e2m3/e3m2) when the optional humming "
-            "package is installed in the image.",
-            probe=True,
-        ),
-        "orin": Availability(
-            NATIVE,
-            "The Humming kernel (SM75+) serves OCP MXFP6 weights (e2m3/e3m2) when the optional humming "
-            "package is installed in the image.",
-            probe=True,
-        ),
-        "spark": Availability(
-            NATIVE,
-            "The Humming kernel (SM75+) serves OCP MXFP6 weights (e2m3/e3m2) when the optional humming "
-            "package is installed in the image.",
-            probe=True,
-        ),
-    },
-    "mxfp8": {
-        "thor": Availability(
-            NATIVE, "ModelOpt MXFP8 rides the Marlin kernel on SM80+ (OCP microscaling with E8M0 scales).", probe=True
-        ),
-        "orin": Availability(
-            NATIVE, "ModelOpt MXFP8 rides the Marlin kernel on SM80+ (OCP microscaling with E8M0 scales).", probe=True
-        ),
-        "spark": Availability(
-            NATIVE, "ModelOpt MXFP8 rides the Marlin kernel on SM80+ (OCP microscaling with E8M0 scales).", probe=True
-        ),
-    },
+    "mxfp6": {p: Availability(NATIVE, _HUMMING, probe=True) for p in PLATFORMS},
+    "mxfp8": {p: Availability(NATIVE, _MXFP8_MARLIN, probe=True) for p in PLATFORMS},
     # quants.md correction 1: Mjolnir's fp6 is a KV-cache scheme, not weights —
     # there is no stock fp6-weights path on any platform
-    "mjolnir-fp6": {
-        "thor": Availability(
-            UNAVAILABLE,
-            "No stock fp6 weights path exists in vLLM 0.32.0: Mjolnir's fp6 scheme is a KV-cache format, not a weights format.",
-        ),
-        "orin": Availability(
-            UNAVAILABLE,
-            "No stock fp6 weights path exists in vLLM 0.32.0: Mjolnir's fp6 scheme is a KV-cache format, not a weights format.",
-        ),
-        "spark": Availability(
-            UNAVAILABLE,
-            "No stock fp6 weights path exists in vLLM 0.32.0: Mjolnir's fp6 scheme is a KV-cache format, not a weights format.",
-        ),
-    },
+    "mjolnir-fp6": {p: Availability(UNAVAILABLE, _NO_FP6_WEIGHTS) for p in PLATFORMS},
 }
 
 # ── KV cache: dtype × backend class × platform (quants.md §2) ────────────────
@@ -208,20 +153,19 @@ WEIGHTS_AVAILABILITY: dict[str, dict[str, Availability]] = {
 TRITON_ONLY = (
     "Only the Triton attention backend reads {dtype} KV (dynamic per-token-head scales computed at cache-write time)."
 )
+_FLASHINFER_FP8 = "The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window."
+_FA2_NVFP4_KV = (
+    "The FA2 pathway serves NVFP4 KV on its sm_80/90/120 families (storage-level: packed fp4 pages, fp8 block scales)."
+)
+_FI_NVFP4_KV = "The FlashInfer backend enables NVFP4 KV on every family the FA2 path covers."
+_INT4_KV = "Only the Triton attention backend reads int4 KV, the same per-token-head shape as int8."
+_BF16_KV = (
+    "BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs."
+)
 
 KV_AVAILABILITY: dict[str, dict[str, dict[str, Availability]]] = {
     "fp8": {
-        FLASHINFER: {
-            "thor": Availability(
-                NATIVE, "The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window."
-            ),
-            "orin": Availability(
-                NATIVE, "The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window."
-            ),
-            "spark": Availability(
-                NATIVE, "The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window."
-            ),
-        },
+        FLASHINFER: {p: Availability(NATIVE, _FLASHINFER_FP8) for p in PLATFORMS},
         # the proven fa4-fp8kv route (hd<=128); FA2 itself rejects quantized KV
         FA4: {
             "thor": Availability(
@@ -245,64 +189,22 @@ KV_AVAILABILITY: dict[str, dict[str, dict[str, Availability]]] = {
         # probe gap 1: NVFP4-KV decode on Ampere (flashinfer-native wrapper,
         # uint8 pages) — code path exists, no field report found
         FA2: {
-            "orin": Availability(
-                NATIVE,
-                "The FA2 pathway serves NVFP4 KV on its sm_80/90/120 families (storage-level: packed fp4 pages, fp8 block scales).",
-                probe=True,
-            ),
-            "spark": Availability(
-                NATIVE,
-                "The FA2 pathway serves NVFP4 KV on its sm_80/90/120 families (storage-level: packed fp4 pages, fp8 block scales).",
-            ),
+            "orin": Availability(NATIVE, _FA2_NVFP4_KV, probe=True),
+            "spark": Availability(NATIVE, _FA2_NVFP4_KV),
         },
         FLASHINFER: {
-            "orin": Availability(
-                NATIVE,
-                "The FlashInfer backend enables NVFP4 KV on every family the FA2 path covers.",
-                probe=True,
-            ),
-            "spark": Availability(
-                NATIVE,
-                "The FlashInfer backend enables NVFP4 KV on every family the FA2 path covers.",
-            ),
+            "orin": Availability(NATIVE, _FI_NVFP4_KV, probe=True),
+            "spark": Availability(NATIVE, _FI_NVFP4_KV),
         },
     },
     "int8": {
-        TRITON: {
-            "thor": Availability(NATIVE, TRITON_ONLY.format(dtype="int8")),
-            "orin": Availability(NATIVE, TRITON_ONLY.format(dtype="int8")),
-            "spark": Availability(NATIVE, TRITON_ONLY.format(dtype="int8")),
-        },
+        TRITON: {p: Availability(NATIVE, TRITON_ONLY.format(dtype="int8")) for p in PLATFORMS},
     },
     "int4": {
-        TRITON: {
-            "thor": Availability(
-                NATIVE, "Only the Triton attention backend reads int4 KV, the same per-token-head shape as int8."
-            ),
-            "orin": Availability(
-                NATIVE, "Only the Triton attention backend reads int4 KV, the same per-token-head shape as int8."
-            ),
-            "spark": Availability(
-                NATIVE, "Only the Triton attention backend reads int4 KV, the same per-token-head shape as int8."
-            ),
-        },
+        TRITON: {p: Availability(NATIVE, _INT4_KV) for p in PLATFORMS},
     },
     "bf16": {
-        cls: {
-            "thor": Availability(
-                NATIVE,
-                "BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.",
-            ),
-            "orin": Availability(
-                NATIVE,
-                "BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.",
-            ),
-            "spark": Availability(
-                NATIVE,
-                "BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.",
-            ),
-        }
-        for cls in (MJOLNIR, FLASHINFER, FA2, FA4, TRITON)
+        cls: {p: Availability(NATIVE, _BF16_KV) for p in PLATFORMS} for cls in (MJOLNIR, FLASHINFER, FA2, FA4, TRITON)
     },
 }
 

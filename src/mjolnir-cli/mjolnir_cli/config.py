@@ -121,9 +121,9 @@ class ConfigEntry:
 def scan_configs(configs_dir: Path) -> list[ConfigEntry]:
     """Scan ``configs/<vendor>/<model>/<quant>/config.yaml`` into pickable
     entries. Everything config-specific lives in the config dir: the
-    ``.env`` sidecar and a drafter's ``kv_scales.json``; the model-level
-    files (shared ``kv_scales/<format>.json``, ``draft_vocab.json``, chat
-    template) stay next to it."""
+    ``.env`` sidecar; the model-level files (``kv_scales/<format>.json`` —
+    a drafter's ``kv_scales/<drafter>.kv_scales.json`` included,
+    ``draft_vocab.json``, chat template) stay next to it."""
     out: list[ConfigEntry] = []
     if not configs_dir.is_dir():
         return out
@@ -208,7 +208,7 @@ def config_drafter_on_mjolnir(path: Path) -> bool:
     ``speculative-config.attention_backend`` (MJOLNIR / CUSTOM): vLLM gives a
     DSpark / DFlash drafter its own backend choice — auto unless set there,
     never the target's. Its layers then need fp6 scales of their own,
-    calibrated with the config (``<config>.kv_scales.json``)."""
+    calibrated with the config (``kv_scales/<method>.kv_scales.json``)."""
     try:
         data = yaml.safe_load(Path(path).read_text())
     except Exception:  # noqa: BLE001 - a malformed config is simply not offered

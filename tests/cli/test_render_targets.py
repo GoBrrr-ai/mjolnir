@@ -495,8 +495,10 @@ def test_benchmarks_open_section_covers_pair_solo_and_no_data(repo, model, quant
 
 
 def test_benchmarks_data_lives_in_the_merged_readme(repo):
-    """The (platform, model, config) cell + platform-level kernel stages all
-    render in the README's Benchmarks section — every number from raw data."""
+    """The (platform, model, config) cell renders in the README's Benchmarks
+    section — every number from raw data. The kernel stages are NOT on the
+    page (Simplify-1 §3): they are the 13 chapter pages' content — the case
+    study is one link away instead."""
     _render_all()
     page = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
     bench = _section(page, "Benchmarks")
@@ -504,8 +506,11 @@ def test_benchmarks_data_lives_in_the_merged_readme(repo):
     assert "46.9" in bench  # spec raw: best k=4 decode t/s for this config
     assert re.search(r"410[,\s]?000", bench)  # kv-cache-size raw: fp6 tokens
     assert "Tool calls" in bench  # accuracy.json suite row
-    assert "1.26" in bench  # sweep geomean (kernel stage summary)
-    assert "benchmarks/raw/verify/" in bench  # per-stage raw provenance
+    assert "1.26" not in bench  # no inline sweep summary
+    assert "benchmarks/raw/verify/" not in bench  # no per-stage provenance
+    assert (
+        "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel)" in bench
+    )  # the one replacement line
 
 
 def test_benchmarks_multi_platform_sections_carry_platform_headers(repo):
@@ -522,16 +527,15 @@ def test_benchmarks_multi_platform_sections_carry_platform_headers(repo):
     assert "DGX Spark" not in acc  # never presented as another platform's data
 
 
-def test_benchmarks_no_data_line_leaves_the_kernel_stages(repo):
-    """A config cell with no data: the honest line — while the platform-level
-    kernel stages still render (they come from the headline model's raws)."""
+def test_benchmarks_no_data_line_plus_the_kernel_case_study_link(repo):
+    """A config cell with no data: the honest line stays, and the kernel
+    stages are still never inline — the pair-level case study is one link
+    away (it comes from the headline model's raws, not this config's)."""
     _render_all()
     page = (repo / "configs" / M36 / "NVFP4_MJOLNIR_E2M3" / "README.md").read_text()
     assert "no data yet" in page.split("<details>")[0]
-    kernel = page.split("<summary>Kernel stages (case-study scope)</summary>")[1].split(
-        "<summary>Raw provenance</summary>"
-    )[0]
-    assert "1.26" in kernel
+    assert "1.26" not in page
+    assert "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel)" in page
 
 
 def test_benchmarks_chart_references_resolve_from_the_config_dir(repo):

@@ -101,38 +101,8 @@ Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjo
 {%- endfor %}
 </details>
 {%- endif %}
-{%- set st_secs = ctx.bench.sections | selectattr("stages") | list %}
-{%- if st_secs %}
+{%- set ks_secs = ctx.bench.sections | selectattr("kernel_study") | list %}
+{%- if ks_secs %}
 
-<details>
-<summary>Kernel stages (case-study scope)</summary>
-
-{%- for s in st_secs %}
-{%- set hdr = "\n**" ~ s.name ~ "**\n" if st_secs | length > 1 else "" %}
-{{ hdr }}{% for name, st in s.stages.items() %}
-**{{ st.title }}**
-
-{% for f in st.findings -%}
-- {{ f }}
-{% endfor %}
-{% if st.how %}{{ how(st.how) }}
-
-{% endif %}
-{% for cid in st.charts %}{{ chart(cid, st.title, pair=s.chart_pair) }}
-{% endfor %}
-{% endfor %}
-{%- endfor %}
-</details>
-
-<details>
-<summary>Raw provenance</summary>
-
-Every number on this page comes from the committed raw data; regenerate with
-`mjolnir plot --readme`.
-
-{%- for s in st_secs %}
-{%- set hdr = "\n**" ~ s.name ~ "**\n\n" if st_secs | length > 1 else "\n" %}
-{{ hdr }}<sub>{% for name, st in s.stages.items() if st.run %}[`benchmarks/raw/verify/{{ name }}/{{ st.run }}.json`]({{ root }}benchmarks/raw/verify/{{ name }}/{{ st.run }}.json){{ " · " if not loop.last }}{% endfor %}</sub>
-{%- endfor %}
-</details>
+The per-stage kernel numbers — findings, charts and raw provenance — live in the{% for s in ks_secs %}{{ " ·" if not loop.first }} [{{ s.name }} kernel case study]({{ root }}docs/platforms/{{ s.key }}/README.md#kernel){% endfor %}, one chapter per verify stage.
 {%- endif %}

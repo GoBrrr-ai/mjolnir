@@ -154,7 +154,7 @@ def test_quick_correctness_covers_the_non_causal_drafter_block():
     assert label in stages.QUICK_CASES and "--non_causal" in args and "--headdim 128" in args
 
 
-# ── kv_scales/<format>.json migration (spec Open Item 5) ────────────────────
+# ── kv_scales/<format>.json — the only layout ────────────────────────────────
 
 
 def _local_tree(tmp_path, monkeypatch, dtype: str = "fp6_e2m3", drafter: bool = False):
@@ -174,26 +174,18 @@ def _local_tree(tmp_path, monkeypatch, dtype: str = "fp6_e2m3", drafter: bool = 
     return Settings(model=model, quant=quant)
 
 
-def test_loader_prefers_the_per_format_file(tmp_path, monkeypatch):
-    """kv_scales/<format>.json wins when present; the model-root
-    kv_scales.json is only the older wheel's bundled layout (the compat
-    window's fallback)."""
+def test_loader_reads_the_per_format_file(tmp_path, monkeypatch):
+    """kv_scales/<format>.json beside the config dirs is the only layout
+    `mjolnir serve` reads (and the one `mjolnir calibrate` writes)."""
     s = _local_tree(tmp_path, monkeypatch)
     mdir = s.config_path.parent.parent
     (mdir / "kv_scales").mkdir()
     (mdir / "kv_scales" / "e2m3.json").write_text("{}")
-    (mdir / "kv_scales.json").write_text("{}")
     assert dockerctl.kv_scales_host_path(s) == mdir / "kv_scales" / "e2m3.json"
 
 
-def test_loader_falls_back_to_the_legacy_single_file(tmp_path, monkeypatch):
-    s = _local_tree(tmp_path, monkeypatch)
-    (s.config_path.parent.parent / "kv_scales.json").write_text("{}")
-    assert dockerctl.kv_scales_host_path(s) == s.config_path.parent.parent / "kv_scales.json"
-
-
 def test_loader_defaults_to_the_per_format_path(tmp_path, monkeypatch):
-    """Neither file present: the canonical path calibrate writes (what
+    """No file present yet: the canonical path calibrate writes (what
     missing_kv_scales names)."""
     s = _local_tree(tmp_path, monkeypatch)
     assert dockerctl.kv_scales_host_path(s) == s.config_path.parent.parent / "kv_scales" / "e2m3.json"
@@ -206,8 +198,9 @@ def test_the_scale_file_is_named_after_the_kv_format(tmp_path, monkeypatch):
 
 
 def test_a_drafter_calibrates_into_the_model_kv_scales_dir(tmp_path, monkeypatch):
-    """A Mjolnir drafter's scales are kv_scales/<method>.kv_scales.json —
-    preferred when present, the config-dir file the legacy fallback."""
+    """A Mjolnir drafter's scales are kv_scales/<method>.kv_scales.json in
+    the model's kv_scales/ dir; every other config shares the model's
+    per-format file."""
     s = _local_tree(tmp_path, monkeypatch, drafter=True)
     cdir = s.config_path.parent
     mdir = cdir.parent
@@ -215,35 +208,24 @@ def test_a_drafter_calibrates_into_the_model_kv_scales_dir(tmp_path, monkeypatch
     assert dockerctl.kv_scales_host_path(s) == canonical  # nothing yet: canonical
     (mdir / "kv_scales").mkdir()
     canonical.write_text("{}")
-    assert dockerctl.kv_scales_host_path(s) == canonical  # preferred over ...
-    (cdir / "kv_scales.json").write_text("{}")  # ... the pre-migration location
-    canonical.unlink()
-    assert dockerctl.kv_scales_host_path(s) == cdir / "kv_scales.json"
+    assert dockerctl.kv_scales_host_path(s) == canonical
 
 
-def test_calibrate_writes_both_paths_during_the_compat_window(tmp_path, monkeypatch):
-    """One run feeds both layouts: the per-format file (canonical) plus the
-    pre-migration single file older wheels read. An explicit --out (or
-    --draft-vocab) stays a single file."""
+def test_calibrate_writes_one_file(tmp_path, monkeypatch):
+    """One run writes one file: the per-format kv_scales/<format>.json (an
+    explicit --out or --draft-vocab names that one file)."""
     s = _local_tree(tmp_path, monkeypatch)
     mdir = s.config_path.parent.parent
-    target, legacy = dockerctl.calibrate_targets(s, None, False)
+    target = dockerctl.calibrate_targets(s, None, False)
     assert target == mdir / "kv_scales" / "e2m3.json"
-    assert legacy == mdir / "kv_scales.json"
-    assert legacy is not None  # narrow: the mirror writes it after the run
-    target.parent.mkdir(parents=True)
-    target.write_text('{"format": "mjolnir.kv_scales/2"}')
-    assert dockerctl.mirror_legacy_scales(target, legacy)
-    assert legacy.read_text() == target.read_text()
-    assert dockerctl.calibrate_targets(s, tmp_path / "x.json", False) == (tmp_path / "x.json", None)
-    assert dockerctl.calibrate_targets(s, None, True)[1] is None
+    assert dockerctl.calibrate_targets(s, tmp_path / "x.json", False) == tmp_path / "x.json"
+    assert dockerctl.calibrate_targets(s, None, True) == mdir / "kv_scales" / "draft_vocab.json"
 
 
-def test_a_drafter_calibration_writes_its_own_legacy_file(tmp_path, monkeypatch):
+def test_a_drafter_calibration_writes_its_own_file(tmp_path, monkeypatch):
     s = _local_tree(tmp_path, monkeypatch, drafter=True)
-    target, legacy = dockerctl.calibrate_targets(s, None, False)
+    target = dockerctl.calibrate_targets(s, None, False)
     assert target == s.config_path.parent.parent / "kv_scales" / "dspark.kv_scales.json"
-    assert legacy == s.config_path.parent / "kv_scales.json"
 
 
 def test_calibrate_default_out_is_the_per_format_file():
@@ -263,8 +245,7 @@ def test_the_user_dir_fallback_keeps_the_kv_scales_subdir(tmp_path, monkeypatch)
     (mdir / "kv_scales").chmod(0o500)  # exists, unwritable -> the fallback
     try:
         monkeypatch.setattr(dockerctl, "user_configs_dir", lambda: tmp_path / "user")
-        target, legacy = dockerctl.calibrate_targets(s, None, False)
+        target = dockerctl.calibrate_targets(s, None, False)
         assert target == tmp_path / "user" / s.model / "kv_scales" / "e2m3.json"
-        assert legacy == tmp_path / "user" / s.model / "kv_scales.json"
     finally:
         (mdir / "kv_scales").chmod(0o755)

@@ -720,8 +720,7 @@ def calibrate(
         None,
         "--out",
         help="default: the model's kv_scales/<format>.json next to the config dirs — kv_scales/<drafter>.kv_scales.json "
-        "for a config whose own drafter (DSpark) runs on Mjolnir (the legacy single file is written too, one "
-        "compat cycle)",
+        "for a config whose own drafter (DSpark) runs on Mjolnir",
     ),
     prompts: int = typer.Option(48, "--prompts", help="short prompts"),
     long: int = typer.Option(6, "--long", help="long-context prompts"),
@@ -739,8 +738,7 @@ def calibrate(
     Runs the config's model on fp8 KV in the Mjolnir image, records the
     per-channel amax of every K/V written to the cache over a varied prompt set,
     and writes the per-format ``kv_scales/<format>.json`` next to the config —
-    what an ``kv-cache-dtype: fp6_e2m3`` config is served with (plus the
-    pre-migration single file, one compat cycle). Needs the GPU to
+    what an ``kv-cache-dtype: fp6_e2m3`` config is served with. Needs the GPU to
     itself: refuses while the vLLM server is up (stop it with
     ``mjolnir serve down`` in a window you own)."""
     s = _settings(model, config, image, None)
@@ -752,7 +750,7 @@ def calibrate(
             err=True,
         )
         raise typer.Exit(3)
-    target, legacy = dockerctl.calibrate_targets(s, out, draft_vocab)
+    target = dockerctl.calibrate_targets(s, out, draft_vocab)
     target.parent.mkdir(parents=True, exist_ok=True)
     mounts = [(str(target.parent.resolve()), "/out")]
     env = []
@@ -786,8 +784,6 @@ def calibrate(
     typer.secho(f"calibrating {s.model}/{s.quant} on {s.image} -> {target}", fg=typer.colors.CYAN)
     rc = dockerctl.run_once(argv, "mjolnir-calibrate")
     if rc == 0:
-        if legacy is not None:  # compat window: the legacy file feeds older wheels
-            dockerctl.mirror_legacy_scales(target, legacy)
         typer.secho(f"wrote {target}", fg=typer.colors.GREEN)
     raise typer.Exit(rc)
 

@@ -305,26 +305,24 @@ def test_no_data_state_shows_the_one_liner_with_no_empty_details(repo):
 
 
 def test_non_e2e_sections_are_collapsed_with_their_charts_and_how_inside(repo):
-    """Scenario 5: spec / KV / quality / kernel wrapped in
-    ``<details><summary>…</summary>``; the how-panels and chart imgs sit
-    inside their blocks."""
+    """Spec / KV / quality wrapped in ``<details><summary>…</summary>``, the
+    how-panels and chart imgs inside their blocks. The kernel stages are NOT
+    a section (Simplify-1 §3): the platform's case study is one link line."""
     _render_all()
     page = _page(repo, M38, FP6_QUANT)
     for summary in (
         "Speculative decoding",
         "KV capacity",
         "Model quality (per suite)",
-        "Kernel stages (case-study scope)",
-        "Raw provenance",
     ):
         assert f"<details>\n<summary>{summary}</summary>" in page, summary
+    assert "Kernel stages (case-study scope)" not in page and "Raw provenance" not in page
+    assert "kernel-speedup.png" not in page  # no inline stage charts
+    assert (
+        "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel)" in page
+    )  # the one link instead
     spec = page.split("<summary>Speculative decoding</summary>")[1].split("<summary>KV capacity</summary>")[0]
     assert "46.9" in spec and "How the % and × here are calculated" in spec
-    kernel = page.split("<summary>Kernel stages (case-study scope)</summary>")[1].split(
-        "<summary>Raw provenance</summary>"
-    )[0]
-    assert "1.26" in kernel and "kernel-speedup.png" in kernel
-    assert "How the % and × here are calculated" in kernel
 
 
 def test_intro_derives_from_raw_data_without_a_benchmarks_link(repo):

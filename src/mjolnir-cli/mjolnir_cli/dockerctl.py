@@ -135,10 +135,8 @@ MJOLNIR_ENV_DEFAULTS = {"VLLM_KV_CACHE_LAYOUT": "HND"}
 
 # fp6 (e2m3) KV needs per-channel scales from `mjolnir calibrate`, stored
 # beside the model's configs (mounted at /configs in the container): one file
-# per KV format in kv_scales/ (KV_SCALES_DIR). KV_SCALES_FILE is the
-# pre-migration single-file name, still read while older wheels bundle it.
+# per KV format in kv_scales/ (KV_SCALES_DIR).
 KV_SCALES_DIR = "kv_scales"
-KV_SCALES_FILE = "kv_scales.json"
 
 
 # What the image's installed mjolnir package is built from: `mjolnir image
@@ -220,50 +218,29 @@ def kv_scales_host_path(s: Settings) -> Path:
     config whose external drafter (DSpark, DFlash, ...) runs on the Mjolnir
     backend has layers no other config has: its scales are
     ``kv_scales/<drafter>.kv_scales.json``, written by
-    ``mjolnir calibrate --config <config>``. The pre-migration single-file
-    layout (``kv_scales.json`` at the model root, or inside a drafter
-    config's dir) is still read while older wheels bundle it — one cycle,
-    then removed (spec Open Item 5)."""
-    cdir = s.config_path.parent
-    mdir = cdir.parent
+    ``mjolnir calibrate --config <config>``."""
     if config_drafter_on_mjolnir(s.config_path):
-        new = mdir / KV_SCALES_DIR / f"{_drafter(s.config_path)}.kv_scales.json"
-        if new.exists():
-            return new
-        own = cdir / KV_SCALES_FILE
-        return own if own.exists() else new
-    new = mdir / KV_SCALES_DIR / f"{_kv_format(s.config_path)}.json"
-    if new.exists():
-        return new
-    legacy = mdir / KV_SCALES_FILE
-    return legacy if legacy.exists() else new
+        return s.config_path.parent.parent / KV_SCALES_DIR / f"{_drafter(s.config_path)}.kv_scales.json"
+    return s.config_path.parent.parent / KV_SCALES_DIR / f"{_kv_format(s.config_path)}.json"
 
 
-def calibrate_targets(s: Settings, out: Path | None, draft_vocab: bool) -> tuple[Path, Path | None]:
-    """(target, legacy): where one ``mjolnir calibrate`` run writes. The
-    default is the per-format file, with the pre-migration single-file path
-    returned alongside while the compat window lasts (older wheels bundle
-    that layout; ``mirror_legacy_scales`` fills it after the run). An
-    explicit ``--out`` (or ``--draft-vocab``) writes one file and nothing
-    else. An unwritable configs dir (the wheel-installed CLI's bundled
-    copy) moves the whole model-relative layout under the user configs
-    dir."""
+def calibrate_targets(s: Settings, out: Path | None, draft_vocab: bool) -> Path:
+    """Where one ``mjolnir calibrate`` run writes: the per-format file, or
+    the explicit ``--out`` (``--draft-vocab`` writes its one file too). An
+    unwritable configs dir (the wheel-installed CLI's bundled copy) moves
+    the whole model-relative layout under the user configs dir."""
     if draft_vocab:
-        target, legacy = out or kv_scales_host_path(s).with_name("draft_vocab.json"), None
+        target = out or kv_scales_host_path(s).with_name("draft_vocab.json")
     elif out is not None:
-        target, legacy = out, None
+        target = out
+    elif config_drafter_on_mjolnir(s.config_path):
+        target = s.config_path.parent.parent / KV_SCALES_DIR / f"{_drafter(s.config_path)}.kv_scales.json"
     else:
-        mdir = s.config_path.parent.parent
-        if config_drafter_on_mjolnir(s.config_path):
-            target = mdir / KV_SCALES_DIR / f"{_drafter(s.config_path)}.kv_scales.json"
-            legacy = s.config_path.parent / KV_SCALES_FILE
-        else:
-            target = mdir / KV_SCALES_DIR / f"{_kv_format(s.config_path)}.json"
-            legacy = mdir / KV_SCALES_FILE
+        target = s.config_path.parent.parent / KV_SCALES_DIR / f"{_kv_format(s.config_path)}.json"
     if os.access(target.parent if target.parent.exists() else Path.home(), os.W_OK):
-        return target, legacy
+        return target
     root = user_configs_dir() / s.model
-    return root / _model_rel(s, target), None if legacy is None else root / _model_rel(s, legacy)
+    return root / _model_rel(s, target)
 
 
 def _model_rel(s: Settings, p: Path) -> Path:
@@ -272,16 +249,6 @@ def _model_rel(s: Settings, p: Path) -> Path:
         return p.relative_to(s.config_path.parent.parent)
     except ValueError:
         return Path(p.name)
-
-
-def mirror_legacy_scales(target: Path, legacy: Path) -> bool:
-    """Copy a fresh calibration onto the legacy single-file path (the compat
-    window's second write). False when there is nothing to copy."""
-    if not target.exists() or legacy == target:
-        return False
-    legacy.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(target, legacy)
-    return True
 
 
 def missing_kv_scales(s: Settings) -> str | None:
@@ -451,8 +418,9 @@ def build_run_args(
         mounts.append((str(hf_hub), HF_DOWNLOAD_DIR))
     # A user-local model config (outside the repo's configs/) is mounted as
     # its whole model dir at /configs-local/<model> (config dirs + the model's
-    # kv_scales.json / draft_vocab.json), beside — not inside — the read-only
-    # /configs mount; repo files (chat templates) stay reachable under /configs.
+    # kv_scales/ calibration + draft_vocab.json), beside — not inside — the
+    # read-only /configs mount; repo files (chat templates) stay reachable
+    # under /configs.
     if is_local_config(s):
         mounts.append((str(user_configs_dir() / s.model), f"{config_model_dir(s)}:ro"))
     mounts += list(extra_mounts)

@@ -138,8 +138,8 @@ expands the pages a prefill / mixed step reads to e4m3 for the FA4 fallback
 (channel scales applied, one descale per head). The scales come from a calibration run on fp8 KV:
 
 ```bash
-python -m mjolnir.calibrate --config <serve.yaml> --out kv_scales.json   # in the image
-MJOLNIR_ATTN_KV_SCALES=kv_scales.json vllm serve ... --kv-cache-dtype fp6_e2m3 --attention-backend MJOLNIR
+python -m mjolnir.calibrate --config <serve.yaml> --out kv_scales/e2m3.json   # in the image
+MJOLNIR_ATTN_KV_SCALES=kv_scales/e2m3.json vllm serve ... --kv-cache-dtype fp6_e2m3 --attention-backend MJOLNIR
 ```
 
 (`mjolnir calibrate` / `mjolnir serve` do both for you —
