@@ -63,19 +63,19 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <tr>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/platforms/thor/README.md#end-to-end">🚀&nbsp;Faster decode</a></h3>
+      <h3>🚀&nbsp;<a href="docs/platforms/thor/README.md#end-to-end">Faster decode</a></h3>
       <p><b>+58% tokens/s</b> vs the official vLLM image. MTP with <b>5 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/platforms/thor/README.md#end-to-end">⏱️&nbsp;Faster prompts</a></h3>
+      <h3>⏱️&nbsp;<a href="docs/platforms/thor/README.md#end-to-end">Faster prompts</a></h3>
       <p><b>+260%</b> prefill throughput, <b>−27%</b> time to first token.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/platforms/thor/kernel/kv-cache-size.md">🧠&nbsp;More context per GB</a></h3>
+      <h3>🧠&nbsp;<a href="docs/platforms/thor/kernel/kv-cache-size.md">More context per GB</a></h3>
       <p>The 6-bit <code>e2m3</code> KV cache holds <b>+31% tokens</b> in the same memory.</p>
       <br>
     </td>
@@ -83,19 +83,19 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <tr>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/platforms/thor/kernel/accuracy.md">🎯&nbsp;Same accuracy</a></h3>
+      <h3>🎯&nbsp;<a href="docs/platforms/thor/kernel/accuracy.md">Same accuracy</a></h3>
       <p>Tool calling within <b>±3.6 points</b> of the stock FlashInfer fp8 baseline.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docker/vllm-thor/PATCHES.md">🐳&nbsp;Dockerized</a></h3>
+      <h3>🐳&nbsp;<a href="docker/vllm-thor/PATCHES.md">Dockerized</a></h3>
       <p>Official vLLM 0.32.0 + Mjolnir + Jetson Thor patches.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="configs/Qwen/Qwen3.8-27B/README.md">📄&nbsp;Models as Code</a></h3>
+      <h3>📄&nbsp;<a href="configs/Qwen/Qwen3.8-27B/README.md">Models as Code</a></h3>
       <p>Each model is a YAML file of serve flags. <code>mjolnir serve up</code> does the rest.</p>
       <br>
     </td>
@@ -103,19 +103,19 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
   <tr>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/faq/fp6-kv.md">🧪&nbsp;Calibrated per model</a></h3>
+      <h3>🧪&nbsp;<a href="docs/faq/fp6-kv.md">Calibrated per model</a></h3>
       <p>KV-cache scales and the draft vocabulary come from <code>mjolnir calibrate</code> and ship next to the config.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/methodology/benchmarking.md">📊&nbsp;Benchmarks you can rerun</a></h3>
+      <h3>📊&nbsp;<a href="docs/methodology/benchmarking.md">Benchmarks you can rerun</a></h3>
       <p>Kernel, serving and accuracy benches in one CLI, raw JSON for every table, chart and number on this page.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3><a href="docs/faq/autoresearch.md">🔬&nbsp;Autoresearch</a></h3>
+      <h3>🔬&nbsp;<a href="docs/faq/autoresearch.md">Autoresearch</a></h3>
       <p>An agent loop proposes, tests and logs kernel experiments; every try leaves data behind.</p>
       <br>
     </td>
