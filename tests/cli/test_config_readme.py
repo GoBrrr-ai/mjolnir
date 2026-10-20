@@ -31,6 +31,7 @@ CONFIG_PAGES = [
     (M38, "AWQ_FLASHINFER"),
     (fx.M36, "NVFP4_MJOLNIR_E2M3"),
     (fx.M36, "NVFP4_FA2"),
+    (fx.M36, "NVFP4_FA4"),
 ]
 
 
@@ -211,3 +212,19 @@ def test_m36_fixture_pins_int_context_omitted_rows_served_as_and_backend(repo):
     assert rows["Served as"] == ["`nvidia/Qwen3.6-35B-A3B-NVFP4`"]
     _header, fa2_rows = _profile(_page(repo, fx.M36, "NVFP4_FA2"))
     assert fa2_rows["Attention backend"] == ["FLASH_ATTN"]
+
+
+def test_fa4_fixture_pins_the_distinguishing_flash_attn_4_page_backend(repo):
+    """The @4 half of the backend pin (review cycle-3e round 2, IMPROVEMENT 1):
+    NVFP4_FA4 — NVFP4_FA2's sibling — carries ``attention-backend:
+    FLASH_ATTN`` + ``flash_attn_version: 4``, the ONLY input on which the old
+    inline derivation (plain ``FLASH_ATTN``) and the canonical
+    :func:`mjolnir_cli.overlays.backend_class` (``FLASH_ATTN@4``) disagree.
+    The page renders through the real builder, so reverting
+    ``config_profile.backend()`` to the old inline two-liner fails here — the
+    FA2 pin above cannot see that regression (the derivations agree on
+    version 2)."""
+    _render_all()
+    _header, rows = _profile(_page(repo, fx.M36, "NVFP4_FA4"))
+    assert _header == ["Thor"]  # legacy fixture config: thor-only, like FA2
+    assert rows["Attention backend"] == ["FLASH_ATTN@4"]

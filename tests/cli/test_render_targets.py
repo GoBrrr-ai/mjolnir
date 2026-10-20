@@ -16,7 +16,7 @@ RED state:
   directly against the real tree (one existence test); fixture repos copy the
   templates guarded, so RED builds template-less repos.
 
-Fixture repos: :mod:`render_targets_fixtures` — two models × five configs with
+Fixture repos: :mod:`render_targets_fixtures` — two models × six configs with
 platform overlays, verify_fixtures-style raws stamped (thor, Qwen3.8-27B), a
 spark e2e pair the root headline must ignore, and a seeded v2 chart manifest.
 The real ``docs/`` tree is never written to; matplotlib is never needed here
@@ -118,6 +118,7 @@ def _expected_idents(thor_chapters: tuple = CHAPTERS) -> set[tuple]:
         ("config", M38, "AWQ_FLASHINFER", True),
         ("config", M36, "NVFP4_MJOLNIR_E2M3", True),
         ("config", M36, "NVFP4_FA2", True),
+        ("config", M36, "NVFP4_FA4", True),
     }
 
 
@@ -545,7 +546,7 @@ def test_every_relative_link_in_every_rendered_page_resolves(repo):
     config_pages = sorted((repo / "configs").glob("*/*/*/README.md")) + sorted(
         (repo / "configs").glob("*/*/*/BENCHMARKS.md")
     )
-    assert len(config_pages) == 10  # every fixture config's README + BENCHMARKS link-checked
+    assert len(config_pages) == 12  # every fixture config's README + BENCHMARKS link-checked
     pages += config_pages
     assert len(pages) > 10  # the full target set rendered
     broken = [

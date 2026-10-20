@@ -18,6 +18,11 @@ Layout (plan §2: 2 models × multi configs × overlays × platforms):
       NVFP4_MJOLNIR_E2M3/             overlay {thor}
       NVFP4_FA2/                      legacy thor-only — nvfp4 KV on FA2: the
                                       exists-but-unavailable ❌ cell
+      NVFP4_FA4/                      legacy thor-only — FA2's @4 sibling:
+                                      FLASH_ATTN + flash_attn_version 4 (the
+                                      only input where the old inline backend
+                                      derivation and overlays.backend_class
+                                      disagree — the review-round-2 pin)
 
 Data: the pinned (thor, Qwen3.8-27B) e2e A/B pair (+30.8% decode at 1 request)
 plus a spark pair (+28.9%) the root headline must ignore; verify raws for
@@ -125,6 +130,21 @@ CONFIGS: dict[str, dict[str, tuple[tuple[str, ...] | None, dict, dict[str, str]]
                 "kv-cache-dtype": "nvfp4",
                 "attention-backend": "FLASH_ATTN",
                 "attention-config": {"flash_attn_version": 2},
+            },
+            {},
+        ),
+        # NVFP4_FA2's @4 sibling — byte-identical body except the one key the
+        # two backend derivations disagree on (review cycle-3e round 2):
+        # the old inline two-liner renders plain FLASH_ATTN, the canonical
+        # overlays.backend_class renders FLASH_ATTN@4.
+        "NVFP4_FA4": (
+            None,
+            {
+                "model": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+                "served-model-name": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+                "kv-cache-dtype": "nvfp4",
+                "attention-backend": "FLASH_ATTN",
+                "attention-config": {"flash_attn_version": 4},
             },
             {},
         ),
