@@ -422,6 +422,19 @@ def chart_autoresearch(rows: list[dict], mode: Mode):
             zorder=3,
             label="noisy (re-evaluated)",
         )
+    parked = [r for r in rest if r["status"] == "parked"]
+    if parked:
+        ax.scatter(
+            [r["id"] for r in parked],
+            [r["score"] for r in parked],
+            s=30,
+            marker="s",
+            facecolor=mode.panel,
+            edgecolor=mode.text_dim,
+            linewidths=1.2,
+            zorder=3,
+            label="parked (stackable)",
+        )
     crashes = [r["id"] for r in rows if r.get("status") == "crash" or not r.get("score")]
     if crashes:
         ax.scatter(
