@@ -69,6 +69,11 @@ skipped with a hint — nothing blocks on a password.
 - A grandfathered file keeps its ceiling equal to its line count, so the
   ceiling moves down as the file shrinks. Once the file is within the limit,
   set its ceiling to the limit; the pre-commit hook retires the entry.
+- The traced kernel family (`src/mjolnir/mjolnir/t5_*.py`) and the generated doc
+  surfaces (`docs/platforms/**/*.md`, `configs/**/README.md`) are **excluded from
+  the ratchet entirely** (`exclude`: no ceiling, no floor — the DSL's tracing
+  constraints own the kernel's size, generation owns the docs';
+  `check_file_length` does not ratchet `exclude`, so the paths can move).
 - Before committing, run `uv run scripts/check_file_length.py --base origin/main`.
 
 ## Current state
@@ -276,12 +281,15 @@ mjolnir autoresearch init <tag>   # branch autoresearch/<tag> + baseline row
 mjolnir autoresearch run          # OpenCode orchestrator; never stops by itself
 mjolnir autoresearch ledger | status | chart | export
 ```
-Agents may change only `src/mjolnir/mjolnir/t5_decode.py` and work on the fp6
-(e2m3, HND) path only; the keep/discard rule is in the harness
-(`autoresearch.judge`, per L against the best kept row: > 2% geomean gain that
-survives dropping its best L, at most one L slower than noise, FlashInfer
-outliers set aside; correctness required). `research/progress.png` is rendered
-from the ledger by `mjolnir plot` / every `evaluate`.
+Agents may change the kernel family `src/mjolnir/mjolnir/t5_*.py` (fp6 e2m3 HND
+path only); the judge (`autoresearch.judge`, per L against the best kept row)
+**keeps** a > 2% geomean gain that survives dropping its best L with at most one
+L slower than noise (FlashInfer outliers set aside; correctness required) and
+**parks** a structured sub-bar gain as tag `ar/parked/<sha>` — stackable into
+batches, never the reference (`research/program.md`, "Batches"). A run
+re-baselines at `init`; the current kernel measures ≈ 1.26× (generated docs).
+`research/progress.png` is rendered from the ledger by `mjolnir plot` / every
+`evaluate`.
 
 ### Releases
 One manual workflow, **Actions → Release** (`release.yml`): it plans the next
