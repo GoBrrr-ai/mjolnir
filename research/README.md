@@ -36,10 +36,10 @@ and the next ideas are in [`program.md`](program.md)).
 | | |
 |---|---|
 | [`program.md`](program.md) | the loop the orchestrator follows — the human-editable "research org" |
-| `src/mjolnir/mjolnir/t5_decode.py` | the only file experiments change |
+| `src/mjolnir/mjolnir/t5_*.py` | the kernel family — the only files experiments change (traced decode kernel + its builder, constants, plan, harness) |
 | `mjolnir autoresearch evaluate` | the fixed harness: quick correctness (13 cases × fp8/bf16 Q vs the emulator, incl. a non-causal drafter block), then an ncu sweep of FlashInfer vs Mjolnir at the 8 headline L |
 | score | per L, FlashInfer time ÷ Mjolnir time from the same run; the score is their geomean |
-| decision | per L against the best kept row, computed by the harness, never by an agent: **keep** if correct, the geomean gains > 2%, the gain survives dropping its best L (> 1%) and at most one L is slower than the ±3% noise; an L where the FlashInfer reference jumped > 15% is set aside; **noisy** (re-evaluate) if that happens at > 2 L; else **discard** with the reason; **crash** if no score |
+| decision | per L against the best kept row, computed by the harness, never by an agent: **keep** if correct, the geomean gains > 2%, the gain survives dropping its best L (> 1%) and at most one L is slower than the ±3% noise; an L where the FlashInfer reference jumped > 15% is set aside; **noisy** (re-evaluate) if that happens at > 2 L; **parked** if a structured sub-bar gain (over half the bar, same shape) — tagged `ar/parked/<sha>`, stackable into batches, never the reference; else **discard** with the reason; **crash** if no score |
 | `ledger.jsonl` / `ledger.tsv` | one row per experiment; untracked while the run is live so `git reset --hard` never rewinds it |
 | `runs/<tag>/` | committed snapshots (`export`): the ledger + a `SUMMARY.md` |
 
@@ -48,16 +48,16 @@ and the next ideas are in [`program.md`](program.md)).
 Only the orchestrator ships with the repo ([`.opencode/agent/autoresearch.md`](../.opencode/agent/autoresearch.md)).
 The four helpers below `explore` are **ids it may delegate to**: create your own OpenCode agents
 with these ids in your global config (`~/.config/opencode/agent/<id>.md`) — your
-model, your prompt, your tool limits — and the orchestrator's `task` permissions
+model, your prompt, your tool limits — and the orchestrator's `subagent` permissions
 already allow them. Missing ones are fine: the orchestrator does that step itself.
 
 | agent | role | can |
 |---|---|---|
-| `autoresearch` | orchestrator (primary) | an open shell (minus server / container / repo-history commands), commit / reset the kernel file, delegate — never push, never edit directly |
+| `autoresearch` | orchestrator (primary) | an open shell (minus server / container / repo-history commands), commit / reset the kernel family, delegate — never push, never edit directly |
 | `explore` | built into OpenCode: fast read-only code / docs search | read |
 | `arxiv-researcher` | ideas from papers, ranked by fit | read arXiv; returns arXiv ids for `--sources` |
 | `web-researcher` | engineering facts: CuTe DSL, CUTLASS, FlashInfer, PTX | read the web; returns URLs |
-| `python-engineer` | implements one hypothesis behind a flag | edit `t5_decode.py` only, py_compile, ruff |
+| `python-engineer` | implements one hypothesis behind a flag | edit the kernel family (`t5_*.py`) only, py_compile, ruff |
 | `debugger` | crash / correctness triage from the harness logs | read logs, edit `t5_decode.py`, quick correctness |
 
 ## A ledger row

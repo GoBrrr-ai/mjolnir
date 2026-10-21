@@ -114,6 +114,34 @@ def test_judge_sets_aside_a_reference_outlier():
     assert st == "noisy"
 
 
+def test_judge_parks_a_structured_sub_bar_win():
+    st, why, _ = ar.judge(_row(dict.fromkeys(LS, 1.015)), BASE)
+    assert st == "parked", why
+    assert "parked for stacking" in why
+
+
+def test_judge_does_not_park_a_win_resting_on_one_L():
+    st, why, _ = ar.judge(_row({"262144": 1.12}), BASE)  # +1.4% geomean, all of it at 256K
+    assert st == "discard" and "rests on" in why
+
+
+def test_judge_discards_a_park_band_gain_that_loses_at_several_L():
+    # the run-13 shape: long L up, four short L down — a gating candidate, not a brick
+    row = {"128": 0.92, "4096": 0.90, "8192": 0.91, "16384": 0.92} | dict.fromkeys(LS[4:], 1.12)
+    st, why, _ = ar.judge(_row(row), BASE)
+    assert st == "discard" and "slower at" in why
+
+
+def test_parked_never_becomes_the_reference():
+    rows = [
+        {"status": "baseline", "score": 1.0},
+        {"status": "parked", "score": 1.014},
+        {"status": "keep", "score": 1.03},
+    ]
+    best = ar.best_kept(rows)
+    assert best is not None and best["score"] == 1.03
+
+
 def test_judge_crash_correctness_baseline():
     assert ar.judge({"score": None}, BASE)[0] == "crash"
     assert ar.judge({"score": 1.4, "correctness": "fail"}, BASE)[0] == "discard"

@@ -35,9 +35,12 @@ def table(
     *,
     limit: int = LIMIT,
     include: list[str] | None = None,
+    exclude: list[str] | None = None,
 ) -> str:
     out = f"[tool.mjolnir.file-length]\nlimit = {limit}\n"
     out += "include = [" + ", ".join(f'"{i}"' for i in (INCLUDE if include is None else include)) + "]\n"
+    if exclude is not None:
+        out += "exclude = [" + ", ".join(f'"{e}"' for e in exclude) + "]\n"
     out += "exempt = [" + ", ".join(f'"{e}"' for e in (exempt or [])) + "]\n"
     out += "[tool.mjolnir.file-length.grandfathered]\n"
     for path, ceiling in (grand or {}).items():
@@ -201,6 +204,40 @@ def test_untracked_file_over_limit_passes(tmp_path, capsys):
 def test_uncovered_extension_passes(tmp_path, capsys):
     r = make_repo(tmp_path, {"data.txt": lines(LIMIT + 4)})
     assert run(r, capsys) == (0, "", "")
+
+
+def test_excluded_file_over_limit_passes(tmp_path, capsys):
+    # the kernel carve-out: no ceiling and no floor — the ratchet does not see the file at all
+    r = make_repo(tmp_path, {"src/k/t5_a.py": lines(LIMIT + 30)}, toml=table(exclude=["src/k/t5_*.py"]))
+    assert run(r, capsys) == (0, "", "")
+
+
+def test_excluded_file_may_not_keep_a_grandfathered_entry(tmp_path, capsys):
+    # an entry must name a covered file: excluding the file retires its entry by hand
+    r = make_repo(
+        tmp_path,
+        {"src/k/t5_a.py": lines(LIMIT + 30)},
+        toml=table({"src/k/t5_a.py": LIMIT + 30}, exclude=["src/k/t5_*.py"]),
+    )
+    code, _out, err = run(r, capsys)
+    assert code == 1 and "src/k/t5_a.py" in err and "remove the entry" in err
+
+
+def test_history_allows_adding_an_exclusion(tmp_path, capsys):
+    # the carve-out is deliberate policy: a PR may exclude files the ratchet covered before
+    r = make_repo(tmp_path, {"src/k/t5_a.py": lines(LIMIT + 30)}, toml=table())
+    commit_base(r, table())
+    (r / "pyproject.toml").write_text(table(exclude=["src/k/t5_*.py"]))
+    assert run_base(r, capsys) == (0, "", "")
+
+
+def test_history_allows_removing_an_exclusion(tmp_path, capsys):
+    # the reverse direction is a tightening: the file is re-covered and judged again
+    r = make_repo(tmp_path, {"src/k/t5_a.py": lines(LIMIT + 30)}, toml=table(exclude=["src/k/t5_*.py"]))
+    commit_base(r, table(exclude=["src/k/t5_*.py"]))
+    (r / "pyproject.toml").write_text(table())
+    code, _out, err = run_base(r, capsys)
+    assert code == 1 and "t5_a.py" in err
 
 
 def test_no_trailing_newline_counts_last_line():

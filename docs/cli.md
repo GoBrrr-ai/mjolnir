@@ -55,7 +55,7 @@
 | [`mjolnir verify list`](#mjolnir-verify-list) | Stages and their saved runs. |
 | [`mjolnir autoresearch`](#mjolnir-autoresearch) | Autonomous kernel research: OpenCode agents propose, implement and test kernel changes; every experiment is scored by a fixed harness and recorded on the ledger. |
 | [`mjolnir autoresearch init`](#mjolnir-autoresearch-init) | Create the research branch and score the starting kernel (the baseline row). |
-| [`mjolnir autoresearch evaluate`](#mjolnir-autoresearch-evaluate) | Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep; append the result and the fixed keep/discard decision to the ledger. |
+| [`mjolnir autoresearch evaluate`](#mjolnir-autoresearch-evaluate) | Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep; append the result and the fixed keep/park/discard decision to the ledger. |
 | [`mjolnir autoresearch ledger`](#mjolnir-autoresearch-ledger) | Show the ledger (newest last). |
 | [`mjolnir autoresearch status`](#mjolnir-autoresearch-status) | Best kept score, experiment counts, the current branch. |
 | [`mjolnir autoresearch chart`](#mjolnir-autoresearch-chart) | Re-render research/progress.png from the live ledger (or the newest exported run). |
@@ -898,7 +898,7 @@ Create the research branch and score the starting kernel (the baseline row).
 ## `mjolnir autoresearch evaluate`
 
 Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep;
-append the result and the fixed keep/discard decision to the ledger.
+append the result and the fixed keep/park/discard decision to the ledger.
 
 | option | description | default |
 |---|---|---|

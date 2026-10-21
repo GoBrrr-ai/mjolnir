@@ -1,8 +1,7 @@
 """File-length ratchet: fail when a tracked file outgrows the table in pyproject.toml.
 
-Run as ``uv run scripts/check_file_length.py`` from anywhere inside the checkout.
-All policy (limit, include globs, exempt globs, grandfathered ceilings) lives in
-``[tool.mjolnir.file-length]``; nothing is hard-coded here.
+All policy lives in ``[tool.mjolnir.file-length]``; ``exclude`` (kernel family, generated docs) is
+outside the ratchet entirely — no ceiling, no floor — and, unlike ``exempt``, may change freely.
 
 ``--base REF`` also enforces the history rules against REF: the table may only tighten
 (no higher limit, no wider exempt, no narrower include, no raised ceiling, no new
@@ -67,14 +66,15 @@ def parse_table(text: str, where: str) -> dict | None:
         return None
     limit, grand = node.get("limit"), node.get("grandfathered", {})
     include, exempt = node.get("include"), node.get("exempt")
-    bad = [k for k, v in (("include", include), ("exempt", exempt)) if not _str_list(v)]
+    exclude = node.get("exclude", [])
+    bad = [k for k, v in (("include", include), ("exempt", exempt), ("exclude", exclude)) if not _str_list(v)]
     if not isinstance(limit, int) or isinstance(limit, bool):
         bad.append("limit")
     if not isinstance(grand, dict) or not all(isinstance(v, int) for v in grand.values()):
         bad.append("grandfathered")
     if bad:
         raise EnvError(f"[tool.mjolnir.file-length] at {where} is malformed: {', '.join(bad)}")
-    return {"limit": limit, "include": include, "exempt": exempt, "grandfathered": dict(grand)}
+    return {"limit": limit, "include": include, "exempt": exempt, "exclude": exclude, "grandfathered": dict(grand)}
 
 
 def _str_list(value: object) -> bool:
@@ -108,7 +108,7 @@ def is_covered(path: str, table: dict) -> bool:
     name = path.rsplit("/", 1)[-1]
     if not any(fnmatch.fnmatchcase(name, pat) for pat in table["include"]):
         return False
-    return not any(glob_match(pat, path) for pat in table["exempt"])
+    return not any(glob_match(pat, path) for pat in table["exempt"] + table["exclude"])
 
 
 def measure(root: Path, path: str) -> int | None:
@@ -189,7 +189,7 @@ def base_table(root: Path, ref: str) -> dict | None:
 
 def check_history(root: Path, ref: str) -> tuple[list[str], str | None]:
     """The table may only tighten against `ref`: no higher limit, no wider exempt, no narrower
-    include, no raised ceiling, no new grandfathered entry."""
+    include, no raised ceiling, no new entry; ``exclude`` is not ratcheted (deliberate carve-out)."""
     base = base_table(root, ref)
     if base is None:
         return (

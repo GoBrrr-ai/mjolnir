@@ -4,7 +4,8 @@ After karpathy/autoresearch: an agent edits ONE file, runs a FIXED,
 time-boxed evaluation, keeps the change if the metric improved and resets it
 otherwise — forever, while every experiment lands on a ledger. Here:
 
-* the editable file  — ``src/mjolnir/mjolnir/t5_decode.py`` (the kernel);
+* the editable files — the kernel family ``src/mjolnir/mjolnir/t5_*.py`` (the
+  traced decode kernel and its builder, constants, plan and harness);
 * the fixed harness  — ``mjolnir autoresearch evaluate``: the quick
   correctness subset (``mjolnir verify correctness --quick``) + an ncu sweep
   of FlashInfer vs Mjolnir (harness default) at every L;
@@ -17,7 +18,11 @@ otherwise — forever, while every experiment lands on a ledger. Here:
   single L and no more than one L slower than the noise band; L where the
   FlashInfer reference itself jumped are set aside; ``noisy`` when the
   reference was unstable at too many L (re-evaluate the same commit),
-  ``crash`` if a stage failed to produce data.
+  ``crash`` if a stage failed to produce data. A structured sub-bar gain
+  (over half the bar, same shape) is ``parked``: the commit is tagged
+  ``ar/parked/<sha>`` and survives the reset as stackable material — bricks
+  too small to certify alone clear the bar in batches — but a parked row is
+  never the reference.
 * the ledger         — ``research/ledger.jsonl`` (+ a ``ledger.tsv`` view):
   one row per experiment with the hypothesis, the agents involved, the
   sources (URLs / arXiv ids), the commit, the per-L numbers and the verify
@@ -57,7 +62,12 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-KERNEL_FILE = Path("src/mjolnir/mjolnir/t5_decode.py")
+KERNEL_DIR = Path("src/mjolnir/mjolnir")
+# the kernel family an experiment may change: the traced decode kernel plus its
+# builder, constants, plan and standalone harness (one idea, five files)
+KERNEL_FILES = tuple(
+    KERNEL_DIR / f for f in ("t5_decode.py", "t5_call.py", "t5_const.py", "t5_plan.py", "t5_harness.py")
+)
 LEDGER_DIR = Path("research")
 TSV_COLUMNS = ["id", "ts", "commit", "status", "score", "best_before", "correctness", "agent", "hypothesis", "reason"]
 
@@ -143,6 +153,16 @@ def judge(row: dict, best: dict | None, min_gain: float = 0.02, noise: float = N
     3. at most one L is slower than ``1 - noise`` (one is tolerated: 16K is
        bimodal run to run).
 
+    A *parked* row is a sub-bar gain that still has the shape of a win:
+    geomean over ``1 + min_gain / 2``, leave-one-out over ``1 + min_gain / 4``,
+    at most one L slower than the noise band. ``evaluate`` tags the commit
+    ``ar/parked/<sha>`` so it survives the reset; the orchestrator stacks
+    parked bricks — alone or mixed — and evaluates each batch as one row, and
+    bricks too small to certify alone clear the bar together. A gain resting
+    on one L, or losing at several, is a gating candidate, not a brick: plain
+    ``discard``. A parked row never becomes the reference
+    (:func:`best_kept` ignores it).
+
     An L is *suspect* — set aside — when the FlashInfer reference time moved
     by more than ``REF_JUMP`` against the best row's run (the reference never
     changes between experiments, so a jump there is noise in the measurement,
@@ -170,7 +190,37 @@ def judge(row: dict, best: dict | None, min_gain: float = 0.02, noise: float = N
     note = f" (set aside, reference jumped: {', '.join(_L(L) for L in suspect)})" if suspect else ""
     gain = _gm(trusted.values())
     if gain <= 1 + min_gain:
-        return "discard", f"geomean {_pct(gain)} ≤ +{min_gain * 100:g}%{note}", rel
+        if gain <= 1 + min_gain / 2:
+            return "discard", f"geomean {_pct(gain)} ≤ +{min_gain * 100:g}%{note}", rel
+        # Parked band (half the keep bars): a real-looking small win stays
+        # stackable instead of dying on the reset.
+        top = max(trusted, key=lambda L: trusted[L])
+        loo = _gm(v for L, v in trusted.items() if top != L)
+        slower = sorted((L for L, v in trusted.items() if v < 1 - noise), key=int)
+        if len(slower) > 1:  # a gating candidate, not a brick: name the losses
+            return (
+                "discard",
+                f"geomean {_pct(gain)} under the bar but slower at "
+                + ", ".join(f"{_L(L)} ({_pct(trusted[L])})" for L in slower)
+                + note,
+                rel,
+            )
+        if loo <= 1 + min_gain / 4:
+            return (
+                "discard",
+                f"geomean {_pct(gain)} under the bar and rests on {_L(top)} ({_pct(trusted[top])}): "
+                f"{_pct(loo)} without it{note}",
+                rel,
+            )
+        shape = f", {_pct(loo)} without its best L ({_L(top)})"
+        if slower:
+            shape += ", slower at " + ", ".join(_L(L) for L in slower)
+        return (
+            "parked",
+            f"geomean {_pct(gain)} under the +{min_gain * 100:g}% bar but structured{shape} — "
+            f"parked for stacking{note}",
+            rel,
+        )
     top = max(trusted, key=lambda L: trusted[L])
     loo = _gm(v for L, v in trusted.items() if top != L)
     if loo <= 1 + min_gain / 2:
@@ -211,8 +261,12 @@ def _init(root: Path, tag: str, base: str, evaluate_baseline: bool, image: str |
     if _git(root, "branch", "--list", branch):
         console.print(f"[red]{branch} already exists — pick a fresh tag (a run never reuses a branch)[/red]")
         return 4
-    if _git(root, "status", "--porcelain", "--", str(KERNEL_FILE)):
-        console.print(f"[red]{KERNEL_FILE} has uncommitted changes — commit or stash them first[/red]")
+    if _git(root, "status", "--porcelain", "--", *map(str, KERNEL_FILES)):
+        console.print(
+            "[red]the kernel family has uncommitted changes ("
+            + ", ".join(p.name for p in KERNEL_FILES)
+            + ") — commit or stash them first[/red]"
+        )
         return 4
     if load_ledger(root):
         console.print(
@@ -255,7 +309,7 @@ def _evaluate(
     rows = load_ledger(root)
     best = best_kept(rows)
     commit = _git(root, "rev-parse", "--short", "HEAD")
-    dirty = bool(_git(root, "status", "--porcelain", "--", str(KERNEL_FILE)))
+    dirty = bool(_git(root, "status", "--porcelain", "--", *map(str, KERNEL_FILES)))
     if dirty:
         console.print(
             "[yellow]the kernel has uncommitted changes — commit the experiment first "
@@ -340,15 +394,34 @@ def _evaluate(
             "  vs best, per L: "
             + "  ".join(f"{_L(L)} {_pct(v)}" for L, v in sorted(rel.items(), key=lambda kv: int(kv[0])))
         )
-    if status in ("discard", "crash"):
+    if status in ("discard", "crash", "parked"):
         console.print(f"[dim]  revert: git reset --hard {best['commit'] if best else 'HEAD~1'}[/dim]")
+    if status == "parked":
+        tag = f"ar/parked/{commit}"
+        try:
+            if not _git(root, "tag", "--list", tag):
+                _git(root, "tag", "-a", tag, "-m", hypothesis, commit)
+            console.print(
+                f"[dim]  parked: the brick survives as tag {tag} — cherry-pick it, alone or mixed with "
+                "other parked tags, onto the best commit and evaluate the batch as one row "
+                "(a parked row is never the reference)[/dim]"
+            )
+        except RuntimeError as exc:
+            console.print(f"[dim]  parked (tagging failed: {exc!r}) — the ledger row carries the commit[/dim]")
     elif status == "noisy":
         console.print("[dim]  the measurement was rejected, not the idea: evaluate the same commit again[/dim]")
     _render_progress(root)
     return 0
 
 
-STATUS_COLORS = {"keep": "green", "baseline": "cyan", "discard": "yellow", "crash": "red", "noisy": "magenta"}
+STATUS_COLORS = {
+    "keep": "green",
+    "baseline": "cyan",
+    "parked": "blue",
+    "discard": "yellow",
+    "crash": "red",
+    "noisy": "magenta",
+}
 PROGRESS = LEDGER_DIR / "progress.png"
 
 
@@ -394,7 +467,7 @@ def evaluate(
     image: str | None = typer.Option(None, "--image"),
 ):
     """Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep;
-    append the result and the fixed keep/discard decision to the ledger."""
+    append the result and the fixed keep/park/discard decision to the ledger."""
     raise typer.Exit(_evaluate(_root(), hypothesis, agent, sources, image, min_gain, ls, iters, gate))
 
 
