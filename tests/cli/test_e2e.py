@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
-from mjolnir_cli import e2e
+import pytest
+from typer.testing import CliRunner
+
+import mjolnir_cli.benchy as benchy
+from mjolnir_cli import cli, dockerctl, e2e
+from mjolnir_cli.config import ConfigEntry
 from mjolnir_cli.history import parse_benchy_json
+
+runner = CliRunner()
 
 
 def _cell(conc, ctx, tg, pp, ttfr):
@@ -170,14 +179,16 @@ def test_e2e_cells_are_colored_by_the_band():
 
 
 def test_each_leg_stops_its_server(monkeypatch):
-    from mjolnir_cli import benchy, cli_bench, cli_shared, dockerctl
+    from mjolnir_cli import benchy, dockerctl
+    from mjolnir_cli.commands import bench
+    from mjolnir_cli.commands._common import settings
 
     calls = []
     monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: calls.append(("down", s.quant)))
     monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: calls.append(("up", s.quant)))
     monkeypatch.setattr(benchy, "run_perf", lambda s, layout, **kw: calls.append(("bench", s.quant)))
-    s = cli_shared._settings(None, None, None, None)
-    cli_bench._run_legs(s, None, [(s.model, "a", "NVFP4", None), (s.model, "b", "NVFP4_MJOLNIR", None)])
+    s = settings(None, None, None, None)
+    bench.run_legs(s, None, [(s.model, "a", "NVFP4", None), (s.model, "b", "NVFP4_MJOLNIR", None)])
     assert calls == [
         ("down", "NVFP4"),
         ("up", "NVFP4"),
@@ -198,7 +209,7 @@ def test_each_leg_stops_its_server(monkeypatch):
     import typer
 
     with pytest.raises(typer.Exit):
-        cli_bench._run_legs(s, None, [(s.model, "a", "NVFP4", None)])
+        bench.run_legs(s, None, [(s.model, "a", "NVFP4", None)])
     assert calls[-1] == ("down", "NVFP4")  # stopped even when the bench fails
 
 
@@ -347,7 +358,7 @@ def test_pair_and_site_rows_never_mix_models(tmp_path):
 def test_compare_pairs_the_requested_models_runs(tmp_path, monkeypatch, capsys):
     """`bench compare --model` (and `bench e2e`, which passes its own model) show
     that model's pair, not the default model's."""
-    from mjolnir_cli import cli_bench
+    from mjolnir_cli.commands import bench_report
 
     h = tmp_path / "history.jsonl"
     q36 = {"model": "nvidia/Qwen3.6-35B-A3B"}
@@ -359,7 +370,7 @@ def test_compare_pairs_the_requested_models_runs(tmp_path, monkeypatch, capsys):
     ]
     h.write_text("".join(json.dumps(r) + "\n" for r in rows))
     layout = type("L", (), {"history_file": h})()
-    assert cli_bench._print_compare(layout, "NVFP4_MJOLNIR_E2M3", True, "NVFP4_DFLASH", q36["model"]) == 0
+    assert bench_report.print_compare(layout, "NVFP4_MJOLNIR_E2M3", True, "NVFP4_DFLASH", q36["model"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["cells"][0]["tg_tps"][:2] == [80.0, 130.0]  # Qwen3.6's pair, not Qwen3.8's 20 vs 30
     assert "NVFP4_DFLASH" in out["official"]
@@ -455,3 +466,328 @@ def test_is_official_is_true_for_a_stock_image_on_any_platform():
         stock = platforms.REGISTRY[key].stock_image
         assert stock and e2e.is_official({"image": stock}), key  # official = the stock image, any platform
     assert not e2e.is_official({"image": "narandill/mjolnir-vllm:v0.32.0"})
+
+
+# ── the bench command bodies (perf / ab / compare) and the report helpers ────
+
+
+@pytest.fixture
+def _no_serving(monkeypatch, tmp_path):
+    """The leg machinery, faked at the docker/benchy boundary: nothing ever
+    touches docker, nothing measures, the re-render is observed not run."""
+    import mjolnir_cli.readme as readme_mod
+    from mjolnir_cli import charts
+
+    monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))  # the baked-in defaults
+    seen: dict[str, Any] = {"perf": [], "up": [], "down": [], "readme": 0, "charts": 0}
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
+    monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: seen["down"].append(s.quant))
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: seen["up"].append(s.quant))
+    monkeypatch.setattr(dockerctl, "container_running", lambda: False)
+
+    def fake_perf(s, layout, **kw):
+        seen["perf"].append(s.quant)
+
+    monkeypatch.setattr(benchy, "run_perf", fake_perf)
+
+    def fake_charts(layout):
+        seen["charts"] += 1
+
+    monkeypatch.setattr(charts, "render_all", fake_charts)
+    monkeypatch.setattr(readme_mod, "render_readme", lambda *a, **kw: seen.__setitem__("readme", seen["readme"] + 1))
+    return seen
+
+
+def test_bench_perf_runs_and_rerenders(_no_serving):
+    r = runner.invoke(cli.app, ["bench", "perf", "--depths", "4096", "--concurrency", "1", "--repeat", "2"])
+    assert r.exit_code == 0, r.output
+    assert _no_serving["perf"] == ["NVFP4_MJOLNIR_E2M3_LMH8_VT64K"]  # the baked-in default config
+    assert _no_serving["readme"] == 1 and _no_serving["charts"] == 1
+
+
+def test_bench_perf_without_plot_touches_neither_renderer(_no_serving):
+    r = runner.invoke(cli.app, ["bench", "perf", "--no-plot"])
+    assert r.exit_code == 0 and _no_serving["readme"] == 0 and _no_serving["charts"] == 0
+
+
+def test_bench_perf_names_the_bench_error(monkeypatch):
+    def boom(s, layout, **kw):
+        raise benchy.BenchError("the server never went healthy")
+
+    monkeypatch.setattr(benchy, "run_perf", boom)
+    r = runner.invoke(cli.app, ["bench", "perf"])
+    assert r.exit_code == 1 and "the server never went healthy" in r.output
+
+
+def test_bench_ab_serves_each_leg_and_stops_it(_no_serving):
+    r = runner.invoke(cli.app, ["bench", "ab", "--backends", "NVFP4,NVFP4_MJOLNIR_E2M3"])
+    assert r.exit_code == 0, r.output
+    assert _no_serving["perf"] == ["NVFP4", "NVFP4_MJOLNIR_E2M3"]
+    # every leg was stopped after its bench (run_legs' finally)
+    assert _no_serving["down"] == ["NVFP4", "NVFP4", "NVFP4_MJOLNIR_E2M3", "NVFP4_MJOLNIR_E2M3"]
+    assert _no_serving["readme"] == 1  # the post-run re-render
+
+
+def test_bench_ab_rejects_bad_legs(_no_serving):
+    for bad in (":", "NOPE", "vendor/Missing/NOPE", ""):
+        r = runner.invoke(cli.app, ["bench", "ab", "--backends", bad])
+        assert r.exit_code == 4, (bad, r.output)
+        assert "mjolnir model list" in r.output or "bad leg" in r.output or "--backends is empty" in r.output
+
+
+def test_ab_legs_error_messages():
+    from mjolnir_cli.commands.bench import _ab_legs
+
+    entries = [
+        ConfigEntry(model="vendor/M1", quant="A", path=Path("/x")),
+        ConfigEntry(model="vendor/M2", quant="B", path=Path("/x")),
+    ]
+    with pytest.raises(ValueError, match="--backends is empty"):
+        _ab_legs("", "vendor/M1", "img", entries)
+    with pytest.raises(ValueError, match="unknown config 'NOPE' for model vendor/M1"):
+        _ab_legs("NOPE", "vendor/M1", "img", entries)
+    with pytest.raises(ValueError, match="bad leg 'M1/NOPE'"):  # the model part needs vendor/Model
+        _ab_legs("M1/NOPE", "vendor/M1", "img", entries)
+    with pytest.raises(ValueError, match="unknown model config 'vendor/Missing/NOPE'"):
+        _ab_legs("vendor/Missing/NOPE", "vendor/M1", "img", entries)
+    with pytest.raises(ValueError, match="bad leg 'a/b/c/d'"):  # two slashes in the model part
+        _ab_legs("a/b/c/d", "vendor/M1", "img", entries)
+    # the happy shapes
+    assert _ab_legs("A,img:A,vendor/M2/B,img:vendor/M2/B", "vendor/M1", "img", entries) == [
+        ("vendor/M1", "img", "A"),
+        ("vendor/M1", "img", "A"),
+        ("vendor/M2", "img", "B"),
+        ("vendor/M2", "img", "B"),
+    ]
+
+
+def test_bench_compare_wires_the_history_pair(monkeypatch, tmp_path):
+    from mjolnir_cli.commands import bench
+
+    seen = {}
+    monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setattr(bench, "load_layout", lambda: object())
+
+    def fake_compare(layout, config=None, as_json=False, official_config=None, model=None):
+        seen.update(config=config, as_json=as_json, official_config=official_config)
+        return 0
+
+    monkeypatch.setattr(bench, "print_compare", fake_compare)
+    r = runner.invoke(cli.app, ["bench", "compare", "--config", "C1", "--official-config", "C0", "--json"])
+    assert r.exit_code == 0 and seen == {"config": "C1", "as_json": True, "official_config": "C0"}
+
+    monkeypatch.setattr(bench, "print_compare", lambda *a, **kw: 4)
+    r = runner.invoke(cli.app, ["bench", "compare"])
+    assert r.exit_code == 4  # print_compare's "no run" verdict becomes the exit
+
+
+def test_print_compare_renders_the_table_from_a_real_history(tmp_path, capsys):
+    from mjolnir_cli.commands.bench_report import print_compare
+
+    h = tmp_path / "history.jsonl"
+    off = _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, [_cell(1, 0, 20, 0, 100)])
+    mj = _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, [_cell(1, 0, 30, 0, 90)])
+    h.write_text("".join(json.dumps(r) + "\n" for r in [off, mj]))
+    layout = type("L", (), {"history_file": h})()
+    assert print_compare(layout) == 0
+    out = capsys.readouterr().out
+    assert "official vLLM image → Mjolnir image" in out
+    assert "20.0 → 30.0" in out  # the decode cell, gain colored in
+
+
+def test_print_compare_with_no_pair_names_the_missing_side(tmp_path, capsys):
+    from mjolnir_cli.commands.bench_report import print_compare
+
+    h = tmp_path / "history.jsonl"
+    h.write_text("")
+    layout = type("L", (), {"history_file": h})()
+    assert print_compare(layout) == 4
+    assert "no run on the official vLLM image" in capsys.readouterr().out
+
+
+def test_rerender_swallows_renderer_failures(monkeypatch, capsys):
+    from mjolnir_cli import charts
+    import mjolnir_cli.readme as readme_mod
+    from mjolnir_cli.commands.bench_report import rerender
+
+    def charts_boom(layout):
+        raise RuntimeError("no data")
+
+    def readme_boom(*a, **kw):
+        raise FileNotFoundError("no template")
+
+    monkeypatch.setattr(charts, "render_all", charts_boom)
+    monkeypatch.setattr(readme_mod, "render_readme", readme_boom)
+    rerender(type("L", (), {})())
+    err = capsys.readouterr().err
+    assert "(plots skipped: no data)" in err and "(readme skipped: no template)" in err
+
+
+def test_bench_perf_reports_skipped_renderers(monkeypatch, tmp_path):
+    from mjolnir_cli import charts
+    import mjolnir_cli.readme as readme_mod
+
+    monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setattr(benchy, "run_perf", lambda s, layout, **kw: None)
+    monkeypatch.setattr(charts, "render_all", lambda layout: (_ for _ in ()).throw(RuntimeError("no data")))
+    monkeypatch.setattr(
+        readme_mod, "render_readme", lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("no template"))
+    )
+    r = runner.invoke(cli.app, ["bench", "perf"])
+    assert r.exit_code == 0, r.output
+    assert "(plots skipped: no data)" in r.output
+    assert "(readme skipped: no template)" in r.output
+
+
+def _fake_accuracy_doc(tmp_path: Path) -> Path:
+    out = tmp_path / "accuracy.json"
+    out.write_text(
+        json.dumps(
+            {
+                "run_id": "r1",
+                "args": ["run"],
+                "legs": [{"id": "off", "label": "off", "suites": {"tools": {"score": 90.0}}}],
+            }
+        )
+    )
+    return out
+
+
+def test_bench_accuracy_runs_prints_and_rerenders(monkeypatch, tmp_path, _no_serving):
+    import mjolnir_cli.accuracy as accuracy_mod
+
+    out = _fake_accuracy_doc(tmp_path)
+    seen = {}
+    monkeypatch.setattr(
+        accuracy_mod, "run_accuracy", lambda s, layout, legs, passthrough, restart: seen.update(legs=legs) or out
+    )
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NVFP4"])
+    assert r.exit_code == 0, r.output
+    assert "restarts the vLLM server for each leg" in r.output  # the deliberate-restart warning
+    assert "wrote" in r.output and _no_serving["readme"] == 1
+
+
+def test_bench_accuracy_dry_run_prints_the_tool_argv(monkeypatch, _no_serving):
+    import mjolnir_cli.accuracy as accuracy_mod
+
+    monkeypatch.setattr(accuracy_mod, "find_tool", lambda: ["tool-eval-bench"])
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NVFP4", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    assert "tool-eval-bench run --hardmode --seed 42 --timeout 600" in r.output
+
+
+def test_bench_accuracy_dry_run_names_a_missing_tool(monkeypatch, _no_serving):
+    import mjolnir_cli.accuracy as accuracy_mod
+
+    monkeypatch.setattr(
+        accuracy_mod, "find_tool", lambda: (_ for _ in ()).throw(accuracy_mod.AccuracyError("uvx not found"))
+    )
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NVFP4", "--dry-run"])
+    assert r.exit_code == 0 and "<uvx not found>" in r.output
+
+
+def test_bench_accuracy_no_restart_needs_a_running_server(monkeypatch, tmp_path, _no_serving):
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NVFP4", "--no-restart"])
+    assert r.exit_code == 3 and "no vLLM server is running" in r.output
+
+
+def test_bench_accuracy_names_the_accuracy_error(monkeypatch, tmp_path, _no_serving):
+    import mjolnir_cli.accuracy as accuracy_mod
+
+    def boom(s, layout, legs, passthrough, restart):
+        raise accuracy_mod.AccuracyError("tool crashed")
+
+    monkeypatch.setattr(accuracy_mod, "run_accuracy", boom)
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NVFP4"])
+    assert r.exit_code == 1 and "tool crashed" in r.output
+
+
+def test_bench_e2e_full_run_serves_compares_and_rerenders(monkeypatch, tmp_path):
+    from mjolnir_cli.commands import bench
+
+    monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))
+    seen: dict[str, Any] = {"up": [], "down": [], "perf": [], "readme": 0}
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
+    monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: seen["down"].append(s.quant))
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: seen["up"].append(s.quant))
+
+    def fake_perf(s, layout, **kw):
+        seen["perf"].append(s.quant)
+
+    monkeypatch.setattr(benchy, "run_perf", fake_perf)
+
+    def fake_compare(layout, config=None, as_json=False, official_config=None, model=None):
+        seen["compared"] = (config, official_config)
+        return 0
+
+    monkeypatch.setattr(bench, "print_compare", fake_compare)
+    import mjolnir_cli.readme as readme_mod
+
+    monkeypatch.setattr(readme_mod, "render_readme", lambda *a, **kw: seen.__setitem__("readme", seen["readme"] + 1))
+    r = runner.invoke(cli.app, ["bench", "e2e", "--depths", "4096", "--concurrency", "1"])
+    assert r.exit_code == 0, r.output
+    assert "restarts the vLLM server for each image" in r.output
+    assert seen["perf"] and seen["readme"] == 1
+    assert seen["compared"][0] is not None  # the Mjolnir-side config reached the comparison
+
+
+def test_bench_e2e_refuses_a_stale_image_unless_allowed(monkeypatch, tmp_path):
+    from mjolnir_cli.commands import bench
+
+    monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: "image is behind the checkout")
+    monkeypatch.setattr(bench, "print_compare", lambda *a, **kw: 0)
+    r = runner.invoke(cli.app, ["bench", "e2e"])
+    assert r.exit_code == 2 and "(or --allow-stale-image)" in r.output
+    # with the flag: the warning is printed and the run proceeds
+    import mjolnir_cli.readme as readme_mod
+
+    monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: None)
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: None)
+    monkeypatch.setattr(benchy, "run_perf", lambda s, layout, **kw: None)
+    monkeypatch.setattr(readme_mod, "render_readme", lambda *a, **kw: None)
+    r = runner.invoke(cli.app, ["bench", "e2e", "--allow-stale-image"])
+    assert r.exit_code == 0 and "warning: image is behind the checkout" in r.output
+
+
+def test_print_compare_prints_the_hero_line(tmp_path, capsys):
+    from mjolnir_cli.commands.bench_report import print_compare
+
+    h = tmp_path / "history.jsonl"
+    cells = [_cell(1, 4096, 20, 100, 100), _cell(4, 4096, 60, 200, 90)]
+    off = _rec("vllm/vllm-openai:v0.31.0-ubuntu2404", "NVFP4", 1, cells)
+    mj = _rec("narandill/mjolnir-vllm:v0.31.0", "NVFP4_MJOLNIR_E2M3", 2, cells)
+    h.write_text("".join(json.dumps(r) + "\n" for r in [off, mj]))
+    layout = type("L", (), {"history_file": h})()
+    assert print_compare(layout) == 0
+    out = capsys.readouterr().out
+    assert "1 request @ 4K:" in out  # the infographic line (both sides measured c=1 decode+prefill)
+    assert "decode" in out and "TTFT" in out
+
+
+def test_bench_accuracy_rejects_bad_legs(_no_serving):
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NOPE", "--dry-run"])
+    assert r.exit_code == 4 and "unknown config 'NOPE'" in r.output
+
+
+def test_bench_accuracy_no_restart_takes_exactly_one_leg(_no_serving):
+    r = runner.invoke(cli.app, ["bench", "accuracy", "--backends", "NVFP4,NVFP4_FA4hd256", "--no-restart"])
+    assert r.exit_code == 2 and "exactly one leg" in r.output
+
+
+def test_bench_e2e_suggests_how_to_compare_the_optional_legs(monkeypatch, tmp_path):
+    from mjolnir_cli.commands import bench
+
+    monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
+    monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: None)
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: None)
+    monkeypatch.setattr(benchy, "run_perf", lambda s, layout, **kw: None)
+    monkeypatch.setattr(bench, "print_compare", lambda *a, **kw: 0)
+    import mjolnir_cli.readme as readme_mod
+
+    monkeypatch.setattr(readme_mod, "render_readme", lambda *a, **kw: None)
+    r = runner.invoke(cli.app, ["bench", "e2e", "--also", "NVFP4_MJOLNIR"])
+    assert r.exit_code == 0, r.output
+    assert "optional legs — compare them with:" in r.output
+    assert "mjolnir bench compare --model" in r.output

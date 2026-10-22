@@ -15,7 +15,10 @@ computed from the committed raw data.
 * ``configs/…/<quant>/README.md``                         one per config dir
                                                           (its Benchmarks
                                                           section included)
-* ``docs/cli.md``                        the CLI reference (from the commands)
+* ``docs/cli.md``                        the CLI reference (from the commands;
+                                         written by the ``plot`` command, which
+                                         holds the root app — not by the render
+                                         loop, which takes no command tree)
 * ``docker/vllm-thor/README.md``         the Docker Hub description: plain
                                          markdown only (Docker Hub does not
                                          render inline HTML), absolute image /
@@ -832,19 +835,14 @@ def render_all(layout: RepoLayout, root_override: tuple[Path, Path] | None = Non
     """Render every target (plan §1): the root README, the platform tree
     (``docs/platforms/`` — index, per-platform pages and the kernel case
     studies), every model README and every config's README (the merged
-    Benchmarks section included) — plus the CLI reference and the docker
-    README. The target set and the contexts come from
-    :mod:`mjolnir_cli.readme_targets`. ``root_override`` (template, out)
-    redirects the root README render (the ``plot --readme-template
-    --readme-out`` flags)."""
+    Benchmarks section included) — plus the docker README. The target set and
+    the contexts come from :mod:`mjolnir_cli.readme_targets`.
+    ``root_override`` (template, out) redirects the root README render (the
+    ``plot --readme-template --readme-out`` flags). The CLI reference is not
+    written here — it needs the root app, which only the ``plot`` command
+    holds (``clidoc.write_reference``)."""
     root = layout.require_repo("rendering the README")
-    from mjolnir_cli import clidoc
-    from mjolnir_cli.cli import app as cli_app
-
-    cli_md = root / "docs" / "cli.md"
-    cli_md.parent.mkdir(parents=True, exist_ok=True)
-    cli_md.write_text(clidoc.reference(cli_app))
-    written = [cli_md]
+    written: list[Path] = []
     docker_tpl = root / "docker" / "vllm-thor" / "README.md.j2"
     if docker_tpl.exists():
         written.append(render_file(layout, docker_tpl, docker_tpl.with_suffix(""), collect_context(layout)))

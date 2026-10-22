@@ -60,3 +60,20 @@ def test_a_detectable_host_still_runs_normally(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.err == ""
     assert "platform: thor" in captured.out
+
+
+def test_python_m_entry_point_is_the_same_handler(tmp_path):
+    """``python -m mjolnir_cli`` routes through main() too — the module's
+    ``if __name__`` block calls sys.exit(main()), not the raw app(). Both -m
+    spellings (the package and the module) share that handler."""
+    import os
+    import subprocess
+    import sys
+
+    from mjolnir_cli import __version__
+
+    env = {**os.environ, "MJOLNIR_STATE": str(tmp_path / "state.json")}
+    for target in ("mjolnir_cli", "mjolnir_cli.cli"):
+        r = subprocess.run([sys.executable, "-m", target, "version"], capture_output=True, text=True, env=env)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() == f"mjolnir {__version__}"

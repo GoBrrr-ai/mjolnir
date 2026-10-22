@@ -111,12 +111,31 @@ def test_full_render_from_fixture_data(repo):
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
     assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" in page  # relative to the page
     assert "Fastest variant at the most context lengths" in page
-    # the render loop still writes the CLI reference; site keeps building (v2:
-    # the lazy per-pair payload replaces the v1 single-page data.json)
-    assert (repo / "docs" / "cli.md").is_file()
+    # site keeps building (v2: the lazy per-pair payload replaces the v1
+    # single-page data.json); the CLI reference is the plot command's write
+    # (test_plot_readme_writes_the_cli_reference), not the render loop's
     site = interactive.build(layout, repo / "site")
     payload = json.loads((repo / "site" / "data" / "thor" / "Qwen3.8-27B.json").read_text())
     assert "sweep" in payload["stages"] and site.read_text().count("cdn.jsdelivr.net/npm/plotly.js-dist-min@") == 1
+
+
+def test_plot_readme_writes_the_cli_reference(repo):
+    """The render loop takes no command tree — the ``plot`` command does the
+    write, because it is the one that holds the root app (injected by the
+    composition root: no command module imports ``cli``)."""
+    pytest.importorskip("matplotlib")
+    from typer.testing import CliRunner
+
+    from mjolnir_cli import cli
+
+    layout = load_layout()
+    write_all(layout.verify_dir)
+    _stamp(layout.verify_dir)
+    r = CliRunner().invoke(cli.app, ["plot", "--readme"])
+    assert r.exit_code == 0, r.output
+    cli_md = repo / "docs" / "cli.md"
+    assert cli_md.is_file()
+    assert f"[mjolnir] wrote {cli_md}" in r.output  # among the render's wrote lines
 
 
 def test_render_without_verify_data_is_pending(tmp_path, monkeypatch):
