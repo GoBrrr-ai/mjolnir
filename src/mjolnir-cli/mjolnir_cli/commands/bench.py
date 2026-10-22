@@ -1,4 +1,7 @@
-"""`mjolnir bench` + `mjolnir history`/`plot` commands (split out of cli.py)."""
+"""``mjolnir bench`` — the gated end-to-end legs: perf / ab / accuracy / e2e
+/ compare. Each leg restarts the server on purpose, in a window you own; the
+result tables and the post-run re-render live in
+:mod:`mjolnir_cli.commands.bench_report`."""
 
 from __future__ import annotations
 
@@ -6,13 +9,12 @@ import json
 import shlex
 
 import typer
-from rich import box
-from rich.console import Console
-from rich.table import Table
 
 from mjolnir_cli import benchy, charts, dockerctl, e2e, readme
 from mjolnir_cli import legs as legs_
-from mjolnir_cli.cli_shared import _HELP_CTX, _platform_leg, _settings
+from mjolnir_cli.commands.bench_report import print_accuracy, print_compare, rerender
+from mjolnir_cli.cli_shared import platform_leg
+from mjolnir_cli.commands._common import HELP_CTX, settings
 from mjolnir_cli.config import (
     DEFAULT_IMAGE,
     DEFAULT_PLATFORM,
@@ -32,7 +34,6 @@ app = typer.Typer(
     no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-bench_app = app
 
 
 def _platform_backends(ctx: typer.Context, s: Settings, stage: str, backends: str) -> str:
@@ -41,12 +42,12 @@ def _platform_backends(ctx: typer.Context, s: Settings, stage: str, backends: st
     re-resolves the legs there (filtered to configs that exist for the model);
     an explicit flag always wins."""
     platform = s.platform or DEFAULT_PLATFORM  # a direct Settings serves the default table
-    resolved = _platform_leg(ctx, "backends", platform, backends, legs_.bench_legs(stage, platform, s.model))
+    resolved = platform_leg(ctx, "backends", platform, backends, legs_.bench_legs(stage, platform, s.model))
     assert resolved is not None  # `backends` is a str: the sentinel never nulls an explicit value
     return resolved
 
 
-@bench_app.command("perf")
+@app.command("perf")
 def bench_perf(
     runs: int = typer.Option(6, "--runs", help="measured runs per cell (llama-benchy --runs)"),
     warmup_runs: int = typer.Option(
@@ -72,7 +73,7 @@ def bench_perf(
     plot: bool = typer.Option(True, "--plot/--no-plot"),
 ):
     """End-to-end perf bench (gated clean window, raw JSON, history log)."""
-    s = _settings(model, config, image, port)
+    s = settings(model, config, image, port)
     layout = load_layout()
 
     def split_ints(v):
@@ -156,7 +157,7 @@ def _ab_legs(
     return legs
 
 
-@bench_app.command("ab")
+@app.command("ab")
 def bench_ab(
     ctx: typer.Context,
     backends: str = typer.Option(
@@ -195,7 +196,7 @@ def bench_ab(
     carries the serving parameters. Bare configs use --model/--image.
     Compare images on one model and/or models on one image. Charts
     re-render at the end."""
-    s = _settings(model, None, image, port)
+    s = settings(model, None, image, port)
     layout = load_layout()
     entries = scan_all_configs(layout)
     try:
@@ -211,7 +212,7 @@ def bench_ab(
                 f"history but never charted; measure native backends on {STOCK_IMAGE}",
                 fg=typer.colors.YELLOW,
             )
-    _run_legs(
+    run_legs(
         s,
         layout,
         [(m, i, q, None) for m, i, q in legs],
@@ -220,12 +221,12 @@ def bench_ab(
         gate=gate,
         depths=[int(x) for x in depths.replace(" ", ",").split(",") if x.strip()],
     )
-    _rerender(layout)
+    rerender(layout)
 
 
-@bench_app.command(
+@app.command(
     "accuracy",
-    context_settings={**_HELP_CTX, "allow_extra_args": True, "ignore_unknown_options": True},
+    context_settings={**HELP_CTX, "allow_extra_args": True, "ignore_unknown_options": True},
 )
 def bench_accuracy(
     ctx: typer.Context,
@@ -261,7 +262,7 @@ def bench_accuracy(
     result per config and suite."""
     from mjolnir_cli import accuracy
 
-    s = _settings(model, None, image, port)
+    s = settings(model, None, image, port)
     layout = load_layout()
     entries = scan_all_configs(layout)
     try:
@@ -295,47 +296,13 @@ def bench_accuracy(
     except accuracy.AccuracyError as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from e
-    _print_accuracy(json.loads(out.read_text()))
+    print_accuracy(json.loads(out.read_text()))
     typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
     if plot:
-        _rerender(layout)
+        rerender(layout)
 
 
-def _print_accuracy(doc: dict) -> None:
-    from mjolnir_cli import accuracy
-
-    rows = doc.get("legs", [])
-    suites = accuracy.suites_in([{"suites": r.get("suites", {})} for r in rows])
-    t = Table(box=box.SIMPLE_HEAD, title=f"accuracy · run {doc['run_id']} · tool-eval-bench {' '.join(doc['args'])}")
-    t.add_column("config")
-    for n in suites:
-        t.add_column(f"{accuracy.suite_label(n)} %", justify="right")
-    t.add_column("completion", justify="right")
-    bases = accuracy.baselines(rows)  # a run may hold several models: each vs its own
-    for r, base in zip(rows, bases, strict=True):
-        cells = []
-        for n in suites:
-            v = (r.get("suites", {}).get(n) or {}).get("score")
-            cells.append("—" if v is None else f"{v:.1f}{accuracy.fmt_delta(accuracy.delta(r, base, n))}")
-        comp = [x.get("completion_rate") for x in r.get("suites", {}).values() if x.get("completion_rate") is not None]
-        t.add_row(r.get("label", r.get("id", "")), *cells, f"{min(comp):.0f}%" if comp else "—")
-    if accuracy.any_excluded(rows, bases, suites):
-        t.caption = accuracy.EXCLUDED_NOTE
-    Console().print(t)
-
-
-def _rerender(layout) -> None:
-    try:
-        charts.render_all(layout)
-    except RuntimeError as e:
-        typer.secho(f"(plots skipped: {e})", fg=typer.colors.YELLOW, err=True)
-    try:
-        readme.render_readme(layout)
-    except (RuntimeError, FileNotFoundError) as e:
-        typer.secho(f"(readme skipped: {e})", fg=typer.colors.YELLOW, err=True)
-
-
-def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
+def run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
     """Serve each (model, image, config, label) leg in turn — the server is
     restarted per leg on purpose — run one gated perf bench on it, and stop
     the leg's server when it is done (or fails), so no vLLM stays up holding
@@ -356,62 +323,7 @@ def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
             dockerctl.serve_down(s)
 
 
-def _print_compare(
-    layout,
-    mjolnir_config: str | None = None,
-    as_json: bool = False,
-    official_config: str | None = None,
-    model: str | None = None,
-) -> int:
-    off, mj = e2e.latest_pair(layout.history_file, mjolnir_config, official_config, model)
-    if not off or not mj:
-        missing = "the official vLLM image" if not off else "a Mjolnir image"
-        typer.secho(f"no run on {missing} in {layout.history_file} — run: mjolnir bench e2e", fg=typer.colors.YELLOW)
-        return 4
-    rows = e2e.compare(off, mj)
-    if as_json:
-        typer.echo(
-            json.dumps({"official": e2e.side_label(off), "mjolnir": e2e.side_label(mj), "cells": rows}, indent=2)
-        )
-        return 0
-    con = Console()
-    t = Table(
-        box=box.SIMPLE_HEAD,
-        title="official vLLM image → Mjolnir image (gain: + = Mjolnir better)",
-        caption=f"official: {e2e.side_label(off)}\nmjolnir:  {e2e.side_label(mj)}\nboth: {e2e.spec_label(off, mj)}"
-        + e2e.acceptance_line(off, mj),
-    )
-    t.add_column("ctx", justify="right")
-    t.add_column("c", justify="right")
-    for m in e2e.METRICS:
-        t.add_column(
-            f"{m.label} {m.unit} {'↑' if m.higher_better else '↓'} ({'throughput' if m.higher_better else 'latency'} change)",
-            justify="right",
-        )
-    for r in rows:
-        cells = []
-        for m in e2e.METRICS:
-            a, b, g = r[m.key]
-            if a is None or b is None:
-                cells.append("—")
-                continue
-            color = "green" if g >= e2e.E2E_NOISE_PCT else ("red" if g <= -e2e.E2E_NOISE_PCT else "grey50")
-            cells.append(
-                f"{m.fmt.format(a)} → {m.fmt.format(b)} [{color}]{e2e.pct(g if m.higher_better else -g)}[/{color}]"
-            )
-        t.add_row(e2e.ctx_label(r["ctx"]), str(r["conc"]), *cells)
-    con.print(t)
-    h = e2e.hero(off, mj)
-    if h:
-        con.print(
-            f"[bold]1 request @ {e2e.ctx_label(h['ctx'])}:[/bold] decode {e2e.pct(h['tg_tps'][2])} · "
-            f"prefill {e2e.pct(h['pp_tps'][2])} · TTFT {e2e.pct(-h['ttft_ms'][2])} · ITL {e2e.pct(-h['itl_ms'][2])} "
-            "(throughput: % more tokens/s; latency: % change in ms)"
-        )
-    return 0
-
-
-@bench_app.command("e2e")
+@app.command("e2e")
 def bench_e2e(
     ctx: typer.Context,
     official_image: str = typer.Option(STOCK_IMAGE, "--official-image", help="the upstream vLLM image (baseline)"),
@@ -465,7 +377,7 @@ def bench_e2e(
     concurrency. Serves each image in turn (the server is restarted per leg),
     benchmarks it with llama-benchy, then prints the comparison and re-renders
     the README (infographic + table)."""
-    s = _settings(model, None, None, port)
+    s = settings(model, None, None, port)
     layout = load_layout()
 
     def ints(v: str) -> list[int]:
@@ -479,9 +391,9 @@ def bench_e2e(
     plat_ls = legs_.available_serving_legs("bench.e2e", platform, s.model)
     plat_official = next((q for side, q in plat_ls if side == legs_.OFFICIAL), None)
     plat_mj = [q for side, q in plat_ls if side == legs_.MJOLNIR]
-    official_cfg = _platform_leg(ctx, "official_config", platform, official_config, plat_official)
-    mj_cfg = _platform_leg(ctx, "config", platform, config, plat_mj[0] if plat_mj else None)
-    also_cfg = _platform_leg(ctx, "also", platform, also, ",".join(plat_mj[1:])) or ""
+    official_cfg = platform_leg(ctx, "official_config", platform, official_config, plat_official)
+    mj_cfg = platform_leg(ctx, "config", platform, config, plat_mj[0] if plat_mj else None)
+    also_cfg = platform_leg(ctx, "also", platform, also, ",".join(plat_mj[1:])) or ""
     official_label = f"vLLM {VLLM_VERSION} (official image)"
 
     def leg_for(side: str, q: str) -> tuple:
@@ -524,7 +436,7 @@ def bench_e2e(
         "bench e2e restarts the vLLM server for each image — the GPU must be yours for the whole run.",
         fg=typer.colors.YELLOW,
     )
-    _run_legs(
+    run_legs(
         s,
         layout,
         legs,
@@ -536,7 +448,7 @@ def bench_e2e(
         pp=pp,
         tg=tg,
     )
-    _print_compare(layout, mj_cfg or config, official_config=official_cfg, model=s.model)
+    print_compare(layout, mj_cfg or config, official_config=official_cfg, model=s.model)
     measured = [(img, q) for _, img, q, _ in legs if q not in (mj_cfg, official_cfg)]
     if measured:
         typer.echo("optional legs — compare them with:")
@@ -549,10 +461,10 @@ def bench_e2e(
                 f"  mjolnir bench compare --model {s.model} --config {q}"
                 + (f"   |   --official-config {twin} --config {q}" if twin else "")
             )
-    _rerender(layout)
+    rerender(layout)
 
 
-@bench_app.command("compare")
+@app.command("compare")
 def bench_compare(
     config: str | None = typer.Option(None, "--config", help="Mjolnir-side config (default: the Mjolnir backend)"),
     official_config: str | None = typer.Option(
@@ -564,5 +476,5 @@ def bench_compare(
     """Official vLLM image vs Mjolnir image from the history — no new run.
     `--official-config NVFP4_DSPARK --config NVFP4_MJOLNIR_E2M3_DSPARK` compares
     the same drafter on both images; both sides are runs of one model."""
-    model = _settings(model, None, None, None).model
-    raise typer.Exit(_print_compare(load_layout(), config, as_json, official_config, model))
+    model = settings(model, None, None, None).model
+    raise typer.Exit(print_compare(load_layout(), config, as_json, official_config, model))

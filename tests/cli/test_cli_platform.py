@@ -1,4 +1,4 @@
-"""The ``mjolnir platform`` command group (``cli_platform.py``, mounted in
+"""The ``mjolnir platform`` command group (``commands/platform.py``, mounted in
 ``cli.py``) — read-only in cycle 2: ``list`` and ``show``.
 
 The spec (plan §0.1 / §3.5, detection-first — no remembered state), pinned
@@ -10,7 +10,7 @@ as tests:
   on an unknown host it fails naming the probe instructions, and a
   remembered platform in ``$MJOLNIR_STATE`` is ignored — there is no state;
 * ``set`` is gone: a usage error (exit 2), no state file, ever;
-* :func:`mjolnir_cli.cli_shared._settings` lost its ``platform`` slot —
+* :func:`mjolnir_cli.commands._common.settings` lost its ``platform`` slot —
   the remembered-platform threading is dead; resolution happens in
   ``resolve()`` (flag > env > detection).
 """
@@ -22,7 +22,8 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-from mjolnir_cli import cli, cli_shared
+from mjolnir_cli import cli
+from mjolnir_cli.commands import _common
 from platform_fixtures import install
 
 
@@ -96,10 +97,10 @@ def test_settings_ignores_a_remembered_platform(monkeypatch, tmp_path):
     state.write_text(json.dumps({"platform": "spark"}))
     monkeypatch.setenv("MJOLNIR_STATE", str(state))
     install(monkeypatch, smi="NVIDIA Thor, 11.0")  # detection: thor; no env
-    assert cli_shared._settings(None, None, None, None).platform == "thor"
+    assert _common.settings(None, None, None, None).platform == "thor"
 
 
 def test_settings_has_no_platform_parameter():
-    # the state threading is gone: _settings is back to four slots
+    # the state threading is gone: settings is back to four slots
     with pytest.raises(TypeError):
-        cli_shared._settings(None, None, None, None, platform="spark")  # ty: ignore[unknown-argument]
+        _common.settings(None, None, None, None, platform="spark")  # ty: ignore[unknown-argument]

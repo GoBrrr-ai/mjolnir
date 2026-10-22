@@ -410,7 +410,7 @@ def _evaluate(
             console.print(f"[dim]  parked (tagging failed: {exc!r}) — the ledger row carries the commit[/dim]")
     elif status == "noisy":
         console.print("[dim]  the measurement was rejected, not the idea: evaluate the same commit again[/dim]")
-    _render_progress(root)
+    render_progress(root)
     return 0
 
 
@@ -425,7 +425,7 @@ STATUS_COLORS = {
 PROGRESS = LEDGER_DIR / "progress.png"
 
 
-def _render_progress(root: Path, rows: list[dict] | None = None, out: Path | None = None) -> Path | None:
+def render_progress(root: Path, rows: list[dict] | None = None, out: Path | None = None) -> Path | None:
     """research/progress.png: every experiment on one chart, the kept
     staircase, and the per-L split vs the baseline. Best effort — a missing
     matplotlib never fails an evaluation."""
@@ -529,7 +529,7 @@ def status():
 def chart():
     """Re-render research/progress.png from the live ledger (or the newest exported run)."""
     root = _root()
-    p = _render_progress(root, latest_rows(root))
+    p = render_progress(root, latest_rows(root))
     console.print(f"[green]{p}[/green]" if p else "[yellow]no experiments yet[/yellow]")
 
 
@@ -594,7 +594,7 @@ def export(
         f"- baseline: {base['score']}× vs FlashInfer at `{base['commit']}`" if base and base.get("score") else "",
         f"- best: **{best['score']}×** at `{best['commit']}` — {best['hypothesis']}" if best else "",
         "",
-        "![progress](progress.png)" if _render_progress(root, rows, out / "progress.png") else "",
+        "![progress](progress.png)" if render_progress(root, rows, out / "progress.png") else "",
         "",
         "| # | commit | status | score | why | agent | hypothesis | sources |",
         "|--:|---|---|--:|---|---|---|---|",

@@ -579,6 +579,11 @@ def test_every_relative_link_in_every_rendered_page_resolves(repo):
     exists in the rendered tree, and every `#anchor` names a real heading of
     its target file (spec §Cross-Linking Map, all arrows)."""
     _render_all()
+    # docs/cli.md is written by the plot command (it holds the root app), not
+    # the render loop — the README links to it, so write it as plot would
+    from mjolnir_cli import cli, clidoc
+
+    clidoc.write_reference(repo, cli.app)
     pages = [repo / "README.md", repo / "docs" / "platforms" / "README.md"]
     pages += sorted((repo / "docs" / "platforms").glob("*/README.md"))
     pages += (

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 try:  # typer >= 0.20 vendors its own click
@@ -109,6 +110,18 @@ def _param_row(p: Any) -> list[str] | None:
         names = f"`{(p.human_readable_name or p.name or '').upper()}`"
         help_ = "argument"
     return [names, help_, _default(p)]
+
+
+def write_reference(root, app) -> Path:
+    """Write ``docs/cli.md`` from the root app, return the path.
+
+    The plot command holds the root app (the composition root injects it —
+    no command module imports ``cli``), and the render loop no longer carries
+    the command tree: the caller writes the reference itself."""
+    out = Path(root) / "docs" / "cli.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(reference(app))
+    return out
 
 
 def reference(app) -> str:

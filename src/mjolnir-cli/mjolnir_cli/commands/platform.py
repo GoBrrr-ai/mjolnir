@@ -1,30 +1,30 @@
-"""`mjolnir platform` — the active platform: list the registry, show the
+"""``mjolnir platform`` — the active platform: list the registry, show the
 resolved one with its detection provenance. Read-only: the platform is
-detected (flag > env > host), never remembered — split out of cli.py (which
-is at its line ratchet) and mounted next to `model`/`image`."""
+detected (flag > env > host), never remembered — mounted next to
+``model``/``image`` in ``cli.py``."""
 
 from __future__ import annotations
 
 import typer
 
 from mjolnir_cli import platforms
-from mjolnir_cli.cli_shared import _HELP_CTX
+from mjolnir_cli.commands._common import HELP_CTX
 
-platform_app = typer.Typer(
+app = typer.Typer(
     help="The active platform (thor supported; spark / orin research): list, show.",
     no_args_is_help=True,
-    context_settings=_HELP_CTX,
+    context_settings=HELP_CTX,
 )
 
 
-@platform_app.command("list")
+@app.command("list")
 def platform_list() -> None:
     """Every shipped platform: architecture, images, maturity."""
     for p in platforms.REGISTRY.values():
         typer.echo(f"  {p.key:<7} {p.name:<16} {p.sm_family:<7} {p.status:<10} {p.default_image}")
 
 
-@platform_app.command("show")
+@app.command("show")
 def platform_show() -> None:
     """The active platform (flag > env `MJOLNIR_PLATFORM` > detection), its
     detection confidence and one provenance line per source that probed."""
