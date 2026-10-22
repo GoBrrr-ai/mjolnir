@@ -14,8 +14,9 @@ tool-eval-bench keeps its results in ``./data/benchmarks.sqlite`` and
 under ``benchmarks/raw/accuracy/<run>/<leg>/``, so the database holds exactly
 that leg's runs. :func:`summarize_db` reads it back into the committed
 ``accuracy.json`` (``mjolnir.accuracy/1``): per suite the score, per
-tool-call category the share of points, per scenario the points — what the
-docs table and charts are rendered from.
+tool-call category the share of points, per scenario the points, and the ids
+tool-eval-bench excluded from scoring (``excluded``) — what the docs table
+and charts are rendered from.
 """
 
 from __future__ import annotations
@@ -96,7 +97,9 @@ def _pct(earned: float, mx: float) -> float | None:
 def summarize_db(db: Path) -> dict:
     """tool-eval-bench's SQLite → ``{"suites": {suite: {...}}, "categories":
     {...}, "scenarios": {...}}``. Several completed runs of a kind (``--trials``)
-    are averaged; each suite keeps its per-run scores."""
+    are averaged; each suite keeps its per-run scores. A scenario the tool
+    excluded from scoring (an infrastructure failure: the probe failed, a
+    timeout) comes back as ``excluded``."""
     if not db.exists():
         return {"suites": {}, "categories": {}, "scenarios": {}, "runs": []}
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -110,6 +113,7 @@ def summarize_db(db: Path) -> dict:
     per_suite: dict[str, list[dict]] = {}
     cats: dict[str, dict] = {}
     scen: dict[str, list[float]] = {}
+    excluded: set[str] = set()
     runs = []
     for run_id, created, status, run_type, scores_json, _config_json in rows:
         runs.append({"run_id": run_id, "created_at": created, "status": status, "run_type": run_type})
@@ -117,6 +121,7 @@ def summarize_db(db: Path) -> dict:
             continue
         sc = _loads(scores_json)
         if run_type == "tool_eval":
+            excluded |= set(sc.get("excluded_scenarios") or ())  # upstream lists them only when non-empty
             cs = sc.get("category_scores") or []
             std = [c for c in cs if c.get("category") != HARD_CATEGORY]
             hard = [c for c in cs if c.get("category") == HARD_CATEGORY]
@@ -168,7 +173,7 @@ def summarize_db(db: Path) -> dict:
         if comps:
             last["completion_rate"] = min(comps)  # the worst trial: an exclusion in any trial shows
         suites[name] = {"score": round(mean(scores), 2), "scores": scores, "n": len(scores), **last}
-    return {
+    out = {
         "suites": suites,
         "categories": {
             k: {"label": v["label"], "percent": round(mean(v["percent"]), 2)}
@@ -178,6 +183,9 @@ def summarize_db(db: Path) -> dict:
         "scenarios": {k: round(mean(v), 3) for k, v in sorted(scen.items())},
         "runs": runs,
     }
+    if excluded:  # e.g. TC-45: the tool_choice=required probe failed — scored as zero on the full max
+        out["excluded"] = sorted(excluded)
+    return out
 
 
 # ── the run ─────────────────────────────────────────────────────────────────
@@ -314,6 +322,8 @@ def latest_legs(docs: list[dict]) -> list[dict]:
             for name, suite in (leg.get("suites") or {}).items():
                 row["suites"][name] = suite
                 row["runs"][name] = {"run_id": d.get("run_id"), "args": d.get("args")}
+            if leg.get("excluded"):  # an exclusion in any run of the leg shows
+                row["excluded"] = sorted({*(row.get("excluded") or ()), *leg["excluded"]})
             if (leg.get("suites") or {}).keys() & {"tools", "hardmode"}:
                 row["categories"] = leg.get("categories") or row["categories"]
                 row["scenarios"] = leg.get("scenarios") or row["scenarios"]
