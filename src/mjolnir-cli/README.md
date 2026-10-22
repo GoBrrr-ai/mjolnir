@@ -39,10 +39,35 @@ Every command, with options and defaults:
 **[the CLI reference](https://github.com/thor-arena/mjolnir/blob/main/docs/cli.md)**
 (generated from the commands; `mjolnir <command> --help` prints the same).
 
+## Library use
+
+Two modules are declared a public, stable API — reuse them instead of
+re-implementing the clean-window gate or the bench-history substrate:
+
+- **`mjolnir_cli.gate`** — `wait_for_idle`, `server_load`, `server_counters`,
+  `spec_delta`, the `CleanWindow` context manager, `PreflightError` and the
+  `DEFAULT_*` tuning constants.
+- **`mjolnir_cli.history`** — `append_record`, `load_records` and
+  `SCHEMA_VERSION`; the history-row schema is documented in the module
+  docstring. Rows carry `schema_version` — absence means the legacy (pre-0.3)
+  format — and `load_records` returns rows raw, never normalized.
+
+Anything else can change without notice; the module docstrings are the API
+reference: [`gate.py`](https://github.com/thor-arena/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/gate.py),
+[`history.py`](https://github.com/thor-arena/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/history.py).
+
+`uv tool install mjolnir-cli` is an isolated CLI install — *not* importable
+from another project. Library use means adding `mjolnir-cli` as a dependency
+of your project (`uv add mjolnir-cli` / `pip install mjolnir-cli`). The
+gate/history import chain is stdlib-only: the CLI dependency stack (typer,
+rich, pyyaml, jinja2) is paid at install time, not import time. Python ≥ 3.12
+is required (pip refuses older interpreters — relevant on JetPack 6-era
+images), and type annotations ship (`py.typed`).
+
 ## Requirements
 
 A Jetson AGX Thor (JetPack 7.x) with Docker and the NVIDIA Container Toolkit
-for anything that touches the GPU; Python ≥ 3.10. Charts need the `plot` extra
+for anything that touches the GPU; Python ≥ 3.12. Charts need the `plot` extra
 (`uv tool install 'mjolnir-cli[plot]'`).
 
 ## Versions
