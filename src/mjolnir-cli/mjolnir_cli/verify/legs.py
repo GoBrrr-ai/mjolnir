@@ -12,6 +12,9 @@ A *leg* is one kernel configuration swept over the L axis:
 * ``fi-hnd``      — FlashInfer on the same data in HND pages (fair layout check);
 * ``fa2``         — FlashAttention 2 as stock vLLM 0.32.0 runs it on sm_110
                     (bf16 KV — FA2 has no fp8 KV path, so 2x the bytes);
+* ``fa4``         — FlashAttention 4 hd256 as the patched image serves it
+                    (fp8 Q+KV, NHD paged-128, 1CTA decode carve-out, no
+                    SplitKV) — runs on the Mjolnir image, not the stock one;
 * T5 variants     — the Mjolnir harness with extra flags (ab / ring / ...).
 
 Every leg profiles only its own kernels (``filter``) and splits them into
@@ -36,16 +39,19 @@ HARNESS_KV_LAYOUT = "hnd"
 FILTERS = {
     "fi": "regex:BatchPrefillWithPagedKVCache|BatchDecode|MergeStates",
     "fa2": "regex:flash_fwd",
+    "fa4": "regex:sm100_hd256_2cta_fmha_forward",
     "t5": "regex:MixedInputFusedMultiHeadAttentionDecode|reduction",
 }
 MAIN = {
     "fi": ("BatchPrefillWithPagedKVCache", "BatchDecode"),
     "fa2": ("flash_fwd_kernel", "flash_fwd_splitkv_kernel"),
+    "fa4": ("sm100_hd256_2cta_fmha_forward",),
     "t5": ("MixedInputFusedMultiHeadAttentionDecode",),
 }
 MERGE = {
     "fi": ("MergeStates",),
     "fa2": ("combine",),
+    "fa4": (),  # hd256: no SplitKV (vLLM pins num_splits=1), no merge kernel
     "t5": ("reduction",),
 }
 
@@ -54,7 +60,7 @@ MERGE = {
 class Leg:
     id: str  # stable series id (file names, chart colors, README lookups)
     label: str  # human label
-    kind: str  # "fi" | "fa2" | "t5"
+    kind: str  # "fi" | "fa2" | "fa4" | "t5"
     role: str = "variant"  # "ours" | "baseline" | "variant"
     flags: str = ""  # harness flags (t5) — appended after the common args
     env: tuple[tuple[str, str], ...] = field(default_factory=tuple)  # driver env (fi / fa2)
@@ -64,7 +70,7 @@ class Leg:
     def kv_format(self) -> str:
         if self.kind == "fa2":
             return "bf16"
-        if self.kind == "fi":
+        if self.kind in ("fi", "fa4"):
             return "fp8"
         fmt = _last_flag(self.flags, "--kv_format")
         if fmt in (None, "auto"):
@@ -75,7 +81,7 @@ class Leg:
     def kv_layout(self) -> str:
         if self.kind == "fi":
             return dict(self.env).get("FI_LAYOUT", "NHD").lower()
-        if self.kind == "fa2":
+        if self.kind in ("fa2", "fa4"):
             return "nhd"
         return _last_flag(self.flags, "--kv_layout") or HARNESS_KV_LAYOUT
 
@@ -105,8 +111,9 @@ MJOLNIR_FP8 = Leg("mjolnir-fp8", "Mjolnir (fp8 KV, HND)", "t5", role="ours", fla
 FI = Leg("fi", "FlashInfer (fp8 KV, NHD)", "fi", role="baseline", env=(("FI_LAYOUT", "NHD"),))
 FI_HND = Leg("fi-hnd", "FlashInfer (fp8 KV, HND)", "fi", role="baseline", env=(("FI_LAYOUT", "HND"),))
 FA2 = Leg("fa2", "FlashAttention 2 (bf16 KV)", "fa2", role="baseline")
+FA4 = Leg("fa4", "FlashAttention 4 hd256 (fp8 Q+KV)", "fa4", role="baseline")
 
-CANONICAL = {leg.id: leg for leg in (MJOLNIR, MJOLNIR_FP8, FI, FI_HND, FA2)}
+CANONICAL = {leg.id: leg for leg in (MJOLNIR, MJOLNIR_FP8, FI, FI_HND, FA2, FA4)}
 
 
 def t5_variant(name: str, flags: str, q: str = "fp8") -> Leg:

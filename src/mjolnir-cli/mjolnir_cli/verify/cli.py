@@ -279,7 +279,7 @@ def correctness(
 @app.command()
 def sweep(
     ctx: typer.Context,
-    legs: str = typer.Option(KERNEL["verify.sweep"], "--legs", help="legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir"),
+    legs: str = typer.Option(KERNEL["verify.sweep"], "--legs", help="legs: fi, fi-hnd, fa2, fa4, mjolnir-fp8, mjolnir"),
     image: str | None = IMAGE,
     ls: str | None = LS,
     iters: int = ITERS,

@@ -155,12 +155,13 @@ def stage_sweep(ctx: Ctx, legs: str = SWEEP_LEGS, page: int | None = None, batch
     query tokens each (default one decode token of one sequence; serving with
     MTP=3 verifies 4 tokens per sequence: ``batch=4, q_len=4``)."""
     sel = L_.legs_from_ids(legs)
-    if (batch, q_len) != (1, 1) and any(x.kind == "fa2" for x in sel):
-        # the FA2 driver only times one decode token of one sequence
+    single_token = {"fa2", "fa4"}
+    if (batch, q_len) != (1, 1) and any(x.kind in single_token for x in sel):
+        # the FA2/FA4 drivers only time one decode token of one sequence
         if legs != SWEEP_LEGS:
-            raise ValueError("the fa2 leg measures b=1, q_len=1 only — drop it from --legs for --batch/--q-len")
-        sel = [x for x in sel if x.kind != "fa2"]
-        ctx.out(f"   (fa2 leg skipped: it measures b=1, q_len=1 only — legs {' '.join(x.id for x in sel)})")
+            raise ValueError("the fa2/fa4 legs measure b=1, q_len=1 only — drop them from --legs for --batch/--q-len")
+        sel = [x for x in sel if x.kind not in single_token]
+        ctx.out(f"   (fa2/fa4 legs skipped: they measure b=1, q_len=1 only — legs {' '.join(x.id for x in sel)})")
     ctx.runner.batch, ctx.runner.q_len = batch, q_len
     params: dict = {"legs": [x.id for x in sel]}
     if (batch, q_len) != (1, 1):
@@ -792,7 +793,7 @@ def summarize(stage: str, doc: dict) -> dict:
     by = results.series_by_id(doc)
     if stage in ("sweep", "hndsweep"):
         ours = by.get("mjolnir") or by.get("mjolnir-fp8")
-        for base_id in ("fi", "fi-hnd", "fa2"):
+        for base_id in ("fi", "fi-hnd", "fa2", "fa4"):
             if ours and base_id in by:
                 sp = results.speedup(by[base_id], ours)
                 if sp:
