@@ -12,6 +12,11 @@ gate only waits for one to open on its own.
 Metrics source: the vLLM server's Prometheus endpoint (``/metrics`` on its
 serving port). We read ``vllm:num_requests_running`` and
 ``vllm:num_requests_waiting``; the window is clean when both are 0.0.
+
+Declared a public, stable library surface — see "Library use" in
+``src/mjolnir-cli/README.md``. The in-image kernel bench scripts keep their
+inline copies of this logic (this package is not importable inside the
+container).
 """
 
 from __future__ import annotations
@@ -24,6 +29,18 @@ import urllib.request
 DEFAULT_POLL_S = 2.0
 DEFAULT_CONFIRM = 6
 DEFAULT_TIMEOUT_S = 3600
+
+__all__ = [
+    "DEFAULT_CONFIRM",
+    "DEFAULT_POLL_S",
+    "DEFAULT_TIMEOUT_S",
+    "CleanWindow",
+    "PreflightError",
+    "server_counters",
+    "server_load",
+    "spec_delta",
+    "wait_for_idle",
+]
 
 _RUNNING = "vllm:num_requests_running"
 _WAITING = "vllm:num_requests_waiting"
