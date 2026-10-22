@@ -1,40 +1,11 @@
-# Python Engineer: ring-pacing 4-stage KV (fp6 harness config)
-
-## Plan Reference
-Autoresearch experiment — 4-stage KV ring + runtime producer pacing
-(research/program.md idea 2); orchestrator task spec.
-
-## Files In Scope
-- src/mjolnir/mjolnir/t5_decode.py (kernel: counter, pacing, increments, param)
-- src/mjolnir/mjolnir/t5_call.py (derivation 2 -> 4 for fp8-Q e2m3/e3m2 2-CTA d=256)
-- src/mjolnir/mjolnir/t5_harness.py (--ring_uncapped flag)
-
-## Phase 0 (all verified against the IMAGE's DSL 4.8.0 in narandill/mjolnir-vllm:v0.32.0)
-1. smem atomic: cute.arch.atomic_add(ptr, val, *, sem, scope) — works on the
-   smem _Pointer from SmemAllocator.allocate_array; proven on GPU (exact counts).
-   FORBIDDEN shape: binding the result (`old = atomic_add(...)`) inside
-   elect_one inside cutlass.range fails IR verify ("does not dominate").
-2. while tracing: dynamic `while` with compound traced conditions + loop-carried
-   Int32 re-read compiles and runs correctly (probe spin_simple/spin_compound).
-3. release election: consumer release (TCGen05Mma op) = arrive_tcgen05mma in
-   `with cute.arch.elect_one():` — same guard used for the increments.
-4. derivation: t5_call.py _default_kv_stages returns 2 for e2m3/e3m2+2CTA+spt4;
-   4-stage smem = 77888 B < 115736 B budget.
-
-## GPU probe (ring_probe.py, /tmp/opencode)
-full (producer 2/tile + 2 elected adds/tile, spin cap): PASS at iters 2/5/40,
-capped + uncapped, exact produced==counter==2*iters; cap engages (spins>0);
-2-stage config traces no counter code. Deadlocks in early probe runs were
-probe bugs (unguarded producer warp; result binding).
-
-## SPEC DEVIATION (flagged)
-Task formula `depth = kv_stages if (ring_uncapped or iters_s > 13) else 4`
-is a constant-4 no-op at kv_stages=4 (default leg == --ring_uncapped leg).
-Implemented the coherent reading consistent with the task summary line,
-research/program.md idea 2 and the 20261012-210506 sweep:
-deep (kv_stages) for iters_s <= 13, 2-stage behavior (2) above,
-ring_uncapped -> always kv_stages — expressed as the predicate
-`produced - consumed >= 2 and (not deep or produced - consumed >= kv_stages)`.
-
-## Status
-IN PROGRESS
+# Python Engineer: ring-pacing 4-stage KV (fp6 harness config) (digest)
+2026-10-21; python-engineer; Phase-0 GPU probes (/tmp/opencode/ring_probe.py, DSL 4.8.0 in narandill/mjolnir-vllm:v0.32.0) + the spec for the 4-stage fp6 ring + runtime producer pacing (became the parked brick `ar/parked/2f20c4f`).
+**Verdict:** Phase-0 mechanisms GPU-validated and the spec's depth formula shown degenerate (constant-4 no-op) — implemented instead as the probe-validated inverted predicate that became the pacing brick.
+**Key facts:**
+- smem `atomic_add(ptr, val, *, sem, scope)` works on SmemAllocator `_Pointer`s (exact GPU counts); FORBIDDEN shape: binding the result (`old = atomic_add(...)`) inside elect_one inside cutlass.range fails IR verify ("does not dominate").
+- Dynamic `while` with compound traced conditions + loop-carried Int32 re-read compiles and runs (probe spin_simple/spin_compound).
+- Consumer release election (TCGen05Mma op) = `arrive_tcgen05mma` in `with cute.arch.elect_one():`.
+- Derivation: t5_call.py `_default_kv_stages` → 4 for e2m3/e3m2 + 2-CTA + spt4; 4-stage smem 77,888 B < 115,736 B budget.
+- Probe: full variant (producer 2/tile + 2 elected adds/tile) PASS at iters 2/5/40, capped + uncapped, exact produced==counter==2*iters; 2-stage config traces no counter code.
+- Spec deviation (flagged): task formula `depth = kv_stages if (ring_uncapped or iters_s > 13) else 4` is degenerate at kv_stages=4; implemented `produced - consumed >= 2 and (not deep or produced - consumed >= kv_stages)` — deep ≤ 13-tile chunks, 2-stage behavior above, `--ring_uncapped` → always full.
+**Full report:** `git show 56caea5:research/runs/oct21/notes/ring-pacing-4stage-kv.md`
