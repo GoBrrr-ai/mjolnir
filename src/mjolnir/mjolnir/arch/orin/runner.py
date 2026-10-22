@@ -329,7 +329,7 @@ class GEMVDecodeRunner:
                     page_size=self.page_size,
                     causal=key.causal,
                 )
-                fn = cute.compile(kernel, *compile_args, options="--enable-tvm-ffi")
+                fn = cute.compile(kernel, *compile_args, options="--opt-level 2 --enable-tvm-ffi")
                 CACHE_STATS["compiled"] += 1
                 _disk_store(key, fn, gemv.__file__, "orin")
             else:
@@ -437,7 +437,14 @@ class GEMVDecodeRunner:
         q3 = query[:tokens]
         if q3.dim() == 2:
             q3 = q3.view(tokens, self.h_q, self.d)
-        fn = self._get_compiled(key, self._compile_args(key, b, q3, out, k_cache, v_cache, plan.block_table))
+        # Compile args are expensive (several from_dlpack round trips) --
+        # build them only on a cache miss; the hot path packs raw tensors.
+        fn = _COMPILED.get(key)
+        if fn is None:
+            fn = self._get_compiled(
+                key,
+                self._compile_args(key, b, q3, out, k_cache, v_cache, plan.block_table),
+            )
         launch = self._torch_args(key, b, q3, out, k_cache, v_cache, plan.block_table)
         launch = (*launch, float(softmax_scale) * math.log2(math.e), self.ns_cap if key.split else 1)
         fn(*launch)
