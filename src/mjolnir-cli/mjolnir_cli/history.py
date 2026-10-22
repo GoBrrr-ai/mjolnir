@@ -8,7 +8,7 @@ One line per perf sweep repeat:
       "model": "Qwen/Qwen3.8-27B", "config": "NVFP4_MJOLNIR",
       "backend": "Mjolnir",
       "gate": {"clean": true, "confirm": 3, "open_ts": 1758801600.0},
-      "runs": 5, "warmup_runs": 2, "exact_tg": true,
+      "runs": 5, "warmup_runs": 1, "exact_tg": true,
       "cells": [
         {"concurrency": 1, "context": 8192, "prompt": 2048, "gen": 128,
          "tg_tps": {"mean": 41.2, "std": 0.7, "values": [...]},   # decode t/s (all requests)
