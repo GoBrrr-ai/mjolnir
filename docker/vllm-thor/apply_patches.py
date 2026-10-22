@@ -83,15 +83,19 @@ PATCH_ORDER = [
     # utils/torch_utils.py, v1/kv_cache_interface.py — files no other patch
     # touches, order-independent. Inert unless a config asks for fp6_e2m3.
     "thor-fp6-e2m3-kv-cache.patch",
-    # Two upstream MoE-backend gate fixes for sm_110 (Thor), hand-adapted
-    # from #62133/#62275: the OAI Triton MXFP4 MoE selector must keep MARLIN
-    # as the default on SM110 (the OAI Triton path fails to compile
-    # matmul_ogs at engine init, #61374) and the CUTLASS FP4 MoE backend
-    # must not auto-select on sm_110 (faults in profile_run, TMA descriptor
-    # init). All four touched files are disjoint from every other patch —
-    # order-independent. Drop when upstream merges the PRs.
+    # Three upstream fixes hand-adapted from post-0.32.0 main (drop each
+    # when its PR merges / the next release lands): two sm_110 MoE-backend
+    # gate fixes — the OAI Triton MXFP4 MoE selector keeps MARLIN as the
+    # default on SM110 (the OAI Triton path fails to compile matmul_ogs at
+    # engine init, #61374) and the CUTLASS FP4 MoE backend must not
+    # auto-select on sm_110 (faults in profile_run, TMA descriptor init) —
+    # plus #58231: the split top-p mask kernel masked every token for huge
+    # forced logits (thinking_token_budget + spec decode emits token 0).
+    # All five touched files are disjoint from every other patch —
+    # order-independent.
     "thor-sm110-mxfp4-moe-gate.patch",
     "thor-sm110-cutlass-fp4-moe-guard.patch",
+    "thor-spec-decode-split-topp.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

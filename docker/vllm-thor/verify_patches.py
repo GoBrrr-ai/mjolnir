@@ -262,6 +262,18 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "!is_device_capability_family(110)",
         ),
     ],
+    "thor spec-decode split top-p: probability-space pivot for huge logits": [
+        # The probability-space mask predicate in _topp_sb_mask_kernel —
+        # the logit-space pivot (log(pivot)+logZ+M) rounds to M for huge
+        # forced logits (thinking_token_budget writes 1e9; fp32 spacing
+        # there is 64), masking the whole row so sampling emits token 0
+        # and spec decode never terminates. The marker rides on the
+        # changed line, present only after the patch.
+        (
+            "v1/sample/ops/topk_topp_triton.py",
+            "keep = (prob > pivot) | (x == M)  # THOR_SPEC_SPLIT_TOPP",
+        ),
+    ],
 }
 
 
