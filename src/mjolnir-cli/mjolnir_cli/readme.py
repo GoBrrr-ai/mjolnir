@@ -677,7 +677,10 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
                 every = rs.keys() | bs.keys()
                 worse = sum(1 for k in every if rs.get(k, 0.0) < bs.get(k, 0.0))
                 better = sum(1 for k in every if rs.get(k, 0.0) > bs.get(k, 0.0))
-                gone = sorted(every - (rs.keys() & bs.keys()))
+                # the ids the runs recorded; older records: what the other leg's scenarios lack
+                gone = sorted({*(r.get("excluded") or ()), *(base.get("excluded") or ())}) or sorted(
+                    every - (rs.keys() & bs.keys())
+                )
                 changed = [
                     f"{worse} scenarios scored lower, {better} higher of {len(every)}"
                     + (f"; excluded {', '.join(gone)} counted as zero" if gone else "")

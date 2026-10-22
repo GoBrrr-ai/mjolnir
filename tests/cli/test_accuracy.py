@@ -74,6 +74,27 @@ def test_summarize_db_averages_trials(tmp_path):
     assert accuracy.summarize_db(tmp_path / "missing.sqlite")["suites"] == {}
 
 
+def test_summarize_db_records_excluded_scenarios(tmp_path):
+    """The ids tool-eval-bench excluded from scoring land in the leg record;
+    a clean run records none."""
+    scores = _tool_scores(10, 4)
+    scores["excluded_scenarios"] = ["TC-45"]
+    scores["scenario_results"].append({"scenario_id": "TC-45", "points": 0, "failure_kind": "server_error"})
+    s = accuracy.summarize_db(_db(tmp_path / "a.sqlite", [("tool_eval", scores)]))
+    assert s["excluded"] == ["TC-45"] and s["scenarios"]["TC-45"] == 0.0
+    clean = _db(tmp_path / "b.sqlite", [("tool_eval", _tool_scores(10, 4))])
+    assert "excluded" not in accuracy.summarize_db(clean)
+
+
+def test_summarize_db_unions_exclusions_across_trials(tmp_path):
+    """--trials: excluded in any trial of the leg."""
+    db = _db(
+        tmp_path / "a.sqlite",
+        [("tool_eval", {**_tool_scores(10, 4), "excluded_scenarios": ["TC-45"]}), ("tool_eval", _tool_scores(6, 8))],
+    )
+    assert accuracy.summarize_db(db)["excluded"] == ["TC-45"]
+
+
 def test_tool_args_default_and_passthrough():
     assert accuracy.tool_args([], "http://h:8000/v1") == [*accuracy.DEFAULT_ARGS, "--base-url", "http://h:8000/v1"]
     fwd = accuracy.tool_args(["--gsm8k-only", "--gsm8k-limit", "50"], "http://h/v1")
@@ -130,6 +151,30 @@ def test_latest_legs_merge_suites_across_runs(tmp_path):
     assert base_row and base_row["config"] == "NVFP4"
     assert accuracy.suites_in(rows) == ["tools", "hardmode", "gsm8k"]
     assert rows[0]["label"].startswith("official vLLM")
+
+
+def test_latest_legs_unions_excluded_across_runs(tmp_path):
+    """A leg keeps the union of the ids its runs excluded."""
+    _write_runs(tmp_path)
+    p = tmp_path / "accuracy" / "20261014-100000" / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(
+        json.dumps(
+            {
+                "format": accuracy.FORMAT,
+                "run_id": "20261014-100000",
+                "args": list(accuracy.DEFAULT_ARGS),
+                "legs": [
+                    {**_leg(MJ, "NVFP4_MJOLNIR_E2M3", 86.5, 62.0, {"A": 85, "P": 62}), "excluded": ["TC-45"]},
+                    {**_leg(OFFICIAL, "NVFP4", 88.0, 60.0, {"A": 90, "P": 60}), "excluded": ["TC-12", "TC-45"]},
+                ],
+            }
+        )
+    )
+    rows = accuracy.latest_legs(accuracy.load_runs(SimpleNamespace(raw_dir=tmp_path)))
+    by_cfg = {r["config"]: r for r in rows}
+    assert by_cfg["NVFP4_MJOLNIR_E2M3"]["excluded"] == ["TC-45"]
+    assert by_cfg["NVFP4"]["excluded"] == ["TC-12", "TC-45"]  # unioned with the earlier run's
 
 
 def test_baseline_is_per_model(tmp_path):
@@ -341,6 +386,21 @@ def test_page_marks_an_excluded_scenario(repo):
     assert "excluded points counting as zero" in page
     assert "excluded TC-45 counted as zero" in page  # the tally counts what the ‡ delta counts
     assert "Mjolnir · bf16 KV ‡ |" in page and "its category % divides by the smaller max" in page
+
+
+def test_page_names_excluded_ids_from_the_record(repo):
+    """A record that names its exclusions wins over inferring them from the
+    scenarios the other leg lacks (the pre-#30 fallback)."""
+    layout = load_layout()
+    off, mj = _excluded_pair()
+    mj["excluded"] = ["TC-93"]  # only the record knows; the scenario maps would infer TC-45
+    p = layout.raw_dir / "accuracy" / "20261017-140000" / "accuracy.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"format": accuracy.FORMAT, "run_id": "20261017-140000", "args": [], "legs": [off, mj]}))
+    readme.render_readme(layout)
+    page = (repo / "docs" / "platforms" / "thor" / "kernel" / "accuracy.md").read_text()
+    assert "excluded TC-93 counted as zero" in page
+    assert "excluded TC-45 counted as zero" not in page
 
 
 def test_accuracy_page_pending_without_runs(repo):
