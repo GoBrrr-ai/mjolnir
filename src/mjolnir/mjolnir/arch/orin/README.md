@@ -39,15 +39,25 @@ unconditionally — FA2-style `mma.sync` tiles with fp8 KV dequantized to
 fp16 staging. FlashInfer's own GEMV path gets `NUM_STAGES_SMEM = 2` on all
 CC ≥ 8 (`DISPATCH_COMPUTE_CAP_DECODE_NUM_STAGES_SMEM`).
 
-## Why the FMA path cannot be the default on Orin (the roofline)
+## Why pure FMA cannot be the only path on Orin (the roofline)
 
-Per `(batch, kv_head)` KV row of 256 elements (fp8: 256 B K + 256 B V),
-the GQA group g=6 does `6 × 256` FMA for QK and `6 × 256` for PV
-= 24 FLOP/byte. At Orin's ~205 GB/s LPDDR5x that asks ~4.9 TFLOP/s fp32
-of a ~5.3 TFLOP/s peak — ~93% — before any unpack, softmax or address
-math. Pure FMA is compute-bound on Orin; the mma.sync variant is required
-to reach the bandwidth roofline. The FMA path stays as (a) the baseline
-variant and (b) the value-level cross-check for the mma path.
+Per KV row of 256 elements (fp8: 256 B), the GQA group g=6 does `6 × 256`
+FMA for QK and `6 × 256` for PV — **12 FLOP/byte** across K+V. At Orin's
+~205 GB/s LPDDR5x that asks ~2.5 TFLOP/s fp32 of a ~5.3 TFLOP/s peak
+(~46%) for the M=1 decode shape — tight but achievable, and
+FlashDecoding++ (arXiv 2311.01282) measured the GEMV path **+22% over
+tensor cores at M=1** (their TC-vs-GEMV heuristic: M=1 → CUDA cores,
+M=4 → tensor cores 2×). At the MTP verify shape (M=4 rows) the FMA
+stream quadruples past the fp32 peak — **the mma.sync variant is required
+for M > 1**. So the family keeps both legs and dispatches on the measured
+Orin crossover: FMA for M=1, mma.sync for M > 1. The loader, ring,
+split-KV plan and combine are shared by both.
+
+Literature anchors for the rest of the refactor are in the deep-research
+report (SageAttention 2410.02367: scales applied outside the mma;
+KIVI 2402.02750: K per-channel / V per-token; DeFT 2404.00242: one CTA
+per (kv-head, chunk) computes all M rows, KV read once; LeanAttention
+2405.10480: stream-K balanced splits; P-Cast 2606.06521: fp8-P numerics).
 
 ## The plan (in order)
 
@@ -55,11 +65,12 @@ variant and (b) the value-level cross-check for the mma path.
    graph-safe launch (the `mjolnir.runner` pattern), KV views, knob
    plumbing; then flip `mjolnir.platforms._SHIPPED` orin → implemented and
    point the backend's fallback default at `FLASHINFER` on sm_87.
-2. **mma.sync compute variant** (research-driven — the deep-dive brief is
-   in flight): Q rows (`M·g`, padded) on the mma M dimension, KV rows on
-   N, D on k; fp8/fp6 KV dequant in flight to fp16 fragments; per-channel
-   K scales folded into Q (the Thor trick — ports unchanged), V scales in
-   the epilogue. Loader, ring, split plan and combine survive unchanged.
+2. **mma.sync compute variant for M > 1** (research-driven): Q rows
+   (`M·g`, padded) on the mma M dimension, KV rows on N, D on k; fp8/fp6
+   KV dequant in flight to fp16 fragments; per-channel K scales folded
+   into Q (the Thor trick — ports unchanged), V scales in the epilogue.
+   FMA stays the M=1 leg (see the roofline above). Loader, ring, split
+   plan and combine survive unchanged.
 3. **fp6 e2m3 KV reader**: the cache format (`mjolnir/kvfp6.py`, 4 codes
    per 3 bytes little-endian + per-(layer, h, channel) scales) is
    arch-agnostic; the Orin reader bit-assembles e2m3 → fp16 fragments
