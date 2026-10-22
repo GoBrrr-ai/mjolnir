@@ -3,6 +3,7 @@
 One line per perf sweep repeat:
 
     {
+      "schema_version": 1,
       "ts": "2026-09-25T14:03:11+00:00", "epoch": 1758801791.123,
       "host": "thor-01", "image": "mjolnir/vllm-thor:qwen38-sm110-v11",
       "model": "Qwen/Qwen3.8-27B", "config": "NVFP4_MJOLNIR",
@@ -22,6 +23,13 @@ One line per perf sweep repeat:
 
 The file is the raw, git-trackable substrate for the charts and for
 "progress over time" — every nightly bump / kernel change adds a row.
+
+Rows written before ``schema_version`` existed lack the field — readers treat
+absence as the legacy (pre-0.3) format. :func:`load_records` returns rows raw,
+never normalized.
+
+Declared a public, stable library surface — see "Library use" in
+``src/mjolnir-cli/README.md``.
 """
 
 from __future__ import annotations
@@ -34,6 +42,10 @@ from pathlib import Path
 from typing import Any
 
 from mjolnir_cli.platforms import detect, gpu_name
+
+SCHEMA_VERSION = 1
+
+__all__ = ["SCHEMA_VERSION", "append_record", "load_records"]
 
 
 def append_record(history_file: Path, record: dict[str, Any]) -> None:
@@ -84,10 +96,13 @@ def make_record(
     platform: str | None = None,
     gpu: str | None = None,
 ) -> dict[str, Any]:
+    """Best-effort row assembly from a CLI ``Settings`` — not part of the
+    promised library surface (the Settings object is the CLI's internal type)."""
     plat = platform if platform is not None else s.platform
     if plat is None:  # an unresolved Settings: the record names the *detected* platform
         plat = detect().platform
     return {
+        "schema_version": SCHEMA_VERSION,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.gmtime()).replace("+0000", "+00:00"),
         "epoch": time.time(),
         "host": host_platform.node() or "unknown",
@@ -121,7 +136,8 @@ def _spec(s) -> dict | None:
 def parse_benchy_json(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """llama-benchy JSON → normalized per-cell records with the metrics we
     chart (tg / pp generation + prefill throughput, each with mean/std/values
-    from the per-run samples)."""
+    from the per-run samples). Best-effort — it mirrors llama-benchy's
+    third-party JSON, so it is not part of the promised library surface."""
     cells = []
     for b in raw.get("benchmarks", []):
 
