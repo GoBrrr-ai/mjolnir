@@ -11,7 +11,7 @@
     globals (`has()` is bound to the page's own ctx; `chart()` gets the pair
     explicitly). `stages` and `how` are env globals. -#}
 {% if kctx.has_sweep -%}
-**Where it stands:** {{ kctx.geo_vs_fi }}× FlashInfer (geomean over L = {{ kctx.ls }}){% if kctx.geo_vs_fa2 %}, {{ kctx.geo_vs_fa2 }}× FlashAttention 2{% endif %}{% if kctx.correctness %}, {{ kctx.correctness }} correctness checks{% endif %} — run `{{ kctx.sweep_run }}`.
+**Where it stands:** {{ kctx.geo_vs_fi }}× FlashInfer (geomean over L = {{ kctx.ls }}){% if kctx.geo_vs_fa4 %}, {{ kctx.geo_vs_fa4 }}× FlashAttention 4 hd256 (fp8 Q+KV, as the patched image serves it: 1-CTA decode, no SplitKV){% endif %}{% if kctx.geo_vs_fa2 %}, {{ kctx.geo_vs_fa2 }}× FlashAttention 2 (bf16 KV, on demand){% endif %}{% if kctx.correctness %}, {{ kctx.correctness }} correctness checks{% endif %} — run `{{ kctx.sweep_run }}`.
 
 {{ how("kernel") }}
 

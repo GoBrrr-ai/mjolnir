@@ -26,7 +26,7 @@ The Mjolnir kernel takes over single-token and speculative-verify steps; prefill
 
 ## ⚡ Patches
 
-`4` hand-adapted vLLM PR fixes and `11` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time:
+`7` hand-adapted vLLM PR fixes and `11` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time:
 
 | File | PR | What it fixes |
 |------|----|---------------|
@@ -45,6 +45,9 @@ The Mjolnir kernel takes over single-token and speculative-verify steps; prefill
 | `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
 | `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
 | `thor-gdn-prefill-fi-sm110.patch` | — (FlashInfer) | **FlashInfer-side** GDN prefill non-CP dispatch allowlist widened major 10 → (10, 11) so the SM100 CuTe-DSL kernel is reachable on sm_110 (behavior unchanged on other devices); see "Thor sm_110 GDN prefill enablement (flashinfer side)". |
+| `thor-sm110-mxfp4-moe-gate.patch` | [#62133](https://github.com/vllm-project/vllm/pull/62133) | **Fix OAI Triton MXFP4 MoE on SM110** (supersedes closed #61387). #58877 (in v0.32.0) widened the OAI-Triton device gate to `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init (upstream issue #61374). The GPT-OSS MXFP4 **selector** keeps **MARLIN** the default on SM110 (TRITON opt-in) and `_swizzle_mxfp4` applies the persistent + `epilogue_subtile=1` constraints on SM110 too. Drop when upstream merges #62133. |
+| `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275. |
+| `thor-spec-decode-split-topp.patch` | [#58231](https://github.com/vllm-project/vllm/pull/58231) | **Split top-p masks every token for huge forced logits → token 0.** `_topp_sb_mask_kernel` (the split top-p pipeline: CUDA, batches ≤ 64, rows with `top_p < 1` and no active top-k) mapped its probability-space pivot back to logit space as `log(pivot) + log(Z) + M`, which fp32 rounds to `M` when a forced logit makes `|M|` huge (thinking-token-budget writes 1e9) — the whole row masks, spec decode emits token 0 forever (≈3× throughput loss). The fix masks in probability space (`exp(x − M)/Z > pivot`, bitwise the step kernels' predicate; `x == M` kept as a backstop). Trigger needs a **huge forced logit**, not merely `top_p < 1` + spec decode. Drop when upstream merges #58231 — it is merged 2026-10-19, first release after 0.32.0. |
 
 The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md)
 

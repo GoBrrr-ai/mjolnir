@@ -214,28 +214,29 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 | **Mjolnir · e2m3 KV** | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
 | **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
 | **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.32.0 FlashInfer for `sm_110` | fp8 e4m3, NHD pages |
-| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM 0.32.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
+| **FlashAttention&nbsp;4 · hd256 fp8** | `NVFP4_FA4hd256` | FA4 hd256 as our image serves it — the patched FA4: 1-CTA decode carve-out, no SplitKV (structural in vLLM 0.32.0's vendored kernel) | fp8 e4m3 Q+KV, NHD pages |
+| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — on demand (`--legs fa2`); stock vLLM 0.32.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
 <img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
 
-| L | FlashInfer | FA2 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA2 | e2m3 vs FA2 |
+| L | FlashInfer | FA4 hd256 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA4 | e2m3 vs FA4 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 22.8&nbsp;µs | 19.9&nbsp;µs | 13.6&nbsp;µs | **13.3&nbsp;µs** | $\color{#16a34a}{\mathbf{1.68\times}}$ | $\color{#16a34a}{\mathbf{1.72\times}}$ | $\color{#16a34a}{\mathbf{1.47\times}}$ | $\color{#16a34a}{\mathbf{1.50\times}}$ |
-| **4K** | 61.2&nbsp;µs | 95.2&nbsp;µs | 56.5&nbsp;µs | **52.1&nbsp;µs** | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.69\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ |
-| **8K** | 96.7&nbsp;µs | 187.0&nbsp;µs | 90.1&nbsp;µs | **85.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{2.08\times}}$ | $\color{#16a34a}{\mathbf{2.18\times}}$ |
-| **16K** | 180.5&nbsp;µs | 363.2&nbsp;µs | **170.4&nbsp;µs** | 174.4&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ | $\color{#16a34a}{\mathbf{2.08\times}}$ |
-| **32K** | 379.9&nbsp;µs | 665.6&nbsp;µs | 340.8&nbsp;µs | **335.7&nbsp;µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.95\times}}$ | $\color{#16a34a}{\mathbf{1.98\times}}$ |
-| **64K** | 785.2&nbsp;µs | 1.28&nbsp;ms | 671.0&nbsp;µs | **595.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.32\times}}$ | $\color{#16a34a}{\mathbf{1.91\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ |
-| **128K** | 1.44&nbsp;ms | 2.43&nbsp;ms | 1.28&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.33\times}}$ | $\color{#16a34a}{\mathbf{1.90\times}}$ | $\color{#16a34a}{\mathbf{2.26\times}}$ |
-| **256K** | 2.73&nbsp;ms | 4.65&nbsp;ms | 2.40&nbsp;ms | **2.06&nbsp;ms** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.33\times}}$ | $\color{#16a34a}{\mathbf{1.94\times}}$ | $\color{#16a34a}{\mathbf{2.26\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.17\times}}$ | $\color{#16a34a}{\mathbf{1.26\times}}$ | $\color{#16a34a}{\mathbf{1.87\times}}$ | $\color{#16a34a}{\mathbf{2.01\times}}$ |
+| **128** | 21.9&nbsp;µs | 20.9&nbsp;µs | 13.6&nbsp;µs | **13.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.61\times}}$ | $\color{#16a34a}{\mathbf{1.63\times}}$ | $\color{#16a34a}{\mathbf{1.53\times}}$ | $\color{#16a34a}{\mathbf{1.55\times}}$ |
+| **4K** | 60.5&nbsp;µs | 105.5&nbsp;µs | 55.0&nbsp;µs | **49.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{2.11\times}}$ |
+| **8K** | 98.2&nbsp;µs | 191.0&nbsp;µs | **91.0&nbsp;µs** | 91.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{2.10\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ |
+| **16K** | 182.6&nbsp;µs | 370.1&nbsp;µs | 181.4&nbsp;µs | **177.0&nbsp;µs** | $\color{grey}{1.01\times}$ | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ |
+| **32K** | 358.0&nbsp;µs | 729.7&nbsp;µs | 341.5&nbsp;µs | **332.2&nbsp;µs** | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
+| **64K** | 748.9&nbsp;µs | 1.42&nbsp;ms | 660.0&nbsp;µs | **588.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.41\times}}$ |
+| **128K** | 1.34&nbsp;ms | 2.70&nbsp;ms | 1.26&nbsp;ms | **1.09&nbsp;ms** | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.23\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.48\times}}$ |
+| **256K** | 2.51&nbsp;ms | 5.31&nbsp;ms | 2.40&nbsp;ms | **2.06&nbsp;ms** | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.58\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
 
-- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 2) is measured the same way, at the same L, in the same run.
+- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 4 hd256) is measured the same way, at the same L, in the same run.
 - **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
 - **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
 - **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.
@@ -303,7 +304,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 | chapter | question it answers |
 |---|---|
 | [Correctness matrix](docs/platforms/thor/kernel/correctness.md)  | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype |
-| [Headline L-sweep](docs/platforms/thor/kernel/sweep.md)  | Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L |
+| [Headline L-sweep](docs/platforms/thor/kernel/sweep.md)  | Mjolnir vs FlashInfer vs FlashAttention 4 hd256 (fp8 Q+KV, on the Mjolnir image), ncu kernel time at every L |
 | [Head-major pages](docs/platforms/thor/kernel/hndsweep.md)  | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? |
 | [KV layouts and formats](docs/platforms/thor/kernel/kvfmt.md)  | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) |
 | [KV format accuracy](docs/platforms/thor/kernel/quant.md)  | relative L2 error of each KV format vs unquantized KV, at every L |

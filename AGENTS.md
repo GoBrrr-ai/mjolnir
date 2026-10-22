@@ -27,7 +27,10 @@ the agents run on**. When doing anything on the GPU:
   **±3%** between runs (`NOISE_PCT`, cv 0.6–2.6%, median 1.25%), but absolute
   µs drift ~10% between runs at long L — compare legs measured in the same run
   and require a win across L. **L=16K is bimodal** (0.98× or 1.14× vs
-  FlashInfer depending on the run): never decide on 16K alone. End-to-end
+  FlashInfer depending on the run): never decide on 16K alone.
+  **FlashInfer's 32K leg also drifts +6–10% between runs** while same-run
+  triads show parity (run 2, 2026-10-21): never decide on 32K alone either.
+  End-to-end
   serving numbers use the same ±3% band (`E2E_NOISE_PCT`), but with MTP the
   per-run decode rate spreads 10–15% (acceptance varies by prompt): decode
   cells need `--repeat` before a few-% difference means anything.
@@ -140,7 +143,14 @@ skipped with a hint — nothing blocks on a password.
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
   `debugger` from the user's global OpenCode config; none ship with the repo). The loop
-  is `research/program.md`; every experiment is a ledger row.
+  is `research/program.md`; every experiment is a ledger row. Run 2
+  (`oct21`, 2026-10-21): 6 rows, best kept 1.2485 (the baseline); a 4-stage
+  fp6 ring with runtime producer pacing parked as `ar/parked/2f20c4f`
+  (+7% ncu at 8K only; ≈0.2% e2e there, parity 16K+ — opt-in only, an
+  MTP-shape smoke is mandatory before any default flip); split coarsening
+  (T≥128 tiles) and the brick+coarsening batch discarded (+1.1% geomean
+  resting on 8K: +0.2% without it). Ceiling under the rules ≈1–2%
+  (`research/runs/oct21/`).
 - **Retired**: the FA4 GEMV decode kernel and its tooling were removed; the
   last snapshot is in git history at
   [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
@@ -329,14 +339,30 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       Opt-in experiment configs carry their switches in the `.env` inside
       their config dir (`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`;
       `mjolnir.lmhead`, `mjolnir calibrate --draft-vocab`).
-- [ ] **fp6 byte-vs-time gap**: not the 64-byte L2 requests (SW128 tried: ~5% at
-      ≥64K only) and **not the 16K–32K hole** — that was an ncu artifact
-      (identical launches flip ±25% under replay; fp6prof averaged 2–3 of them;
-      fixed 2026-10-17: fastest-launch snapshot, wall shows a flat 0.84–0.86×
-      fp8 at every L) and not the block table (E2a readahead: no win, impl in
-      git history `39fa326`). What remains is a uniform ~10–17% latency floor
-      vs the byte ratio at every L (`docs/platforms/thor/kernel/fp6prof.md`,
-      ranked ideas in `research/program.md`).
+- [x] **fp6 byte-vs-time gap — explained (run 2, 2026-10-21): it *is* the
+      64-byte L2 requests.** Packed-fp6 d-major pages force 96-B gmem TMA
+      boxes → 64-B L2 requests (2× fp8's request count at 0.75× bytes); the
+      L2 front-end request rate walls the 16K+ band and nothing kernel-side
+      widens it — SW128 is **inert** (the request width comes from the gmem
+      box: byte-identical streams, proven; the old "SW128 ~5% at ≥64K" was
+      FlashInfer drift over a no-op build, run-1 rows 9–12 same), and deeper
+      rings / L2 prefetch / block-table readahead measured parity-or-negative
+      (block table: git history `39fa326`). The ncu-replay artifact behind the
+      old "16K–32K hole" reading was fixed 2026-10-17; the request wall is the
+      mechanism for the rest. 8K is latency-bound (the parked ring recovers
+      ~13% ncu there); the residual gap is ≈1–2% geomean — wider requests
+      need a vLLM cache-format change (out of scope).
+      (`research/runs/oct21/notes/`, `docs/platforms/thor/kernel/fp6prof.md`)
+- [x] **Softmax has slack; the merge is launch-bound (run 2)**: the S→P chain
+      is fully hidden behind BMM2 by the 2-stage S/P pipelining (gating the
+      per-tile max reduction to every 4th/8th tile: timing flat at every L) —
+      don't spend on softmax-chain shortening or softmax/GEMM overlap (CTA
+      ping-pong included). e4m3-P has zero headroom above a stale reference
+      (`FP8_P_SCALE=448` pins p∈[0,1]): declared-reference softmax
+      (FlashDecoding++-style) is structurally out. The split-KV merge has a
+      ~4–5 µs launch/latency floor (vs 7 µs measured) and its j-ordered
+      partial sum is the bit-faithful spec — never reassociate it; only
+      fewer partials helps (measured +0.2%).
 - [x] Fuse the split-KV merge into the last CTA per sequence — tried
       (autoresearch run 1): 0.56× at 4K; retired in favour of a cheaper merge.
 - [ ] fp4 with finer scales (per-channel K folded into Q, per-token V into P).
@@ -419,6 +445,10 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   pattern** (active only on sm_110, passive until a config opts in) is the norm.
 - **Kernel changes** go behind a harness flag first; a default flips only with a
   same-run A/B win across L. Never change `emulate_decode` to make a test pass.
+- **CuTe-DSL spin trap**: a spin on an smem flag must re-read via atomic-RMW
+  (`cute.arch.atomic_add(ptr, cutlass.Int32(0), sem="relaxed", scope="cta")`)
+  — a plain load can be served from a stale register (the paced-ring deadlock,
+  run 2; `research/runs/oct21/notes/ring-pacing-deadlock.md`).
 - **Bench discipline:** gate via `gate.py`, raw JSON first, charts second; no
   prose-only results.
 - **Reporting changes:** % is the relative change of the measured value —

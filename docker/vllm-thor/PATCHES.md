@@ -1,8 +1,9 @@
 # vLLM Thor PR Patches
 
-Four vLLM PR fixes, **hand-adapted** onto the vLLM base (not a raw
-`git apply` of the upstream PR diffs, because the base code has diverged
-from each PR's base), plus nine **Thor-authored** patches: the **Mjolnir
+Seven vLLM PR fixes, **hand-adapted** onto the vLLM base (not a raw
+`git apply` of the upstream PR diffs — the four originals because the base
+code has diverged from each PR's base, the three newer fixes to pin them
+to v0.32.0 and carry the THOR sentinels), plus nine **Thor-authored** patches: the **Mjolnir
 attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see "The Mjolnir
 attention backend" below), two for a capability the upstream backends don't
 yet have, two `sm_110` gate probes (see "Thor sm_110 gate probes" below), one
@@ -11,8 +12,10 @@ gate" below), one **flashinfer-side** sm_110 enablement hunk (see "Thor sm_110
 GDN prefill enablement (flashinfer side)" below), one hd256 FP8-KV kernel +
 policy patch (probe-gated, T11 canary in `kernel_test_sm110_gates.py`) and one
 hd256 1CTA decode carve-out (see "Thor hd256 1CTA decode carve-out (v11,
-2026-09-24)" below), plus the fp6 e2m3 KV cache dtype for the Mjolnir backend.
-Fourteen patches in total, applied by `apply_patches.py`
+2026-09-24)" below), plus the fp6 e2m3 KV cache dtype for the Mjolnir backend
+and two **sm_110 MoE backend gate fixes** plus a **spec-decode split top-p
+fix** (see "Thor MoE backend gates on sm_110" below).
+Seventeen patches in total, applied by `apply_patches.py`
 onto the installed vllm package **and** the installed flashinfer package;
 verified by `verify_patches.py`.
 
@@ -40,6 +43,9 @@ Base this was verified against: **vllm 0.32.0**
 | `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
 | `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
 | `thor-gdn-prefill-fi-sm110.patch` | — (FlashInfer) | **FlashInfer-side** GDN prefill non-CP dispatch allowlist widened major 10 → (10, 11) so the SM100 CuTe-DSL kernel is reachable on sm_110 (behavior unchanged on other devices); see "Thor sm_110 GDN prefill enablement (flashinfer side)". |
+| `thor-sm110-mxfp4-moe-gate.patch` | [#62133](https://github.com/vllm-project/vllm/pull/62133) | **Fix OAI Triton MXFP4 MoE on SM110** (supersedes closed #61387). #58877 (in v0.32.0) widened the OAI-Triton device gate to `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init (upstream issue #61374). The GPT-OSS MXFP4 **selector** keeps **MARLIN** the default on SM110 (TRITON opt-in) and `_swizzle_mxfp4` applies the persistent + `epilogue_subtile=1` constraints on SM110 too. Drop when upstream merges #62133. |
+| `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275. |
+| `thor-spec-decode-split-topp.patch` | [#58231](https://github.com/vllm-project/vllm/pull/58231) | **Split top-p masks every token for huge forced logits → token 0.** `_topp_sb_mask_kernel` (the split top-p pipeline: CUDA, batches ≤ 64, rows with `top_p < 1` and no active top-k) mapped its probability-space pivot back to logit space as `log(pivot) + log(Z) + M`, which fp32 rounds to `M` when a forced logit makes `|M|` huge (thinking-token-budget writes 1e9) — the whole row masks, spec decode emits token 0 forever (≈3× throughput loss). The fix masks in probability space (`exp(x − M)/Z > pivot`, bitwise the step kernels' predicate; `x == M` kept as a backstop). Trigger needs a **huge forced logit**, not merely `top_p < 1` + spec decode. Drop when upstream merges #58231 — it is merged 2026-10-19, first release after 0.32.0. |
 
 ## Why "hand-adapted" and not the raw diff
 
@@ -517,3 +523,76 @@ members before `CUSTOM` (a new upstream member there moves one line); the
 `fa_utils.py` hunk sits on the FA4 patches' version of that file, next to the
 `flash_attn_version` override in `get_flash_attn_version()`, so it is
 re-generated whenever those patches are.
+
+## Thor MoE backend gates on sm_110 (2026-10-22)
+
+Three upstream fixes, hand-adapted onto v0.32.0 — the two below prevent
+faults when an NVFP4/MXFP4 MoE model is served on Thor; the third (a sampler
+fix, not MoE-related) closes the batch out. Files are disjoint from every
+other patch, so their `PATCH_ORDER` position is immaterial.
+
+- **`thor-sm110-mxfp4-moe-gate.patch`** —
+  [#62133](https://github.com/vllm-project/vllm/pull/62133) "Fix OAI Triton
+  MXFP4 MoE on SM110" (ready-labeled; supersedes the closed #61387). #58877
+  (merged 2026-10-06, in v0.32.0) widened the OAI-Triton device gate to
+  `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init
+  (upstream issue #61374). The final state keeps the device gate (TRITON
+  stays explicitly selectable) but: the GPT-OSS MXFP4 **selector**
+  (`_get_priority_backends_for_gpt_oss` in `oracle/mxfp4.py`) keeps **MARLIN**
+  as the default on SM110 (TRITON opt-in), and `_swizzle_mxfp4`
+  (`quantization/utils/mxfp4_utils.py`) applies the `is_persistent` +
+  `epilogue_subtile=1` constraints on SM110 too (the SWAP_XW
+  subtiled-epilogue codegen bug); the `_triton_kernel_moe_supports_current_device`
+  comment in `experts/gpt_oss_triton_kernels_moe.py` is updated to match
+  (comment-only hunk). **Drop when upstream merges #62133.**
+- **`thor-sm110-cutlass-fp4-moe-guard.patch`** —
+  [#62275](https://github.com/vllm-project/vllm/pull/62275) "Disable CUTLASS
+  FP4 MoE backend on sm_110". NVFP4 MoE auto-select picks `VLLM_CUTLASS` on
+  Thor and faults in `profile_run` (TMA descriptor init), validated upstream
+  on Thor with Qwen3.8-Flash-Next-NVFP4. The fix removes sm_110 from
+  `CutlassMoEMethod._supports_current_device`'s family allowlist
+  (`experts/cutlass_moe.py`) so the fallback backend is chosen. **Drop when
+  upstream merges #62275.**
+
+**Sentinels:** `THOR_SM110_MXFP4_GATE` (selector condition in `mxfp4.py`) +
+the `for family in (100, 110, 120)` widening (`mxfp4_utils.py`);
+`THOR_SM110_CUTLASS_FP4_GUARD` + the collapsed single-line condition +
+an absence guard on `is_device_capability_family(110)` in `cutlass_moe.py`.
+
+**Adaptation drift:** none of substance — all six hunks apply to the
+v0.32.0 text verbatim; only line offsets differ (`mxfp4.py` −11,
+`mxfp4_utils.py` −17, `topk_topp_triton.py` −9; `gpt_oss_triton_kernels_moe.py`
+and `cutlass_moe.py` land at their exact upstream lines). The `tests/` hunks
+are dropped (the wheel ships no test dir). Verified on a pristine
+`vllm/vllm-openai:v0.32.0-ubuntu2404` tree: full stack applies, all fixes
+verify (no GPU).
+
+**`thor-spec-decode-split-topp.patch`** —
+[#58231](https://github.com/vllm-project/vllm/pull/58231) "[Bugfix][Sampler]
+Fix split top-p masking every token for huge logits (thinking_token_budget +
+spec decode emits token 0)" (merged 2026-10-19 — first release after 0.32.0,
+so 0.32.0 still carries the bug). The split top-p mask kernel
+(`_topp_sb_mask_kernel` in `v1/sample/ops/topk_topp_triton.py` — CUDA,
+batches ≤ 64 rows, rows with `top_p < 1` and no active top-k) found its
+pivot in probability space but masked in logit space:
+`pivot_logit = log(pivot) + log(Z) + M` rounds to `M` in fp32 once a forced
+logit makes `|M|` huge (fp32 spacing at 1e9 is 64), every token fails the
+strict `x > pivot_logit`, the row goes all `-inf`, and sampling emits token
+0 forever (V1 rejection sampler: softmax NaN → draft rejected →
+`recovered_id = 0`; MRV2 verifier: argmax of an all `-inf` row = 0), with a
+≈3× throughput loss on top. **Trigger: a huge forced logit —
+thinking-token-budget forcing (writes 1e9 to the end-of-thinking token) is
+the known producer; plain `top_p < 1` + spec decode does NOT suffice**
+(ordinary logits keep the log-space round-trip exact to ~1e-6), and greedy /
+`top_p = 1.0` are unaffected. Our serving configs (`top_p: 0.95`, MTP=5) sit
+exactly on the vulnerable path — spec decode routes its verify rows through
+`apply_top_k_top_p` (non-spec stays on the fused FlashInfer sampler unless
+processed logprobs is on or FlashInfer is unavailable) — and
+`thinking_token_budget` is a **request-level** param in 0.32.0 (validated in
+`sampling_params.py`, no serving-config key needed), so any client can arm
+it against our server. The fix masks in probability space
+(`exp(x − M)/Z > pivot`, bitwise the step kernels' predicate; `x == M` kept
+as a backstop) and changes nothing for ordinary logits (upstream: 24/24
+randomized rows identical before/after). Sentinel: `THOR_SPEC_SPLIT_TOPP`.
+**Drop when upstream merges #58231 — it is merged 2026-10-19, first release
+after 0.32.0.**

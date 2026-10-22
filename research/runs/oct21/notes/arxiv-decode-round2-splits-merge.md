@@ -1,0 +1,13 @@
+# Round-2 arXiv brief — splits, merge tail, TMEM/SMEM, scheduling (and why most of it is dry) (digest)
+2026-10-21; arxiv-researcher; round-2 brief (follow-up to arxiv-decode-latency-softmax.md; no run ids of its own — code-facts + arithmetic against t5_plan/t5_call/t5_decode).
+**Verdict:** the well is dry for ≥2% keeps — one sub-bar stacker survives (split-count coarsening at T ≥ 128 tiles, predicted +0.3–0.6%, later measured +0.2%), one conditional probe is arithmetic-killed (8K force_splits=16), and the merge/TMEM/8K categories are closed by code evidence.
+**Key facts:**
+- Code facts: grid `(num_work, n_tiles, h_k)` at t5_call.py:482 → co-resident SM pairs already adjacent chunks (locality optimal by construction); O-rescale already gated bit-identically (t5_decode.py:1321–1334, the FA4 conditional-rescaling trick is shipped); reduction compiled out at n_splits==1 with a frozen j-ordered sum (t5_call.py:536, t5_decode.py:1475–1541); plan caps max_splits=16, longest-first (t5_plan.py:140–197).
+- Idea 1 (LIVE, sub-bar): halve max_splits for T ≥ 128 tiles — at 16K–32K the request-rate wall caps throughput, so fewer partials (6 rows × 256 + LSE per (kv-head, chunk) round trip) is the only legal merge lever; no emulator change (plan output is an emulator input); became the measured +0.2% coarsening.
+- Idea 2 (CONDITIONAL, dead): 8K refinement to 16 chunks × 4 heads = 64 blocks cannot beat the 40-CTA TMEM occupancy pin (ctas_per_sm=2, O = 256 of 512 columns) — extra blocks just queue.
+- §Closed A (8K dry): KV bytes 12.6 MB → 46 µs at 273 GB/s, 61 µs at the fp6 byte-ratio ceiling (~205 GB/s); post-brick 8K ≈ 73–77 µs = 164–172 GB/s, inside the 64K–256K band (168–195) — 8K no longer special.
+- §Closed B (merge tail): floor ≈ 4–5 µs vs 7 measured → ≤ 2–3 µs theoretical, ~0 practical; fused last-CTA 0.56× (run 1), PDL no gain, cluster/DSMEM pre-merge reassociates the j-ordered sum and fails the bit-faithful gate.
+- §Closed C (TMEM/SMEM): S loads/P stores hidden behind BMM2 (softmax warpgroup has slack); τ-slack rescale not bit-faithful; 2-CTA MMA mode needs shared operands (disjoint chunks in b=1 decode) — dead.
+- §Closed D: Sawtooth Wavefront Reordering (2601.16032) has no target in b=1 decode (every KV byte read exactly once — misses purely compulsory); its platform facts (24 MiB L2: 16K KV = 25.2 MB straddles L2, 32K = 50 MB doubles it) corroborate the request-wall attribution.
+- Batch arithmetic: brick +0.8–1% + coarsening +0.3–0.6% ≈ +1.1–1.6% — below the 2% bar; geomean within ~1–2% of its ceiling under the stated rules.
+**Full report:** `git show 56caea5:research/runs/oct21/notes/arxiv-decode-round2-splits-merge.md`

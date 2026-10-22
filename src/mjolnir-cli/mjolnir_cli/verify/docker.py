@@ -88,9 +88,11 @@ class Runner:
 
     # ── low level ──────────────────────────────────────────────────────────
     def image_for(self, leg: Leg) -> str:
-        """Mjolnir legs run on the Mjolnir image; FlashInfer / FA2 references
+        """Mjolnir legs and the fa4 leg run on the Mjolnir image (the FA4
+        hd256 + fp8 patch group exists only there — stock vLLM downgrades
+        FA4 to FA2 for hd256 + quantized KV); FlashInfer / FA2 references
         on the official vLLM image."""
-        return self.image if leg.kind == "t5" else self.ref_image
+        return self.image if leg.kind in ("t5", "fa4") else self.ref_image
 
     def _ensure(self, image: str, log: Path) -> bool:
         if self.dry_run or image in self._ready:
@@ -186,7 +188,7 @@ class Runner:
                 ],
             )
             return "python3 " + " ".join(shlex.quote(a) for a in args), []
-        script = {"fi": "fi_driver.py", "fa2": "fa2_driver.py"}[leg.kind]
+        script = {"fi": "fi_driver.py", "fa2": "fa2_driver.py", "fa4": "fa4_driver.py"}[leg.kind]
         env = common_env + [f"{k}={v}" for k, v in leg.env]
         return f"python3 {_IN_DRIVERS}/{script}", env
 

@@ -1,0 +1,16 @@
+diff --git a/vllm/model_executor/layers/fused_moe/experts/cutlass_moe.py b/vllm/model_executor/layers/fused_moe/experts/cutlass_moe.py
+--- a/vllm/model_executor/layers/fused_moe/experts/cutlass_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/cutlass_moe.py
+@@ -714,9 +714,9 @@ def expects_unquantized_inputs(self) -> bool:
+     def _supports_current_device() -> bool:
+         p = current_platform
++        # THOR_SM110_CUTLASS_FP4_GUARD: sm_110 excluded — the CUTLASS FP4 MoE
++        # backend faults in profile_run on Thor (TMA descriptor init).
+         return p.is_cuda() and (
+-            p.is_device_capability_family(100)
+-            or p.is_device_capability_family(110)
+-            or p.is_device_capability_family(120)
++            p.is_device_capability_family(100) or p.is_device_capability_family(120)
+         )
+ 
+     @staticmethod

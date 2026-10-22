@@ -67,12 +67,13 @@ SHORT = {
     "fi": "FlashInfer",
     "fi-hnd": "FlashInfer HND",
     "fa2": "FA2",
+    "fa4": "FA4 hd256",
     "mjolnir": "Mjolnir e2m3",
     "mjolnir-fp8": "Mjolnir fp8",
 }
 
 
-REF_SHORT = {"fi": "FI", "fi-hnd": "FI-HND", "fa2": "FA2"}
+REF_SHORT = {"fi": "FI", "fi-hnd": "FI-HND", "fa2": "FA2", "fa4": "FA4"}
 
 
 def _short(s: dict) -> str:

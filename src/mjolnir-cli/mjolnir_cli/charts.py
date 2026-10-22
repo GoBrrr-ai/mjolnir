@@ -50,7 +50,7 @@ def chart_speedup(data: dict, mode: Mode):
     Ls = sorted(results.point_map(by["fi"]))
     ymax = 1.2
     labels: list[tuple[float, float, str]] = []
-    for sid in ("mjolnir", "mjolnir-fp8", "fa2"):
+    for sid in ("mjolnir", "mjolnir-fp8", "fa2", "fa4"):
         if sid not in by:
             continue
         sp = results.speedup(by["fi"], by[sid])
@@ -60,7 +60,12 @@ def chart_speedup(data: dict, mode: Mode):
         ys = [sp[L] for L in xs]
         ymax = max(ymax, max(ys))
         ax.plot(xs, ys, **theme.line_kw(mode, sid))
-        name = {"mjolnir": "Mjolnir · e2m3 KV", "mjolnir-fp8": "Mjolnir · fp8 KV", "fa2": "FlashAttention 2"}[sid]
+        name = {
+            "mjolnir": "Mjolnir · e2m3 KV",
+            "mjolnir-fp8": "Mjolnir · fp8 KV",
+            "fa2": "FlashAttention 2",
+            "fa4": "FlashAttention 4 hd256",
+        }[sid]
         labels.append((xs[-1], ys[-1], name))  # the geomeans are in the README table, not here
     _log2_axis(ax, Ls, mode)
     ax.set_ylim(0, max(2.0, ymax * 1.12))
@@ -90,11 +95,12 @@ def chart_latency(data: dict, mode: Mode):
     Ls: list[int] = []
     names = {
         "fa2": "FlashAttention 2 · bf16 KV",
+        "fa4": "FlashAttention 4 hd256 · fp8 Q+KV",
         "fi": "FlashInfer · fp8 KV",
         "mjolnir-fp8": "Mjolnir · fp8 KV",
         "mjolnir": "Mjolnir · e2m3 KV",
     }
-    for sid in ("fa2", "fi", "mjolnir-fp8", "mjolnir"):
+    for sid in ("fa2", "fa4", "fi", "mjolnir-fp8", "mjolnir"):
         if sid not in by:
             continue
         pm = results.point_map(by[sid])
@@ -113,7 +119,8 @@ def chart_latency(data: dict, mode: Mode):
         ax,
         mode,
         "Decode latency per step",
-        "one decode step over the whole KV cache · lower is faster · FA2 reads 2× the bytes (no fp8 KV path)",
+        "one decode step over the whole KV cache · lower is faster · FA4 hd256: the patched image's FA path "
+        "(1-CTA decode, no SplitKV) · FA2 (on demand) reads 2× the bytes — no fp8 KV path",
     )
     _footer_run(fig, mode, doc)
     return fig
@@ -141,11 +148,12 @@ def chart_bandwidth(data: dict, mode: Mode):
     Ls: list[int] = []
     names = {
         "fa2": "FlashAttention 2",
+        "fa4": "FlashAttention 4 hd256",
         "fi": "FlashInfer",
         "mjolnir-fp8": "Mjolnir · fp8 KV",
         "mjolnir": "Mjolnir · e2m3 KV",
     }
-    for sid in ("fa2", "fi", "mjolnir-fp8", "mjolnir"):
+    for sid in ("fa2", "fa4", "fi", "mjolnir-fp8", "mjolnir"):
         if sid not in by:
             continue
         pm = results.point_map(by[sid], "gbps")

@@ -33,9 +33,9 @@
 | [`mjolnir platform`](#mjolnir-platform) | The active platform (thor supported; spark / orin research): list, show. |
 | [`mjolnir platform list`](#mjolnir-platform-list) | Every shipped platform: architecture, images, maturity. |
 | [`mjolnir platform show`](#mjolnir-platform-show) | The active platform (flag &gt; env `MJOLNIR_PLATFORM` &gt; detection), its detection confidence and one provenance line per source that probed. |
-| [`mjolnir verify`](#mjolnir-verify) | Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA2), saved as raw data for the charts. |
+| [`mjolnir verify`](#mjolnir-verify) | Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA4 hd256), saved as raw data for the charts. |
 | [`mjolnir verify correctness`](#mjolnir-verify-correctness) | Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len and Q dtype. |
-| [`mjolnir verify sweep`](#mjolnir-verify-sweep) | The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks). |
+| [`mjolnir verify sweep`](#mjolnir-verify-sweep) | The headline: Mjolnir vs FlashInfer vs FlashAttention 4 hd256 at every L (ncu, cold L2, base clocks). |
 | [`mjolnir verify hndsweep`](#mjolnir-verify-hndsweep) | FlashInfer on NHD and HND pages vs Mjolnir (fp8 KV) on HND: the fair layout comparison. |
 | [`mjolnir verify kvfmt`](#mjolnir-verify-kvfmt) | KV layouts x formats: fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD / interleaved / HND. |
 | [`mjolnir verify quant`](#mjolnir-verify-quant) | Accuracy per KV format: relative L2 error vs attention over unquantized KV. |
@@ -513,7 +513,7 @@ detection confidence and one provenance line per source that probed.
 
 ## `mjolnir verify`
 
-Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA2), saved as raw data for the charts.
+Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA4 hd256), saved as raw data for the charts.
 
 Sub-commands: [`mjolnir verify correctness`](#mjolnir-verify-correctness), [`mjolnir verify sweep`](#mjolnir-verify-sweep), [`mjolnir verify hndsweep`](#mjolnir-verify-hndsweep), [`mjolnir verify kvfmt`](#mjolnir-verify-kvfmt), [`mjolnir verify quant`](#mjolnir-verify-quant), [`mjolnir verify ring`](#mjolnir-verify-ring), [`mjolnir verify prefetch`](#mjolnir-verify-prefetch), [`mjolnir verify pdl`](#mjolnir-verify-pdl), [`mjolnir verify ab`](#mjolnir-verify-ab), [`mjolnir verify fp6prof`](#mjolnir-verify-fp6prof), [`mjolnir verify timing`](#mjolnir-verify-timing), [`mjolnir verify profile`](#mjolnir-verify-profile), [`mjolnir verify spec`](#mjolnir-verify-spec), [`mjolnir verify kv-cache-size`](#mjolnir-verify-kv-cache-size), [`mjolnir verify vllm`](#mjolnir-verify-vllm), [`mjolnir verify bench`](#mjolnir-verify-bench), [`mjolnir verify all`](#mjolnir-verify-all), [`mjolnir verify show`](#mjolnir-verify-show), [`mjolnir verify list`](#mjolnir-verify-list).
 
@@ -540,14 +540,14 @@ Kernel vs the bit-faithful emulator: every layout, KV format, page size, q_len a
 
 ## `mjolnir verify sweep`
 
-The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks).
+The headline: Mjolnir vs FlashInfer vs FlashAttention 4 hd256 at every L (ncu, cold L2, base clocks).
 
 `--batch 4 --q_len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
 with MTP=3 at 4 concurrent requests (saved as a non-default run).
 
 | option | description | default |
 |---|---|---|
-| `--legs` | legs: fi, fi-hnd, fa2, mjolnir-fp8, mjolnir | `fi,fa2,mjolnir-fp8,mjolnir` |
+| `--legs` | legs: fi, fi-hnd, fa2, fa4, mjolnir-fp8, mjolnir | `fi,fa4,mjolnir-fp8,mjolnir` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
 | `--ls` | L values (default: 128 4096 8192 16384 32768 65536 131072 262144) |  |
 | `--iters` | profiled iterations per point (ncu stages) | `50` |

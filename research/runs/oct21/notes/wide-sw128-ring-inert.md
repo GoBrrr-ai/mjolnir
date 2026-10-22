@@ -1,0 +1,11 @@
+# Debug Report: wide-SW128-fp6-ring-inert (digest)
+2026-10-21; debugger (orchestrator delegation, batch commit ff84fff); evidence: triad 20261021-170638 (256K wide vs noWide), fp6prof 20261021-094358 (L=12288), bisect container matrix rows 1–5, run-1 ledger rows 9–12.
+**Verdict:** the gated wide SW128 fp6 ring is inert BY CONSTRUCTION — `make_smem_layout_a` under the fp8-MMA substitution yields a layout byte-identical to the narrow fp6 derivation (both already `K_SW128`), so the 64-B L2 requests are a TMA-descriptor gmem-box property of packed-6-bit data (96-B inner extent) that no smem-side change can move; run-1's "SW128 ~5% at ≥64K" was an inert build + FlashInfer drift (rows 9–12; row 12's own verdict: "FlashInfer-side false positive").
+**Key facts:**
+- Bisect matrix (L=8192 HND): hardcoded-wide 197,953 req / 2.051 sectors-per-req ≡ runtime-gated 2.053 (0.03% jitter) — the gate/re-bind changes nothing; fp8 control 4.053 ✓ methodology sound; 256K triad 20261021-170638 byte-identical 2.01 both; fp6prof row: fp8 4.08 vs e2m3 2.07 with identical smem layouts.
+- Host-side probe: narrow ≡ wide partition_shape_A ((128,32),1,4), K/V layouts equal, both `S<3,4,3>` (= K_SW128); the f8f6f4 MMA's A-instruction tile (128,32) equals fp8's and `kv_smem_dtype` is Int8 in both — same chooser inputs → same atom.
+- Geometry: d=256 packed-fp6 row = 192 B → box inner extents 96 B (128 elems, current), 192 B (256 elems, not a 128-B multiple), 384 B (512 elems > TMA boxDim[0] ≤ 256) — **128-B requests geometrically unreachable**; only levers: gmem row padding (erases the fp6 saving) or mma_tile_k=256 (32-KiB stages, deep surgery, never measured).
+- Ref check with wide compile-time forced (--seqlen 65536): |kern-emu| max 6.102e-05 PASS (trivially — wide objects are the narrow ones).
+- Run-1 ledger rows 9/10 (1d3bcbd): functionally ≡ baseline (only deleted the crashing hand-built WIDE TMA branch) → short-L drops and long-L "wins" were FlashInfer drift; AGENTS.md's SW128 bullet rested on this.
+- Recommended fix: remove the dead wide-TMA machinery (exact edit spec for t5_call/t5_decode/t5_harness; not done — superseded by run-2's request-wall conclusion); `runner.py` VariantKey lacks the flags (compile-cache collision if ever wired).
+**Full report:** `git show 56caea5:research/runs/oct21/notes/wide-sw128-ring-inert.md`
