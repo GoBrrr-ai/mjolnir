@@ -158,7 +158,7 @@ def _findings(stage: str, doc: dict) -> list[str]:
     noise = NOISE_PCT / 100
     if stage in ("sweep", "hndsweep"):
         base = by.get("fi")
-        for sid in ("mjolnir", "mjolnir-fp8", "fi-hnd", "fa2"):
+        for sid in ("mjolnir", "mjolnir-fp8", "fi-hnd", "fa2", "fa4"):
             if base and sid in by:
                 sp = results.speedup(base, by[sid])
                 if not sp:
@@ -247,7 +247,7 @@ def _findings(stage: str, doc: dict) -> list[str]:
 
 
 TABLES = {
-    "sweep": lambda d: _series_time_table(d, ("fi", "fa2")),
+    "sweep": lambda d: _series_time_table(d, ("fi", "fa4", "fa2")),
     "hndsweep": lambda d: _series_time_table(d, ("fi", "fi-hnd")),
     "kvfmt": lambda d: _variant_table(d, "fi"),
     "ring": lambda d: _variant_table(d, "fi"),
@@ -280,6 +280,7 @@ class ReadmeContext:
     geo_vs_fi: str = ""
     geo_vs_fi_fp8: str = ""
     geo_vs_fa2: str = ""
+    geo_vs_fa4: str = ""
     min_vs_fi: str = ""
     max_vs_fi: str = ""
     min_vs_fi_L: str = ""
@@ -290,6 +291,7 @@ class ReadmeContext:
     us_64k_mjolnir: str = ""
     us_64k_fi: str = ""
     us_64k_fa2: str = ""
+    us_64k_fa4: str = ""
     correctness: str = ""  # "96 / 96"
     sweep_run: str = ""
     tables: dict = field(default_factory=dict)
@@ -431,12 +433,16 @@ def collect_context(
                 ctx.geo_vs_fi_fp8 = f"{results.geomean(results.speedup(by['fi'], by['mjolnir-fp8']).values()):.2f}"
             if "fa2" in by:
                 ctx.geo_vs_fa2 = f"{results.geomean(results.speedup(by['fa2'], ours).values()):.2f}"
+            if "fa4" in by:
+                ctx.geo_vs_fa4 = f"{results.geomean(results.speedup(by['fa4'], ours).values()):.2f}"
             pm = results.point_map(ours)
             if 65536 in pm:
                 ctx.us_64k_mjolnir = fmt_us(pm[65536])
                 ctx.us_64k_fi = fmt_us(results.point_map(by["fi"]).get(65536))
                 if "fa2" in by:
                     ctx.us_64k_fa2 = fmt_us(results.point_map(by["fa2"]).get(65536))
+                if "fa4" in by:
+                    ctx.us_64k_fa4 = fmt_us(results.point_map(by["fa4"]).get(65536))
     corr = data.get("correctness")
     if corr:
         cs = corr.get("cases", [])
@@ -684,7 +690,7 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
 
 _HOW: dict[str, str] = {
     "kernel": """\
-- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 2) is measured the same way, at the same L, in the same run.
+- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 4 hd256) is measured the same way, at the same L, in the same run.
 - **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
 - **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
 - **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.""",

@@ -704,7 +704,7 @@ STAGES: dict[str, Stage] = {
             "sweep",
             "Headline L-sweep",
             "ncu",
-            "Mjolnir vs FlashInfer vs FlashAttention 2, ncu kernel time at every L",
+            "Mjolnir vs FlashInfer vs FlashAttention 4 hd256 (fp8 Q+KV, on the Mjolnir image), ncu kernel time at every L",
             stage_sweep,
         ),
         Stage(

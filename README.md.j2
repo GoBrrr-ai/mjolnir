@@ -206,7 +206,8 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ ctx.noise_pct
 | **Mjolnir · e2m3 KV** | `{{ ctx.default_config }}` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
 | **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
 | **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm {{ ctx.vllm_version }} FlashInfer for `sm_110` | fp8 e4m3, NHD pages |
-| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — stock vLLM {{ ctx.vllm_version }}'s `sm_110` default | bf16 {{ color("(FA2 has no fp8 KV)")}} |
+| **FlashAttention&nbsp;4 · hd256 fp8** | `NVFP4_FA4hd256` | FA4 hd256 as our image serves it — the patched FA4: 1-CTA decode carve-out, no SplitKV (structural in vLLM {{ ctx.vllm_version }}'s vendored kernel) | fp8 e4m3 Q+KV, NHD pages |
+| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — on demand (`--legs fa2`); stock vLLM {{ ctx.vllm_version }}'s `sm_110` default | bf16 {{ color("(FA2 has no fp8 KV)")}} |
 
 {% if has("sweep") -%}
 {{ chart("kernel-latency", "Decode latency per step vs context length") }}

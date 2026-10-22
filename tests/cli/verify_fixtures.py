@@ -12,7 +12,7 @@ from mjolnir_cli.verify import results, stages
 LS = list(stages.ALL_LS)
 # µs at each L (ncu, cold L2) — shapes only
 FI = [25.4, 64.2, 103.0, 191.5, 371.9, 763.4, 1370.0, 2560.0]
-FA2 = [31.0, 118.0, 205.0, 380.0, 745.0, 1490.0, 2950.0, 5880.0]
+FA4 = [31.0, 118.0, 205.0, 380.0, 745.0, 1490.0, 2950.0, 5880.0]  # the default FA-family baseline (hd256 fp8)
 MJ_FP8 = [13.6, 55.1, 87.7, 169.6, 354.7, 676.3, 1270.0, 2400.0]
 MJ_E2M3 = [13.3, 49.8, 82.1, 172.7, 330.0, 617.3, 1190.0, 2180.0]
 FI_HND = [25.3, 61.0, 96.0, 175.4, 344.8, 716.9, 1310.0, 2530.0]
@@ -77,7 +77,7 @@ def all_docs() -> dict[str, dict]:
             "sweep",
             series=[
                 fi,
-                _series("fa2", "FlashAttention 2 (bf16 KV)", "fa2", FA2, 16.0, "baseline"),
+                _series("fa4", "FlashAttention 4 hd256 (fp8 Q+KV)", "fa4", FA4, 8.0, "baseline"),
                 _series("mjolnir-fp8", "Mjolnir (fp8 KV, HND)", "t5", MJ_FP8, 8.0, "ours"),
                 _series("mjolnir", "Mjolnir (e2m3 KV, HND)", "t5", MJ_E2M3, 6.0, "ours"),
             ],

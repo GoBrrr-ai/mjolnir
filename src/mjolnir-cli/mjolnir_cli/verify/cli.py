@@ -2,7 +2,7 @@
 kernel, every run saved as structured raw data (``benchmarks/raw/verify``).
 
     mjolnir verify correctness            # kernel vs emulator matrix
-    mjolnir verify sweep                  # Mjolnir vs FlashInfer vs FA2 at every L (ncu)
+    mjolnir verify sweep                  # Mjolnir vs FlashInfer vs FA4 hd256 at every L (ncu)
     mjolnir verify hndsweep|kvfmt|quant|ring|prefetch|pdl|ab|fp6prof|timing|vllm
     mjolnir verify bench                  # every benchmark stage, default parameters
     mjolnir verify all                    # correctness + every benchmark stage
@@ -35,7 +35,7 @@ from mjolnir_cli.verify.docker import Runner, ensure_image
 from mjolnir_cli.verify.report import console, show
 
 app = typer.Typer(
-    help="Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA2), saved as raw data for the charts.",
+    help="Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA4 hd256), saved as raw data for the charts.",
     no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
@@ -148,7 +148,9 @@ def execute(
         f"[dim]   image {s.image}{'' if s.image == DEFAULT_IMAGE else f' (not the default {DEFAULT_IMAGE})'} · kernel {'checkout ' + str(kernel_src) if kernel_src else 'baked into the image'}"
         f" · L {' '.join(str(x) for x in ctx.ls)} · logs {logdir}[/dim]"
     )
-    console.print(f"[dim]   FlashInfer / FA2 references run on the official image {runner.ref_image}[/dim]")
+    console.print(
+        f"[dim]   FlashInfer references run on the official image {runner.ref_image}; the FA4 leg runs on the Mjolnir image (its patched FA4)[/dim]"
+    )
     from mjolnir_cli import cachectl
 
     if not dry_run:
@@ -182,7 +184,7 @@ def execute(
         platform=s.platform,
         gpu=gpu_name(),
     )
-    doc["ref_image"] = runner.ref_image  # where the FlashInfer / FA2 legs ran (stock vLLM)
+    doc["ref_image"] = runner.ref_image  # where the FlashInfer legs ran (stock vLLM; FA4 runs on our image)
     doc.update(body)
     doc["summary"] = stages.summarize(stage, doc)
     if dry_run:
@@ -292,7 +294,7 @@ def sweep(
     batch: int = typer.Option(1, "--batch", help="sequences per step, each of L tokens (serving: 1-4)"),
     q_len: int = typer.Option(1, "--q-len", help="query tokens per sequence (MTP=3 verification: 4)"),
 ):
-    """The headline: Mjolnir vs FlashInfer vs FlashAttention 2 at every L (ncu, cold L2, base clocks).
+    """The headline: Mjolnir vs FlashInfer vs FlashAttention 4 hd256 at every L (ncu, cold L2, base clocks).
 
     `--batch 4 --q_len 4 --legs fi,mjolnir-fp8` measures the shape vLLM serves
     with MTP=3 at 4 concurrent requests (saved as a non-default run)."""

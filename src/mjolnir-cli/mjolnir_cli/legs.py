@@ -9,8 +9,8 @@ its own CLI syntax — ``verify`` stages take ``side:config``
 config served from ``--image`` (:func:`bench_legs`).
 
 A **kernel leg** is a harness leg id from :mod:`mjolnir_cli.verify.legs`
-(``fi``, ``fi-hnd``, ``fa2``, ``mjolnir-fp8``, ``mjolnir``), used by the ncu
-stages.
+(``fi``, ``fi-hnd``, ``fa2``, ``fa4``, ``mjolnir-fp8``, ``mjolnir``), used by
+the ncu stages.
 
 Change a list here and every command, its ``--help`` default and the
 "is this a headline (default) run" check follow. ``--legs`` / ``--backends``
@@ -78,7 +78,12 @@ OPTIONAL: dict[str, tuple[Leg, ...]] = {
 
 # ── kernel legs (ncu stages) ────────────────────────────────────────────────
 KERNEL: dict[str, str] = {
-    "verify.sweep": "fi,fa2,mjolnir-fp8,mjolnir",
+    # the FA-family baseline is FA4 hd256 — as the NVFP4_FA4hd256 config serves
+    # it on the Mjolnir image (its patched FA4): 1-CTA decode carve-out, no
+    # SplitKV (structural in the vendored hd256 kernel), fp8 Q+KV. FA2 stays
+    # available via explicit --legs (bf16 KV; research platforms keep it as
+    # _RESEARCH_KERNEL_LEGS — FA4 is sm_110-only).
+    "verify.sweep": "fi,fa4,mjolnir-fp8,mjolnir",
     "verify.hndsweep": "fi,fi-hnd,mjolnir-fp8",
     "verify.kvfmt.refs": "fi,fi-hnd",
     # the autoresearch keep/discard harness: FlashInfer vs the kernel under test

@@ -157,7 +157,7 @@ def test_explicit_backends_flag_beats_the_platform_body_resolution(tmp_path):
 @pytest.mark.parametrize(
     ("stage", "platform", "want"),
     [
-        ("verify.sweep", "thor", "fi,fa2,mjolnir-fp8,mjolnir"),
+        ("verify.sweep", "thor", "fi,fa4,mjolnir-fp8,mjolnir"),
         ("verify.hndsweep", "thor", "fi,fi-hnd,mjolnir-fp8"),
         ("verify.sweep", "spark", "fi,fa2"),
         ("verify.hndsweep", "orin", "fi,fa2"),
