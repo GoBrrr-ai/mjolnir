@@ -1,8 +1,8 @@
 """The standalone Mjolnir decode harness: correctness reference, benchmark driver, CLI.
 
-Moved verbatim from ``mjolnir/t5_decode.py`` (the kernel and the host helpers a
-vLLM backend calls stay there). Run as ``python -m mjolnir.t5_decode`` (shim) or
-``python -m mjolnir.t5_harness``.
+The Thor (sm_110) harness: the standalone benchmark driver + the
+bit-faithful emulator. Run as ``python -m mjolnir.arch.thor.harness``
+(formerly ``python -m mjolnir.t5_decode``).
 """
 
 import argparse
@@ -25,9 +25,9 @@ from mjolnir.quant import (
     quantize_q_fp8,
     unpack_o,
 )
-from mjolnir.t5_plan import STRIDE_FIELDS, kernel_strides, plan_split_kv, tile_s_rows
-from mjolnir.t5_const import FP8_P_SCALE, log2_e
-from mjolnir.t5_decode import (
+from mjolnir.arch.thor.plan import STRIDE_FIELDS, kernel_strides, plan_split_kv, tile_s_rows
+from mjolnir.arch.thor.const import FP8_P_SCALE, log2_e
+from mjolnir.arch.thor.decode import (
     HARNESS_KV_FORMAT_FP8Q,
     HARNESS_KV_LAYOUT,
     KV_FORMAT_BITS,
@@ -163,6 +163,13 @@ def run(
 ):
     if not torch.cuda.is_available():
         raise RuntimeError("GPU is required to run this example!")
+    cap = torch.cuda.get_device_capability()
+    if cap not in ((10, 0), (11, 0)):
+        raise RuntimeError(
+            f"This harness drives the Thor (sm_110) T5 tcgen05 kernel; the device is "
+            f"sm_{cap[0]}{cap[1]}. The Orin (sm_87) family has its own driver under "
+            "mjolnir/arch/orin (see its README)."
+        )
     torch.manual_seed(seed)
     dev = "cuda"
 
@@ -217,7 +224,7 @@ def run(
 
     hw = cutlass.utils.HardwareInfo()
     sm_count = hw.get_device_multiprocessor_count()
-    sm_count = 20 if sm_count <= 0 else sm_count  # Jetson AGX Thor: 20 SMs
+    sm_count = 20 if sm_count <= 0 else sm_count  # fallback: Thor's 20 SMs (the query rarely fails)
     # Occupancy-pinned split-KV plan (contiguous chunks, one wave).
     plan = plan_split_kv(
         seq_lens.tolist(),
@@ -231,7 +238,7 @@ def run(
         with_counter=fused_merge,
     )
 
-    print("Paged FMHA decode (sm_110) with:")
+    print(f"Paged FMHA decode (sm_{cap[0]}{cap[1]}) with:")
     print(f"\tnum_seqs: {num_seqs}, max seqlen: {max_seqlen}, varlen: {varlen}")
     print(f"\tseq_lens: {seq_lens.tolist()[:8]}{' ...' if num_seqs > 8 else ''}")
     print(f"\tq_len: {q_len}, heads_q: {heads_q}, heads_k: {heads_k}, headdim: {headdim}")
@@ -575,10 +582,10 @@ def run(
 
 
 def main():
-    import mjolnir.t5_decode as _t5
+    from mjolnir.arch.thor import decode as _t5
 
     _t5.VERBOSE = True  # the harness prints the kernel's compile-time notes
-    parser = argparse.ArgumentParser(description="Paged fp8 decode attention (sm_110).")
+    parser = argparse.ArgumentParser(description="Paged fp8 decode attention (the Thor sm_110 T5 kernel).")
     parser.add_argument("--batches", "--batch", "--b", "--num_seqs", type=int, default=1)
     parser.add_argument(
         "--seqlen", "--seqlen_k", "--s", type=int, default=1024, help="(max) kv sequence length incl. new tokens"

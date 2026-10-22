@@ -16,7 +16,11 @@ def _add_pkg_path():
     import importlib.util
 
     spec = importlib.util.find_spec("mjolnir")
-    if spec is not None and spec.origin and os.path.isfile(os.path.join(os.path.dirname(spec.origin), "t5_decode.py")):
+    if (
+        spec is not None
+        and spec.origin
+        and os.path.isfile(os.path.join(os.path.dirname(spec.origin), "arch/thor/decode.py"))
+    ):
         return
     env = os.environ.get("MJOLNIR_SRC") or os.environ.get("THOR_T5_SRC")
     cands = [env] if env else []
@@ -28,7 +32,7 @@ def _add_pkg_path():
             break
         d = parent
     for c in cands:
-        if c and os.path.isfile(os.path.join(c, "mjolnir", "t5_decode.py")):
+        if c and os.path.isfile(os.path.join(c, "mjolnir", "arch/thor/decode.py")):
             sys.path.insert(0, c)
             return
     raise SystemExit("the mjolnir kernel package was not found: set MJOLNIR_SRC to src/mjolnir")
@@ -39,8 +43,8 @@ _add_pkg_path()
 DEV = "cuda"
 FP8_NAN = 0x7F  # e4m3fn NaN byte, poisons pages no sequence owns
 
-from mjolnir.t5_harness import emulate_decode  # noqa: E402 — the bit-faithful reference (moved out of t5_decode by the harness split)
-from mjolnir.runner import (  # noqa: E402
+from mjolnir.arch.thor.harness import emulate_decode  # noqa: E402 — the bit-faithful reference (moved out of t5_decode by the harness split)
+from mjolnir.arch.thor import (  # noqa: E402
     T5DecodeRunner,
     detect_kv_layout,
     split_kv_cache,

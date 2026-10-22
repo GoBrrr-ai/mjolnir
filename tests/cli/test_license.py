@@ -16,7 +16,7 @@ def test_package_license_copies_match_the_repo():
 
 
 def test_kernel_keeps_the_upstream_bsd_notice():
-    head = (ROOT / "src/mjolnir/mjolnir/t5_decode.py").read_text()[:3000]
+    head = (ROOT / "src/mjolnir/mjolnir/arch/thor/decode.py").read_text()[:3000]
     assert "Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved." in head
     assert "SPDX-License-Identifier: BSD-3-Clause" in head
     assert "Redistributions of source code must retain the above copyright notice" in head

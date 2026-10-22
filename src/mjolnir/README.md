@@ -147,8 +147,8 @@ MJOLNIR_ATTN_KV_SCALES=kv_scales/e2m3.json vllm serve ... --kv-cache-dtype fp6_e
 
 ## Beyond fp8: the harness
 
-`mjolnir/t5_decode.py` is the kernel **and** its standalone harness
-(`python -m mjolnir.t5_decode --help`) with a bit-faithful emulator as the
+`mjolnir/arch/thor/decode.py` is the kernel; `mjolnir/arch/thor/harness.py`
+(`python -m mjolnir.arch.thor.harness --help`) is its standalone harness, with a bit-faithful emulator as the
 correctness reference. The harness can also read KV formats vLLM cannot write
 yet — fp6 (`e2m3`/`e3m2`) and fp4 (`e2m1`) read directly by `tcgen05
 kind::f8f6f4`, and `nvfp4` — and defaults to e2m3 on head-major pages for fp8 Q.
@@ -207,13 +207,13 @@ is printed as information.
 
 | file | what |
 |---|---|
-| `mjolnir/t5_decode.py` | the CuTe-DSL kernel, the split-KV merge, the harness and the emulator |
+| `mjolnir/arch/thor/` | the Thor kernel family: `decode.py` (the CuTe-DSL kernel + merge), `call.py`, `const.py`, `plan.py`, `runner.py`, `harness.py` (driver + emulator) |
 | `mjolnir/runner.py` | plan buffers, compile cache, launch, KV views (no vLLM import) |
 | `mjolnir/backend.py` | the vLLM backend, metadata builder, impl |
 | `mjolnir/platforms.py` | arch → kernel resolution (`kernel_for`, `PlatformNotSupported`), `MJOLNIR_ARCH` detection — torch-free |
 | `mjolnir/arch/thor.py` | the Thor (`sm_110`) kernel surface: re-exports of the runner |
 | `mjolnir/__init__.py` | `register()` — the vLLM plugin entry point |
 
-Apache-2.0, except `mjolnir/t5_decode.py`, which is derived from an NVIDIA
+Apache-2.0, except `mjolnir/arch/thor/decode.py`, which is derived from an NVIDIA
 CUTLASS CuTe DSL example and stays under BSD-3-Clause — see `LICENSE` and
 `NOTICE` in this package.

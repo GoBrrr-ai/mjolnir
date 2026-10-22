@@ -1,6 +1,6 @@
 """Mjolnir — fp8 paged decode attention for vLLM on Jetson AGX Thor (sm_110).
 
-The kernel (codename **T5**, ``mjolnir.t5_decode``) is a CuTe-DSL tcgen05 +
+The kernel (codename **T5**, ``mjolnir.arch.thor.decode``) is a CuTe-DSL tcgen05 +
 TMEM + TMA decode kernel; ``mjolnir.backend`` wraps it as a vLLM attention
 backend and ``mjolnir.runner`` holds the plan buffers, compile cache and KV
 views.

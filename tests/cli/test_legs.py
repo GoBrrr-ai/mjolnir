@@ -326,4 +326,4 @@ def test_verify_explicit_default_string_ncu_legs_run_on_spark(tmp_path):
     }
     out = CliRunner().invoke(cli.app, ["verify", "sweep", "--dry-run", "--legs", legs.KERNEL["verify.sweep"]], env=env)
     assert out.exit_code == 0, out.output
-    assert "mjolnir.t5_decode" in out.output  # the mjolnir legs are profiled as asked, not dropped
+    assert "mjolnir.arch.thor.harness" in out.output  # the mjolnir legs are profiled as asked, not dropped

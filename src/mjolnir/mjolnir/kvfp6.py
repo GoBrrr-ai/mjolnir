@@ -1,6 +1,6 @@
 """Packed fp6 (e2m3) KV cache for the vLLM path: write, and expand for the fallback.
 
-Format (the Mjolnir kernel's, see ``t5_decode.pack_subbyte``): one e2m3 code
+Format (the Mjolnir kernel's, see ``mjolnir.quant.pack_subbyte``): one e2m3 code
 per element (sign | 2-bit exponent | 3-bit mantissa, bias 1, no inf/nan,
 values 0 .. ±7.5), packed little-endian, 4 codes in 3 bytes. A K (or V) row
 of d elements is ``d * 3 / 4`` bytes; vLLM's page cell is ``K row | V row``
@@ -72,7 +72,7 @@ if triton is not None:
     def _e2m3_codes(x):
         """fp32 (already divided by the scale) -> e2m3 codes (int32 0..63):
         round to nearest, saturating at 7.5, ties to the smaller magnitude
-        (as t5_decode.minifloat_quantize)."""
+        (as ``mjolnir.quant.minifloat_quantize``)."""
         ax = tl.minimum(tl.abs(x), 7.5)
         # quantum: 0.125 below 2 (subnormals and [1, 2)), 0.25 in [2, 4), 0.5 in [4, 7.5]
         q = tl.where(ax < 2.0, 0.125, tl.where(ax < 4.0, 0.25, 0.5))

@@ -376,7 +376,7 @@ def build_repo(tmp_path: Path, monkeypatch, *, with_data: bool = True, overview:
         "docs/methodology/benchmarking.md",
         "research/README.md",
         "research/program.md",
-        "src/mjolnir/mjolnir/t5_decode.py",
+        "src/mjolnir/mjolnir/arch/thor/decode.py",
     ):
         src = REPO / rel
         if src.is_file():

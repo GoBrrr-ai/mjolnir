@@ -61,14 +61,14 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003", "B008"]
 # signatures, dice/atom tuple concatenation, yoda-style tile compares, the
 # running log-sum-exp accumulator named `l`, named-but-unused tile loop
 # variables, and math comments (GEMM shapes, tile layouts) that read like code.
-"src/mjolnir/mjolnir/t5_decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "SIM300"]
+"src/mjolnir/mjolnir/arch/thor/decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "SIM300"]
 # The Orin GEMV kernel: same DSL conventions as the traced t5 family (the
 # pre-PEP 604 Optional form the DSL tracer expects, nested staged ifs,
 # min/max instead of the ternary SIM wants).
 "src/mjolnir/mjolnir/arch/orin/decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "UP045", "SIM102", "SIM108", "SIM300", "FURB136"]
-"src/mjolnir/mjolnir/t5_call.py" = ["F403", "F405", "ERA001", "RUF005", "RUF059", "UP006", "UP035", "SIM300"]
-"src/mjolnir/mjolnir/t5_const.py" = ["RUF005"]
-"src/mjolnir/mjolnir/t5_harness.py" = ["F403", "F405", "E741"]
+"src/mjolnir/mjolnir/arch/thor/call.py" = ["F403", "F405", "ERA001", "RUF005", "RUF059", "UP006", "UP035", "SIM300"]
+"src/mjolnir/mjolnir/arch/thor/const.py" = ["RUF005"]
+"src/mjolnir/mjolnir/arch/thor/harness.py" = ["F403", "F405", "E741"]
 # Triton-jit bodies keep explicit constexpr branches (clearer than the ternary
 # and independent of the tracer's handling of conditional expressions)
 "src/mjolnir/mjolnir/kvfp6.py" = ["SIM108"]
@@ -79,6 +79,14 @@ exclude = ["src/mjolnir-cli/hatch_build.py"]
 
 [tool.ty.environment]
 python-version = "3.12"
+
+# The DSL kernels index Optional parameters behind const_expr() guards the
+# type checker cannot see through (the tracer evaluates them at compile
+# time) — same rationale as the ruff per-file-ignores above.
+[[tool.ty.overrides]]
+include = ["src/mjolnir/mjolnir/arch/orin/decode.py"]
+rules.not-subscriptable = "ignore"
+rules.invalid-assignment = "ignore"
 
 # The kernel and the benchmark drivers run inside the vLLM image: torch, vllm,
 # cutlass (CuTe DSL), triton, flashinfer and cuda bindings are provided there
@@ -109,7 +117,8 @@ relative_files = true
 limit = 1000
 include = ["*.py", "*.sh", "*.j2", "*.md"]
 exclude = [
-    "src/mjolnir/mjolnir/t5_*.py",
+    "src/mjolnir/mjolnir/arch/thor/decode.py",
+    "src/mjolnir/mjolnir/arch/thor/call.py",
     "docs/platforms/**/*.md",
     "configs/**/README.md",
 ]

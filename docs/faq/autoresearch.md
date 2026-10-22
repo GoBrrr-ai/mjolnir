@@ -4,7 +4,7 @@
 recorded — and find the good ones in the morning."
 
 The loop follows [karpathy/autoresearch](https://github.com/karpathy/autoresearch):
-agents change one file (`src/mjolnir/mjolnir/t5_decode.py`), a fixed harness
+agents change the Thor kernel family (`src/mjolnir/mjolnir/arch/thor/`), a fixed harness
 scores it (geomean speedup over FlashInfer at the eight headline L, after a quick
 correctness check), and the change is kept only if it beats the best score by
 more than 2%. The full design is in [`research/README.md`](../../research/README.md);
