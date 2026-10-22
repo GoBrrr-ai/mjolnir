@@ -58,23 +58,34 @@ ships (`Mjolnir 2026.10.20 — mjolnir-kernel 0.1.1 · image v0.31.0`).
 [`scripts/release_notes.py`](../../scripts/release_notes.py) writes the body:
 
 - **Install** lines and a table of all three artifacts (unreleased ones as
-  `unchanged (<version>)`);
-- one section per shipped artifact, each listing what changed in the files
-  that artifact is built from, since that artifact's own previous release:
+  `unchanged (<version>)`; a forced re-release with no changes annotated in
+  its cell);
+- one deduplicated **What's changed** story — every PR appears exactly once,
+  under a `###` group named after the set of artifacts it ships in
+  (`mjolnir-kernel 0.1.1 + mjolnir-cli 0.2.1` for a PR that touched both), so
+  a cross-artifact PR is never repeated per artifact. The image group leads
+  with which vLLM it is built on (flagging a base bump) and which kernel it
+  ships; if the kernel is not released but changed, it warns that the image
+  ships unreleased kernel code. PRs touching no artifact's paths (docs,
+  research, CI, the release scripts) land in `Repo, docs & tooling` instead
+  of being dropped;
+- a **Platform notes** matrix (Thor / Orin / Spark) mapping each PR to the
+  platforms its changed paths signal: the platform overlays and docs,
+  `scripts/hw`, `AWQ_FLASHINFER` (the Orin serving config) — plus the kernel
+  package itself, which serves Thor's sm_110 only. The image is the shared
+  artifact and maps to no platform.
 
-| section | paths | since |
+Each artifact's slice is taken since its own previous release:
+
+| artifact | paths | since |
 |---|---|---|
-| `mjolnir-kernel X.Y.Z` | `src/mjolnir` | its last `mjolnir-kernel-v*` tag |
-| `mjolnir-cli X.Y.Z` | `src/mjolnir-cli`, `configs`, `docker/litellm`, `docker/perses`, `scripts/hw` | its last `mjolnir-cli-v*` tag |
-| `image vX.Y.Z` | what the Dockerfile copies: `Dockerfile`, `patches/`, the patch and check scripts, `LICENSE`, `NOTICE` (not `README.md` / `PATCHES.md`) | the previous umbrella tag |
+| `mjolnir-kernel` | `src/mjolnir` | its last `mjolnir-kernel-v*` tag |
+| `mjolnir-cli` | `src/mjolnir-cli`, `configs`, `docker/litellm`, `docker/perses`, `scripts/hw` | its last `mjolnir-cli-v*` tag |
+| the image | what the Dockerfile copies: `Dockerfile`, `patches/`, the patch and check scripts, `LICENSE`, `NOTICE` (not `README.md` / `PATCHES.md`) | the previous umbrella tag |
 
 An entry is a pull request — its title and `#number`, from the merge commit
 on `main` — or a commit pushed to `main` directly. Dependabot PRs and the
-branch commits inside a PR are left out. A PR that touched two artifacts
-appears under both. The image section also says which vLLM it is built on
-(and flags a base bump) and which kernel it ships. Kernel changes appear once,
-under the kernel; if the kernel is not released but changed, the image
-section warns that it ships unreleased kernel code.
+branch commits inside a PR are left out.
 
 PyPI users find the notes through each project's *Changelog* link (the
 GitHub Releases page).

@@ -12,9 +12,9 @@
 # 2. checks   the same lint / tests / README / build gates as a pull request.
 # 3. tag      pushes mjolnir-kernel-vX.Y.Z, mjolnir-cli-vX.Y.Z and the umbrella
 #             tag at the commit the checks ran on, and creates the GitHub
-#             Release: scripts/release_notes.py writes one section per shipped
-#             artifact — the PRs that touched its paths since its own previous
-#             release (Dependabot left out). Nothing is committed to main.
+#             Release: scripts/release_notes.py writes one deduplicated story —
+#             each PR once, grouped by the artifacts it ships in, plus a
+#             platform matrix (Dependabot left out). Nothing is committed to main.
 # 4. publish  dispatches the tag-driven workflows ON the new tags:
 #             release-kernel.yml, release-cli.yml (PyPI), docker-image.yml
 #             (Docker Hub, tagged v<vLLM>), pages.yml (the interactive site).

@@ -33,8 +33,9 @@ import mjolnir_cli.platforms as cp
 
 GPU_STACK = ("torch", "vllm", "cutlass", "flashinfer", "triton")
 
-# The kernel surface backend.py consumes (via runner.py) — mjolnir.arch.thor
-# must re-export exactly these names, as the same objects.
+# The kernel surface backend.py consumes — mjolnir.arch.thor must re-export
+# exactly these names, as the same objects. The runner class itself is
+# resolved through the uniform `Runner` alias (pinned below).
 T5_SURFACE = ("T5DecodeRunner", "StepPlan", "SUPPORTED_PAGE_SIZES", "detect_kv_layout", "env_flag", "split_kv_cache")
 
 
@@ -100,6 +101,17 @@ def test_arch_thor_reexports_the_kernel_surface_backend_consumes():
 
     for name in T5_SURFACE:
         assert getattr(thor, name) is getattr(runner, name), name
+
+
+def test_arch_thor_exposes_the_uniform_runner_name_the_backend_resolves():
+    """``Runner`` is the one name a family subpackage must define itself —
+    backend.py resolves its runner class through it (load_kernel(cc).Runner),
+    so landing a family edits nothing but platforms._SHIPPED."""
+    pytest.importorskip("cutlass")
+    from mjolnir import runner
+    from mjolnir.arch import thor
+
+    assert thor.Runner is runner.T5DecodeRunner
 
 
 # ── the kernel↔CLI registry mirror (review IMPROVEMENT #2) ─────────────────

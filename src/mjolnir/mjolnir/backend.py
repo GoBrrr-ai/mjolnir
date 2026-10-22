@@ -35,20 +35,26 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
 
 from . import banner
-from .platforms import unsupported_reason
+from .platforms import detect, load_kernel, unsupported_reason
 from .runner import (
     SUPPORTED_PAGE_SIZES,
     StepPlan,
-    T5DecodeRunner,
     detect_kv_layout,
     env_flag,
     split_kv_cache,
 )
+
+if TYPE_CHECKING:
+    # The annotations name the Thor runner; a second family's runner duck-types
+    # the same surface and arrives through its own arch subpackage. At runtime
+    # the class is resolved via platforms.load_kernel — never by importing a
+    # family module here (see mjolnir.arch).
+    from .runner import T5DecodeRunner
 
 logger = logging.getLogger("vllm.mjolnir")  # under vLLM's handler
 
@@ -450,7 +456,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         q_mode = {"bf16": "bf16", "bfloat16": "bf16", "fp8": "fp8", "e4m3": "fp8"}[q_mode]
         if self._fp6 and q_mode != "fp8":
             raise ValueError("fp6_e2m3 KV runs on the fp8-Q path only: unset MJOLNIR_ATTN_Q_DTYPE")
-        self.t5 = T5DecodeRunner(
+        self.t5 = load_kernel(detect()).Runner(
             num_heads=num_heads,
             num_kv_heads=kv_cache_spec.num_kv_heads,
             head_size=kv_cache_spec.head_size,
