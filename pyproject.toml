@@ -65,7 +65,7 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003", "B008"]
 # The Orin GEMV kernel: same DSL conventions as the traced t5 family (the
 # pre-PEP 604 Optional form the DSL tracer expects, nested staged ifs,
 # min/max instead of the ternary SIM wants).
-"src/mjolnir/mjolnir/arch/orin/gemv.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "UP045", "SIM102", "SIM108", "SIM300", "FURB136"]
+"src/mjolnir/mjolnir/arch/orin/decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "UP045", "SIM102", "SIM108", "SIM300", "FURB136"]
 "src/mjolnir/mjolnir/t5_call.py" = ["F403", "F405", "ERA001", "RUF005", "RUF059", "UP006", "UP035", "SIM300"]
 "src/mjolnir/mjolnir/t5_const.py" = ["RUF005"]
 "src/mjolnir/mjolnir/t5_harness.py" = ["F403", "F405", "E741"]
