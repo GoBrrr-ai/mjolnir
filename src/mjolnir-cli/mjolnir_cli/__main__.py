@@ -1,6 +1,10 @@
-"""Run the ``mjolnir`` CLI via ``python -m mjolnir_cli``."""
+"""Run the ``mjolnir`` CLI via ``python -m mjolnir_cli`` — the same entry
+point as the console script (``mjolnir_cli.cli:main``), UnknownPlatform
+handler included."""
 
-from mjolnir_cli.cli import app
+import sys
+
+from mjolnir_cli.cli import main
 
 if __name__ == "__main__":
-    app()
+    sys.exit(main())

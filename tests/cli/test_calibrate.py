@@ -249,3 +249,48 @@ def test_the_user_dir_fallback_keeps_the_kv_scales_subdir(tmp_path, monkeypatch)
         assert target == tmp_path / "user" / s.model / "kv_scales" / "e2m3.json"
     finally:
         (mdir / "kv_scales").chmod(0o755)
+
+
+def test_calibrate_runs_the_container_and_reports_the_scales(monkeypatch, tmp_path, capsys):
+    out = tmp_path / "scales.json"
+    seen = {}
+
+    def fake_run_once(argv, name):
+        seen.update(name=name)
+        return 0
+
+    monkeypatch.setattr(dockerctl, "run_once", fake_run_once)
+    r = CliRunner().invoke(cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR", "--out", str(out)])
+    assert r.exit_code == 0, r.output
+    assert seen["name"] == "mjolnir-calibrate"
+    assert f"wrote {out}" in r.output
+
+
+def test_calibrate_mounts_the_checkouts_kernel_package(monkeypatch, tmp_path):
+    src = tmp_path / "checkout" / "src" / "mjolnir"
+    (src / "mjolnir").mkdir(parents=True)
+    (src / "mjolnir" / "calibrate.py").write_text("# newer than the image's\n")
+    monkeypatch.setattr("mjolnir_cli.config.find_repo_root", lambda: tmp_path / "checkout")
+    r = CliRunner().invoke(cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    assert "/opt/mjolnir-src:ro" in r.output and "PYTHONPATH=/opt/mjolnir-src" in r.output
+
+
+def test_calibrate_draft_vocab_mounts_the_draftvocab_module(monkeypatch, tmp_path):
+    src = tmp_path / "checkout" / "src" / "mjolnir"
+    (src / "mjolnir").mkdir(parents=True)
+    (src / "mjolnir" / "draftvocab.py").write_text("")
+    monkeypatch.setattr("mjolnir_cli.config.find_repo_root", lambda: tmp_path / "checkout")
+    r = CliRunner().invoke(cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR", "--draft-vocab", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    assert "python3 -m mjolnir.draftvocab" in r.output
+
+
+def test_calibrate_without_a_checkout_omits_the_source_mount(monkeypatch):
+    def no_repo():
+        raise FileNotFoundError("needs a mjolnir checkout")
+
+    monkeypatch.setattr("mjolnir_cli.config.find_repo_root", no_repo)
+    r = CliRunner().invoke(cli.app, ["calibrate", "--config", "NVFP4_MJOLNIR", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    assert "/opt/mjolnir-src" not in r.output

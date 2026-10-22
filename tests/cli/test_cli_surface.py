@@ -181,3 +181,22 @@ def test_root_help_exits_zero_and_lists_top_level_commands_in_current_order():
         "perses",
         "hw",
     ]
+
+
+def test_root_bare_invocation_prints_the_help_plus_the_next_steps():
+    from mjolnir_cli.cli import app
+
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0, result.output
+    out = _ANSI.sub("", result.output)
+    assert "╭─ Commands" in out  # the help panel, printed by the root group itself
+    assert "Next steps:" in out and "mjolnir serve up" in out and "mjolnir verify sweep" in out
+
+
+def test_version_prints_the_version():
+    from mjolnir_cli import __version__
+    from mjolnir_cli.cli import app
+
+    result = runner.invoke(app, ["version"])
+    assert result.exit_code == 0
+    assert result.output.strip() == f"mjolnir {__version__}"

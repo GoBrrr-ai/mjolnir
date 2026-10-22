@@ -68,3 +68,42 @@ def test_hw_setup_dispatches_on_detection_not_on_the_env_alone(no_script, monkey
     r = CliRunner().invoke(cli.app, ["hw", "setup", "--dry-run"], env={"MJOLNIR_PLATFORM": None})
     assert r.exit_code == 2, r.output
     assert no_script == []
+
+
+def test_hw_status_reads_the_fan_conf(tmp_path, monkeypatch):
+    conf = tmp_path / "nvfancontrol.conf"
+    conf.write_text(
+        "\tFAN_PROFILE quiet\n\tFAN_PROFILE recommended\n\tFAN_PROFILE max\n\tFAN_DEFAULT_PROFILE recommended\n"
+    )
+    monkeypatch.setenv("MJOLNIR_NVFANCONF", str(conf))
+    r = CliRunner().invoke(cli.app, ["hw", "status"])
+    assert r.exit_code == 0, r.output
+    assert "quiet, recommended, max" in r.output
+    assert "default:  recommended" in r.output
+    assert conf.name + ".bck (missing)" in r.output
+
+
+def test_hw_status_names_a_missing_conf(tmp_path, monkeypatch):
+    monkeypatch.setenv("MJOLNIR_NVFANCONF", str(tmp_path / "absent.conf"))
+    r = CliRunner().invoke(cli.app, ["hw", "status"])
+    assert r.exit_code == 4 and "no conf at" in r.output
+
+
+def test_hw_setup_reports_an_unknown_platform_with_exit_2(monkeypatch):
+    from mjolnir_cli.platforms import UnknownPlatform
+
+    def boom(*a, **kw):
+        raise UnknownPlatform("could not detect the platform")
+
+    monkeypatch.setattr("mjolnir_cli.thor.dispatch", boom)
+    r = CliRunner().invoke(cli.app, ["hw", "setup"])
+    assert r.exit_code == 2 and "could not detect the platform" in r.output
+
+
+def test_hw_setup_surfaces_the_script_failure(monkeypatch):
+    def boom(*a, **kw):
+        raise ValueError("bad --fan-profile")
+
+    monkeypatch.setattr("mjolnir_cli.thor.dispatch", boom)
+    r = CliRunner().invoke(cli.app, ["hw", "setup"])
+    assert r.exit_code == 4 and "bad --fan-profile" in r.output

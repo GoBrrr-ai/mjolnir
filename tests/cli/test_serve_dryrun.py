@@ -132,3 +132,73 @@ def test_orin_awq_baseline_dry_run_and_merged_overlay(tmp_path, monkeypatch):
         assert merged[k] == v, k
         assert k not in base, f"{k} is Orin-64GB tuning: the overlay's, never the base's"
     overlays.validate_serving(d / "config.yaml", "orin")  # does not raise
+
+
+# ── the error paths and the read-only commands (docker faked at the boundary) ─
+
+
+def _settings_with(quant: str) -> Settings:
+    return Settings(model=MODEL, quant=quant)
+
+
+def test_serve_up_with_a_missing_config_fails_cleanly(monkeypatch):
+    from mjolnir_cli.commands import serve
+
+    monkeypatch.setattr(serve, "settings", lambda *a: _settings_with("NOPE"))
+    r = CliRunner().invoke(cli.app, ["serve", "up", "--dry-run"])
+    assert r.exit_code == 4 and "config not found" in r.output
+
+
+def test_serve_up_failure_names_the_docker_error(monkeypatch):
+    def boom(s, **kw):
+        raise dockerctl.DockerError("port 6001 is taken")
+
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
+    monkeypatch.setattr(dockerctl, "serve_up", boom)
+    r = CliRunner().invoke(cli.app, ["serve", "up"])
+    assert r.exit_code == 1 and "port 6001 is taken" in r.output
+
+
+def test_serve_up_warns_about_a_stale_image(monkeypatch):
+    monkeypatch.setattr(dockerctl, "stale_image", lambda image: "image is 3 commits behind the checkout")
+    monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: None)
+    r = CliRunner().invoke(cli.app, ["serve", "up", "--dry-run"])
+    assert r.exit_code == 0 and "warning: image is 3 commits behind" in r.output
+
+
+def test_serve_down_threads_dry_run(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(dockerctl, "serve_down", lambda s, dry_run=False: seen.update(quant=s.quant, dry_run=dry_run))
+    r = CliRunner().invoke(cli.app, ["serve", "down", "--dry-run"])
+    assert r.exit_code == 0 and seen["dry_run"] is True and seen["quant"] is not None
+
+
+def test_serve_status_prints_state_queue_and_dashboard(monkeypatch):
+    import mjolnir_cli.perses as perses_mod
+    from mjolnir_cli import gate
+
+    monkeypatch.setattr(dockerctl, "status", lambda s: {"container": "running"})
+    monkeypatch.setattr(gate, "server_load", lambda url: (1, 0))
+    monkeypatch.setattr(perses_mod, "running_port", lambda: 9341)
+    r = CliRunner().invoke(cli.app, ["serve", "status"])
+    assert r.exit_code == 0, r.output
+    assert '"container": "running"' in r.output
+    assert "queue: running=1 waiting=0" in r.output
+    assert "dashboard: http://127.0.0.1:9341" in r.output
+
+
+def test_serve_status_without_a_queue_or_dashboard_is_quiet(monkeypatch):
+    import mjolnir_cli.perses as perses_mod
+    from mjolnir_cli import gate
+
+    monkeypatch.setattr(dockerctl, "status", lambda s: {})
+    monkeypatch.setattr(gate, "server_load", lambda url: None)
+    monkeypatch.setattr(perses_mod, "running_port", lambda: None)
+    r = CliRunner().invoke(cli.app, ["serve", "status"])
+    assert r.exit_code == 0 and "queue:" not in r.output and "dashboard:" not in r.output
+
+
+def test_serve_logs_exits_with_the_tail_result(monkeypatch):
+    monkeypatch.setattr(dockerctl, "logs", lambda s, **kw: 5)
+    r = CliRunner().invoke(cli.app, ["serve", "logs", "--tail", "9"])
+    assert r.exit_code == 5
