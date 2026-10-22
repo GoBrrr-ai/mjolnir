@@ -102,7 +102,41 @@ class DescaleTensors(NamedTuple):
     v_descale: Optional[cute.Tensor] = None
 
     def __new_from_mlir_values__(self, values):
-        return DescaleTensors(*((*values, None, None, None)[:3]))
+        # None fields carry no MLIR value, so `values` only covers the
+        # non-None fields IN ORDER — rehydrate positionally (padding at the
+        # end would shift k<-v<-None and silently swap the descales).
+        it = iter(values)
+        return DescaleTensors(
+            *(None if f is None else next(it) for f in (self.q_descale, self.k_descale, self.v_descale))
+        )
+
+
+def _e4m3_to_f32(x):
+    """Software e4m3fn -> fp32 for sm_87.
+
+    No fp8 cvt exists before sm_89 (and the DSL's ``.to(Float32)`` lowers to
+    the SM90+ ``cvt.packfloat``), so the code byte is bit-assembled: normals
+    are exact — ``(em + 120*8) << 20`` places the 3-bit exponent (fp32 bias
+    127 - e4m3 bias 7 = +120, carried by the integer add) and the 3-bit
+    mantissa exactly in the fp32 fields, and the sign bit reaches bit 31 via
+    ``<< 24`` from bit 7. The zero code selects to 0.0; subnormal codes
+    (em < 8) come out as their normal-formula neighbors — an absolute error
+    < 0.008 on a |v| < 0.875 value, far inside the correctness tolerance
+    (the prmt + magic-constant fp16 path is the bit-exact follow-up).
+    """
+    b = x.bitcast(cutlass.Uint8).to(cutlass.Uint32)
+    em = b & cutlass.Uint32(0x7F)
+    bits = ((b & cutlass.Uint32(0x80)) << cutlass.Uint32(24)) | ((em + cutlass.Uint32(0x3C0)) << cutlass.Uint32(20))
+    v = bits.bitcast(cutlass.Float32)
+    nz = (b != cutlass.Uint32(0)).to(cutlass.Uint32).to(cutlass.Float32)
+    return v * nz
+
+
+def _elem_to_f32(x, elem):
+    """Element -> fp32: fp8 through the sm_87 software path, bf16/fp16 via HW."""
+    if const_expr(elem is cutlass.Float8E4M3FN):
+        return _e4m3_to_f32(x)
+    return x.to(Float32)
 
 
 class GEMVDecodeKernel:
@@ -120,12 +154,19 @@ class GEMVDecodeKernel:
     HEAD_DIM = 256
     VEC = 16  # elements per thread (128-bit for fp8 KV; 2x128-bit for 16-bit KV)
 
-    def __init__(self, qhead_per_kvhead: int, tile_size_per_bdx: int = 4, page_size: int = 0):
+    def __init__(
+        self,
+        qhead_per_kvhead: int,
+        tile_size_per_bdx: int = 4,
+        page_size: int = 0,
+        causal: bool = True,
+    ):
         assert qhead_per_kvhead >= 1, "qhead_per_kvhead must be >= 1"
         assert self.HEAD_DIM % (16 * self.VEC) == 0
-        assert page_size in (0, 16, 128), "page_size must be 0 (dense), 16, or 128"
+        assert page_size in (0, 16, 32, 64, 128), "page_size must be 0 (dense) or 16/32/64/128"
         self.g = qhead_per_kvhead
         self.page_size = page_size
+        self.causal = bool(causal)
         self.bdx = self.HEAD_DIM // self.VEC  # 16 threads per KV row
         self.bdy = qhead_per_kvhead  # one q-head per (ty) thread
         # rows per (ty) thread. The tile-size knob (default: the constructor
@@ -233,7 +274,8 @@ class GEMVDecodeKernel:
         # state (Q/O/M*VEC) and bounds the unrolled M-loops in the compute. One
         # binary per M (the dispatch bakes M into the compile-cache key). M=1
         # sizes the state exactly as before (M*VEC == VEC) — bit-identical to the
-        # Phase A/B1 M=1 decode; M>1 is the varlen-M (MTP verify) extension.
+        # Phase A/B1 M=1 decode; M>1 is the MTP verify extension (causal tail
+        # per the t5 contract when self.causal).
         M = seqlen_q
         D = self.HEAD_DIM
         VEC = self.VEC
@@ -399,8 +441,8 @@ class GEMVDecodeKernel:
                         lse_tensor[lse_c_m] = -Float32.inf
         else:
             # ---- Q: load this thread's d-slice of its q-head, for all M -----
-            # tokens (M=1 -> the single decode row; M>1 -> the MTP verify, where
-            # each of the M tokens does full attention over the shared KV). token
+            # tokens (M=1 -> the single decode row; M>1 -> the MTP verify,
+            # causal tail per the t5 contract when self.causal). token
             # m sits at global row (q_row_base + m): dense q_row_base =
             # batch_idx*M, varlen = cu_seqlens_q[batch_idx] (M=1 there).
             q_f32 = cute.make_rmem_tensor(M * VEC, Float32)
@@ -419,7 +461,7 @@ class GEMVDecodeKernel:
                     q_sub = cute.make_rmem_tensor(EPC_Q, mQ.element_type)
                     cute.copy(q_atom, q_src, q_sub)
                     for i in cutlass.range_constexpr(EPC_Q):
-                        q_f32[m * VEC + sub * EPC_Q + i] = q_sub[i].to(Float32)
+                        q_f32[m * VEC + sub * EPC_Q + i] = _elem_to_f32(q_sub[i], mQ.element_type)
 
             # ---- register state (per token; M=1 == the Phase A/B1 M=1) -------
             # o_f32/q_f32 are M*VEC (M=1 -> VEC, unchanged); m_run/l_run/s_vec
@@ -428,7 +470,12 @@ class GEMVDecodeKernel:
             o_f32.fill(0.0)
             s_vec = cute.make_rmem_tensor(M * R, Float32)
             m_run = cute.make_rmem_tensor(M, Float32)
-            m_run.fill(-Float32.inf)
+            # Finite sentinel, not -inf: a token whose rows are ALL causally
+            # masked in this chunk (short sequence, deep split) keeps m_run
+            # here, and exp2(m_prev - m_run) must not hit -inf - -inf = NaN.
+            # exp2(-1e30 - finite) is still exactly 0, so visible rows behave
+            # bit-identically to the -inf init.
+            m_run.fill(Float32(-1e30))
             l_run = cute.make_rmem_tensor(M, Float32)
             l_run.fill(0.0)
 
@@ -516,10 +563,9 @@ class GEMVDecodeKernel:
                 st = it % S
 
                 # K[st] ready -> QK for all R rows of the stage, all M tokens.
-                # Each token does full attention over the shared KV (the MTP
-                # verify; no cross-token causal mask). The K fragment is read
-                # from smem ONCE per row (shared by the M tokens) to avoid an
-                # Mx smem re-read; the M dots reuse it.
+                # Causal per the t5 contract (the M-loop mask below); the K
+                # fragment is read from smem ONCE per row (shared by the M
+                # tokens) to avoid an Mx smem re-read; the M dots reuse it.
                 cute.arch.cp_async_wait_group(2 * S - 1)
                 cute.arch.sync_threads()
                 m_prev = cute.make_rmem_tensor(M, Float32)
@@ -546,7 +592,9 @@ class GEMVDecodeKernel:
                         s = Float32(0.0)
                         for sub in cutlass.range_constexpr(N_SUB_K):
                             for i in cutlass.range_constexpr(EPC_K):
-                                s = s + q_f32[m * VEC + sub * EPC_K + i] * k_frag[sub * EPC_K + i].to(Float32)
+                                s = s + q_f32[m * VEC + sub * EPC_K + i] * _elem_to_f32(
+                                    k_frag[sub * EPC_K + i], mK.element_type
+                                )
                         # 16-lane butterfly reduce (offsets < 16 stay in ty group).
                         s = s + cute.arch.shuffle_sync_bfly(s, offset=1)
                         s = s + cute.arch.shuffle_sync_bfly(s, offset=2)
@@ -554,7 +602,22 @@ class GEMVDecodeKernel:
                         s = s + cute.arch.shuffle_sync_bfly(s, offset=8)
                         s = s * scale_eff
                         row = it * R + j
-                        s = s if row < kv_len_c else -Float32.inf
+                        if const_expr(M > 1 and self.causal):
+                            # The t5 contract (vLLM verify): seq_lens INCLUDE
+                            # the M query tokens and row m attends to
+                            # KV[0 .. kv_len - M + m] — the earlier query
+                            # tokens are already in the cache, the later ones
+                            # are not. The bound is the min of the loaded
+                            # chunk length and the causal tail measured from
+                            # the GLOBAL length (kv_len - kv_start): a
+                            # non-final split's chunk is shorter than the
+                            # remaining keys, and masking against kv_len_c
+                            # alone would hide the chunk's last M-1 rows,
+                            # while masking against the tail alone would
+                            # count the clamped duplicate rows past kv_len_c.
+                            s = s if row < cutlass.min(kv_len_c, kv_len - kv_start - (M - 1 - m)) else -Float32.inf
+                        else:
+                            s = s if row < kv_len_c else -Float32.inf
                         s_vec[m * R + j] = s
                         m_run[m] = s if s > m_run[m] else m_run[m]
 
@@ -639,7 +702,9 @@ class GEMVDecodeKernel:
                         for sub in cutlass.range_constexpr(N_SUB_V):
                             for i in cutlass.range_constexpr(EPC_V):
                                 d = sub * EPC_V + i
-                                o_f32[m * VEC + d] = o_f32[m * VEC + d] + p * v_frag[sub * EPC_V + i].to(Float32)
+                                o_f32[m * VEC + d] = o_f32[m * VEC + d] + p * _elem_to_f32(
+                                    v_frag[sub * EPC_V + i], mV.element_type
+                                )
 
                 # Refill V for chunk it+S into the just-consumed stage.
                 cute.arch.sync_threads()
@@ -691,7 +756,9 @@ class GEMVDecodeKernel:
             o_base = mO_partial.iterator if const_expr(IS_SPLIT) else mO.iterator
             row_stride = num_head * D  # dense stride of one token row in O/LSE
             for m in cutlass.range_constexpr(M):
-                scale_out = v_descale / l_run[m]
+                # l_run == 0 (every row masked for this token) -> O = 0,
+                # not 0 * inf; the max is a no-op whenever anything was seen.
+                scale_out = v_descale / cutlass.max(l_run[m], Float32(1e-30))
                 for i in cutlass.range_constexpr(VEC):
                     o_frag[i] = (o_f32[m * VEC + i] * scale_out).to(o_elem)
                 o_off_m = o_off + m * row_stride
