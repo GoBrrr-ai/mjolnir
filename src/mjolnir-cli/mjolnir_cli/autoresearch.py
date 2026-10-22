@@ -62,12 +62,10 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-KERNEL_DIR = Path("src/mjolnir/mjolnir")
+KERNEL_DIR = Path("src/mjolnir/mjolnir/arch/thor")
 # the kernel family an experiment may change: the traced decode kernel plus its
 # builder, constants, plan and standalone harness (one idea, five files)
-KERNEL_FILES = tuple(
-    KERNEL_DIR / f for f in ("t5_decode.py", "t5_call.py", "t5_const.py", "t5_plan.py", "t5_harness.py")
-)
+KERNEL_FILES = tuple(KERNEL_DIR / f for f in ("decode.py", "call.py", "const.py", "plan.py", "harness.py"))
 LEDGER_DIR = Path("research")
 TSV_COLUMNS = ["id", "ts", "commit", "status", "score", "best_before", "correctness", "agent", "hypothesis", "reason"]
 

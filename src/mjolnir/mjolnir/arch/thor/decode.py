@@ -81,8 +81,8 @@ import cutlass.utils.blackwell_helpers as sm100_utils
 from cutlass.cute.nvgpu import tcgen05
 
 from mjolnir.quant import NVFP4_GROUP, NVFP4_SHIFT
-from mjolnir.t5_call import _CallMixin
-from mjolnir.t5_const import (
+from mjolnir.arch.thor.call import _CallMixin
+from mjolnir.arch.thor.const import (
     FP8_P_SCALE,
     _note,
     cpy_dice,
@@ -1541,7 +1541,7 @@ class MixedInputFusedMultiHeadAttentionDecode(_CallMixin):
         return
 
 
-if __name__ == "__main__":  # the standalone harness lives in mjolnir.t5_harness
-    from mjolnir.t5_harness import main
+if __name__ == "__main__":  # the standalone harness lives in mjolnir.arch.thor.harness
+    from mjolnir.arch.thor.harness import main
 
     main()

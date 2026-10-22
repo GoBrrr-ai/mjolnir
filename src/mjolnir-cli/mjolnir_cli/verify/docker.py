@@ -1,8 +1,8 @@
 """Container plumbing for ``mjolnir verify``: harness runs, ncu legs, full
 profiles and test runs — each in a named, timed-out, reaped container.
 
-The kernel under test is ``mjolnir.t5_decode`` (``python3 -m
-mjolnir.t5_decode``). In a checkout the repo's ``src/mjolnir`` is mounted
+The kernel under test is the Thor harness (``python3 -m
+mjolnir.arch.thor.harness``). In a checkout the repo's ``src/mjolnir`` is mounted
 over the image's installed copy (``PYTHONPATH``), so every run measures the
 current source; a PyPI install runs the kernel baked into the image.
 """
@@ -140,7 +140,7 @@ class Runner:
         if isinstance(args, str):
             args = shlex.split(args)
         qd = "Float8E4M3FN" if q == "fp8" else "BFloat16"
-        return ["-m", "mjolnir.t5_decode", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
+        return ["-m", "mjolnir.arch.thor.harness", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
 
     def harness(self, log: Path, q: str, args: list[str] | str, timeout: float | None = None) -> tuple[int, str]:
         name = self._name("mjolnir-verify")

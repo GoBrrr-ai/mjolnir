@@ -19,14 +19,14 @@ from cutlass.cute.typing import *
 from typing import Tuple
 
 from mjolnir.quant import NVFP4_GROUP
-from mjolnir.t5_const import (
+from mjolnir.arch.thor.const import (
     _note,
     log2_e,
     mma_modes,
     swizzle_align,
     warpgroup_warps,
 )
-from mjolnir.t5_plan import tile_s_rows
+from mjolnir.arch.thor.plan import tile_s_rows
 
 
 class _CallMixin:

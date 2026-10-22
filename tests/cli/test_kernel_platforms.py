@@ -108,10 +108,9 @@ def test_arch_thor_exposes_the_uniform_runner_name_the_backend_resolves():
     backend.py resolves its runner class through it (load_kernel(cc).Runner),
     so landing a family edits nothing but platforms._SHIPPED."""
     pytest.importorskip("cutlass")
-    from mjolnir import runner
     from mjolnir.arch import thor
 
-    assert thor.Runner is runner.T5DecodeRunner
+    assert thor.Runner is thor.T5DecodeRunner
 
 
 # ── the kernel↔CLI registry mirror (review IMPROVEMENT #2) ─────────────────

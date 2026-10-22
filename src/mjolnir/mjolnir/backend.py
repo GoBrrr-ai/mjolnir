@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     # the same surface and arrives through its own arch subpackage. At runtime
     # the class is resolved via platforms.load_kernel — never by importing a
     # family module here (see mjolnir.arch).
-    from .runner import T5DecodeRunner
+    from .arch.thor import T5DecodeRunner
 
 logger = logging.getLogger("vllm.mjolnir")  # under vLLM's handler
 

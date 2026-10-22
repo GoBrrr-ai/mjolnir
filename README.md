@@ -354,7 +354,7 @@ Every command, sub-command and option, with defaults: **[the CLI reference](docs
 **Mjolnir** is meant to be a **community case study**: every claim is reproducible with one command, and every experiment — kept or discarded — leaves raw data behind.
 
 - **Run the benchmarks on your Thor** — `mjolnir verify bench` writes JSON you can open a PR with; the README, docs and charts re-render from it.
-- **Try a kernel idea** — change `src/mjolnir/mjolnir/t5_decode.py`, prove it with `mjolnir verify correctness` and an `mjolnir verify ab --variants ...` run, and send the raw result with the PR.
+- **Try a kernel idea** — change `src/mjolnir/mjolnir/arch/thor/` (the Thor kernel family), prove it with `mjolnir verify correctness` and an `mjolnir verify ab --variants ...` run, and send the raw result with the PR.
 - **Let the agents try** — `mjolnir autoresearch run` drives an OpenCode research loop (web + arXiv research, implementation, debugging) where every experiment is logged on [the ledger](research/README.md).
 - Guidelines: [CONTRIBUTING.md](.github/CONTRIBUTING.md) · [docs index](docs/README.md).
 
@@ -363,7 +363,7 @@ Every command, sub-command and option, with defaults: **[the CLI reference](docs
 ```
 ├── src/
 │   ├── mjolnir/                the kernel package (PyPI: mjolnir-kernel, import `mjolnir`)
-│   │   └── mjolnir/            t5_decode.py (kernel + harness) · runner.py · backend.py
+│   │   └── mjolnir/            arch/{thor,orin}/ (kernel families) · runner.py · backend.py
 │   └── mjolnir-cli/            the CLI package (PyPI: mjolnir-cli, command `mjolnir`)
 │       └── mjolnir_cli/        verify/ · charts.py · readme.py · autoresearch.py · serve/bench/...
 ├── docker/vllm-thor/           the image: Dockerfile, patches/, apply/verify gates, PATCHES.md
@@ -381,7 +381,7 @@ The served API is unauthenticated; expose it deliberately. See [SECURITY.md](.gi
 
 ## License
 
-Mjolnir is open source under the [Apache License 2.0](LICENSE) — the license of vLLM and FlashInfer, which it builds on — with one exception: the kernel, [`src/mjolnir/mjolnir/t5_decode.py`](src/mjolnir/mjolnir/t5_decode.py), is derived from an NVIDIA CUTLASS CuTe DSL example and stays under that example's **BSD-3-Clause** license, with NVIDIA's notice kept at the top of the file.
+Mjolnir is open source under the [Apache License 2.0](LICENSE) — the license of vLLM and FlashInfer, which it builds on — with one exception: the kernel, [`src/mjolnir/mjolnir/arch/thor/decode.py`](src/mjolnir/mjolnir/arch/thor/decode.py), is derived from an NVIDIA CUTLASS CuTe DSL example and stays under that example's **BSD-3-Clause** license, with NVIDIA's notice kept at the top of the file.
 
 ### Third-party
 Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches, and what the [`narandill/mjolnir-vllm`](https://hub.docker.com/r/narandill/mjolnir-vllm) image redistributes are listed in [NOTICE](NOTICE).

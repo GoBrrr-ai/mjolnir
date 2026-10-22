@@ -1,6 +1,6 @@
 ---
 name: kernel-iteration
-description: Iterate on the Mjolnir decode-attention kernel (src/mjolnir/mjolnir/t5_decode.py) — measure with `mjolnir verify`, compare against FlashInfer / FA2, keep only data-backed changes, and re-render the README from raw results.
+description: Iterate on the Mjolnir decode-attention kernel (src/mjolnir/mjolnir/arch/thor/decode.py) — measure with `mjolnir verify`, compare against FlashInfer / FA2, keep only data-backed changes, and re-render the README from raw results.
 ---
 
 # Mjolnir kernel iteration
@@ -12,7 +12,7 @@ Use this when changing the kernel or its defaults by hand (the autonomous loop i
 
 - The GPU is shared with a live vLLM server: **never stop, restart or kill it**.
   Every `mjolnir verify` stage waits for a clean window (`--gate`, default on).
-- Correctness first: `emulate_decode` in `t5_decode.py` is the bit-faithful
+- Correctness first: `emulate_decode` in `arch/thor/harness.py` is the bit-faithful
   reference; never change its math to make a test pass.
 - New code paths go behind a harness flag; flip a default only with data.
 - Same-run ratio differences under ±3% are noise (`NOISE_PCT`; L=16K is

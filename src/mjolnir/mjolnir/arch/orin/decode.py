@@ -85,11 +85,11 @@ from cutlass.cute.nvgpu import cpasync
 # machine-readable statement of that.
 TARGET_CC = (8, 7)
 
-# GA10B max dynamic shared memory per block (the Ampere GA10x 100 KiB opt-in
-# budget, vs 227 KiB on sm_110a) minus CUDA's 1 KiB reservation. Confirm
-# on-box with cudaOccupancyMaxDynamicSharedMemoryPerBlock and update here if
-# GA10B differs.
-MAX_BLOCK_SMEM_SM87 = 99 * 1024
+# GA10B (CC 8.7) max shared memory per block: 163 KiB (the CUDA guide's CC
+# 8.7 column — A100-class, NOT the 100 KiB of the CC 8.6/8.9 GA10x parts),
+# minus CUDA's 1 KiB reservation. FlashInfer's Ampere tuning assumes the
+# 100 KB-class parts; Orin can stage ~2x the KV per iteration.
+MAX_BLOCK_SMEM_SM87 = 162 * 1024
 
 
 # The descales, formerly FA4's ``DescaleTensors`` (a NamedTuple of three

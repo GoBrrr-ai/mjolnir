@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 KV_BITS = {"fp8": 8.0, "e3m2": 6.0, "e2m3": 6.0, "e2m1": 4.0, "nvfp4": 4.5, "bf16": 16.0}
 
 # The harness default the `mjolnir` leg runs (kept in sync with
-# mjolnir.t5_decode: HARNESS_KV_FORMAT_FP8Q / HARNESS_KV_LAYOUT).
+# the Thor harness (mjolnir.arch.thor.harness): HARNESS_KV_FORMAT_FP8Q / HARNESS_KV_LAYOUT).
 HARNESS_KV_FORMAT = "e2m3"
 HARNESS_KV_LAYOUT = "hnd"
 

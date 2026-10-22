@@ -129,7 +129,7 @@ def execute(
     kernel_src = None
     if layout.repo_root is not None:
         cand = layout.repo_root / "src" / "mjolnir"
-        if (cand / "mjolnir" / "t5_decode.py").exists():
+        if (cand / "mjolnir" / "arch" / "thor" / "decode.py").exists():
             kernel_src = cand
     runner = Runner(image=s.image, logdir=logdir, kernel_src=kernel_src, timeout=timeout, dry_run=dry_run, page=page)
     ctx = stages.Ctx(
