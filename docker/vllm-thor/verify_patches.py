@@ -224,6 +224,44 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "need_eager = is_profile or _thor_draft_cg_gate_wants_eager(num_reqs)",
         ),
     ],
+    "thor sm110 MXFP4 MoE: OAI Triton selector keeps MARLIN default on SM110": [
+        # The widened GPT-OSS MXFP4 selector condition in
+        # _get_priority_backends_for_gpt_oss: SM110 must not take the OAI
+        # Triton path by default (matmul_ogs compile failure at engine
+        # init, #61374). The marker rides on the changed line, so it is
+        # present only after the patch.
+        (
+            "model_executor/layers/fused_moe/oracle/mxfp4.py",
+            "current_platform.is_device_capability_family(110)  # THOR_SM110_MXFP4_GATE",
+        ),
+        # The _swizzle_mxfp4 constraints widening: whenever the (opt-in)
+        # TRITON path runs on SM110 it needs is_persistent +
+        # epilogue_subtile=1 (the SWAP_XW subtiled-epilogue codegen bug).
+        (
+            "model_executor/layers/quantization/utils/mxfp4_utils.py",
+            "for family in (100, 110, 120)",
+        ),
+    ],
+    "thor sm110 CUTLASS FP4 MoE: backend not auto-selected on SM110": [
+        # The demoted _supports_current_device in cutlass_moe.py: sm_110
+        # removed from the family allowlist (profile_run TMA-descriptor
+        # fault on Thor). The marker comment is present only after the
+        # patch; the collapsed single-line condition only exists in the
+        # patched shape; the absence guard fails the build if the
+        # family(110) term ever returns (re-adapt signal).
+        (
+            "model_executor/layers/fused_moe/experts/cutlass_moe.py",
+            "# THOR_SM110_CUTLASS_FP4_GUARD",
+        ),
+        (
+            "model_executor/layers/fused_moe/experts/cutlass_moe.py",
+            "p.is_device_capability_family(100) or p.is_device_capability_family(120)",
+        ),
+        (
+            "model_executor/layers/fused_moe/experts/cutlass_moe.py",
+            "!is_device_capability_family(110)",
+        ),
+    ],
 }
 
 
