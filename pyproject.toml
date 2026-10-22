@@ -119,6 +119,7 @@ include = ["*.py", "*.sh", "*.j2", "*.md"]
 exclude = [
     "src/mjolnir/mjolnir/arch/thor/decode.py",
     "src/mjolnir/mjolnir/arch/thor/call.py",
+    "src/mjolnir/mjolnir/arch/orin/decode.py",
     "docs/platforms/**/*.md",
     "configs/**/README.md",
 ]

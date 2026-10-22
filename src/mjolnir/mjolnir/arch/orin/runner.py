@@ -1,0 +1,445 @@
+"""The Orin (sm_87) runner: the GEMV decode kernel's plan buffers, compile
+cache and launch — the family sibling of :mod:`mjolnir.arch.thor.runner`,
+consuming the same shared machinery from :mod:`mjolnir.runner`.
+
+Everything the vLLM backend needs that is not vLLM-specific:
+
+* a FIXED split-KV grid (``grid = (h_k, ns_cap, batch)``): the capacity is
+  the Alg. 1 plan at batch 1, so every capture size replays one binary;
+  splits beyond a sequence's need take the kernel's ``kv_len == 0`` path
+  (O = 0 / LSE = -inf) and drop out of the combine — CUDA-graph safe with
+  no re-capture, exactly like the t5 family's fixed work grid;
+* persistent device buffers: the ``cu_seqlens_k`` prefix sums (pinned
+  staging + async copy, the t5 ``work_buf`` pattern), the (b, h_k)
+  descales the kernel's 2D indexing needs (materialized from vLLM's
+  per-tensor / per-head / per-(seq, head) scales by a captured broadcast
+  copy), and the fp32 split partials sized by the capacity invariant;
+* the launch: dense (b, M, h_q, d) Q/O views (vLLM's spec batches are
+  uniform-q-len), the vLLM block table zero-copy as the page table, and
+  the chunk-normalized LSE combine (torch, static shapes per capture —
+  the known launch-floor debt; a fused merge is research lever #3).
+
+Nothing here imports vLLM. The kernel is compiled per variant through the
+shared on-disk cache under the ``orin`` family name.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass
+
+import torch
+
+from mjolnir.runner import (
+    _COMPILED,
+    _COMPILE_LOCK,
+    CACHE_STATS,
+    StepPlan,
+    SUPPORTED_PAGE_SIZES,
+    _disk_load,
+    _disk_store,
+)
+from . import decode as gemv
+from .plan import BLOCKS_PER_SM, COMBINE_MAX_SPLITS
+
+_log = logging.getLogger("vllm.mjolnir")
+
+
+@dataclass(frozen=True)
+class GEMVKey:
+    """One compiled GEMV variant: dtypes + the structural flags the kernel
+    bakes at trace time (M, page size, split presence, causal)."""
+
+    q_dtype: torch.dtype  # bfloat16 | float8_e4m3fn
+    out_dtype: torch.dtype
+    heads_q: int
+    heads_k: int
+    page_size: int
+    q_len: int  # M: the compile-time token count
+    split: bool  # False: write-through, no partials/combine
+    causal: bool
+    q_descale: bool  # fp8 Q with per-(seq, head) descales
+    # The TVM-FFI signature bakes every tensor dim, so the shapes the launch
+    # will use are part of the key: one binary per (pool size, batch, table
+    # stride). vLLM has one pool + a handful of capture sizes; the disk cache
+    # makes it a one-time cost per config.
+    num_pages: int = 0
+    batch: int = 0
+    max_blocks: int = 0
+
+
+class GEMVDecodeRunner:
+    def __init__(
+        self,
+        *,
+        num_heads: int,
+        num_kv_heads: int,
+        head_size: int,
+        page_size: int,
+        out_dtype: torch.dtype,
+        max_num_seqs: int,
+        max_q_len: int = 1,
+        q_mode: str = "bf16",  # "bf16" | "fp8" (dynamic per (seq, kv head))
+        max_splits: int = 0,  # 0 = the Alg. 1 capacity
+        kv_stages: int = 0,  # ring depth override (0 = the kernel default)
+        tile: int = 0,  # rows-per-(ty)-thread override (0 = the kernel default)
+        kv_evict_first: bool = False,  # reserved: Ampere L2 policy (not wired yet)
+        kv_format: str = "fp8",
+        device: torch.device | str = "cuda",
+        sm_count: int | None = None,
+    ):
+        assert head_size == gemv.GEMVDecodeKernel.HEAD_DIM, (
+            f"the Orin GEMV kernel serves head_size {gemv.GEMVDecodeKernel.HEAD_DIM} only"
+        )
+        assert num_heads % num_kv_heads == 0
+        assert page_size in SUPPORTED_PAGE_SIZES, f"page size {page_size} unsupported"
+        assert q_mode in ("bf16", "fp8")
+        assert out_dtype in (torch.bfloat16, torch.float16)
+        assert max_q_len <= 8, "the GEMV kernel serves M <= 8 (the MTP verify shape)"
+        assert kv_format == "fp8", "fp6 (e2m3) KV on Orin lands with the unpack variant; fp8 is the serving format"
+        self.h_q, self.h_k, self.d = num_heads, num_kv_heads, head_size
+        self.h_r = num_heads // num_kv_heads
+        self.page_size = page_size
+        self.out_dtype = out_dtype
+        self.max_num_seqs = max_num_seqs
+        self.max_q_len = max_q_len
+        self.fp8_q = q_mode == "fp8"
+        self.kv_format = kv_format
+        self.kv_evict_first = bool(kv_evict_first)
+        self.device = torch.device(device)
+        if sm_count is None:
+            sm_count = torch.cuda.get_device_properties(self.device).multi_processor_count
+        self.sm_count = sm_count
+
+        # Fixed split capacity: the Alg. 1 plan at batch 1 (its maximum), so
+        # one grid serves every capture size; larger batches leave the extra
+        # splits empty (kv_len == 0 -> O = 0 / LSE = -inf, dropped by the
+        # combine). The kernel's empty-chunk path makes the over-plan free.
+        self.ns_cap = (
+            max_splits
+            if max_splits > 0
+            else min(
+                COMBINE_MAX_SPLITS,
+                (BLOCKS_PER_SM * sm_count + self.h_k - 1) // self.h_k,
+            )
+        )
+        self.split = self.ns_cap > 1
+        self.kv_stages = kv_stages
+        self.tile = tile
+
+        dev = self.device
+        rows_cap = max_num_seqs * max_q_len
+        self._cu = torch.zeros(max_num_seqs + 1, dtype=torch.int32, device=dev)
+        # (b, h_k) descales the kernel's 2D indexing needs; a captured
+        # broadcast copy materializes them from vLLM's scale shapes per step.
+        self._kd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev)
+        self._vd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev)
+        self._qd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev) if self.fp8_q else None
+        # Split partials: (ns, rows, h_q, d) fp32 and (ns, h_q, rows) fp32,
+        # allocated at the capacity. Realistic sizes: ns_cap=16, 512 rows,
+        # h_q=24, d=256 -> 200 MB worst case, ~3 MB at the Orin 8-seq tuning.
+        self._o_part = torch.empty(self.ns_cap * rows_cap * self.h_q * self.d, dtype=torch.float32, device=dev)
+        self._lse_part = torch.empty(self.ns_cap * self.h_q * rows_cap, dtype=torch.float32, device=dev)
+        self._rows_cap = rows_cap
+
+    # ------------------------------------------------------------------ plan
+    def n_tiles(self, q_len: int) -> int:
+        """The t5 runner's tile count has no GEMV meaning; 1 CTA covers all
+        M rows of a (kv_head, chunk). Kept for surface parity."""
+        return 1
+
+    def slots(self, q_len: int) -> int:
+        """Sequences served by one wave at this q_len (the t5 invariant)."""
+        return max(1, (self.sm_count * BLOCKS_PER_SM) // (self.h_k * self.n_tiles(q_len)))
+
+    def plan(
+        self,
+        seq_lens_cpu,
+        num_seqs: int,
+        q_len: int,
+        block_table: torch.Tensor,
+        seq_lens: torch.Tensor,
+        margin: int = 0,
+        causal: bool = True,
+    ) -> StepPlan:
+        """CPU plan + async copy into the persistent device buffers.
+
+        ``margin`` plans every sequence that many tokens longer (the fused
+        multi-step draft decode); the kernel masks with the device
+        ``cu_seqlens``, so the plan stays valid while they grow."""
+        assert 1 <= q_len <= self.max_q_len and num_seqs <= self.max_num_seqs
+        lens = [int(x) + margin for x in seq_lens_cpu[:num_seqs]]
+        # cu_seqlens_k: prefix sums (device, graph-safe via pinned staging).
+        cu = [0]
+        for n in lens:
+            cu.append(cu[-1] + max(n, 0))
+        cu_h = torch.tensor(cu, dtype=torch.int32).pin_memory()
+        self._cu[: num_seqs + 1].copy_(cu_h, non_blocking=True)
+        return StepPlan(
+            num_seqs=num_seqs,
+            q_len=q_len,
+            n_q=q_len * self.h_r,
+            num_work=self.ns_cap,  # the fixed grid.y (split capacity)
+            with_reduction=self.split,
+            block_table=block_table,
+            seq_lens=seq_lens,
+            work=self._cu,  # repurposed: the device cu_seqlens_k
+            n_splits=self._cu.new_zeros(num_seqs),  # unused by this family
+            chunk_tiles=0,
+            num_chunks=0,
+            causal=causal or q_len == 1,
+        )
+
+    # ---------------------------------------------------------------- compile
+    def _key(
+        self,
+        q_len: int,
+        causal: bool = True,
+        num_pages: int = 0,
+        batch: int = 0,
+        max_blocks: int = 0,
+    ) -> GEMVKey:
+        return GEMVKey(
+            q_dtype=torch.float8_e4m3fn if self.fp8_q else torch.bfloat16,
+            out_dtype=self.out_dtype,
+            heads_q=self.h_q,
+            heads_k=self.h_k,
+            page_size=self.page_size,
+            q_len=q_len,
+            split=self.split,
+            causal=causal,
+            q_descale=self.fp8_q,
+            num_pages=num_pages,
+            batch=batch,
+            max_blocks=max_blocks,
+        )
+
+    def _cute(self, t: torch.Tensor, assumed_align: int = 16):
+        from cutlass.cute.runtime import from_dlpack
+
+        src = t.view(torch.uint8) if t.dtype == torch.float8_e4m3fn else t
+        ct = from_dlpack(src, assumed_align=assumed_align)
+        if t.dtype == torch.float8_e4m3fn:
+            ct.element_type = gemv.cutlass.Float8E4M3FN
+        return ct
+
+    def _descales(self, b: int):
+        qd_buf = self._qd  # local: ty narrows the Optional against the guard
+        q = qd_buf[:b] if qd_buf is not None else None
+        return gemv.DescaleTensors(
+            q_descale=self._cute(q) if q is not None else None,
+            k_descale=self._cute(self._kd[:b], assumed_align=4),
+            v_descale=self._cute(self._vd[:b], assumed_align=4),
+        )
+
+    def _compile_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table):
+        """The compile-time argument tuple: cute tensors (they bind dtypes,
+        shapes and the Constexpr M) + the fake TVM-FFI env stream."""
+        import cutlass.cute as cute
+
+        rows = b * key.q_len
+        ns = self.ns_cap if key.split else 1
+        m_q = self._cute(q[:rows].view(b, key.q_len, self.h_q, self.d))
+        m_o = self._cute(o[:rows].view(b, key.q_len, self.h_q, self.d))
+        m_k = self._cute(k_cache)
+        m_v = self._cute(v_cache)
+        pt = self._cute(block_table)
+        ds = self._descales(b)
+        return (
+            m_q,
+            m_k,
+            m_v,
+            m_o,
+            None,  # mLSE: vLLM decode needs no final LSE
+            None,  # mCuSeqlensQ: dense (b, M, h_q, d) Q
+            self._cute(self._cu[: b + 1], assumed_align=4),  # mCuSeqlensK
+            ds,
+            self._cute(
+                self._o_part[: ns * rows * self.h_q * self.d].view(ns, b, key.q_len, self.h_q, self.d),
+                assumed_align=4,
+            )
+            if key.split
+            else None,
+            # The kernel's dense-Q split LSE coord is (split, batch, head, m)
+            # -> the partial is (ns, b, h_q, M).
+            self._cute(
+                self._lse_part[: ns * b * self.h_q * key.q_len].view(ns, b, self.h_q, key.q_len),
+                assumed_align=4,
+            )
+            if key.split
+            else None,
+            pt,
+            key.q_len,  # seqlen_q (Constexpr — baked at compile)
+            0,  # seqlen_k: unused on the varlen-k path (cu_seqlens_k rules)
+            0.0,  # softmax_scale_log2 (runtime)
+            ns,  # num_splits (runtime grid.y)
+            cute.runtime.make_fake_stream(use_tvm_ffi_env_stream=True),
+        )
+
+    def _torch_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table):
+        """The launch-time tuple: RAW torch tensors (the TVM-FFI convention —
+        fp8 views as uint8, the archived interface's workaround), python
+        scalars, and no stream (the env stream is implicit)."""
+        rows = b * key.q_len
+        ns = self.ns_cap if key.split else 1
+        q_call = q[:rows].view(b, key.q_len, self.h_q, self.d)
+        o_call = o[:rows].view(b, key.q_len, self.h_q, self.d)
+        k_call, v_call = k_cache, v_cache
+        qd_buf = self._qd  # local: ty narrows the Optional against the guard
+        ds = gemv.DescaleTensors(
+            q_descale=qd_buf[:b] if qd_buf is not None else None,
+            k_descale=self._kd[:b],
+            v_descale=self._vd[:b],
+        )
+        return (
+            q_call,
+            k_call,
+            v_call,
+            o_call,
+            None,  # mLSE
+            None,  # mCuSeqlensQ
+            self._cu[: b + 1],
+            ds,
+            self._o_part[: ns * rows * self.h_q * self.d].view(ns, b, key.q_len, self.h_q, self.d)
+            if key.split
+            else None,
+            self._lse_part[: ns * b * self.h_q * key.q_len].view(ns, b, self.h_q, key.q_len) if key.split else None,
+            block_table,
+            0,  # seqlen_k (unused on the varlen-k path)
+        )
+
+    def _get_compiled(self, key: GEMVKey, compile_args):
+        import cutlass.cute as cute
+
+        with _COMPILE_LOCK:
+            fn = _COMPILED.get(key)
+            if fn is not None:
+                return fn
+            if torch.cuda.is_current_stream_capturing():
+                raise RuntimeError(
+                    f"GEMV kernel variant {key} not compiled before CUDA-graph "
+                    "capture; call precompile() (the vLLM backend does this)"
+                )
+            fn = _disk_load(key, gemv.__file__, "orin")
+            if fn is None:
+                kernel = gemv.GEMVDecodeKernel(
+                    self.h_r,
+                    tile_size_per_bdx=self.tile or 4,
+                    page_size=self.page_size,
+                    causal=key.causal,
+                )
+                fn = cute.compile(kernel, *compile_args, options="--enable-tvm-ffi")
+                CACHE_STATS["compiled"] += 1
+                _disk_store(key, fn, gemv.__file__, "orin")
+            else:
+                CACHE_STATS["loaded"] += 1
+            _COMPILED[key] = fn
+        return fn
+
+    def is_compiled(self, q_len: int, causal: bool = True) -> bool:
+        return self._key(q_len, causal) in _COMPILED
+
+    def ensure_compiled(
+        self,
+        q_len: int,
+        causal: bool = True,
+        num_pages: int = 0,
+        batch: int = 1,
+        max_blocks: int = 1,
+    ):
+        """Compile one variant with dummy tensors if it is missing.
+
+        The TVM-FFI signature bakes tensor shapes, so the dummies must match
+        the shapes the launch will use: pass the pool size, the batch (the
+        graph-capture size) and the block-table stride. run() compiles on
+        miss for eager calls; capture paths must precompile per shape."""
+        key = self._key(q_len, causal, num_pages, batch, max_blocks)
+        if key in _COMPILED:
+            return
+        dev = self.device
+        b, ps = batch, self.page_size or 16
+        np_ = num_pages or ps  # one page worth of pool at minimum
+        q = torch.zeros(b * q_len, self.h_q, self.d, device=dev, dtype=key.q_dtype)
+        o = torch.empty(b * q_len, self.h_q, self.d, device=dev, dtype=key.out_dtype)
+        kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=torch.float8_e4m3fn)
+        bt = torch.zeros(b, max_blocks, dtype=torch.int32, device=dev)
+        self._cu[1] = q_len  # one sequence of q_len tokens
+        self._get_compiled(key, self._compile_args(key, b, q, o, kv, kv, bt))
+        torch.cuda.synchronize(dev)
+
+    def precompile(self, q_lens=None):
+        """Compile every variant this runner can launch."""
+        for ql in q_lens or range(1, self.max_q_len + 1):
+            self.ensure_compiled(ql)
+        torch.cuda.synchronize(self.device)
+
+    # ---------------------------------------------------------------- launch
+    def _scale_buf(self, buf: torch.Tensor, b: int, scale: torch.Tensor) -> torch.Tensor:
+        """vLLM's (1,)/(h_k,)/(b, h_k) descale -> the kernel's (b, h_k) view,
+        as one captured broadcast copy."""
+        view = buf[:b]
+        if scale.dim() == 0 or scale.numel() == 1:
+            view.copy_(torch.ones_like(view) * scale.reshape(()))
+        elif scale.dim() == 1 and scale.shape[0] == self.h_k:
+            view.copy_(scale.unsqueeze(0).expand(b, self.h_k))
+        else:
+            view.copy_(scale.reshape(b, self.h_k))
+        return view
+
+    def _combine(self, b: int, ql: int, out: torch.Tensor):
+        """The chunk-normalized LSE combine (torch, static shapes per
+        capture): O = Σ_s exp(lse_s − L)·O_s with L = max + log Σ exp."""
+        rows = b * ql
+        ns = self.ns_cap
+        o_p = self._o_part[: ns * rows * self.h_q * self.d].view(ns, rows, self.h_q, self.d)
+        l_p = (
+            self._lse_part[: ns * rows * self.h_q]
+            .view(ns, b, self.h_q, ql)
+            .permute(0, 2, 1, 3)
+            .reshape(ns, self.h_q, rows)
+        )
+        l0 = l_p.max(dim=0).values  # (h_q, rows)
+        w = (l_p - l0.unsqueeze(0)).exp()  # (ns, h_q, rows): -inf splits -> 0
+        o = (o_p.permute(1, 0, 2, 3) * w.permute(2, 0, 1).unsqueeze(-1)).sum(dim=1)
+        o = o / w.sum(dim=0).permute(1, 0).unsqueeze(-1).clamp_min(torch.finfo(torch.float32).tiny)
+        tokens = b * ql
+        out = out[:tokens]
+        target = out.view(tokens, self.h_q, self.d) if out.dim() == 2 else out
+        target.copy_(o.reshape(tokens, self.h_q, self.d).to(target.dtype))
+
+    def run(
+        self,
+        plan: StepPlan,
+        query: torch.Tensor,  # (>= b*q_len, h_q, d) bf16, any token stride
+        out: torch.Tensor,  # (>= b*q_len, h_q, d) or (>= b*q_len, h_q*d)
+        k_cache: torch.Tensor,  # (num_pages, page_size, h_k, d) logical view
+        v_cache: torch.Tensor,
+        k_scale: torch.Tensor,  # fp32: 1 elem (per tensor), (h_k,), or (b, h_k)
+        v_scale: torch.Tensor,
+        softmax_scale: float,
+        q_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — fp6 K scales (later)
+        o_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — fp6 V scales (later)
+    ):
+        assert q_mul is None and o_mul is None, "fp6 channel scales land with the fp6 variant"
+        if self.fp8_q:
+            raise NotImplementedError("fp8 Q on Orin lands with the qpack wiring")
+        b, ql = plan.num_seqs, plan.q_len
+        tokens = b * ql
+        if k_cache.dtype == torch.uint8:
+            k_cache = k_cache.view(torch.float8_e4m3fn)
+        if v_cache.dtype == torch.uint8:
+            v_cache = v_cache.view(torch.float8_e4m3fn)
+        # Materialize the (b, h_k) descales (one captured broadcast each).
+        self._scale_buf(self._kd, b, k_scale)
+        self._scale_buf(self._vd, b, v_scale)
+        key = self._key(ql, plan.causal, k_cache.shape[0], b, plan.block_table.shape[1])
+        q3 = query[:tokens]
+        if q3.dim() == 2:
+            q3 = q3.view(tokens, self.h_q, self.d)
+        fn = self._get_compiled(key, self._compile_args(key, b, q3, out, k_cache, v_cache, plan.block_table))
+        launch = self._torch_args(key, b, q3, out, k_cache, v_cache, plan.block_table)
+        launch = (*launch, float(softmax_scale) * math.log2(math.e), self.ns_cap if key.split else 1)
+        fn(*launch)
+        if key.split:
+            self._combine(b, ql, out)
