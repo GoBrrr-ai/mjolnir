@@ -9,11 +9,14 @@ which is what the charts and the history log need.
 Protocol per ``--repeat`` sweep (all inside one clean-window gate):
   llama-benchy --base-url ... --model ... \
     --pp 2048 --tg 128 --depth 0 4096 8192 --concurrency 1 2 4 \
-    --runs 6 --warmup-runs 2 --latency-mode generation \
+    --runs 6 --latency-mode generation \
     --no-cache --exact-tg --format json --save-result benchmarks/raw/<...>/benchy.json
 
 * ``--runs N``     — N measured runs per (depth × pp × tg × concurrency) cell
-* ``--warmup-runs``— discarded warmup runs per shape (JIT/warm-cache state)
+* warmup           — llama-benchy runs ONE discarded warmup per cell before
+                      the measured runs (JIT/warm-cache state); it has no
+                      warmup-count flag, so ``warmup_runs`` is 1 (default) or
+                      0 (``--no-warmup``)
 * ``--exact-tg``   — pin output length (min_tokens + ignore_eos) so
                       EOS-early-stop can't skew the tg t/s variance
 * raw JSON per sweep → benchmarks/raw/<ts>/benchy-r<i>.json (git-trackable)
@@ -69,6 +72,10 @@ def build_command(
     out_json: Path,
     api_key: str | None,
 ) -> list[str]:
+    if warmup_runs not in (0, 1):
+        raise BenchError(
+            f"warmup_runs={warmup_runs}: llama-benchy does 1 discarded warmup per cell, or 0 with --no-warmup"
+        )
     cmd = [
         *benchy,
         "--base-url",
@@ -95,6 +102,8 @@ def build_command(
     ]
     if exact_tg:
         cmd += ["--exact-tg"]
+    if not warmup_runs:
+        cmd += ["--no-warmup"]
     if api_key:
         cmd += ["--api-key", api_key]
     return cmd
@@ -174,7 +183,7 @@ def run_perf(
     s: Settings,
     layout,
     runs: int = 6,
-    warmup_runs: int = 2,
+    warmup_runs: int = 1,
     exact_tg: bool = True,
     repeat: int = 1,
     depths: list[int] | None = None,

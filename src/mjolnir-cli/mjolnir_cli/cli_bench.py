@@ -49,7 +49,9 @@ def _platform_backends(ctx: typer.Context, s: Settings, stage: str, backends: st
 @bench_app.command("perf")
 def bench_perf(
     runs: int = typer.Option(6, "--runs", help="measured runs per cell (llama-benchy --runs)"),
-    warmup_runs: int = typer.Option(2, "--warmup-runs"),
+    warmup_runs: int = typer.Option(
+        1, "--warmup-runs", min=0, max=1, help="discarded warmup runs per cell: 1 (llama-benchy's own) or 0"
+    ),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps (default: one sweep, 6 runs per cell)"),
     depths: str = typer.Option(",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths"),
     concurrency: str = typer.Option("1,2,4", "--concurrency"),
@@ -345,7 +347,7 @@ def _run_legs(s: Settings, layout, legs: list[tuple], **perf) -> None:
         dockerctl.serve_down(s)
         try:
             dockerctl.serve_up(s, wait=True)
-            benchy.run_perf(s, layout, warmup_runs=2, exact_tg=True, **perf)
+            benchy.run_perf(s, layout, warmup_runs=1, exact_tg=True, **perf)
         except benchy.BenchError as e:
             typer.secho(str(e), fg=typer.colors.RED, err=True)
             raise typer.Exit(1) from e
