@@ -60,6 +60,7 @@ class GEMVKey:
     split: bool  # False: write-through, no partials/combine
     causal: bool
     q_descale: bool  # fp8 Q with per-(seq, head) descales
+    kv_format: str = "fp8"  # fp8 | e2m3 (the e2m3 path adds the code LUT arg)
     # The TVM-FFI signature bakes every tensor dim, so the shapes the launch
     # will use are part of the key: one binary per (pool size, batch, table
     # stride). vLLM has one pool + a handful of capture sizes; the disk cache
@@ -97,7 +98,7 @@ class GEMVDecodeRunner:
         assert q_mode in ("bf16", "fp8")
         assert out_dtype in (torch.bfloat16, torch.float16)
         assert max_q_len <= 8, "the GEMV kernel serves M <= 8 (the MTP verify shape)"
-        assert kv_format == "fp8", "fp6 (e2m3) KV on Orin lands with the unpack variant; fp8 is the serving format"
+        assert kv_format in ("fp8", "e2m3"), kv_format
         self.h_q, self.h_k, self.d = num_heads, num_kv_heads, head_size
         self.h_r = num_heads // num_kv_heads
         self.page_size = page_size
@@ -108,6 +109,13 @@ class GEMVDecodeRunner:
         self.kv_format = kv_format
         self.kv_evict_first = bool(kv_evict_first)
         self.device = torch.device(device)
+        # e2m3: the 64-entry code -> value table (exact for every code,
+        # subnormals included), passed to the kernel as a gmem tensor.
+        self._lut = None
+        if kv_format == "e2m3":
+            from mjolnir.kvfp6 import e2m3_values
+
+            self._lut = e2m3_values(self.device)
         if sm_count is None:
             sm_count = torch.cuda.get_device_properties(self.device).multi_processor_count
         self.sm_count = sm_count
@@ -210,6 +218,7 @@ class GEMVDecodeRunner:
             split=self.split,
             causal=causal,
             q_descale=self.fp8_q,
+            kv_format=self.kv_format,
             num_pages=num_pages,
             batch=batch,
             max_blocks=max_blocks,
@@ -255,6 +264,7 @@ class GEMVDecodeRunner:
             None,  # mCuSeqlensQ: dense (b, M, h_q, d) Q
             self._cute(self._cu[: b + 1], assumed_align=4),  # mCuSeqlensK
             ds,
+            self._cute(self._lut, assumed_align=4) if self._lut is not None else None,
             self._cute(
                 self._o_part[: ns * rows * self.h_q * self.d].view(ns, b, key.q_len, self.h_q, self.d),
                 assumed_align=4,
@@ -301,6 +311,7 @@ class GEMVDecodeRunner:
             None,  # mCuSeqlensQ
             self._cu[: b + 1],
             ds,
+            self._lut,
             self._o_part[: ns * rows * self.h_q * self.d].view(ns, b, key.q_len, self.h_q, self.d)
             if key.split
             else None,
@@ -328,6 +339,7 @@ class GEMVDecodeRunner:
                     tile_size_per_bdx=self.tile or 4,
                     page_size=self.page_size,
                     causal=key.causal,
+                    kv_format=key.kv_format,
                 )
                 fn = cute.compile(kernel, *compile_args, options="--opt-level 2 --enable-tvm-ffi")
                 CACHE_STATS["compiled"] += 1
@@ -426,10 +438,11 @@ class GEMVDecodeRunner:
             raise NotImplementedError("fp8 Q on Orin lands with the qpack wiring")
         b, ql = plan.num_seqs, plan.q_len
         tokens = b * ql
-        if k_cache.dtype == torch.uint8:
-            k_cache = k_cache.view(torch.float8_e4m3fn)
-        if v_cache.dtype == torch.uint8:
-            v_cache = v_cache.view(torch.float8_e4m3fn)
+        if self.kv_format == "fp8":
+            if k_cache.dtype == torch.uint8:
+                k_cache = k_cache.view(torch.float8_e4m3fn)
+            if v_cache.dtype == torch.uint8:
+                v_cache = v_cache.view(torch.float8_e4m3fn)
         # Materialize the (b, h_k) descales (one captured broadcast each).
         self._scale_buf(self._kd, b, k_scale)
         self._scale_buf(self._vd, b, v_scale)
