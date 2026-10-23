@@ -75,7 +75,12 @@ class MMADecodeKernel:
     @staticmethod
     @cute.jit
     def _bf16_tile_layout(rows: cutlass.Constexpr[int], cols: cutlass.Constexpr[int]):
-        atom = cute.make_composed_layout(cute.make_swizzle(3, 3, 3), 0, cute.make_layout((8, 64), stride=(64, 1)))
+        # The reference's rule: the 64-col blocks swizzle(3), the 32-col
+        # ones swizzle(2) — our V smem is [d][32 rows], so it takes the 32.
+        if const_expr(cols == 64):
+            atom = cute.make_composed_layout(cute.make_swizzle(3, 3, 3), 0, cute.make_layout((8, 64), stride=(64, 1)))
+        else:
+            atom = cute.make_composed_layout(cute.make_swizzle(2, 3, 3), 0, cute.make_layout((8, 32), stride=(32, 1)))
         return cute.tile_to_shape(atom, (rows, cols), order=(0, 1))
 
     # ------------------------------------------------------------------
@@ -273,6 +278,12 @@ class MMADecodeKernel:
         tSsQ = smem_thr_Q.partition_S(sQ_t)
         tSsK = smem_thr_K.partition_S(sK16_t)
         tOsVt = smem_thr_V.partition_S(sV16_t)
+        # The copy-side fragment views: the mma fragments' layouts differ
+        # from the smem-copy atoms' — the retile bridges them (the
+        # reference's tSrQ_copy_view/tSrK_copy_view/tOrVt_copy_view).
+        tSrQ_copy = smem_thr_Q.retile(tSrQ)
+        tSrK_copy = smem_thr_K.retile(tSrK)
+        tOrVt_copy = smem_thr_V.retile(tOrVt)
 
         # The stage loop over this CTA's KV chunk (single-buffered in M1).
         n_stages = cute.ceil_div(kv_len_c, SR)
@@ -349,8 +360,8 @@ class MMADecodeKernel:
             acc_S.fill(0.0)
             n_kslices = D // 16
             for k in cutlass.range_constexpr(n_kslices):
-                cute.copy(smem_copy_Q, tSsQ[None, None, k], tSrQ[None, None, k])
-                cute.copy(smem_copy_K, tSsK[None, None, k], tSrK[None, None, k])
+                cute.copy(smem_copy_Q, tSsQ[None, None, k], tSrQ_copy[None, None, k])
+                cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
             for k in cutlass.range_constexpr(n_kslices):
                 cute.gemm(tiled_mma, acc_S, tSrQ[None, None, k], tSrK[None, None, k], acc_S)
 
@@ -367,7 +378,7 @@ class MMADecodeKernel:
             )
 
             # 5. PV: the acc_O += P * V (the warp's d-slices).
-            self.pv(tiled_mma, smem_copy_V, tOsVt, tOrVt, acc_S, acc_O, MT, SR)
+            self.pv(tiled_mma, smem_copy_V, tOsVt, tOrVt_copy, acc_S, acc_O, MT, SR)
 
         # 6. the epilogue.
         self.epilogue(
@@ -462,11 +473,10 @@ class MMADecodeKernel:
         for r in cutlass.range_constexpr(MT):
             s_partial = Float32(0.0)
             for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
+                p = Float32(0.0)
                 v = acc_S_mn[r, c]
                 if c < kv_len_c - row0:
                     p = cute.math.exp2(v * scale_eff - row_max[r] * scale_eff, fastmath=True)
-                else:
-                    p = Float32(0.0)
                 acc_S_mn[r, c] = p
                 s_partial += p
             sStats[self.WARPS * MT + warp_idx * MT + r] = s_partial
@@ -485,7 +495,7 @@ class MMADecodeKernel:
         tiled_mma,
         smem_copy_V,
         tOsVt,
-        tOrVt,
+        tOrVt_copy,
         acc_S: cute.Tensor,
         acc_O: cute.Tensor,
         m_block: cutlass.Constexpr[int],
@@ -515,8 +525,8 @@ class MMADecodeKernel:
         )
         tOrS = cute.make_tensor(rP.iterator, rP_mma_view)
         for k in cutlass.range_constexpr(cute.size(tOrS.shape[2])):
-            cute.copy(smem_copy_V, tOsVt[None, None, k], tOrVt[None, None, k])
-            cute.gemm(tiled_mma, acc_O, tOrS[None, None, k], tOrVt[None, None, k], acc_O)
+            cute.copy(smem_copy_V, tOsVt[None, None, k], tOrVt_copy[None, None, k])
+            cute.gemm(tiled_mma, acc_O, tOrS[None, None, k], tOrVt_copy[None, None, k], acc_O)
 
     @cute.jit
     def epilogue(
