@@ -20,3 +20,31 @@ contract). The family mirrors the Thor layout:
 Do not import this package on a device whose compute capability is not
 (8, 7): the DSL compile and the module's budget asserts assume GA10B.
 """
+
+from .runner import GEMVDecodeRunner
+
+__all__ = ["GEMVDecodeRunner", "Runner"]
+
+
+class Runner(GEMVDecodeRunner):
+    """The backend-facing runner surface (``mjolnir.platforms.kernel_for``
+    hands this to the vLLM backend). Accepts the shared backend kwargs and
+    absorbs the Thor-only levers as inert attributes: the GEMV grid has no
+    CTAs/SM knob, and PDL / L2-prefetch / evict-first hints do not exist
+    below sm_90 — the attributes exist so the backend's builder logging and
+    metadata paths read them unchanged."""
+
+    def __init__(
+        self,
+        *,
+        ctas_per_sm: int = 2,
+        pdl: bool = False,
+        l2_prefetch: int = 0,
+        kv_evict_first: bool = False,
+        **kw,
+    ):
+        super().__init__(**kw)
+        self.ctas_per_sm = ctas_per_sm
+        self.pdl = pdl
+        self.l2_prefetch = l2_prefetch
+        self.kv_evict_first = kv_evict_first

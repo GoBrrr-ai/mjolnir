@@ -174,6 +174,16 @@ non-causal) at rel_err ≈ 0.0017 vs the fp32 reference; the fp8 sweep
 for the same tokens — **1.35×**, the 25% byte saving realized (the
 kernel is issue/bandwidth-bound, so fewer bytes = proportionally faster).
 
+## The hd128 gap (the top integration item)
+
+The GEMV serves **head_size 256 only** (`mjolnir verify vllm` reports the
+gap: the stock smoke model Qwen3-0.6B is hd128). The t5 family serves any
+`head_size % 128 == 0`. Widening the GEMV to hd128 is mechanical in the
+traced body (VEC = D//16, the fp8/bf16 lane chunking derives from ROW_B,
+the butterfly reduce is unchanged) but **fp6 stays hd256-only**: a 96-byte
+row splits into non-integral 4-byte lane slices. Until then the plugin
+smoke needs a hd256 model.
+
 ## Not portable from Thor (deliberate)
 
 * `tcgen05 kind::f8f6f4` (the Thor fp6 read) — Ampere has no such MMA;
