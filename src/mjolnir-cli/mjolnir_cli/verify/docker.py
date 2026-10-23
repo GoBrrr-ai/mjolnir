@@ -25,6 +25,21 @@ from mjolnir_cli.verify.legs import FILTERS, Leg
 
 DRIVERS_DIR = Path(__file__).resolve().parent.parent / "drivers"
 NCU_HOME_DEFAULT = "/opt/nvidia/nsight-compute/2025.3.0"
+
+
+def resolve_ncu_home() -> str:
+    """The host's Nsight Compute install: ``$NCU_HOME`` wins; else the newest
+    versioned dir under ``/opt/nvidia/nsight-compute`` that carries the ncu
+    binary (JP names them by version — the Thor's 2025.3.0, the Orin's
+    2026.1.1); else the Thor default (the pre-detection layout)."""
+    env = os.environ.get("NCU_HOME")
+    if env:
+        return env
+    try:
+        cands = sorted(p for p in Path(NCU_HOME_DEFAULT).parent.glob("*") if (p / "ncu").is_file())
+    except OSError:
+        cands = []
+    return str(cands[-1]) if cands else NCU_HOME_DEFAULT
 _IN_SRC = "/opt/mjolnir-src"
 
 
@@ -76,7 +91,7 @@ class Runner:
     platform: str = DEFAULT_PLATFORM  # which kernel family the harness stages drive
     ref_image: str = field(default_factory=default_ref_image)  # FlashInfer / FA2 legs
     kernel_src: Path | None = None  # checkout's src/mjolnir (mounted over the image copy)
-    ncu_home: str = field(default_factory=lambda: os.environ.get("NCU_HOME", NCU_HOME_DEFAULT))
+    ncu_home: str = field(default_factory=resolve_ncu_home)
     timeout: float = 180.0
     dry_run: bool = False
     hq: int = 24

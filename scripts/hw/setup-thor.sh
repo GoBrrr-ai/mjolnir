@@ -20,7 +20,7 @@
 #   --keep-gui             don't switch the boot target to multi-user
 #   --fan-profile <p>      recommended (default) | max | cool | quiet
 #   --swap-size <GB>       swap file size (default: 32)
-#   --skip <a,b,c>         skip steps: gui,upgrade,pip,docker,jtop,
+#   --skip <a,b,c>         skip steps: gui,upgrade,pip,docker,jtop,nsight,
 #                          memory,fan,host,clocks,power
 #   --reboot               reboot at the end if a step required one
 #   --dry-run              print the plan, change nothing
@@ -265,6 +265,7 @@ print_plan() {
     _plan pip      "pip + setuptools + wheel (get-pip.py fallback)"
     _plan docker   "docker-ce + nvidia-container-toolkit, user in docker group, nvidia default runtime, service up + enabled"
     _plan jtop     "jetson-stats (jtop)"
+    _plan nsight   "Nsight Compute (ncu — the verify stages profile with it)"
     _plan memory   "${SWAP_SIZE} GB swap file at /mnt (zRAM off)"
     _plan fan      "install recommended+max fan profiles (gated, .bck backup), FAN_DEFAULT_PROFILE: ${FAN_PROFILE}"
     _plan host     "disable nvargus-daemon / cups / ModemManager"
@@ -339,6 +340,13 @@ if is_skipped jtop; then
     echo "ℹ️  Skipping: jtop"
 else
     install_jtop
+fi
+
+# 5b. Nsight Compute (ncu)
+if is_skipped nsight; then
+    echo "ℹ️  Skipping: nsight"
+else
+    install_nsight_compute
 fi
 
 # 6. Memory: swap file + zRAM off

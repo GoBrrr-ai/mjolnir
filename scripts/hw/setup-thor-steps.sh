@@ -91,6 +91,46 @@ install_jtop() {
 }
 
 # ================================================================================
+# NSIGHT COMPUTE (ncu — the verify stages profile with it)
+# ================================================================================
+
+install_nsight_compute() {
+    # Nsight Compute ships in the JetPack repo, named for the CUDA minor it
+    # targets (cuda-nsight-compute-13-2 on JP 7.2). The meta follows the
+    # box's CUDA install; the ncu binary lands in
+    # /opt/nvidia/nsight-compute/<version>/. Idempotent: skip when present.
+    if ls /opt/nvidia/nsight-compute/*/ncu &> /dev/null; then
+        echo "✅ Nsight Compute is already installed."
+        return
+    fi
+    local cuda_dot
+    cuda_dot=$(ls /usr/local/ 2>/dev/null | grep -oP '^cuda-\d+\.\d+$' | sort -V | tail -1 | cut -d- -f2 || true)
+    local meta=""
+    if [ -n "$cuda_dot" ]; then
+        meta="cuda-nsight-compute-${cuda_dot/./-}"
+        apt-cache show "$meta" &> /dev/null || meta=""
+    fi
+    if [ -z "$meta" ]; then
+        # No CUDA dir or no matching meta: take the newest plain package.
+        meta=$(apt-cache search --names-only '^nsight-compute-[0-9]' | awk '{print $1}' | sort -V | tail -1)
+    fi
+    if [ -z "$meta" ]; then
+        echo "❌ no nsight-compute package found (is the JetPack apt repo configured?)"
+        return 1
+    fi
+    echo "📦 Installing Nsight Compute ($meta)..."
+    apt-get install -y "$meta"
+    local ncu_bin
+    ncu_bin=$(ls /opt/nvidia/nsight-compute/*/ncu 2>/dev/null | sort -V | tail -1)
+    if [ -n "$ncu_bin" ]; then
+        echo "✅ Nsight Compute installed: $ncu_bin"
+    else
+        echo "❌ installed but no ncu binary found under /opt/nvidia/nsight-compute/"
+        return 1
+    fi
+}
+
+# ================================================================================
 # DOCKER
 # ================================================================================
 

@@ -110,7 +110,8 @@ REGISTRY: dict[str, Platform] = {
         stock_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         vllm_version=None,
         status="research",
-        ncu=False,
+        ncu=True,  # JP7 ships Nsight Compute (nsight-compute-2026.1.1 in the r39.2 repo)
+
         host_requirements="JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
         short="Orin",
     ),
