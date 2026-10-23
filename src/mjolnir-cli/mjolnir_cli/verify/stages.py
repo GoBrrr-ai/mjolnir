@@ -155,6 +155,10 @@ def stage_sweep(ctx: Ctx, legs: str = SWEEP_LEGS, page: int | None = None, batch
     """Every leg at every L. ``batch`` sequences of L tokens with ``q_len``
     query tokens each (default one decode token of one sequence; serving with
     MTP=3 verifies 4 tokens per sequence: ``batch=4, q_len=4``)."""
+    if ctx.runner.platform == "orin":
+        # No ncu on L4T: the events-timed same-run comparison IS this
+        # platform's headline sweep (the legs are its series ids).
+        return _orin_sweep(ctx, legs, q_len)
     sel = L_.legs_from_ids(legs)
     single_token = {"fa2", "fa4"}
     if (batch, q_len) != (1, 1) and any(x.kind in single_token for x in sel):
@@ -263,72 +267,56 @@ def stage_timing(ctx: Ctx, dtypes: str = "fp8 bf16", ctas: str = "1 2", iters: i
     return {"rows": rows, "params": {"dtypes": dtypes, "ctas": ctas, "iters": iters}}
 
 
-def stage_orinbench(ctx: Ctx, iters: int = 200) -> dict:
-    """Orin same-run comparison at every L (and the MTP M=4 verify shape):
-    the GEMV kernel with prebuilt launches (the kernel number) vs the full
-    serving path (runner.run: arg packing + the LSE combine) vs the
-    FlashInfer FA2-TC reference — all on this host, same conditions. The
-    M=1 series use the sweep schema so the README's headline context can
-    read this stage wherever the ncu sweep cannot run (no ncu on L4T)."""
-    assert ctx.runner.platform == "orin", "stage_orinbench runs on the Orin platform"
+def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
+    """The sweep's Orin branch: the same-run comparison at every L with
+    prebuilt launches (the kernel number), the full serving path
+    (runner.run: arg packing + the LSE combine) and the FlashInfer FA2-TC
+    reference -- all on this host, same conditions, on the stock image.
+    No ncu exists on L4T, so this branch IS the platform's headline sweep;
+    the series carry the sweep schema (id/label/kind/role/points) and save
+    under the sweep stage with the platform tag, so every reader -- charts,
+    README context, tables -- consumes them unchanged."""
+    want = set(legs.split(",")) if legs else {"mjolnir", "mjolnir-full", "fi"}
     # Correctness gate first: the exact configs the timing runs, plus the
     # ragged short-sequence case that exercises the masked-split paths.
     for args in (
-        "--seqlen 4096 --q_len 1",
+        f"--seqlen 4096 --q_len {q_len}",
         "--seqlen 4096 --q_len 8 --batches 8",
         "--seqlen 64 --q_len 8 --batches 8",
     ):
-        clog = ctx.logdir / "orinbench" / f"check-{args.replace(' ', '_').replace('--', '')}.log"
+        clog = ctx.logdir / "sweep" / f"check-{args.replace(' ', '_').replace('--', '')}.log"
         rc, _ = ctx.runner.harness(clog, "bf16", args)
         if rc != 0:
             return {"error": f"correctness gate failed ({args}), see {clog}"}
-    pts: dict[str, dict[str, list]] = {"mjolnir": {}, "mjolnir-full": {}, "fi": {}}
-    m4 = []
-    for M in (1, 4):
-        for L in ctx.ls:
-            ctx.wait_clean()
-            log = ctx.logdir / "orinbench" / f"mjolnir-M{M}-L{L}.log"
-            args = f"--seqlen {L} --q_len {M} --skip_ref_check --warmup_iterations 20 --iterations {iters}"
-            rc, text = ctx.runner.harness(log, "bf16", args)
-            us, gbps = _median(text)
-            full_m = _FULL_MEDIAN.search(text or "")
-            full_us = float(full_m.group(1)) if full_m else None
-            flog = ctx.logdir / "orinbench" / f"fi-M{M}-L{L}.log"
-            frc, fi_us = ctx.runner.driver_wall(
-                flog,
-                "fi_driver.py",
-                L,
-                iters,
-                env_extra=(
-                    ("FI_LAYOUT", "NHD"),
-                    ("BENCH_PAGE", "16"),
-                    ("BENCH_QLEN", str(M)),
-                    ("BENCH_WARMUP", "20"),
-                ),
+    pts: dict[str, list] = {"mjolnir": [], "mjolnir-full": [], "fi": []}
+    for L in ctx.ls:
+        ctx.wait_clean()
+        log = ctx.logdir / "sweep" / f"mjolnir-L{L}.log"
+        args = f"--seqlen {L} --q_len {q_len} --skip_ref_check --warmup_iterations 20 --iterations {ctx.iters}"
+        rc, text = ctx.runner.harness(log, "bf16", args)
+        us, gbps = _median(text)
+        full_m = _FULL_MEDIAN.search(text or "")
+        full_us = float(full_m.group(1)) if full_m else None
+        flog = ctx.logdir / "sweep" / f"fi-L{L}.log"
+        frc, fi_us = ctx.runner.driver_wall(
+            flog,
+            "fi_driver.py",
+            L,
+            ctx.iters,
+            env_extra=(("FI_LAYOUT", "NHD"), ("BENCH_PAGE", "16"), ("BENCH_QLEN", str(q_len)), ("BENCH_WARMUP", "20")),
+        )
+        ok = rc == 0 and us is not None and frc == 0 and fi_us is not None
+        if us is not None:
+            pts["mjolnir"].append({"L": L, "total_us": us, "gbps": gbps})
+            pts["mjolnir-full"].append({"L": L, "total_us": full_us})
+        if fi_us is not None:
+            pts["fi"].append({"L": L, "total_us": fi_us})
+        if ok:
+            ctx.out(
+                f"   L={L:>7,}  kernel {us:>9.1f} µs  full {full_us or 0:>9.1f} µs  FI {fi_us:>9.1f} µs  ({fi_us / us:>5.2f}x)"
             )
-            kv_gb = ctx.runner.batch * L * ctx.runner.hk * ctx.runner.d * 2 * 1.0 / 1e9
-            ok = rc == 0 and us is not None and frc == 0 and fi_us is not None
-            row = {
-                "M": M,
-                "L": L,
-                "kernel_us": us,
-                "gbps": gbps,
-                "fi_us": fi_us,
-                "ratio": (fi_us / us) if ok and us else None,
-                "ok": ok,
-            }
-            if M == 1:
-                if us is not None:
-                    pts["mjolnir"].setdefault("pts", []).append({"L": L, "total_us": us, "gbps": gbps})
-                    pts["mjolnir-full"].setdefault("pts", []).append({"L": L, "total_us": full_us})
-                if fi_us is not None:
-                    pts["fi"].setdefault("pts", []).append({"L": L, "total_us": fi_us})
-            else:
-                m4.append(row)
-            if ok:
-                ctx.out(f"   M={M} L={L:>7,}  kernel {us:>9.1f} µs  FI {fi_us:>9.1f} µs  ({fi_us / us:>5.2f}x)")
-            else:
-                ctx.out(f"   M={M} L={L:>7,}  incomplete (mjolnir rc={rc}, fi rc={frc}) — {ctx.logdir / 'orinbench'}")
+        else:
+            ctx.out(f"   L={L:>7,}  incomplete (mjolnir rc={rc}, fi rc={frc}) — {ctx.logdir / 'sweep'}")
 
     def series(sid, label, kind, role, kv_layout, points):
         return {
@@ -342,18 +330,12 @@ def stage_orinbench(ctx: Ctx, iters: int = 200) -> dict:
             "points": points,
         }
 
-    return {
-        "series": [
-            series("mjolnir", "Mjolnir GEMV (fp8 KV, HND)", "t5", "ours", "hnd", pts["mjolnir"].get("pts", [])),
-            series("mjolnir-full", "Mjolnir serving path", "t5", "ours", "hnd", pts["mjolnir-full"].get("pts", [])),
-            series("fi", "FlashInfer FA2-TC (fp8 KV, NHD)", "fi", "baseline", "nhd", pts["fi"].get("pts", [])),
-        ],
-        # The M=4 rows and the platform tag live in the doc BODY: params only
-        # carries the stage's tunable options (the default-run detection
-        # compares it to the defaults).
-        "m4": m4,
-        "params": {"iters": iters},
-    }
+    all_series = [
+        series("mjolnir", "Mjolnir GEMV (fp8 KV, HND)", "t5", "ours", "hnd", pts["mjolnir"]),
+        series("mjolnir-full", "Mjolnir serving path", "t5", "ours", "hnd", pts["mjolnir-full"]),
+        series("fi", "FlashInfer FA2-TC (fp8 KV, NHD)", "fi", "baseline", "nhd", pts["fi"]),
+    ]
+    return {"series": [s for s in all_series if s["id"] in want], "params": {}}
 
 
 def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 200) -> dict:
@@ -893,13 +875,6 @@ STAGES: dict[str, Stage] = {
         ),
         Stage(
             "timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing
-        ),
-        Stage(
-            "orinbench",
-            "Orin same-run comparison",
-            "harness",
-            "GEMV kernel vs full serving path vs FlashInfer FA2-TC, events-timed at every L (Orin only)",
-            stage_orinbench,
         ),
         Stage(
             "kv-cache-size",

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mjolnir_cli.config import host_hf_hub
-from mjolnir_cli.platforms import DEFAULT_PLATFORM
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, platform_ncu
 from mjolnir_cli.verify import ncu
 from mjolnir_cli.verify.legs import FILTERS, Leg
 
@@ -204,6 +204,12 @@ class Runner:
     def ncu_leg(
         self, log: Path, leg: Leg, L: int, iters: int, cache: str = "all", clock: str = "base"
     ) -> tuple[int, dict | None]:
+        if not platform_ncu(self.platform):
+            raise RuntimeError(
+                f"ncu profiling is not available on the {self.platform!r} platform "
+                "(no Nsight Compute in the L4T rootfs) — the events-timed stages "
+                "(sweep, correctness, timing) carry this platform's headline data"
+            )
         cmd, env = self.leg_command(leg, L, iters)
         name = self._name("mjolnir-ncu")
         argv = [

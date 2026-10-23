@@ -417,10 +417,7 @@ def collect_context(
                 ctx.tables[f"{stage}_wall"] = w
     ctx.pending = [s for s in STAGES if s not in data and s not in ("timing", "vllm", "profile")]
 
-    # The headline L-sweep: the ncu sweep where ncu exists (thor); on the
-    # Orin (no ncu on L4T) the events-timed orinbench series carry the same
-    # schema (id/label/kind/role/points), so the same context code reads it.
-    sweep = data.get("sweep") or data.get("orinbench")
+    sweep = data.get("sweep")
     if sweep:
         by = results.series_by_id(sweep)
         ours = by.get("mjolnir") or by.get("mjolnir-fp8")
@@ -698,6 +695,11 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
 # ── "how is this calculated" panels (one under every table / figure with % or ×) ──
 
 _HOW: dict[str, str] = {
+    "sweep-events": """\
+- **Time per decode step** = CUDA-event median over the timed launches. The kernel number replays the compiled launch with prebuilt arguments; the serving-path number times the full `runner.run()` call (argument packing + the split-KV LSE combine, python included). The FlashInfer reference runs in its own container on the same stock image, warmed up the same way, in the same run.
+- **Speedup ×** = reference time ÷ Mjolnir time; below 1 the reference is faster.
+- **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same.
+- No ncu exists on L4T, so this stage is events-timed wall clock, not `gpu__time_duration`; there is no cold-L2 or base-clock control. ±3% (`NOISE_PCT`) is the same-run spread band.""",
     "kernel": """\
 - **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 4 hd256) is measured the same way, at the same L, in the same run.
 - **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
@@ -770,6 +772,8 @@ def how(ctx: Any, kind: str) -> str:
     ``kind`` (GitHub renders the markdown inside ``<details>``). The e2e
     panel reads the context's noise band (any context carrying
     ``e2e_noise_pct`` works — the page contexts do too)."""
+    if kind == "kernel" and getattr(ctx, "platform", None) == "orin":
+        kind = "sweep-events"  # the Orin's headline sweep is events-timed (no ncu on L4T)
     body = _how_e2e(ctx) if kind == "e2e" else _HOW[kind]
     return f"<details>\n<summary>How the % and × here are calculated</summary>\n\n{body}\n\n</details><br />"
 
