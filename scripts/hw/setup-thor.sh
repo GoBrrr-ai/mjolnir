@@ -392,7 +392,7 @@ else
     setup_power_mode
 fi
 
-echo "✅ Jetson Thor configuration completed."
+echo "✅ Jetson ($SOC_TYPE) configuration completed."
 
 if [ "$REBOOT_REQUIRED" = "1" ]; then
     if [ "$DO_REBOOT" = "1" ]; then
