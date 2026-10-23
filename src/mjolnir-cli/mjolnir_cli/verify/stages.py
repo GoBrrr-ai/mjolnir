@@ -774,13 +774,27 @@ def stage_vllm(
     orin = ctx.runner.platform == "orin"
     log = ctx.logdir / "vllm" / "test_runner.log"
     if orin:
+        # The GEMV family serves head_size 256 only; the default smoke model
+        # (Qwen3-0.6B) is head_size 128. The plugin smoke needs a hd256 model
+        # (the repo's headline) or the hd128 GEMV variant -- until then the
+        # stage reports the gap instead of a doomed run. The kernel-level
+        # correctness on this platform is the sweep-gated harness matrix.
+        ctx.out(
+            "   (N/A on Orin: the GEMV serves head_size 256; the smoke model is hd128."
+            " The hd128 GEMV variant -- or a hd256 smoke model -- unlocks this stage)"
+        )
+        return {
+            "cases": [
+                {"label": "plugin smoke", "passed": False, "note": "needs a hd256 model (GEMV serves hd256 only)"}
+            ],
+            "params": {"smoke_modes": "", "model": model, "tokens": tokens},
+        }
         # tests/test_runner.py exercises the thor family (its runner and the
         # bit-faithful emulator live there); the orin's correctness gate is
         # the harness --sweep matrix the correctness stage runs. The smoke
         # below is the real plugin check on this platform.
         ctx.out("   (runner tests: thor-family suite — the Orin's correctness is the sweep-gated matrix)")
-    else:
-        rc = ctx.runner.tests(log, repo, "python3 tests/test_runner.py", timeout, hf)
+    rc = ctx.runner.tests(log, repo, "python3 tests/test_runner.py", timeout, hf)
     text = log.read_text(errors="replace") if log.exists() else ""
     for line in text.splitlines():
         m = re.search(r"(✅|❌) (test_\S+)", line)
