@@ -394,6 +394,15 @@ class Runner:
             f"HF_TOKEN={os.environ.get('HF_TOKEN', '')}",
             "-e",
             "TMPDIR=/tmp",
+            # The arch-sensitive JIT envs follow the platform (the same
+            # override build_run_args makes): the kernel compiles for the
+            # device this container runs on, and any Triton/Inductor paths
+            # in the smoke target it too.
+            *(
+                ("-e", "TORCH_CUDA_ARCH_LIST=8.7", "-e", "FLASHINFER_CUDA_ARCH_LIST=8.7", "-e", "CUTE_DSL_ARCH=sm_87")
+                if self.platform == "orin"
+                else ()
+            ),
             "-w",
             "/work",
             self.image,
