@@ -42,7 +42,7 @@ def hw_setup(
     ),
     swap_size: int = typer.Option(32, "--swap-size", help="swap file size in GB (default 32 — the 128 GB Thor SoM)"),
     skip: str = typer.Option(
-        "", "--skip", help="comma-separated steps to skip: gui,upgrade,pip,docker,jtop,memory,fan,host,clocks,power"
+        "", "--skip", help="comma-separated steps to skip: gui,upgrade,pip,docker,jtop,nsight,memory,fan,host,clocks,power"
     ),
     reboot: bool = typer.Option(False, "--reboot", help="reboot at the end if a step required one (non-interactive)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the plan, change nothing"),
