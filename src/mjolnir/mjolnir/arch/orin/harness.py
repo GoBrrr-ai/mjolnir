@@ -276,6 +276,26 @@ def bench(args) -> None:
     # The shared verify stage code parses this canonical line (stages._MEDIAN).
     print(f"median {med:.2f} us, {gbps:.3g} GB/s (prebuilt launches, b={b}, M={args.q_len})")
 
+    # The full serving path (arg packing + the LSE combine): back-to-back
+    # runner.run() calls, one event pair each -- the honest per-call cost
+    # vLLM would pay, python included. Parsed by stages._FULL_MEDIAN.
+    for _ in range(args.warmup):
+        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)
+    torch.cuda.synchronize()
+    full_times = []
+    for _ in range(args.iters):
+        s, e = torch.cuda.Event(True), torch.cuda.Event(True)
+        s.record()
+        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)
+        e.record()
+        torch.cuda.synchronize()
+        full_times.append(s.elapsed_time(e) * 1000)
+    full_times.sort()
+    full_med = full_times[len(full_times) // 2]
+    print(
+        f"full median {full_med:.2f} us, {kv_gb / (full_med / 1e6):.3g} GB/s (full serving path, b={b}, M={args.q_len})"
+    )
+
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Orin GEMV decode harness (correctness + bench).")

@@ -38,6 +38,7 @@ DEFAULT_ITERS = 50
 NOISE_PCT = 3.0
 
 _MEDIAN = re.compile(r"^median ([0-9.]+) us(?:, ([0-9.e+]+) GB/s)?", re.MULTILINE)
+_FULL_MEDIAN = re.compile(r"^full median ([0-9.]+) us", re.MULTILINE)
 
 
 @dataclass
@@ -290,6 +291,8 @@ def stage_orinbench(ctx: Ctx, iters: int = 200) -> dict:
             args = f"--seqlen {L} --q_len {M} --skip_ref_check --warmup_iterations 20 --iterations {iters}"
             rc, text = ctx.runner.harness(log, "bf16", args)
             us, gbps = _median(text)
+            full_m = _FULL_MEDIAN.search(text or "")
+            full_us = float(full_m.group(1)) if full_m else None
             flog = ctx.logdir / "orinbench" / f"fi-M{M}-L{L}.log"
             frc, fi_us = ctx.runner.driver_wall(
                 flog,
@@ -317,7 +320,7 @@ def stage_orinbench(ctx: Ctx, iters: int = 200) -> dict:
             if M == 1:
                 if us is not None:
                     pts["mjolnir"].setdefault("pts", []).append({"L": L, "total_us": us, "gbps": gbps})
-                    pts["mjolnir-full"].setdefault("pts", []).append({"L": L, "total_us": us})
+                    pts["mjolnir-full"].setdefault("pts", []).append({"L": L, "total_us": full_us})
                 if fi_us is not None:
                     pts["fi"].setdefault("pts", []).append({"L": L, "total_us": fi_us})
             else:
@@ -345,7 +348,11 @@ def stage_orinbench(ctx: Ctx, iters: int = 200) -> dict:
             series("mjolnir-full", "Mjolnir serving path", "t5", "ours", "hnd", pts["mjolnir-full"].get("pts", [])),
             series("fi", "FlashInfer FA2-TC (fp8 KV, NHD)", "fi", "baseline", "nhd", pts["fi"].get("pts", [])),
         ],
-        "params": {"iters": iters, "platform": "orin", "m4": m4},
+        # The M=4 rows and the platform tag live in the doc BODY: params only
+        # carries the stage's tunable options (the default-run detection
+        # compares it to the defaults).
+        "m4": m4,
+        "params": {"iters": iters},
     }
 
 
