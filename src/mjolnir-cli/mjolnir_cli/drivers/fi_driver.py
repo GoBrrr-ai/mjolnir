@@ -105,6 +105,9 @@ def main():
 
     w = make(layout)
     kv = cache(layout)
+    warmup = env_int("WARMUP", 0)  # wall runs warm up (JIT amortized); ncu keeps 0 exact launches
+    for _ in range(warmup):
+        run(w, layout)
     torch.cuda.synchronize()
     print(
         f"FI {layout}: b={b} q_len={qlen} L={L} pages={pages}x{ps} h_q={hq} h_k={hk} d={d} "

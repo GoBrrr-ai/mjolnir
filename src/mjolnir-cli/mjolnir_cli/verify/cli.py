@@ -131,7 +131,15 @@ def execute(
         cand = layout.repo_root / "src" / "mjolnir"
         if (cand / "mjolnir" / "arch" / "thor" / "decode.py").exists():
             kernel_src = cand
-    runner = Runner(image=s.image, logdir=logdir, kernel_src=kernel_src, timeout=timeout, dry_run=dry_run, page=page)
+    runner = Runner(
+        image=s.image,
+        logdir=logdir,
+        platform=s.platform or DEFAULT_PLATFORM,
+        kernel_src=kernel_src,
+        timeout=timeout,
+        dry_run=dry_run,
+        page=page,
+    )
     ctx = stages.Ctx(
         runner=runner,
         run_id=run_id,
@@ -549,6 +557,34 @@ def fp6prof(
         timeout,
         save,
         plot,
+    )
+
+
+@app.command()
+def orinbench(
+    iters: int = typer.Option(200, "--iters", help="timed iterations per point (and FI warmup+iters)"),
+    image: str | None = IMAGE,
+    ls: str | None = LS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
+):
+    """Orin same-run comparison: the GEMV kernel vs the full serving path vs the FlashInfer FA2-TC reference."""
+    _run(
+        "orinbench",
+        {"iters": iters},
+        {"iters": 200},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+        page=16,
     )
 
 
