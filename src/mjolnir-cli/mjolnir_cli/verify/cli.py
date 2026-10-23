@@ -562,7 +562,7 @@ def fp6prof(
 
 @app.command()
 def orinbench(
-    iters: int = typer.Option(200, "--iters", help="timed iterations per point (and FI warmup+iters)"),
+    wall_iters: int = typer.Option(200, "--iters", help="timed iterations per point (and the FI warmup+iters)"),
     image: str | None = IMAGE,
     ls: str | None = LS,
     gate: bool = GATE,
@@ -574,17 +574,16 @@ def orinbench(
     """Orin same-run comparison: the GEMV kernel vs the full serving path vs the FlashInfer FA2-TC reference."""
     _run(
         "orinbench",
-        {"iters": iters},
+        {"iters": wall_iters},
         {"iters": 200},
         image,
         ls,
-        iters,
+        stages.DEFAULT_ITERS,  # the ncu-profiled iters: unused by this wall stage
         gate,
         dry_run,
         timeout,
         save,
         plot,
-        page=16,
     )
 
 
