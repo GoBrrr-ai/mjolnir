@@ -285,3 +285,40 @@ reduction side checks out (row_sum via LSE); the remaining suspect is
 the P fragment's value placement relative to the A-operand layout, or
 the V B-fragment's k-slice mapping. Sharpest next probe: a
 PV-only standalone kernel with the identity P and the known V.
+
+## M1 debug log (2026-10-24, session 3 — the bug is localized)
+
+The LSE now carries `row_max * scale_eff` (the GEMV's m_run is the
+scaled max; mine is raw — the epilogue was missing the factor).
+
+Probes (all with the identity-style known-answer inputs):
+
+- **The PV gemm path is EXONERATED**: the single-key selector probe
+  (Q[0]=100, K[5][0]=1, v=5 everywhere) gives O = 5 x 0.94375 — the
+  exact softmax math (p_else = exp2(-9.02), 31 keys). Both k-atoms
+  correct, no k-scrambling.
+- **The QK path is per-column correct**: the d-sweep (Q/K hot in a
+  single d column, dq in 0..255) gives the selector O for every dq.
+- **The row_sum (via the split LSE) is per-row CORRECT**: the hot row
+  reads 1.06 (the S seen), the cold rows 32 (the S=0) — exactly right.
+- **The A-fragment's P values are WRONG per row**: every row's
+  accumulator lands at the v-mean (the uniform-P signature) — the acc
+  sees the S=0 distribution while the row_sum sees the true one.
+
+The row-sweep (one hot row at a time, v[k][0]=k) shows the INVERSE
+pattern: the hot row's O = 14.62 (the v-mean x 0.9437) and the cold
+rows' = 0.4844 (= 15.5/32). Conclusion: the acc_S values are consumed
+correctly by the softmax (row_sum) but land SCRAMBLED — row-dependently
+— in the P fragment that feeds the gemm. Both S->A conversions tried
+(the reference's logical_divide and the P-through-smem round-trip) fail
+identically, so the corruption is upstream of the conversion: either
+the acc_S values are already misplaced per thread (the QK gemm writes
+S at slots whose (row, col) mapping differs from what the identity-tensor
+coords claim), or the bf16 fragment's flat order does not match the
+acc_S's logical order the way the epilogue assumes.
+
+Sharpest next probe: dump the O's full d-profile for the v[k][d]=d/256
+case and compare against the predicted per-slot permutation; or verify
+the acc_S slot mapping directly by making S = f(row, col) injective
+(Q = the identity over rows AND the K = the identity over cols with
+distinct magnitudes) and reading the permutation off the O.

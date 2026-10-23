@@ -412,6 +412,7 @@ class MMADecodeKernel:
             o_off,
             num_head,
             v_descale,
+            scale_eff,
             seqlen_q,
             is_varlen_q,
             q_row_base,
@@ -571,6 +572,7 @@ class MMADecodeKernel:
         o_off: Int32,
         num_head: Int32,
         v_descale: Float32,
+        scale_eff: Float32,
         seqlen_q: cutlass.Constexpr[int],
         is_varlen_q: cutlass.Constexpr[bool],
         q_row_base: Int32,
@@ -638,9 +640,9 @@ class MMADecodeKernel:
                     m = R // G
                     qo_head = kv_head * G + (R % G)
                     l_r = row_sum[r]
-                    lse = (row_max[r] + cute.math.log2(cutlass.max(l_r, Float32(1e-30)), fastmath=True)) * Float32(
-                        math.log(2.0)
-                    )
+                    lse = (
+                        row_max[r] * scale_eff + cute.math.log2(cutlass.max(l_r, Float32(1e-30)), fastmath=True)
+                    ) * Float32(math.log(2.0))
                     if const_expr(mLSE_partial is not None):
                         if const_expr(is_varlen_q):
                             lse_tensor[split_idx, qo_head, Int32(q_row_base + m)] = lse
