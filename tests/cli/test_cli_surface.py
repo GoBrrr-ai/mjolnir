@@ -31,7 +31,7 @@ SUB_APP_COMMANDS = {
     "platform": ["list", "show"],
     "litellm": ["up", "down", "status", "logs", "config"],
     "perses": ["up", "down", "status", "logs"],
-    "hw": ["setup", "ncu", "status"],
+    "hw": ["setup", "status"],
     "bench": ["perf", "ab", "accuracy", "e2e", "compare"],
 }
 

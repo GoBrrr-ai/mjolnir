@@ -801,9 +801,8 @@ def stage_vllm(
         if m:
             cases.append({"label": f"runner {m.group(2).rstrip(':')}", "passed": m.group(1) == "✅", "log": str(log)})
             ctx.out("   " + line.strip())
-    if not orin:
-        if rc != 0 and not any(not c["passed"] for c in cases):
-            cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
+    if not orin and rc != 0 and not any(not c["passed"] for c in cases):
+        cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
     # The smoke modes a platform can actually run: e2m3 needs the vLLM fp6
     # cache-write patch (the Mjolnir image), lmh8 needs fp8 tensor cores
     # (sm_100+), spec needs a served drafter -- the stock-image Orin runs

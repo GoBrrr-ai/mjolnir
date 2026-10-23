@@ -27,10 +27,18 @@
 
 set -euo pipefail
 
-# ── Thor constants (from setup.sh's hardcoded block) ─────────────────────────
-SOC_TYPE="thor"
-SOC_MEMORY=128
-IS_NVIDIA_CARRIER=true
+# ── Jetson platform detection (device-tree + meminfo — the banner reports
+#    the box it runs on, Thor or Orin alike; the old hardcoded Thor constants
+#    lied on everything else) ─────────────────────────────────────────────────
+DT_MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo "unknown")
+case "$DT_MODEL" in
+    *Thor*) SOC_TYPE="thor" ;;
+    *Orin*) SOC_TYPE="orin" ;;
+    *)      SOC_TYPE="$DT_MODEL" ;;
+esac
+# MemTotal excludes the firmware reservations; round up to the next power of
+# two so a 64 GB Orin reports 64 and a 128 GB Thor reports 128.
+SOC_MEMORY=$(awk '/MemTotal/ {v=$2/1048576; p=4; while (p < v) p*=2; printf "%d", p}' /proc/meminfo)
 
 REBOOT_REQUIRED=0
 
@@ -285,7 +293,7 @@ cat <<EOF | column -t
   ✅ User    ${USER}
   ✅ SoM     ${SOC_TYPE}
   ✅ Memory  ${SOC_MEMORY}GB
-  ✅ DevKit  ${IS_NVIDIA_CARRIER}
+  ✅ Model   ${DT_MODEL}
 EOF
 
 echo

@@ -77,28 +77,6 @@ def hw_setup(
     raise typer.Exit(rc)
 
 
-@app.command("ncu")
-def hw_ncu(
-    yes: bool = typer.Option(False, "--yes", "-y", help="don't prompt to continue"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="print what would run, change nothing"),
-):
-    """Ensure Nsight Compute (ncu) is installed: check first, install via the
-    JetPack apt repo when missing (sudo asks). Arch-agnostic — every Jetson
-    platform's verify stages profile with it; ``NCU_HOME`` overrides the path."""
-    from mjolnir_cli import thor
-
-    if dry_run:
-        ok, path = thor.ncu_status()
-        if ok:
-            typer.echo(f"✅ ncu found: {path}")
-        else:
-            pkg = thor.ncu_package()
-            typer.echo(f"(dry run) ncu missing — would install: {pkg or 'NO PACKAGE FOUND'}")
-        return
-    rc = thor.install_ncu()
-    raise typer.Exit(rc)
-
-
 @app.command("status")
 def hw_status():
     """Installed fan profiles and the selected default (read-only, no sudo).
