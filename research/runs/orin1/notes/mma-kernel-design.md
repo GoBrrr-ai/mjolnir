@@ -168,3 +168,31 @@ Phase 1 ships fp8; e2m3 follows once the fp8 pipeline is proven:
   the impl after this commit).
 - **The 96-vs-128-thread lesson**: the FlashInfer's GEMV launches 128
   with 96 active — our CTA is 128 all-active; no dead threads.
+
+## M1 debug log (2026-10-23, session 1)
+
+The skeleton compiles through four real errors so far, three fixed:
+
+1. **The staged control flow**: the variables assigned in a staged if/else
+   must pre-exist (the DSL's rule) — fixed.
+2. **The V smem layout**: the [d][32 rows] tile can't take the (8,64)
+   swizzle atom — the 32-col blocks need swizzle(2) + the (8,32) atom
+   (the reference's own rule) — fixed.
+3. **The retile bridge**: the mma fragments' layouts differ from the
+   smem-copy atoms'; the copies need `smem_thr.retile(fragment)` as the
+   dst (the reference's tSrQ_copy_view etc.) — fixed.
+4. **OPEN — the swizzled-smem manual indexing**: `sK16[r, c] = ...` on a
+   composed/swizzled layout fails the coord-rank check (the layout is
+   ((8,..),(64,..)) — 4 modes; the 2-elt coord mismatches), and the
+   ldmatrix src from the [d][32] layout reports the 16-bit alignment.
+   The fix (next iteration): the dequant goes through the register
+   fragments — the fp8 flat-view loads (the GEMV's s2r idiom) -> the cvt
+   -> `StMatrix8x8x16bOp` into the swizzled bf16 tiles (the warp module
+   ships StMatrix; the reference never hand-indexes swizzled smem). The
+   Q stage: the same (the fp8-style flat -> the fragment -> stmatrix, or
+   the universal-copy into the UNSWIZZLED smem for the Q and let the
+   ldmatrix read it — the swizzle is the bank-conflict optimization, not
+   a correctness requirement; M1 correctness first, M2 re-swizzles).
+
+The lesson recorded: on this DSL, swizzled smem is written and read only
+through copy atoms — the manual element indexing is for flat layouts.
