@@ -48,8 +48,9 @@ _log = logging.getLogger("vllm.mjolnir")
 
 @dataclass(frozen=True)
 class GEMVKey:
-    """One compiled GEMV variant: dtypes + the structural flags the kernel
-    bakes at trace time (M, page size, split presence, causal)."""
+    """One compiled kernel variant: dtypes + the structural flags the kernel
+    bakes at trace time (M, page size, split presence, causal). The impl
+    (gemv | mma) selects the compiled kernel class."""
 
     q_dtype: torch.dtype  # bfloat16 | float8_e4m3fn
     out_dtype: torch.dtype
@@ -68,6 +69,7 @@ class GEMVKey:
     num_pages: int = 0
     batch: int = 0
     max_blocks: int = 0
+    impl: str = "gemv"  # gemv | mma — the compiled kernel class
 
 
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
@@ -230,6 +232,7 @@ class GEMVDecodeRunner:
         max_blocks: int = 0,
     ) -> GEMVKey:
         return GEMVKey(
+            impl=self.impl,
             q_dtype=torch.float8_e4m3fn if self.fp8_q else torch.bfloat16,
             out_dtype=self.out_dtype,
             heads_q=self.h_q,

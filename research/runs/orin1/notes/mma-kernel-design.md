@@ -228,3 +228,60 @@ family's max (max_q_len <= 8). The M tile math:
 
 The M=1 path is the n_tiles=1 special case of all of the above — the
 skeleton gets reworked once, not twice.
+
+## M1 debug log (2026-10-23, session 2 — the kernel compiles and runs)
+
+The M1 skeleton now compiles and launches (the harness `--impl mma
+--check` executes end to end). Bugs found and fixed on the way:
+
+1. **The DSL list-comprehension ICE** — comprehensions over
+   `range_constexpr` ICE ("should be preprocessed by preprocessor"):
+   explicit append loops.
+2. **`continue` inside `range_constexpr`** is a SyntaxError at trace
+   time (it is not a Python loop): nest into guarded ifs.
+3. **`_acc_mn_view` missing `cute.composition`** — the reference's
+   `_make_acc_tensor_mn_view` composes the rebuilt layout with the
+   fragment's actual layout; without it the view indexes the wrong
+   registers AND the identity-tensor coord path ICEs
+   (`'GetScalarsOp' object has no attribute 'type'`).
+4. **ldsm alignment through a re-wrapped smem tensor** —
+   `make_tensor(iterator, layout)` drops the 16B assumption the
+   ldmatrix atom needs; use the allocator's tensors directly, and build
+   the transposed V view by composition over a plain-allocated tile
+   (a directly-allocated transposed layout loses the alignment too).
+5. **GEMM operands must be the MMA-side views** (`tSrK`, `tOrVt`), not
+   the copy-atom retiles (`*_copy`) — the reference's gemm calls.
+6. **`GEMVKey` had no `impl` field** — the runner's module-level
+   `_COMPILED` map handed the GEMV's binary to the MMA runner when both
+   ran in one process (every early "pass" was the GEMV's kernel). The
+   key now carries `impl`.
+7. **The O epilogue double-counted `kv_head*G*D`** (it is already in
+   the per-row `head*D` term) — alternating kv-heads landed zero or in
+   other heads' slots.
+8. **The quad reduction was a swap, not a reduce** —
+   `shuffle_sync_bfly` must be COMBINED with the local value
+   (`op(val, shuffle(val, 2))` then `op(val, shuffle(val, 1))`, the
+   reference's `_threadquad_reduce`), not assigned from the shuffle.
+
+### The warp-arrangement decision (the M-dimension revision revised)
+
+The planned `(1,4,1)` N-split breaks the PV: with the warps splitting
+the stage rows, each warp's S fragment covers only 8 of the A-atom's
+K=16. The kernel now follows the reference's structure instead: **the
+M tile is 64 rows and the 4 warps split the M** (`(4,1,1)`, one
+16-row atom per warp). q_len*6 <= 48 pads into one tile, the row
+stats are quad-local (no cross-warp smem stats at all), and the PV's
+A operand sees the full K. The M-dimension revision's n_tiles/tile
+loop is gone — MTP=7 fits one tile by construction.
+
+### Open (next session's first task)
+
+`rel_err ~1.0` on the random case; the known-answer probes show the
+row_sum is now correct (8.516 vs 8 at chunk 8 — ~6% high, worth a look)
+but the PV accumulator lands ~1/8 of the expected value, uniformly over
+d and heads, for both the S->A paths tried (the reference's
+logical_divide and a P-through-smem round-trip). The QK/softmax/
+reduction side checks out (row_sum via LSE); the remaining suspect is
+the P fragment's value placement relative to the A-operand layout, or
+the V B-fragment's k-slice mapping. Sharpest next probe: a
+PV-only standalone kernel with the identity P and the known V.
