@@ -386,6 +386,17 @@ def build_run_args(
 
     for k in _CONTAINER_ENV:
         cmd += ["-e", k]
+    # One arm64 image serves every shipped Tegra platform (Thor and Orin are
+    # both aarch64; the kernel family resolves at runtime via mjolnir.platforms).
+    # The arch-sensitive JIT envs follow the platform -- the Thor pins in
+    # _CONTAINER_ENV are the build default, these override them (docker's
+    # last -e wins). An explicit extra_env entry still wins over these.
+    if getattr(s, "platform", None) == "orin":
+        cmd += [
+            "-e", "TORCH_CUDA_ARCH_LIST=8.7",
+            "-e", "FLASHINFER_CUDA_ARCH_LIST=8.7",
+            "-e", "CUTE_DSL_ARCH=sm_87",
+        ]
     for kv in backend_env(s):
         cmd += ["-e", kv]
     for kv in extra_env:
