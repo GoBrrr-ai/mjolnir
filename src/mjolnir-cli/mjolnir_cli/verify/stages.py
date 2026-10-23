@@ -686,7 +686,9 @@ def stage_correctness(
     """Kernel vs the bit-faithful emulator: output + LSE + poisoned-page NaN
     check, for every case x Q dtype."""
     if ctx.runner.platform == "orin":
-        return _orin_correctness(ctx, timeout)
+        # One container runs the whole ps x M x L matrix: well past the
+        # 180 s Thor-per-case default.
+        return _orin_correctness(ctx, max(timeout, 900.0))
     want = set(dtypes.split())
     cases = []
     for label, args, dts in CASES:
