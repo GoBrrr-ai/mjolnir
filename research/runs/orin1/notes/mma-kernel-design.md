@@ -322,3 +322,26 @@ case and compare against the predicted per-slot permutation; or verify
 the acc_S slot mapping directly by making S = f(row, col) injective
 (Q = the identity over rows AND the K = the identity over cols with
 distinct magnitudes) and reading the permutation off the O.
+
+### The S-magnitude dependence (the final probe of session 3)
+
+- Q=0, K=V=1, L=32:        O = 1/32   (the acc = 1, the row_sum = 32)
+- Q=100*I, K=I, v[k][0]=k: O = v-mean (the acc = 15.5 for EVERY row, the
+  row_sum correct per row: the hot 1.06, the cold 32)
+- Q=100 (all), K=V=1:      O = 0.0    (the acc = 0)
+
+The rP fill via the reference's layout-aware `store(load().to())`
+matches the flat version exactly (not the flat-order scramble).
+
+The acc's value is a function of the S magnitude in a way a correct
+pipeline forbids: the same p=1 P and v=1 V give the acc = 1 (the S=0),
+the 15.5 (the S=100 diagonal), and the 0 (the S=25600). Combined with
+the row-sweep inversion (the hot row's acc = the v-mean, the cold
+rows' = the v-mean/32), the prime suspect is the acc_S fragment's
+slot <-> value correspondence itself: the QK gemm writes S at
+per-thread slots whose logical (row, col) mapping does not match what
+the identity-tensor coords and the _acc_mn_view claim, so the softmax
+(reducing over cols per row) and the P->A conversion (consuming the
+same fragment as (m, k)) disagree. Next: the injective-S probe
+(Q and K with distinct magnitudes per row/col) to read the actual
+permutation off the O, then fix the slot mapping at the source.

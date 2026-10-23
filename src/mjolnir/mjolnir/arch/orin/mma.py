@@ -536,8 +536,7 @@ class MMADecodeKernel:
         """The PV: the P (the S fragment reinterpreted as the A operand —
         the reference's logical_divide on the fragment layout) x the V."""
         rP = cute.make_fragment_like(acc_S, cutlass.BFloat16)
-        for i in cutlass.range_constexpr(cute.size(rP)):
-            rP[i] = cutlass.BFloat16(acc_S[i])
+        rP.store(acc_S.load().to(cutlass.BFloat16))
         div = cute.logical_divide(rP.layout, (None, None, 2))
         rP_mma_view = cute.make_layout(
             (
