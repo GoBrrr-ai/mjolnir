@@ -106,7 +106,37 @@ def make_case(
     kd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device)
     vd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device)
     qd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device) if fp8_q else None
+    if kv_dtype == "e2m3":
+        # Per-head scale = amax/7.5 (the kvfp6 calibration rule); the codes
+        # pack 4-per-3-bytes LE. The ref dequantizes code_value * scale.
+        from mjolnir.kvfp6 import e2m3_values
+
+        lut = e2m3_values("cpu")  # (64,) fp32
+        scale_h = (raw.amax(dim=(0, 1, 3)) / 7.5).clamp_min(1e-6)  # (h_k,)
+        mag = (raw / scale_h.view(1, 1, h_k, 1)).clamp(-7.5, 7.5)
+        codes = (mag.unsqueeze(-1) - lut.view(1, 1, 1, 1, 64)).abs().argmin(-1).to(torch.uint8)
+        codes |= ((mag < 0).to(torch.uint8)) << 5  # sign bit (bit 5)
+        c = codes.reshape(num_pages, page_size, h_k, d // 4, 4).to(torch.int32)
+        b0 = c[..., 0] | ((c[..., 1] & 3) << 6)
+        b1 = (c[..., 1] >> 2) | ((c[..., 2] & 0xF) << 4)
+        b2 = (c[..., 2] >> 4) | ((c[..., 3] & 0x3F) << 2)
+        kv = torch.stack((b0, b1, b2), -1).reshape(num_pages, page_size, h_k, d * 3 // 4).to(torch.uint8).to(device)
+        kd = scale_h.view(1, h_k).to(device).expand(b, h_k).contiguous()
+        vd = kd.clone()
+        return q, kv, table, seq_lens, qd, kd, vd
     return q, kv, table, seq_lens, qd, kd, vd
+
+
+def _e2m3_dequant(kv: torch.Tensor, d: int, scale_h: torch.Tensor) -> torch.Tensor:
+    """The packed pool (pages, ps, h_k, d*3/4) uint8 -> the (pages, ps, h_k, d)
+    fp32 values (the code LUT x the per-head scale)."""
+    from mjolnir.kvfp6 import e2m3_values
+
+    idx = torch.arange(d)
+    bb, oo = (idx * 6) // 8, (idx * 6) % 8
+    hi = (bb + 1).clamp(max=kv.shape[-1] - 1)  # the last code ends in byte bb
+    codes = ((kv[..., bb].int() >> oo) | (kv[..., hi].int() << (8 - oo))) & 0x3F
+    return e2m3_values("cpu")[codes] * scale_h.view(1, 1, -1, 1)
 
 
 def check(args) -> bool:
@@ -119,7 +149,9 @@ def check(args) -> bool:
         args.heads_k,
         args.headdim,
         args.page_size,
-        torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16,
+        args.kv_dtype
+        if args.kv_dtype == "e2m3"
+        else (torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16),
         args.q_dtype == "fp8",
         seed=args.seed,
         device=dev,
@@ -143,15 +175,25 @@ def check(args) -> bool:
     out = torch.empty_like(q_tokens, dtype=torch.bfloat16)
     runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)
     got = out.view(b, args.q_len, args.heads_q, args.headdim).float().cpu()
+    # e2m3: the dequantized pool already carries the per-head scale, so the
+    # ref sees identity descales (the kernel folds the scale via kd/vd).
+    if args.kv_dtype == "e2m3":
+        pool_ref = _e2m3_dequant(kv.cpu(), args.headdim, kd.cpu()[0])
+        ref_kd = torch.ones_like(kd).cpu()
+        ref_vd = torch.ones_like(vd).cpu()
+    else:
+        pool_ref = kv.cpu()
+        ref_kd = kd.cpu()
+        ref_vd = vd.cpu()
     ref = ref_decode(
         q.float().cpu(),
-        kv.cpu(),
-        kv.cpu(),
+        pool_ref,
+        pool_ref,
         table.cpu(),
         seq_lens.cpu(),
         None,  # bf16 Q: no q_descale on either side
-        kd.cpu(),
-        vd.cpu(),
+        ref_kd,
+        ref_vd,
         scale,
     )
     rel = (got - ref).norm() / ref.norm().clamp_min(1e-6)
@@ -173,7 +215,9 @@ def bench(args) -> None:
         args.heads_k,
         args.headdim,
         args.page_size,
-        torch.float8_e4m3fn,
+        args.kv_dtype
+        if args.kv_dtype == "e2m3"
+        else (torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16),
         args.q_dtype == "fp8",
         seed=args.seed,
         device=dev,
@@ -219,7 +263,8 @@ def bench(args) -> None:
             times.append(s.elapsed_time(e) / args.inner * 1000)  # us
     times.sort()
     med = times[len(times) // 2]
-    kv_gb = seq_lens.sum().item() * 2 * args.heads_k * args.headdim * (1 if args.kv_dtype == "fp8" else 2) / 1e9
+    bytes_per_elem = 0.75 if args.kv_dtype == "e2m3" else (1 if args.kv_dtype == "fp8" else 2)
+    kv_gb = seq_lens.sum().item() * 2 * args.heads_k * args.headdim * bytes_per_elem / 1e9
     gbps = kv_gb / (med / 1e6)
     print(
         f"bench b={b} M={args.q_len} L={args.seqlen} kv={args.kv_dtype} "
@@ -239,7 +284,7 @@ def main() -> int:
     p.add_argument("--heads_k", type=int, default=4)
     p.add_argument("--headdim", "--d", type=int, default=256)
     p.add_argument("--page_size", "--ps", type=int, default=16, choices=(16, 32, 64, 128))
-    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "bf16"))
+    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "bf16", "e2m3"))
     p.add_argument("--kv_layout", default="hnd", choices=("hnd", "nhd"))
     p.add_argument("--q_dtype", default="bf16", choices=("bf16", "fp8"))
     p.add_argument("--non_causal", action="store_true")

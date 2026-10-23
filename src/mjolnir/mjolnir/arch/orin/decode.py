@@ -160,13 +160,16 @@ class GEMVDecodeKernel:
         tile_size_per_bdx: int = 4,
         page_size: int = 0,
         causal: bool = True,
+        kv_format: str = "fp8",
     ):
         assert qhead_per_kvhead >= 1, "qhead_per_kvhead must be >= 1"
         assert self.HEAD_DIM % (16 * self.VEC) == 0
         assert page_size in (0, 16, 32, 64, 128), "page_size must be 0 (dense) or 16/32/64/128"
+        assert kv_format in ("fp8", "e2m3"), f"kv_format {kv_format!r}: fp8 or e2m3"
         self.g = qhead_per_kvhead
         self.page_size = page_size
         self.causal = bool(causal)
+        self.kv_format = kv_format
         self.bdx = self.HEAD_DIM // self.VEC  # 16 threads per KV row
         self.bdy = qhead_per_kvhead  # one q-head per (ty) thread
         # rows per (ty) thread. The tile-size knob (default: the constructor
@@ -211,6 +214,7 @@ class GEMVDecodeKernel:
         mCuSeqlensQ: Optional[cute.Tensor] = None,
         mCuSeqlensK: Optional[cute.Tensor] = None,
         mDescale: Optional[DescaleTensors] = None,
+        mCodeLUT: Optional[cute.Tensor] = None,  # e2m3: (64,) fp32 code -> value
         mO_partial: Optional[cute.Tensor] = None,
         mLSE_partial: Optional[cute.Tensor] = None,
         mPageTable: Optional[cute.Tensor] = None,
@@ -238,6 +242,7 @@ class GEMVDecodeKernel:
             mCuSeqlensQ,
             mCuSeqlensK,
             mDescale,
+            mCodeLUT,
             mO_partial,
             mLSE_partial,
             mPageTable,
@@ -262,6 +267,7 @@ class GEMVDecodeKernel:
         mCuSeqlensQ: Optional[cute.Tensor],
         mCuSeqlensK: Optional[cute.Tensor],
         mDescale: Optional[DescaleTensors],
+        mCodeLUT: Optional[cute.Tensor],
         mO_partial: Optional[cute.Tensor],
         mLSE_partial: Optional[cute.Tensor],
         mPageTable: Optional[cute.Tensor],
@@ -284,6 +290,15 @@ class GEMVDecodeKernel:
         S = self.stages
         R = self.rows_per_stage
         PS = self.page_size
+        # e2m3 KV: the pool row is D*3/4 packed BYTES (uint8 tensor); each
+        # thread owns 16 codes = 12 consecutive bytes, issued as one 16B
+        # cp.async whose 4-byte over-read lands in the smem slot pad. The
+        # slot stride carries the pad so overlapping loads never race.
+        FP6 = self.kv_format == "e2m3"
+        ROW_B = D * 3 // 4 if FP6 else D  # gmem/smem bytes (fp8: elements == bytes)
+        SLOT_B = ROW_B
+        THREAD_B = 12 if FP6 else VEC
+        KV_A = 4 if FP6 else 16  # the fp6 thread slice is only 4-byte aligned
 
         IS_SPLIT = const_expr(mO_partial is not None)
         PAGED = const_expr(mPageTable is not None)
@@ -312,7 +327,7 @@ class GEMVDecodeKernel:
         else:
             kv_row0 = batch_idx * seqlen_k
             kv_len = seqlen_k
-        kv_row_stride = mV.shape[-2] * D  # elements per KV row (all heads)
+        kv_row_stride = mV.shape[-2] * ROW_B  # bytes (fp6) / elements (fp8) per KV row
         num_head_kv = mV.shape[-2]
 
         # ---- SplitKV: this CTA's KV chunk (identity at num_splits=1) --------
@@ -361,10 +376,14 @@ class GEMVDecodeKernel:
 
         # ---- smem: 2-stage double buffer, K and V (flat, row-major) -------
         smem = cutlass.utils.SmemAllocator()
-        kv_elems = S * R * D
+        kv_elems = S * R * SLOT_B
         k_smem = smem.allocate_tensor(mK.element_type, cute.make_layout(kv_elems), byte_alignment=16)
         v_smem = smem.allocate_tensor(mV.element_type, cute.make_layout(kv_elems), byte_alignment=16)
 
+        # The fp6 g2s copies the 192-byte row as 12 x 16-byte chunks (16B is
+        # the only cp.async size this DSL issues), lanes 0-11 issuing one each;
+        # the s2r reads each lane's 12-byte slice as 3 x 4-byte loads (the
+        # slice is only 4-byte aligned in smem).
         k_g2s_atom = cute.make_copy_atom(
             cpasync.CopyG2SOp(cache_mode=cpasync.LoadCacheMode.GLOBAL),
             mK.element_type,
@@ -375,8 +394,9 @@ class GEMVDecodeKernel:
             mV.element_type,
             num_bits_per_copy=128,
         )
-        s2r_atom = cute.make_copy_atom(cute.nvgpu.CopyUniversalOp(), mK.element_type, num_bits_per_copy=128)
-        v_s2r_atom = cute.make_copy_atom(cute.nvgpu.CopyUniversalOp(), mV.element_type, num_bits_per_copy=128)
+        _s2r_bits = 32 if FP6 else 128
+        s2r_atom = cute.make_copy_atom(cute.nvgpu.CopyUniversalOp(), mK.element_type, num_bits_per_copy=_s2r_bits)
+        v_s2r_atom = cute.make_copy_atom(cute.nvgpu.CopyUniversalOp(), mV.element_type, num_bits_per_copy=_s2r_bits)
         q_atom = cute.make_copy_atom(cute.nvgpu.CopyUniversalOp(), mQ.element_type, num_bits_per_copy=128)
         # O target dtype: the final O (mO) or the fp32 partial (mO_partial).
         # A 128-bit copy moves 128//width elements (4 for fp32 partials).
@@ -388,10 +408,14 @@ class GEMVDecodeKernel:
         # (8-bit: EPC=16 -> N_SUB=1, a single copy as before). The DSL does
         # NOT auto-tile an atom across a larger fragment (verified: a 128-bit
         # atom over a 16-elem bf16 tile copies only the first 8 elements).
-        EPC_K = 16 if mK.element_type.width == 8 else 8
-        N_SUB_K = VEC // EPC_K
-        EPC_V = 16 if mV.element_type.width == 8 else 8
-        N_SUB_V = VEC // EPC_V
+        EPC_K = 4 if FP6 else (16 if mK.element_type.width == 8 else 8)
+        N_SUB_K = (THREAD_B // EPC_K) if FP6 else (VEC // EPC_K)
+        EPC_V = 4 if FP6 else (16 if mV.element_type.width == 8 else 8)
+        N_SUB_V = (THREAD_B // EPC_V) if FP6 else (VEC // EPC_V)
+        # g2s: one 16-element copy for fp8/uint8 (the fp6 row chunk), two
+        # 8-element copies for 16-bit KV.
+        EPC_G = 16 if (FP6 or mK.element_type.width == 8) else 8
+        N_SUB_G = VEC // EPC_G
         EPC_Q = 16 if mQ.element_type.width == 8 else 8
         N_SUB_Q = VEC // EPC_Q
         EPC_O = 128 // o_elem.width
@@ -496,30 +520,36 @@ class GEMVDecodeKernel:
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
                         kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        k_off = kv_base * D + tx * VEC
-                        v_off = kv_base * D + tx * VEC
+                        k_row = kv_base * ROW_B
+                        v_row = kv_base * ROW_B
                     else:
-                        k_off = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * D + tx * VEC
-                        v_off = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * D + tx * VEC
-                    ks_off = (st * R + ty * TILE + j) * D + tx * VEC
-                    for sub in cutlass.range_constexpr(N_SUB_K):
+                        k_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
+                        v_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
+                    slot0 = (st * R + ty * TILE + j) * SLOT_B
+                    # fp6: the row moves as 12 x 16-byte chunks -- lane tx covers
+                    # chunk tx % 12 (lanes 12-15 re-issue chunks 0-3: benign
+                    # identical writes, uniform issue counts). fp8/bf16: each
+                    # lane owns VEC contiguous elements.
+                    chunk = tx - (tx // 12) * 12
+                    off0 = chunk * 16 if FP6 else tx * VEC
+                    for sub in cutlass.range_constexpr(N_SUB_G):
                         k_src = cute.make_tensor(
                             cute.make_ptr(
                                 mK.element_type,
-                                (mK.iterator + k_off + sub * EPC_K).toint(),
+                                (mK.iterator + k_row + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.gmem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_K),
+                            cute.make_layout(EPC_G),
                         )
                         ks = cute.make_tensor(
                             cute.make_ptr(
                                 mK.element_type,
-                                (k_smem.iterator + ks_off + sub * EPC_K).toint(),
+                                (k_smem.iterator + slot0 + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.smem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_K),
+                            cute.make_layout(EPC_G),
                         )
                         cute.copy(k_g2s_atom, k_src, ks)
                 cute.arch.cp_async_commit_group()
@@ -531,28 +561,30 @@ class GEMVDecodeKernel:
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
                         kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        v_off = kv_base * D + tx * VEC
+                        v_row = kv_base * ROW_B
                     else:
-                        v_off = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * D + tx * VEC
-                    vs_off = (st * R + ty * TILE + j) * D + tx * VEC
-                    for sub in cutlass.range_constexpr(N_SUB_V):
+                        v_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
+                    slot0 = (st * R + ty * TILE + j) * SLOT_B
+                    chunk = tx - (tx // 12) * 12
+                    off0 = chunk * 16 if FP6 else tx * VEC
+                    for sub in cutlass.range_constexpr(N_SUB_G):
                         v_src = cute.make_tensor(
                             cute.make_ptr(
                                 mV.element_type,
-                                (mV.iterator + v_off + sub * EPC_V).toint(),
+                                (mV.iterator + v_row + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.gmem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_V),
+                            cute.make_layout(EPC_G),
                         )
                         vs = cute.make_tensor(
                             cute.make_ptr(
                                 mV.element_type,
-                                (v_smem.iterator + vs_off + sub * EPC_V).toint(),
+                                (v_smem.iterator + slot0 + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.smem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_V),
+                            cute.make_layout(EPC_G),
                         )
                         cute.copy(v_g2s_atom, v_src, vs)
                 cute.arch.cp_async_commit_group()
@@ -572,29 +604,48 @@ class GEMVDecodeKernel:
                 for m in cutlass.range_constexpr(M):
                     m_prev[m] = m_run[m]
                 for j in cutlass.range_constexpr(R):
-                    ks_off = (st * R + j) * D + tx * VEC
-                    k_frag = cute.make_rmem_tensor(VEC, mK.element_type)
+                    ks_off = (st * R + j) * SLOT_B + tx * THREAD_B
+                    k_frag = cute.make_rmem_tensor(VEC if not FP6 else THREAD_B, mK.element_type)
                     for sub in cutlass.range_constexpr(N_SUB_K):
                         k_slice = cute.make_tensor(
                             cute.make_ptr(
                                 mK.element_type,
                                 (k_smem.iterator + ks_off + sub * EPC_K).toint(),
                                 cute.AddressSpace.smem,
-                                assumed_align=16,
+                                assumed_align=KV_A,
                             ),
                             cute.make_layout(EPC_K),
                         )
                         k_sub = cute.make_rmem_tensor(EPC_K, mK.element_type)
                         cute.copy(s2r_atom, k_slice, k_sub)
+                        if const_expr(not FP6):
+                            for i in cutlass.range_constexpr(EPC_K):
+                                k_frag[sub * EPC_K + i] = k_sub[i]
+                            continue
                         for i in cutlass.range_constexpr(EPC_K):
                             k_frag[sub * EPC_K + i] = k_sub[i]
                     for m in cutlass.range_constexpr(M):
                         s = Float32(0.0)
-                        for sub in cutlass.range_constexpr(N_SUB_K):
-                            for i in cutlass.range_constexpr(EPC_K):
-                                s = s + q_f32[m * VEC + sub * EPC_K + i] * _elem_to_f32(
-                                    k_frag[sub * EPC_K + i], mK.element_type
-                                )
+                        if const_expr(FP6):
+                            # This thread's 16 codes are the LE bit stream of
+                            # its 12 smem bytes: code i at bit 6i --
+                            # (B[b] >> o) | (B[b+1] << (8-o)), o = 6i % 8, all
+                            # static. The e2m3 value comes from the 64-entry
+                            # LUT (exact for every code; the subnormals map to
+                            # e4m3 normals). One pass -- no sub loop.
+                            for i in cutlass.range_constexpr(VEC):
+                                pb = i * 6
+                                b, o = pb // 8, pb % 8
+                                code = k_frag[b].to(cutlass.Uint32) >> cutlass.Uint32(o)
+                                if b + 1 < THREAD_B:  # static; the last code ends in byte 11
+                                    code = code | (k_frag[b + 1].to(cutlass.Uint32) << cutlass.Uint32(8 - o))
+                                s = s + q_f32[m * VEC + i] * Float32(mCodeLUT[code & cutlass.Uint32(0x3F)])
+                        else:
+                            for sub in cutlass.range_constexpr(N_SUB_K):
+                                for i in cutlass.range_constexpr(EPC_K):
+                                    s = s + q_f32[m * VEC + sub * EPC_K + i] * _elem_to_f32(
+                                        k_frag[sub * EPC_K + i], mK.element_type
+                                    )
                         # 16-lane butterfly reduce (offsets < 16 stay in ty group).
                         s = s + cute.arch.shuffle_sync_bfly(s, offset=1)
                         s = s + cute.arch.shuffle_sync_bfly(s, offset=2)
@@ -649,28 +700,34 @@ class GEMVDecodeKernel:
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
                         kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        k_off = kv_base * D + tx * VEC
+                        k_row = kv_base * ROW_B
                     else:
-                        k_off = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * D + tx * VEC
-                    ks_off = (st * R + ty * TILE + j) * D + tx * VEC
-                    for sub in cutlass.range_constexpr(N_SUB_K):
+                        k_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
+                    slot0 = (st * R + ty * TILE + j) * SLOT_B
+                    # fp6: the row moves as 12 x 16-byte chunks -- lane tx covers
+                    # chunk tx % 12 (lanes 12-15 re-issue chunks 0-3: benign
+                    # identical writes, uniform issue counts). fp8/bf16: each
+                    # lane owns VEC contiguous elements.
+                    chunk = tx - (tx // 12) * 12
+                    off0 = chunk * 16 if FP6 else tx * VEC
+                    for sub in cutlass.range_constexpr(N_SUB_G):
                         k_src = cute.make_tensor(
                             cute.make_ptr(
                                 mK.element_type,
-                                (mK.iterator + k_off + sub * EPC_K).toint(),
+                                (mK.iterator + k_row + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.gmem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_K),
+                            cute.make_layout(EPC_G),
                         )
                         ks = cute.make_tensor(
                             cute.make_ptr(
                                 mK.element_type,
-                                (k_smem.iterator + ks_off + sub * EPC_K).toint(),
+                                (k_smem.iterator + slot0 + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.smem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_K),
+                            cute.make_layout(EPC_G),
                         )
                         cute.copy(k_g2s_atom, k_src, ks)
                 cute.arch.cp_async_commit_group()
@@ -681,30 +738,46 @@ class GEMVDecodeKernel:
                 cute.arch.cp_async_wait_group(2 * S - 1)
                 cute.arch.sync_threads()
                 for j in cutlass.range_constexpr(R):
-                    vs_off = (st * R + j) * D + tx * VEC
-                    v_frag = cute.make_rmem_tensor(VEC, mV.element_type)
+                    vs_off = (st * R + j) * SLOT_B + tx * THREAD_B
+                    v_frag = cute.make_rmem_tensor(VEC if not FP6 else THREAD_B, mV.element_type)
                     for sub in cutlass.range_constexpr(N_SUB_V):
                         v_slice = cute.make_tensor(
                             cute.make_ptr(
                                 mV.element_type,
                                 (v_smem.iterator + vs_off + sub * EPC_V).toint(),
                                 cute.AddressSpace.smem,
-                                assumed_align=16,
+                                assumed_align=KV_A,
                             ),
                             cute.make_layout(EPC_V),
                         )
                         v_sub = cute.make_rmem_tensor(EPC_V, mV.element_type)
                         cute.copy(v_s2r_atom, v_slice, v_sub)
+                        if const_expr(not FP6):
+                            for i in cutlass.range_constexpr(EPC_V):
+                                v_frag[sub * EPC_V + i] = v_sub[i]
+                            continue
                         for i in cutlass.range_constexpr(EPC_V):
                             v_frag[sub * EPC_V + i] = v_sub[i]
                     for m in cutlass.range_constexpr(M):
                         p = s_vec[m * R + j]
-                        for sub in cutlass.range_constexpr(N_SUB_V):
-                            for i in cutlass.range_constexpr(EPC_V):
-                                d = sub * EPC_V + i
-                                o_f32[m * VEC + d] = o_f32[m * VEC + d] + p * _elem_to_f32(
-                                    v_frag[sub * EPC_V + i], mV.element_type
+                        if const_expr(FP6):
+                            for i in cutlass.range_constexpr(VEC):
+                                pb = i * 6
+                                b, o = pb // 8, pb % 8
+                                code = v_frag[b].to(cutlass.Uint32) >> cutlass.Uint32(o)
+                                if b + 1 < THREAD_B:  # static; the last code ends in byte 11
+                                    code = code | (v_frag[b + 1].to(cutlass.Uint32) << cutlass.Uint32(8 - o))
+                                d = i
+                                o_f32[m * VEC + d] = o_f32[m * VEC + d] + p * Float32(
+                                    mCodeLUT[code & cutlass.Uint32(0x3F)]
                                 )
+                        else:
+                            for sub in cutlass.range_constexpr(N_SUB_V):
+                                for i in cutlass.range_constexpr(EPC_V):
+                                    d = sub * EPC_V + i
+                                    o_f32[m * VEC + d] = o_f32[m * VEC + d] + p * _elem_to_f32(
+                                        v_frag[sub * EPC_V + i], mV.element_type
+                                    )
 
                 # Refill V for chunk it+S into the just-consumed stage.
                 cute.arch.sync_threads()
@@ -716,28 +789,30 @@ class GEMVDecodeKernel:
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
                         kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        v_off = kv_base * D + tx * VEC
+                        v_row = kv_base * ROW_B
                     else:
-                        v_off = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * D + tx * VEC
-                    vs_off = (st * R + ty * TILE + j) * D + tx * VEC
-                    for sub in cutlass.range_constexpr(N_SUB_V):
+                        v_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
+                    slot0 = (st * R + ty * TILE + j) * SLOT_B
+                    chunk = tx - (tx // 12) * 12
+                    off0 = chunk * 16 if FP6 else tx * VEC
+                    for sub in cutlass.range_constexpr(N_SUB_G):
                         v_src = cute.make_tensor(
                             cute.make_ptr(
                                 mV.element_type,
-                                (mV.iterator + v_off + sub * EPC_V).toint(),
+                                (mV.iterator + v_row + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.gmem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_V),
+                            cute.make_layout(EPC_G),
                         )
                         vs = cute.make_tensor(
                             cute.make_ptr(
                                 mV.element_type,
-                                (v_smem.iterator + vs_off + sub * EPC_V).toint(),
+                                (v_smem.iterator + slot0 + off0 + sub * EPC_G).toint(),
                                 cute.AddressSpace.smem,
                                 assumed_align=16,
                             ),
-                            cute.make_layout(EPC_V),
+                            cute.make_layout(EPC_G),
                         )
                         cute.copy(v_g2s_atom, v_src, vs)
                 cute.arch.cp_async_commit_group()
