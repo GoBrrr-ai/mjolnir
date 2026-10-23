@@ -96,7 +96,9 @@ def chapters_for(platform: str) -> tuple[str, ...]:
     pending -- the events-timed stages carry the headline instead)."""
     if REGISTRY[platform].ncu:
         return CASE_STUDY_CHAPTERS
-    return tuple(c for c in CASE_STUDY_CHAPTERS if STAGES[c].kind != "ncu")
+    return tuple(c for c in CASE_STUDY_CHAPTERS if not STAGES[c].requires_ncu)
+
+
 # verify stages that never carry a case-study chapter
 _UNCHARTED = ("timing", "profile", "vllm")
 

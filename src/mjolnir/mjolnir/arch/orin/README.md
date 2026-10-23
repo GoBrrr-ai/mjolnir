@@ -118,9 +118,10 @@ per (kv-head, chunk) computes all M rows, KV read once; LeanAttention
    (see "The fp6 e2m3 KV variant" below): 25% fewer bytes than fp8,
    measured 1.35× the fp8 tokens/s at L=4K on the same issue count.
 4. **Harness + verify wiring**: ✅ landed — `mjolnir verify` dispatches to
-   this family (the correctness sweep, the events-timed `orinbench`
-   comparison vs the FlashInfer FA2-TC reference on the stock image — no
-   ncu exists on L4T, so the wall-clock stage carries the headline data).
+   this family (the correctness sweep; the headline `sweep` runs the
+   events-timed same-run comparison vs the FlashInfer FA2-TC reference on
+   the stock image — no ncu exists on L4T, so wall clock carries the
+   headline data and the ncu-profiled stages refuse with a clear error).
 5. **Single-image serving**: the overlay image resolves arch at runtime
    (entrypoint exports the per-arch `TORCH_CUDA_ARCH_LIST` /
    `FLASHINFER_CUDA_ARCH_LIST` / `CUTE_DSL_ARCH`), the GEMV kernel
@@ -128,7 +129,7 @@ per (kv-head, chunk) computes all M rows, KV read once; LeanAttention
 
 ## Measured status (2026-10-23, AGX Orin 64GB, vLLM 0.32.0 stock image)
 
-The honest baseline (`mjolnir verify orinbench`, same-run, prebuilt
+The honest baseline (`mjolnir verify sweep` on this platform, same-run, prebuilt
 launches vs FlashInfer FA2-TC on the same image): the GEMV streams
 **~20 GB/s** of KV against FlashInfer's **~162 GB/s marginal** (79% of
 the 204.8 GB/s LPDDR5 peak) — 0.52× at L=128 widening to ~0.14× at

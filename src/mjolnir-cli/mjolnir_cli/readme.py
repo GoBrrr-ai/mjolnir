@@ -802,11 +802,23 @@ def _env(layout: RepoLayout, ctx: Any, out_path: Path) -> jinja2.Environment:
         pair — ``pair`` overrides it (the config pages' kernel sections
         quote the headline pair's charts); entries without an identity
         (legacy flat paths, hero, accuracy) resolve everywhere."""
-        m = manifest.get(name)
-        if not m:
+        raw = manifest.get(name)
+        entries = raw if isinstance(raw, list) else ([raw] if raw else [])
+        if not entries:
             return ""
+        # v2: an entry may be pair-scoped (platform/model identity) -- it
+        # resolves only for the page's own pair; identity-less entries
+        # (hero, accuracy, legacy flats) resolve everywhere. First match wins.
         want = pair or getattr(ctx, "chart_pair", None)
-        if want is not None and m.get("platform") is not None and (m["platform"], m.get("model")) != want:
+        m = next(
+            (
+                e
+                for e in entries
+                if want is None or e.get("platform") is None or (e["platform"], e.get("model")) == want
+            ),
+            None,
+        )
+        if m is None:
             return ""
         return f'<img src="{prefix + m["dark"]}" alt="{alt or name}" width="{width}">'
 

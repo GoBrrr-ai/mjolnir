@@ -499,7 +499,7 @@ render_hero = charts_e2e.render_hero
 render_infographic = charts_e2e.render_infographic
 
 
-def render_all(layout: RepoLayout) -> dict[str, dict]:
+def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
     """Render every chart that has data; write the manifest.
 
     Manifest v2 (spec #8): a chart belongs to a (platform, model) pair — the
@@ -520,7 +520,7 @@ def render_all(layout: RepoLayout) -> dict[str, dict]:
     from mjolnir_cli import readme_targets
 
     out_dir = layout.charts_dir
-    manifest: dict[str, dict] = {}
+    manifest: dict[str, list[dict]] = {}
 
     def save(entry: dict, build: Callable, out: Path) -> bool:
         fig = build(theme.DARK)
@@ -541,23 +541,24 @@ def render_all(layout: RepoLayout) -> dict[str, dict]:
                 continue
             entry: dict = {"name": name, "stage": stage, "platform": platform, "model": model}
             if save(entry, partial(build, docs), pair_dir):
-                manifest[name] = {k: v for k, v in entry.items() if k != "name"}
+                manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
         off, mj = e2e_latest_pair(layout.history_file, model=model, platform=platform)
         if off and mj:
             for name, build in E2E_CHARTS.items():
                 entry = {"name": name, "stage": "e2e", "platform": platform, "model": model}
                 if save(entry, partial(build, layout, platform=platform, model=model), pair_dir):
-                    manifest[name] = {k: v for k, v in entry.items() if k != "name"}
+                    manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
     for name, build in ACCURACY_CHARTS.items():
         entry = {"name": name, "stage": "accuracy", "platform": None, "model": None}
         if save(entry, partial(build, layout), out_dir):
-            manifest[name] = {k: v for k, v in entry.items() if k != "name"}
+            manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
     info = render_infographic(layout)
     hero = render_hero(layout)
     # stale renders (data no longer qualifies) must not linger next to the manifest
     keep = {
         (layout.repo_root / e["dark"]).resolve() if layout.repo_root else Path(e["dark"])
-        for e in manifest.values()
+        for entries in manifest.values()
+        for e in entries
         if e.get("dark")
     }
     for png in out_dir.rglob("*.png"):
@@ -566,15 +567,16 @@ def render_all(layout: RepoLayout) -> dict[str, dict]:
     if info is None and layout.repo_root is not None:
         (layout.repo_root / "assets" / INFOGRAPHIC).unlink(missing_ok=True)
     if hero is not None:
-        manifest["hero"] = {
+        manifest["hero"] = [{
             "stage": "readme",
             "dark": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
         }
+        ]
     if info is not None:
-        manifest["opening-infographic"] = {
+        manifest["opening-infographic"] = [{
             "stage": "e2e",
             "dark": str(info.relative_to(layout.repo_root) if layout.repo_root else info),
-        }
+        }]
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     print(f"[mjolnir] {len(manifest)} charts -> {out_dir}")

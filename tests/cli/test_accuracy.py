@@ -278,7 +278,8 @@ def test_accuracy_page_and_charts_render(repo):
     _write_runs(layout.raw_dir)
     manifest = charts.render_all(layout)
     for name in ("accuracy-suites", "accuracy-categories"):
-        assert name in manifest and (repo / manifest[name]["dark"]).exists()
+        acc_entry = manifest[name][0] if isinstance(manifest[name], list) else manifest[name]
+        assert (repo / acc_entry["dark"]).exists()
     readme.render_readme(layout)
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "accuracy.md").read_text()
     assert "{{" not in page and "{%" not in page
