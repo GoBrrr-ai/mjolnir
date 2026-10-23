@@ -797,10 +797,12 @@ host_optimizations() {
 }
 
 check_jetson_clocks() {
-    local state
-    state=$(sudo jetson_clocks --show | grep -oP '(?<=FreqOverride=)\d+')
-
-    is_true "$state"
+    # "Locked" = the oneshot unit ran jetson_clocks and stayed active
+    # (RemainAfterExit=true). The old check grepped FreqOverride= from
+    # --show output -- Thor-era format that JP 7 no longer prints (it
+    # shows only SOC family / Machine / NV Power Mode), so the check
+    # false-negotiatied every modern Jetson even with the lock active.
+    systemctl_service_is_active "jetson_clocks.service"
 }
 
 start_jetson_clocks_service() {
