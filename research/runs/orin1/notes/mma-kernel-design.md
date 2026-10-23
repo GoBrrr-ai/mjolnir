@@ -196,3 +196,35 @@ The skeleton compiles through four real errors so far, three fixed:
 
 The lesson recorded: on this DSL, swizzled smem is written and read only
 through copy atoms — the manual element indexing is for flat layouts.
+
+## The M-dimension revision: MTP=7 from day one (2026-10-23)
+
+The MTP=7 verify shape = q_len 8 (7 drafts + the real token) — the GEMV
+family's max (max_q_len <= 8). The M tile math:
+
+- The M rows = q_len x 6 GQA heads, TOKEN-MAJOR (row = m*6 + r, the r =
+  the head-in-group) — matching the reference's (m, h_k, h_r, d) view.
+- n_tiles = ceil(q_len * 6 / 16): 1 tile at q_len<=2, 2 at 3..5, **3 at
+  6..8** (the q_len 8: 48 rows = exactly 3 tiles, zero padding waste!).
+- The Q smem: (n_tiles*16, 256) bf16 — 24 KB at the q_len 8; the total
+  smem 73 KB <= 99 KB. The acc_O: 3 tiles x 32 fp32 regs/thread = 96 —
+  plus the working set ~150-180 of 255, feasible; the tiles are
+  constexpr so the binary is per-q_len (the compile key already carries
+  seqlen_q).
+- The loop order: the stage OUTER, the tile INNER — the acc_O for all
+  the tiles persists across the stages (the registers); the QK gemm,
+  the softmax (the per-tile row stats through the same sStats), and
+  the PV all iterate the tiles per stage.
+- The causal mask becomes PER-TOKEN: the row (m, r) attends to the keys
+  gk <= kv_len - q_len + m (the GEMV ref_decode contract, L - M + 1 +
+  m); the M=1 case degenerates to the no-op (the gk <= kv_len - 1).
+  The mask needs the stage's global row (kv_start + row0 + c) and the
+  row's token m — both available in the softmax helper.
+- The epilogue: the row R -> (m, r) = divmod(R, 6); the O at
+  o_off + m*row_stride + (kv_head*6 + r)*D; the LSE per (token, head)
+  at (split, qo_head, q_row_base + m) — the GEMV's exact coords.
+- The row-stat writers: the row r's quad leader is the lane (r%8)*4
+  (the atom's D layout: the rows = lane//4 and lane//4+8).
+
+The M=1 path is the n_tiles=1 special case of all of the above — the
+skeleton gets reworked once, not twice.
