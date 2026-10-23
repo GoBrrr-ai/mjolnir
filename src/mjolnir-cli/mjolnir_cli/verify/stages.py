@@ -227,9 +227,7 @@ def stage_ab(ctx: Ctx, variants: str = "", refs: str = "fi", wall_iters: int = 2
     return _variant_stage(ctx, "ab", L_.parse_variants(variants), refs, wall_iters)
 
 
-def stage_kvfmt(
-    ctx: Ctx, variants: str = "", refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200
-) -> dict:
+def stage_kvfmt(ctx: Ctx, variants: str = "", refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200) -> dict:
     """KV cache layouts × formats (fp8 / fp6 / fp4 / nvfp4; NHD / interleaved / HND)."""
     variants = variants or L_.stage_variants(L_.KVFMT_VARIANTS, ctx.runner.platform)
     return _variant_stage(ctx, "kvfmt", L_.parse_variants(variants), refs, wall_iters)
@@ -241,14 +239,10 @@ def stage_kvfmt(
 def stage_timing(ctx: Ctx, dtypes: str = "fp8 bf16", ctas: str = "1 2", iters: int = 50) -> dict:
     """Harness-timed medians at every L, 1 vs 2 CTAs/SM, per Q dtype.
 
-    The Orin GEMV has no CTAs/SM axis and no fp8-Q path yet: one config per
-    (dtype, L), bf16 Q only."""
+    The Orin GEMV has no CTAs/SM axis: one config per (dtype, L) — bf16 Q
+    and fp8 Q (the runner's dynamic qpack) on fp8 KV."""
     orin = ctx.runner.platform == "orin"
-    if orin:
-        dtypes = "bf16"
-        ctas_vals = ["1"]
-    else:
-        ctas_vals = ctas.split()
+    ctas_vals = ["1"] if orin else ctas.split()
     rows = []
     for dt in dtypes.split():
         for L in ctx.ls:

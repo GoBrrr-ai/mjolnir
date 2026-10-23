@@ -145,7 +145,7 @@ def _e2m3_dequant(kv: torch.Tensor, d: int, scale_h: torch.Tensor) -> torch.Tens
 
 def check(args) -> bool:
     dev = args.device
-    q, kv, table, seq_lens, _qd, kd, vd, raw = make_case(
+    q, kv, table, seq_lens, qd, kd, vd, raw = make_case(
         args.batches,
         args.q_len,
         args.seqlen,
@@ -178,7 +178,7 @@ def check(args) -> bool:
     plan = runner.plan(seq_lens.tolist(), b, args.q_len, table, seq_lens, causal=not args.non_causal)
     q_tokens = q.view(b * args.q_len, args.heads_q, args.headdim)
     out = torch.empty_like(q_tokens, dtype=torch.bfloat16)
-    runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)
+    runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)
     got = out.view(b, args.q_len, args.heads_q, args.headdim).float().cpu()
     # e2m3: the dequantized pool already carries the per-head scale, so the
     # ref sees identity descales (the kernel folds the scale via kd/vd).
@@ -196,7 +196,7 @@ def check(args) -> bool:
         pool_ref,
         table.cpu(),
         seq_lens.cpu(),
-        None,  # bf16 Q: no q_descale on either side
+        qd.cpu() if qd is not None else None,  # fp8 Q: the kernel's scale_eff folds it
         ref_kd,
         ref_vd,
         scale,
@@ -231,7 +231,7 @@ def check(args) -> bool:
 
 def bench(args) -> None:
     dev = args.device
-    q, kv, table, seq_lens, _qd, kd, vd, _raw = make_case(
+    q, kv, table, seq_lens, qd, kd, vd, _raw = make_case(
         args.batches,
         args.q_len,
         args.seqlen,
@@ -264,7 +264,7 @@ def bench(args) -> None:
     plan = runner.plan(seq_lens.tolist(), b, args.q_len, table, seq_lens)
     q_tokens = q.view(b * args.q_len, args.heads_q, args.headdim)
     out = torch.empty_like(q_tokens, dtype=torch.bfloat16)
-    runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)  # compile
+    runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)  # compile
     torch.cuda.synchronize()
     # Time the compiled launch with PREBUILT args: the serving path's python
     # (arg packing, the combine) is real cost but dominates the measurement
@@ -303,13 +303,13 @@ def bench(args) -> None:
     # runner.run() calls, one event pair each -- the honest per-call cost
     # vLLM would pay, python included. Parsed by stages._FULL_MEDIAN.
     for _ in range(args.warmup):
-        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)
+        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)
     torch.cuda.synchronize()
     full_times = []
     for _ in range(args.iters):
         s, e = torch.cuda.Event(True), torch.cuda.Event(True)
         s.record()
-        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale)
+        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)
         e.record()
         torch.cuda.synchronize()
         full_times.append(s.elapsed_time(e) * 1000)
