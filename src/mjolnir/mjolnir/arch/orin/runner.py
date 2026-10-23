@@ -70,6 +70,9 @@ class GEMVKey:
     max_blocks: int = 0
 
 
+FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
+
+
 class GEMVDecodeRunner:
     def __init__(
         self,
@@ -144,6 +147,12 @@ class GEMVDecodeRunner:
         self._kd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev)
         self._vd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev)
         self._qd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev) if self.fp8_q else None
+        # fp8 Q: the dynamic per-(seq, kv head) quantization packs the bf16
+        # query here (the Thor qpack semantics); a pre-quantized fp8 query
+        # passes through and its descales land in _qd via run(q_scale=...).
+        self.q_pack = (
+            torch.empty(rows_cap * self.h_q * self.d, dtype=torch.float8_e4m3fn, device=dev) if self.fp8_q else None
+        )
         # Split partials: (ns, rows, h_q, d) fp32 and (ns, h_q, rows) fp32,
         # allocated at the capacity. Realistic sizes: ns_cap=16, 512 rows,
         # h_q=24, d=256 -> 200 MB worst case, ~3 MB at the Orin 8-seq tuning.
@@ -400,6 +409,22 @@ class GEMVDecodeRunner:
             view.copy_(scale.reshape(b, self.h_k))
         return view
 
+    def _pack_q(self, q3: torch.Tensor, b: int, ql: int) -> torch.Tensor:
+        """Dynamic per-(seq, kv head) e4m3 quantization of the bf16 query —
+        the Thor qpack semantics: the group's amax over (ql, h_r, d) gives
+        the scale, which lands in the descale buffer and divides the pack
+        (the query's h_q axis is kv-head-major, so the 5D view regroups it).
+        Returns the packed rows (flat)."""
+        pack, qd = self.q_pack, self._qd  # locals: ty narrows against the guard
+        assert pack is not None and qd is not None, "the fp8-Q buffers exist only on the fp8-Q runner"
+        qg = q3.view(b, ql, self.h_k, self.h_r, self.d).float()
+        scale = qg.abs().amax(dim=(1, 3, 4)).clamp_min(1e-6) / FP8_MAX  # (b, h_k)
+        qd[:b] = scale
+        packed = (qg / scale[:, None, :, None, None]).to(torch.float8_e4m3fn)
+        rows = b * ql
+        pack[: rows * self.h_q * self.d].copy_(packed.reshape(-1))
+        return pack[: rows * self.h_q * self.d].view(rows, self.h_q, self.d).reshape(-1)
+
     def _combine(self, b: int, ql: int, out: torch.Tensor):
         """The chunk-normalized LSE combine (torch, static shapes per
         capture): O = Σ_s exp(lse_s − L)·O_s with L = max + log Σ exp."""
@@ -424,7 +449,7 @@ class GEMVDecodeRunner:
     def run(
         self,
         plan: StepPlan,
-        query: torch.Tensor,  # (>= b*q_len, h_q, d) bf16, any token stride
+        query: torch.Tensor,  # (>= b*q_len, h_q, d) bf16 (packed when fp8_q) or fp8 (+ q_scale)
         out: torch.Tensor,  # (>= b*q_len, h_q, d) or (>= b*q_len, h_q*d)
         k_cache: torch.Tensor,  # (num_pages, page_size, h_k, d) logical view
         v_cache: torch.Tensor,
@@ -433,12 +458,23 @@ class GEMVDecodeRunner:
         softmax_scale: float,
         q_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — fp6 K scales (later)
         o_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — fp6 V scales (later)
+        q_scale: torch.Tensor | None = None,  # fp8 Q descales: (1,)/(h_k,)/(b, h_k)
     ):
         assert q_mul is None and o_mul is None, "fp6 channel scales land with the fp6 variant"
-        if self.fp8_q:
-            raise NotImplementedError("fp8 Q on Orin lands with the qpack wiring")
         b, ql = plan.num_seqs, plan.q_len
         tokens = b * ql
+        q_pack = self.q_pack  # local: ty narrows the Optional against the fp8_q guard
+        if self.fp8_q and query.dtype != torch.float8_e4m3fn:
+            # bf16 query: the dynamic per-(seq, kv head) e4m3 pack writes the
+            # descales itself; a pre-quantized fp8 query passes through and
+            # brings its descales in q_scale (the harness/quantized path).
+            q3 = query[:tokens]
+            if q3.dim() == 2:
+                q3 = q3.view(tokens, self.h_q, self.d)
+            self._pack_q(q3, b, ql)
+        elif self.fp8_q:
+            assert q_scale is not None, "a pre-quantized fp8 Q needs its descales (q_scale)"
+            self._scale_buf(self._qd, b, q_scale)
         if self.kv_format == "fp8":
             if k_cache.dtype == torch.uint8:
                 k_cache = k_cache.view(torch.float8_e4m3fn)
@@ -448,9 +484,13 @@ class GEMVDecodeRunner:
         self._scale_buf(self._kd, b, k_scale)
         self._scale_buf(self._vd, b, v_scale)
         key = self._key(ql, plan.causal, k_cache.shape[0], b, plan.block_table.shape[1])
-        q3 = query[:tokens]
-        if q3.dim() == 2:
-            q3 = q3.view(tokens, self.h_q, self.d)
+        if self.fp8_q and query.dtype != torch.float8_e4m3fn:
+            assert q_pack is not None, "the pack buffer exists only on the fp8-Q runner"
+            q3 = q_pack[: tokens * self.h_q * self.d].view(tokens, self.h_q, self.d)
+        else:
+            q3 = query[:tokens]
+            if q3.dim() == 2:
+                q3 = q3.view(tokens, self.h_q, self.d)
         # Compile args are expensive (several from_dlpack round trips) --
         # build them only on a cache miss; the hot path packs raw tensors.
         fn = _COMPILED.get(key)

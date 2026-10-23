@@ -163,9 +163,10 @@ class Runner:
         if isinstance(args, str):
             args = shlex.split(args)
         if self.platform == "orin":
-            # bf16 Q until the qpack wiring lands — the Orin runner raises on
-            # fp8 Q today; when it arrives this maps the leg's q like the Thor.
-            return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", "bf16", "--kv_dtype", "fp8", *args]
+            # fp8 Q rides the runner's dynamic qpack; the KV stays fp8 (the
+            # GEMV's e2m3/bf16 KV variants take the bf16-Q path).
+            qd = "fp8" if q == "fp8" else "bf16"
+            return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", qd, "--kv_dtype", "fp8", *args]
         qd = "Float8E4M3FN" if q == "fp8" else "BFloat16"
         return ["-m", "mjolnir.arch.thor.harness", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
 
