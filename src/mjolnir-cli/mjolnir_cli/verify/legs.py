@@ -194,6 +194,11 @@ AB_VARIANTS: dict[str, str] = {
 }
 
 
+def slug(s: str) -> str:
+    """File-name-safe form of a leg/variant id (log file names)."""
+    return re.sub(r"[^A-Za-z0-9_.=-]+", "_", s).strip("_")
+
+
 def stage_variants(table: dict[str, str], platform: str) -> str:
     """The platform's row of a variant table; thor/spark share the default."""
     return table.get(platform) or table["default"]
