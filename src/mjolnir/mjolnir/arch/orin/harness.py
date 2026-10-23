@@ -172,6 +172,7 @@ def check(args) -> bool:
         max_q_len=args.q_len,
         q_mode=args.q_dtype,
         kv_format=args.kv_dtype,
+        impl=args.impl,
         max_splits=args.max_splits,
         device=dev,
     )
@@ -258,6 +259,7 @@ def bench(args) -> None:
         max_q_len=args.q_len,
         q_mode=args.q_dtype,
         kv_format=args.kv_dtype,
+        impl=args.impl,
         max_splits=args.max_splits,
         device=dev,
     )
@@ -355,6 +357,7 @@ def main() -> int:
     p.add_argument("--no_l2_flush", action="store_true", help="accepted; the prebuilt launch timing never flushes")
     p.add_argument("--ctas_per_sm", type=int, default=1, help="the GEMV grid has no CTAs/SM knob; 1 only")
     p.add_argument("--max_splits", type=int, default=0, help="split-KV capacity (0 = the auto plan)")
+    p.add_argument("--impl", default="gemv", choices=("gemv", "mma"), help="the decode kernel (mma = the design scaffold, see research/runs/orin1)")
     args = p.parse_args()
     assert args.ctas_per_sm == 1, "the Orin GEMV grid has no CTAs/SM knob (one CTA per (head, chunk))"
     if args.kv_layout == "nhd":
