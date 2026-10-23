@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# vLLM overlay for Jetson AGX Thor (aarch64, SM 11.0a) + the Mjolnir kernel.
+# vLLM overlay for the Mjolnir kernel on Jetson Tegra (aarch64).
+# ONE image serves every shipped Tegra platform: Thor (sm_110) and Orin
+# (sm_87) are both aarch64, the kernel family resolves at runtime
+# (mjolnir.platforms), and mjolnir_cli.dockerctl exports the per-arch JIT
+# envs at serve time (the Thor pins in ENV below are the build default).
 #
 # BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
 #   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
