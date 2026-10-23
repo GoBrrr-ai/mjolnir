@@ -291,6 +291,7 @@ def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
         clog = ctx.logdir / "sweep" / f"check-{args.replace(' ', '_').replace('--', '')}.log"
         rc, _ = ctx.runner.harness(clog, "bf16", args)
         if rc != 0:
+            ctx.out(f"   ❌ correctness gate failed ({args}) — {clog}")
             return {"error": f"correctness gate failed ({args}), see {clog}"}
     pts: dict[str, list] = {"mjolnir": [], "mjolnir-full": [], "fi": []}
     for L in ctx.ls:
@@ -345,6 +346,10 @@ def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
 def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 200) -> dict:
     """Programmatic dependent launch on/off (wall clock — ncu serializes
     kernels, so it cannot see PDL)."""
+    if ctx.runner.platform == "orin":
+        # PDL needs sm_90+; the GEMV family has no launch-overlap lever.
+        ctx.out("   (N/A on Orin: PDL does not exist below sm_90 — nothing to measure)")
+        return {"error": "PDL does not exist below sm_90 — nothing to measure on Orin"}
     rows = []
     for dt in dtypes.split():
         for b in batches.split():
@@ -766,16 +771,31 @@ def stage_vllm(
     near-tie divergences (see ``tests/kernel/smoke_vllm.py``)."""
     hf = hf_home or Path.home() / ".cache" / "huggingface"
     cases = []
+    orin = ctx.runner.platform == "orin"
     log = ctx.logdir / "vllm" / "test_runner.log"
-    rc = ctx.runner.tests(log, repo, "python3 tests/test_runner.py", timeout, hf)
+    if orin:
+        # tests/test_runner.py exercises the thor family (its runner and the
+        # bit-faithful emulator live there); the orin's correctness gate is
+        # the harness --sweep matrix the correctness stage runs. The smoke
+        # below is the real plugin check on this platform.
+        ctx.out("   (runner tests: thor-family suite — the Orin's correctness is the sweep-gated matrix)")
+    else:
+        rc = ctx.runner.tests(log, repo, "python3 tests/test_runner.py", timeout, hf)
     text = log.read_text(errors="replace") if log.exists() else ""
     for line in text.splitlines():
         m = re.search(r"(✅|❌) (test_\S+)", line)
         if m:
             cases.append({"label": f"runner {m.group(2).rstrip(':')}", "passed": m.group(1) == "✅", "log": str(log)})
             ctx.out("   " + line.strip())
-    if rc != 0 and not any(not c["passed"] for c in cases):
-        cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
+    if not orin:
+        if rc != 0 and not any(not c["passed"] for c in cases):
+            cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
+    # The smoke modes a platform can actually run: e2m3 needs the vLLM fp6
+    # cache-write patch (the Mjolnir image), lmh8 needs fp8 tensor cores
+    # (sm_100+), spec needs a served drafter -- the stock-image Orin runs
+    # the backend plugin itself (MJOLNIR falls back to CUSTOM on stock vLLM).
+    if orin:
+        smoke_modes = " ".join(m for m in smoke_modes.split() if m in ("graph", "eager"))
     for mode in smoke_modes.split():
         args = f"--model {model} --max_tokens {tokens}"
         if mode == "eager":
