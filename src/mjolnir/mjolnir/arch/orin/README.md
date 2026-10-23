@@ -114,24 +114,64 @@ per (kv-head, chunk) computes all M rows, KV read once; LeanAttention
    into Q (the Thor trick — ports unchanged), V scales in the epilogue.
    FMA stays the M=1 leg (see the roofline above). Loader, ring, split
    plan and combine survive unchanged.
-3. **fp6 e2m3 KV reader**: the cache format (`mjolnir/kvfp6.py`, 4 codes
-   per 3 bytes little-endian + per-(layer, h, channel) scales) is
-   arch-agnostic; the Orin reader bit-assembles e2m3 → fp16 fragments
-   (no `cvt` instruction exists for fp6 — ~7 int ops/element, affordable
-   once the MACs live on tensor cores). 25% fewer bytes than fp8 is the
-   biggest single lever on a bandwidth-bound platform. The fallback
-   scratch expansion (`expand_pages_to_fp8`) is torch/Triton — works
-   unchanged; the vLLM fp6 patch is already in the image's patch set
-   (inert until a config requests `fp6_e2m3`).
-4. **Harness + verify wiring**: correctness vs `emulate_decode`
-   (tolerance-based — the GEMV/ mma reduction order is not the
-   bit-faithful j-ordered spec; greedy logprob smoke as the second gate),
-   then the sweep/ring/kvfmt/quant/ab stages with platform-tagged raws so
-   `docs/platforms/orin/kernel/*` render like Thor's.
+3. **fp6 e2m3 KV reader**: ✅ **landed** — the packed pool reads in-kernel
+   (see "The fp6 e2m3 KV variant" below): 25% fewer bytes than fp8,
+   measured 1.35× the fp8 tokens/s at L=4K on the same issue count.
+4. **Harness + verify wiring**: ✅ landed — `mjolnir verify` dispatches to
+   this family (the correctness sweep, the events-timed `orinbench`
+   comparison vs the FlashInfer FA2-TC reference on the stock image — no
+   ncu exists on L4T, so the wall-clock stage carries the headline data).
 5. **Single-image serving**: the overlay image resolves arch at runtime
    (entrypoint exports the per-arch `TORCH_CUDA_ARCH_LIST` /
    `FLASHINFER_CUDA_ARCH_LIST` / `CUTE_DSL_ARCH`), the GEMV kernel
    DSL-compiles for sm_87 on first use (cached).
+
+## Measured status (2026-10-23, AGX Orin 64GB, vLLM 0.32.0 stock image)
+
+The honest baseline (`mjolnir verify orinbench`, same-run, prebuilt
+launches vs FlashInfer FA2-TC on the same image): the GEMV streams
+**~20 GB/s** of KV against FlashInfer's **~162 GB/s marginal** (79% of
+the 204.8 GB/s LPDDR5 peak) — 0.52× at L=128 widening to ~0.14× at
+262K. The kernel is bandwidth-starved, not latency- or issue-bound:
+
+* the CTA is 96 threads (3 warps); at 3 CTAs/SM (the 49 KB ring) the
+  machine runs 12 of 48 warp slots — 25% occupancy;
+* the knob sweep at L=4K: deeper splits (ns 32/64) don't help (the
+  extra CTAs queue behind the smem-limited residency); smaller rings do —
+  `MJOLNIR_ATTN_KV_STAGES=2 MJOLNIR_ATTN_TILE=2` + ns=32 = 414 µs vs the
+  457 µs base (**~10%**, 20 GB/s);
+* the structural fixes are the mma.sync variant (the M>1 leg), wider
+  CTAs (more load lanes per SM), and the cooperative row-chunk copy —
+  all future work; the FMA leg alone cannot reach the DRAM peak.
+
+## The fp6 e2m3 KV variant (landed)
+
+The GEMV reads the `kvfp6` packed pool (d·3/4 = 192 bytes per row for
+d=256, 4 codes per 3 bytes LE) directly:
+
+* **g2s**: the 192-byte row moves as 12 × 16-byte chunks — the only
+  cp.async size the DSL issues. Lane tx covers chunk `tx % 12`; lanes
+  12-15 re-issue chunks 0-3 (benign: identical bytes to identical smem
+  addresses, and the per-lane commit/wait group counts stay uniform).
+  Issue count per row: 16 (vs fp8's 16) — the compression converts
+  straight to bandwidth.
+* **s2r**: each lane's 12-byte slice (its 16 codes span exactly 12
+  bytes) loads as 3 × 4-byte smem reads (a 12-byte slice is only 4-byte
+  aligned; the 16-byte cp.async of the fp8 path would need a padded row).
+* **unpack**: code i of a lane's slice sits at bit 6i —
+  `(B[b] >> o) | (B[b+1] << (8-o))`, `o = 6i % 8`, all static per i; the
+  last code ends exactly at byte 11 so the hi-byte read is guarded. The
+  value comes from the 64-entry e2m3 LUT passed as a kernel arg
+  (`kvfp6.e2m3_values` — exact for every code, subnormals included).
+* **scales**: the per-(layer, KV head) scale rides the existing
+  `DescaleTensors` (the K descale folds into the score scale, the V
+  descale into the epilogue) — no new plumbing.
+
+Verified: 10/10 configs (page size 16-128 × M 1-8 × L 1K-64K, batch 8,
+non-causal) at rel_err ≈ 0.0017 vs the fp32 reference; the fp8 sweep
+24/24 unchanged. At L=4K the fp6 kernel runs 349.6 µs vs fp8's 472.7 µs
+for the same tokens — **1.35×**, the 25% byte saving realized (the
+kernel is issue/bandwidth-bound, so fewer bytes = proportionally faster).
 
 ## Not portable from Thor (deliberate)
 
