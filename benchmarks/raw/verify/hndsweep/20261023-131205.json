@@ -1,0 +1,131 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "hndsweep",
+ "run_id": "20261023-131205",
+ "ts": "2026-10-23T13:12:34+00:00",
+ "default": false,
+ "host": "agx-orin-dev",
+ "image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "f5f531b",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "legs": [
+   "fi",
+   "fi-hnd",
+   "mjolnir-fp8"
+  ],
+  "ls": [
+   4096
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "series": [
+  {
+   "id": "fi",
+   "label": "FlashInfer (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "NHD"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 140.44,
+     "main_us": 128.89,
+     "merge_us": 11.55,
+     "min_us": 79.36,
+     "l2_sectors": 314515.24000000005,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 59.73,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 128.89,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 11.55,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fi-hnd",
+   "label": "FlashInfer (fp8 KV, HND)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "HND"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 147.42,
+     "main_us": 134.69,
+     "merge_us": 12.73,
+     "min_us": 79.2,
+     "l2_sectors": 314534.94,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 56.9,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 134.69,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 12.73,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mjolnir-fp8",
+   "label": "Mjolnir (fp8 KV, HND)",
+   "kind": "t5",
+   "role": "ours",
+   "flags": "--kv_format fp8 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": []
+  }
+ ],
+ "summary": {}
+}

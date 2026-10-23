@@ -42,7 +42,7 @@
 | [`mjolnir verify ring`](#mjolnir-verify-ring) | KV ring depth (TMA → MMA stages) at every L. |
 | [`mjolnir verify prefetch`](#mjolnir-verify-prefetch) | TMA L2-prefetch distance sweep. |
 | [`mjolnir verify pdl`](#mjolnir-verify-pdl) | Programmatic dependent launch on/off (wall clock). |
-| [`mjolnir verify ab`](#mjolnir-verify-ab) | A/B any harness flag sets (ncu + wall clock). Default: evict-first x PDL. |
+| [`mjolnir verify ab`](#mjolnir-verify-ab) | A/B any harness flag sets (ncu + wall clock). Default: the platform's own A/B — the Thor launch knobs (evict-first × PDL) / the Orin KV formats. |
 | [`mjolnir verify fp6prof`](#mjolnir-verify-fp6prof) | Full ncu profiles per KV format (bytes vs requests vs time, warp stalls). |
 | [`mjolnir verify timing`](#mjolnir-verify-timing) | Harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q (no ncu). |
 | [`mjolnir verify profile`](#mjolnir-verify-profile) | Profile a decode workload per config (torch profiler): graph replays, eager kernels, GPU idle, top kernels. |
@@ -589,7 +589,7 @@ KV layouts x formats: fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD / inter
 
 | option | description | default |
 |---|---|---|
-| `--variants` | name:flags\|name:flags | `fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-interleaved:--kv_format fp8 --kv_layout interleaved|fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd` |
+| `--variants` | name:flags\|name:flags (default: the platform's set) | `` |
 | `--refs` | baseline legs | `fi,fi-hnd` |
 | `--wall-iters` | harness wall-clock iterations (0 = skip) | `200` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
@@ -610,7 +610,7 @@ Accuracy per KV format: relative L2 error vs attention over unquantized KV.
 
 | option | description | default |
 |---|---|---|
-| `--formats` |  | `fp8 e2m3 e3m2 e2m1 nvfp4` |
+| `--formats` | default: the platform's set | `` |
 | `--batches` |  | `2` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
 | `--ls` | L values (default: 128 4096 8192 16384 32768 65536 131072 262144) |  |
@@ -686,11 +686,12 @@ Programmatic dependent launch on/off (wall clock).
 
 ## `mjolnir verify ab`
 
-A/B any harness flag sets (ncu + wall clock). Default: evict-first x PDL.
+A/B any harness flag sets (ncu + wall clock). Default: the platform's
+own A/B — the Thor launch knobs (evict-first × PDL) / the Orin KV formats.
 
 | option | description | default |
 |---|---|---|
-| `--variants` | name:flags\|name:flags | `base:--kv_evict_first 0|evict:--kv_evict_first 1|pdl:--kv_evict_first 0 --pdl|both:--kv_evict_first 1 --pdl` |
+| `--variants` | name:flags\|name:flags (default: the platform's set) | `` |
 | `--refs` |  | `fi` |
 | `--wall-iters` |  | `200` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
@@ -711,7 +712,7 @@ Full ncu profiles per KV format (bytes vs requests vs time, warp stalls).
 
 | option | description | default |
 |---|---|---|
-| `--variants` |  | `fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd` |
+| `--variants` | name:flags\|name:flags (default: the platform's set) | `` |
 | `--count` | profiled launches per point | `3` |
 | `--set` |  | `full` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
@@ -1134,7 +1135,7 @@ sudo.
 | `--keep-gui` | keep the graphical boot target (default: headless multi-user) | off |
 | `--fan-profile` | recommended (default) \| max \| cool \| quiet — recommended/max are installed by this step if missing | `recommended` |
 | `--swap-size` | swap file size in GB (default 32 — the 128 GB Thor SoM) | `32` |
-| `--skip` | comma-separated steps to skip: gui,upgrade,pip,docker,jtop,memory,fan,host,clocks,power | `` |
+| `--skip` | comma-separated steps to skip: gui,upgrade,pip,docker,jtop,nsight,memory,fan,host,clocks,power | `` |
 | `--reboot` | reboot at the end if a step required one (non-interactive) | off |
 | `--dry-run` | print the plan, change nothing | off |
 

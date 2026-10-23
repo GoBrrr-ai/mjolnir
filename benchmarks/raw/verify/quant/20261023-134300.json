@@ -1,0 +1,55 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "quant",
+ "run_id": "20261023-134300",
+ "ts": "2026-10-23T13:43:28+00:00",
+ "default": false,
+ "host": "agx-orin-dev",
+ "image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "0c4b8d4",
+  "dirty": true
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "formats": "fp8 e2m3",
+  "batches": 2,
+  "ls": [
+   4096
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "rows": [
+  {
+   "format": "fp8",
+   "bits": 8.0,
+   "L": 4096,
+   "rel_l2": 0.01473,
+   "max_abs": 0.002574,
+   "emulator_pass": false,
+   "ok": true
+  },
+  {
+   "format": "e2m3",
+   "bits": 6.0,
+   "L": 4096,
+   "rel_l2": 0.01959,
+   "max_abs": 0.001705,
+   "emulator_pass": false,
+   "ok": true
+  }
+ ],
+ "summary": {}
+}

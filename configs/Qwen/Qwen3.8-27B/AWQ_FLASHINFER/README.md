@@ -32,3 +32,5 @@ Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjo
 ## Benchmarks
 
 **no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `Qwen/Qwen3.8-27B` / `AWQ_FLASHINFER` on Jetson Orin so far.
+
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#kernel), one chapter per verify stage.
