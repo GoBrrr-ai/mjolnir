@@ -1,0 +1,254 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "orinbench",
+ "run_id": "20261023-071234",
+ "ts": "2026-10-23T07:21:21+00:00",
+ "default": false,
+ "host": "agx-orin-dev",
+ "image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "ec0f93b",
+  "dirty": true
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "iters": 200,
+  "platform": "orin",
+  "m4": [
+   {
+    "M": 4,
+    "L": 128,
+    "kernel_us": 448.48,
+    "gbps": 0.585,
+    "fi_us": 144.0,
+    "ratio": 0.32108455226542987,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 4096,
+    "kernel_us": 941.12,
+    "gbps": 8.91,
+    "fi_us": 189.1,
+    "ratio": 0.2009308058483509,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 8192,
+    "kernel_us": 1802.59,
+    "gbps": 9.31,
+    "fi_us": 261.1,
+    "ratio": 0.14484713662008555,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 16384,
+    "kernel_us": 3363.87,
+    "gbps": 9.97,
+    "fi_us": 298.9,
+    "ratio": 0.08885599027310806,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 32768,
+    "kernel_us": 6611.49,
+    "gbps": 10.2,
+    "fi_us": 560.9,
+    "ratio": 0.0848371547109653,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 65536,
+    "kernel_us": 12973.5,
+    "gbps": 10.3,
+    "fi_us": 1090.5,
+    "ratio": 0.0840559602266158,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 131072,
+    "kernel_us": 25786.14,
+    "gbps": 10.4,
+    "fi_us": 2137.2,
+    "ratio": 0.08288173414089894,
+    "ok": true
+   },
+   {
+    "M": 4,
+    "L": 262144,
+    "kernel_us": null,
+    "gbps": null,
+    "fi_us": 4295.6,
+    "ratio": null,
+    "ok": false
+   }
+  ],
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "page": 16,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "series": [
+  {
+   "id": "mjolnir",
+   "label": "Mjolnir GEMV (fp8 KV, HND)",
+   "kind": "t5",
+   "role": "ours",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 215.17,
+     "gbps": 1.22
+    },
+    {
+     "L": 4096,
+     "total_us": 471.42,
+     "gbps": 17.8
+    },
+    {
+     "L": 8192,
+     "total_us": 885.31,
+     "gbps": 19.0
+    },
+    {
+     "L": 16384,
+     "total_us": 1641.98,
+     "gbps": 20.4
+    },
+    {
+     "L": 32768,
+     "total_us": 3162.34,
+     "gbps": 21.2
+    },
+    {
+     "L": 65536,
+     "total_us": 6168.16,
+     "gbps": 21.8
+    },
+    {
+     "L": 131072,
+     "total_us": 12165.09,
+     "gbps": 22.1
+    },
+    {
+     "L": 262144,
+     "total_us": 24158.24,
+     "gbps": 22.2
+    }
+   ]
+  },
+  {
+   "id": "mjolnir-full",
+   "label": "Mjolnir serving path",
+   "kind": "t5",
+   "role": "ours",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 215.17
+    },
+    {
+     "L": 4096,
+     "total_us": 471.42
+    },
+    {
+     "L": 8192,
+     "total_us": 885.31
+    },
+    {
+     "L": 16384,
+     "total_us": 1641.98
+    },
+    {
+     "L": 32768,
+     "total_us": 3162.34
+    },
+    {
+     "L": 65536,
+     "total_us": 6168.16
+    },
+    {
+     "L": 131072,
+     "total_us": 12165.09
+    },
+    {
+     "L": 262144,
+     "total_us": 24158.24
+    }
+   ]
+  },
+  {
+   "id": "fi",
+   "label": "FlashInfer FA2-TC (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 112.6
+    },
+    {
+     "L": 4096,
+     "total_us": 161.6
+    },
+    {
+     "L": 8192,
+     "total_us": 219.8
+    },
+    {
+     "L": 16384,
+     "total_us": 265.0
+    },
+    {
+     "L": 32768,
+     "total_us": 433.6
+    },
+    {
+     "L": 65536,
+     "total_us": 824.8
+    },
+    {
+     "L": 131072,
+     "total_us": 1639.9
+    },
+    {
+     "L": 262144,
+     "total_us": 3300.0
+    }
+   ]
+  }
+ ],
+ "summary": {}
+}

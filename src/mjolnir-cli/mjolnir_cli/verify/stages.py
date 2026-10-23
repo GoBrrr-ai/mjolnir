@@ -82,6 +82,10 @@ class Stage:
     kind: str  # "correctness" | "ncu" | "harness" | "profile" | "tests" | "serving"
     summary: str  # one line (help text, docs index)
     fn: Callable[..., dict] | None = None
+    # True = the stage cannot run without Nsight Compute on any platform; the
+    # sweep is False (dual: the ncu legs on thor, the events-timed branch on
+    # the no-ncu platforms). The kernel-tree chapters filter on it.
+    requires_ncu: bool = False
 
 
 def _median(text: str) -> tuple[float | None, float | None]:
@@ -839,6 +843,7 @@ STAGES: dict[str, Stage] = {
             "ncu",
             "FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win?",
             stage_hndsweep,
+            requires_ncu=True,
         ),
         Stage(
             "kvfmt",
@@ -846,6 +851,7 @@ STAGES: dict[str, Stage] = {
             "ncu",
             "fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock)",
             stage_kvfmt,
+            requires_ncu=True,
         ),
         Stage(
             "quant",
@@ -854,8 +860,22 @@ STAGES: dict[str, Stage] = {
             "relative L2 error of each KV format vs unquantized KV, at every L",
             stage_quant,
         ),
-        Stage("ring", "KV ring depth", "ncu", "TMA→MMA ring depth (--kv_stages) sweep at every L", stage_ring),
-        Stage("prefetch", "L2 prefetch", "ncu", "TMA L2 prefetch distance (--l2_prefetch) sweep", stage_prefetch),
+        Stage(
+            "ring",
+            "KV ring depth",
+            "ncu",
+            "TMA→MMA ring depth (--kv_stages) sweep at every L",
+            stage_ring,
+            requires_ncu=True,
+        ),
+        Stage(
+            "prefetch",
+            "L2 prefetch",
+            "ncu",
+            "TMA L2 prefetch distance (--l2_prefetch) sweep",
+            stage_prefetch,
+            requires_ncu=True,
+        ),
         Stage(
             "pdl",
             "Programmatic dependent launch",
@@ -864,7 +884,12 @@ STAGES: dict[str, Stage] = {
             stage_pdl,
         ),
         Stage(
-            "ab", "Flag A/B", "ncu", "any harness flag sets, ncu + wall clock (default: evict-first x PDL)", stage_ab
+            "ab",
+            "Flag A/B",
+            "ncu",
+            "any harness flag sets, ncu + wall clock (default: evict-first x PDL)",
+            stage_ab,
+            requires_ncu=True,
         ),
         Stage(
             "fp6prof",
@@ -872,6 +897,7 @@ STAGES: dict[str, Stage] = {
             "profile",
             "full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format",
             stage_fp6prof,
+            requires_ncu=True,
         ),
         Stage(
             "timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing

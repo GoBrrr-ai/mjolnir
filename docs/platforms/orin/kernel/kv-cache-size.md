@@ -1,0 +1,47 @@
+# KV cache capacity
+
+> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · **no run yet**
+
+## The question
+
+A 6-bit KV cache stores 25% fewer bytes per token than fp8. On a real serving setup, how many more tokens does that buy — and how many more concurrent requests at the context lengths the end-to-end bench runs?
+
+## How it is measured
+
+Every leg is a real `vllm serve` of the same model with the same config except the attention backend and the KV dtype: the official vLLM image with its stock backend (FlashInfer, fp8 KV), and the Mjolnir image on fp8 and on fp6 (e2m3) KV. vLLM sizes the KV cache itself at startup — weights loaded, activations profiled, CUDA-graph memory estimated — and logs the result:
+
+```
+Available KV cache memory: 38.12 GiB
+GPU KV cache size: 2,656,033 tokens
+Maximum concurrency for 204,800 tokens per request: 12.97x
+```
+
+The stage reads those lines and stops the leg's server right after (no graph capture or warm-up needed). The request capacity divides the token count by an e2e bench request: the context depth + 2,048 prompt + 128 generated tokens. Qwen3.8-27B's linear-attention (GDN) layers keep a fixed-size state per request, which vLLM accounts for in the same pool, so the token count is what the 16 full-attention layers can hold.
+
+## Result
+
+
+> Pending — run `mjolnir verify kv-cache-size` on a Jetson Orin (it restarts the vLLM server per leg), then `mjolnir plot --readme`.
+
+## How to read it
+
+Capacity is not speed. At the bench's 1–4 concurrent requests every config fits with room to spare, so the end-to-end table cannot show this gain; it shows when many long requests share the server — agents, RAG over long documents, several users at 100K+ context — where fp8 KV would preempt or queue requests that fp6 still holds. The decode kernel reads fewer bytes too, but at ≤32K context attention is a small part of a decode step on this model (see the e2e notes in the README).
+
+## Reproduce
+
+```bash
+mjolnir serve down                      # the stage restarts the server per leg — the GPU must be yours
+mjolnir verify kv-cache-size            # official FlashInfer fp8 · Mjolnir fp8 · Mjolnir fp6
+mjolnir verify kv-cache-size --legs mjolnir:NVFP4_MJOLNIR_E2M3   # one config
+```
+
+## Ideas to try
+
+- an e2e sweep at 8–16 concurrent requests and 64K+ context, where capacity turns into throughput: `mjolnir bench perf --concurrency 8,16` (the default depths already span 0–128K);
+- fp4 (e2m1 / nvfp4) KV once its accuracy holds up on a real model (see [KV format accuracy](quant.md)).
+
+Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../../../.github/CONTRIBUTING.md).
+
+---
+
+[← KV format accuracy](quant.md) · [case study](../README.md#kernel) · [Speculative decoding →](spec.md)

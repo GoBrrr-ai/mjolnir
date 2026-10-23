@@ -87,7 +87,8 @@ def test_full_render_from_fixture_data(repo):
         "fp6prof-bytes-vs-time",
     ):
         assert name in manifest, name
-        assert (repo / manifest[name]["dark"]).is_file()
+        entry = manifest[name][0] if isinstance(manifest[name], list) else manifest[name]
+        assert (repo / entry["dark"]).is_file()
     # no legacy ``-dark`` suffix anywhere under assets/benchmarks
     pngs = list((repo / "assets" / "benchmarks").rglob("*.png"))
     assert pngs and all("-dark" not in p.name for p in pngs)
@@ -210,17 +211,21 @@ def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
     write_all(layout.verify_dir)
     _stamp(layout.verify_dir)
     manifest = charts.render_all(layout)
-    entry = manifest["kernel-speedup"]
-    assert entry["platform"] == "thor" and entry["model"] == DEFAULT_MODEL
+    # v2 manifests are list-valued: one entry per (chart, measured pair)
+    entry = next(e for e in manifest["kernel-speedup"] if e["platform"] == "thor")
+    assert entry["model"] == DEFAULT_MODEL
     assert entry["dark"] == "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png"
     assert (repo / entry["dark"]).is_file()
-    for name, e in manifest.items():
-        assert "light" not in e, name
-        assert (repo / e["dark"]).is_file(), name
-        if name in ("hero", "opening-infographic"):  # the root-page one-offs stay flat
-            continue
-        assert "platform" in e and "model" in e, name
-    assert not any(e.get("platform") == "orin" for e in manifest.values())
+    for name, es in manifest.items():
+        for e in es:
+            assert "light" not in e, name
+            assert (repo / e["dark"]).is_file(), name
+            if name in ("hero", "opening-infographic"):  # the root-page one-offs stay flat
+                continue
+            assert "platform" in e and "model" in e, name
+    # pairs without data render no charts (the multi-pair manifest carries
+    # one entry per measured pair -- exercised on the real orin data)
+    assert not any(e.get("platform") == "spark" for es in manifest.values() for e in es)
 
 
 def test_chart_manifest_v2_legacy_entries_still_resolve(repo):
