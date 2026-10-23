@@ -119,7 +119,8 @@ install_nsight_compute() {
         return 1
     fi
     echo "📦 Installing Nsight Compute ($meta)..."
-    apt-get install -y "$meta"
+    sudo apt update
+    sudo apt install -y "$meta"
     local ncu_bin
     ncu_bin=$(ls /opt/nvidia/nsight-compute/*/ncu 2>/dev/null | sort -V | tail -1)
     if [ -n "$ncu_bin" ]; then
