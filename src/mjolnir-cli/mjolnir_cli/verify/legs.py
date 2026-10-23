@@ -42,13 +42,18 @@ FILTERS = {
     "fi": "regex:BatchPrefillWithPagedKVCache|BatchDecode|MergeStates",
     "fa2": "regex:flash_fwd",
     "fa4": "regex:sm100_hd256_2cta_fmha_forward",
-    "t5": "regex:MixedInputFusedMultiHeadAttentionDecode|reduction",
+    # t5: the Thor's CuTe kernel + LSE reduction, and the Orin GEMV
+    # (the CuTe-DSL mangling of mjolnir.arch.orin.decode.GEMVDecodeKernel —
+    # the anchor survives the dtype/shape template suffix; the fp6 variant
+    # mangles to the same prefix). The Orin's LSE combine is plain torch ops
+    # and matches nothing here, so its ncu numbers document the GEMV only.
+    "t5": "regex:MixedInputFusedMultiHeadAttentionDecode|reduction|GEMVDecodeKernel",
 }
 MAIN = {
     "fi": ("BatchPrefillWithPagedKVCache", "BatchDecode"),
     "fa2": ("flash_fwd_kernel", "flash_fwd_splitkv_kernel"),
     "fa4": ("sm100_hd256_2cta_fmha_forward",),
-    "t5": ("MixedInputFusedMultiHeadAttentionDecode",),
+    "t5": ("MixedInputFusedMultiHeadAttentionDecode", "GEMVDecodeKernel"),
 }
 MERGE = {
     "fi": ("MergeStates",),

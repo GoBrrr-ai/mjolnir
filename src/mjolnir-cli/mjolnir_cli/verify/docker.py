@@ -40,6 +40,8 @@ def resolve_ncu_home() -> str:
     except OSError:
         cands = []
     return str(cands[-1]) if cands else NCU_HOME_DEFAULT
+
+
 _IN_SRC = "/opt/mjolnir-src"
 
 
@@ -161,8 +163,9 @@ class Runner:
         if isinstance(args, str):
             args = shlex.split(args)
         if self.platform == "orin":
-            qd = "fp8" if q == "fp8" else "bf16"
-            return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", qd, "--kv_dtype", "fp8", *args]
+            # bf16 Q until the qpack wiring lands — the Orin runner raises on
+            # fp8 Q today; when it arrives this maps the leg's q like the Thor.
+            return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", "bf16", "--kv_dtype", "fp8", *args]
         qd = "Float8E4M3FN" if q == "fp8" else "BFloat16"
         return ["-m", "mjolnir.arch.thor.harness", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
 
