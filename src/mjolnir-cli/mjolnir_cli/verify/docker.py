@@ -330,7 +330,7 @@ class Runner:
             cname = self._name("mjolnir-prof")
             inner = (
                 f"mkdir -p /tmp/ncu-mjolnir && {_IN_NCU}/ncu --target-processes all --clock-control base "
-                f"--cache-control all --kernel-name regex:MixedInputFusedMultiHeadAttentionDecode "
+                f"--cache-control all --kernel-name {shlex.quote(FILTERS[leg.kind])} "
                 f"--launch-skip 1 --launch-count {count} {attempt} -f -o /out/{name} {cmd} && "
                 f"{_IN_NCU}/ncu --import /out/{name}.ncu-rep --page raw --csv > /out/{name}.raw.csv && "
                 f"{_IN_NCU}/ncu --import /out/{name}.ncu-rep --page details --csv > /out/{name}.details.csv && "

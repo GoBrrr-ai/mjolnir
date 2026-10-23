@@ -60,7 +60,7 @@ class GEMVKey:
     split: bool  # False: write-through, no partials/combine
     causal: bool
     q_descale: bool  # fp8 Q with per-(seq, head) descales
-    kv_format: str = "fp8"  # fp8 | e2m3 (the e2m3 path adds the code LUT arg)
+    kv_format: str = "fp8"  # fp8 | e2m3 (adds the code LUT arg) | bf16
     # The TVM-FFI signature bakes every tensor dim, so the shapes the launch
     # will use are part of the key: one binary per (pool size, batch, table
     # stride). vLLM has one pool + a handful of capture sizes; the disk cache
@@ -98,7 +98,7 @@ class GEMVDecodeRunner:
         assert q_mode in ("bf16", "fp8")
         assert out_dtype in (torch.bfloat16, torch.float16)
         assert max_q_len <= 8, "the GEMV kernel serves M <= 8 (the MTP verify shape)"
-        assert kv_format in ("fp8", "e2m3"), kv_format
+        assert kv_format in ("fp8", "e2m3", "bf16"), kv_format
         self.h_q, self.h_k, self.d = num_heads, num_kv_heads, head_size
         self.h_r = num_heads // num_kv_heads
         self.page_size = page_size
@@ -374,7 +374,8 @@ class GEMVDecodeRunner:
         np_ = num_pages or ps  # one page worth of pool at minimum
         q = torch.zeros(b * q_len, self.h_q, self.d, device=dev, dtype=key.q_dtype)
         o = torch.empty(b * q_len, self.h_q, self.d, device=dev, dtype=key.out_dtype)
-        kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=torch.float8_e4m3fn)
+        kv_dtype = {"fp8": torch.float8_e4m3fn, "e2m3": torch.uint8, "bf16": torch.bfloat16}[key.kv_format]
+        kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=kv_dtype)
         bt = torch.zeros(b, max_blocks, dtype=torch.int32, device=dev)
         self._cu[1] = q_len  # one sequence of q_len tokens
         self._get_compiled(key, self._compile_args(key, b, q, o, kv, kv, bt))

@@ -202,6 +202,10 @@ RING_DEFAULT = "2 3 4 5 6"
 
 def stage_ring(ctx: Ctx, stages: str = RING_DEFAULT, base: str = "", refs: str = "fi") -> dict:
     """KV ring depth (``--kv_stages``) at the harness default."""
+    if ctx.runner.platform == "orin":
+        # The GEMV is single-pass: no KV ring to size.
+        ctx.out("   (N/A on Orin: the GEMV has no KV ring — nothing to measure)")
+        return {"error": "the Orin GEMV has no KV ring — nothing to measure"}
     variants = [L_.t5_variant(f"stages={s}", f"{base} --kv_stages {s}".strip()) for s in stages.split()]
     variants.insert(0, L_.t5_variant("default", base))
     return _variant_stage(ctx, "ring", variants, refs)
@@ -211,32 +215,25 @@ def stage_prefetch(ctx: Ctx, distances: str = "0 1 2 4", base: str = "--kv_forma
     """L2 prefetch distance (``--l2_prefetch``, in 128-row tiles ahead).
     Runs on fp8 KV: the prefetch path is not wired for nvfp4 and the fp6
     ring is already tuned without it."""
+    if ctx.runner.platform == "orin":
+        # The GEMV issues no L2 prefetch: no distance axis.
+        ctx.out("   (N/A on Orin: the GEMV has no L2-prefetch knob — nothing to measure)")
+        return {"error": "the Orin GEMV has no L2-prefetch knob — nothing to measure"}
     variants = [L_.t5_variant(f"prefetch={k}", f"{base} --l2_prefetch {k}".strip()) for k in distances.split()]
     return _variant_stage(ctx, "prefetch", variants, refs)
 
 
-AB_DEFAULT = (
-    "base:--kv_evict_first 0|evict:--kv_evict_first 1|pdl:--kv_evict_first 0 --pdl|both:--kv_evict_first 1 --pdl"
-)
-
-
-def stage_ab(ctx: Ctx, variants: str = AB_DEFAULT, refs: str = "fi", wall_iters: int = 200) -> dict:
+def stage_ab(ctx: Ctx, variants: str = "", refs: str = "fi", wall_iters: int = 200) -> dict:
     """Free-form A/B of harness flag sets (``name:flags|name:flags``)."""
+    variants = variants or L_.stage_variants(L_.AB_VARIANTS, ctx.runner.platform)
     return _variant_stage(ctx, "ab", L_.parse_variants(variants), refs, wall_iters)
 
 
-KVFMT_DEFAULT = (
-    "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-interleaved:--kv_format fp8 --kv_layout interleaved|"
-    "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
-    "e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|"
-    "nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd"
-)
-
-
 def stage_kvfmt(
-    ctx: Ctx, variants: str = KVFMT_DEFAULT, refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200
+    ctx: Ctx, variants: str = "", refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200
 ) -> dict:
     """KV cache layouts × formats (fp8 / fp6 / fp4 / nvfp4; NHD / interleaved / HND)."""
+    variants = variants or L_.stage_variants(L_.KVFMT_VARIANTS, ctx.runner.platform)
     return _variant_stage(ctx, "kvfmt", L_.parse_variants(variants), refs, wall_iters)
 
 
@@ -372,10 +369,8 @@ def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 
     return {"rows": rows, "params": {"batches": batches, "dtypes": dtypes, "iters": iters}}
 
 
-QUANT_FORMATS = "fp8 e2m3 e3m2 e2m1 nvfp4"
-
-
-def stage_quant(ctx: Ctx, formats: str = QUANT_FORMATS, batches: int = 2) -> dict:
+def stage_quant(ctx: Ctx, formats: str = "", batches: int = 2) -> dict:
+    formats = formats or L_.stage_variants(L_.QUANT_FORMATS, ctx.runner.platform)
     """Accuracy of each KV format: kernel output vs attention over the
     unquantized float KV (same queries), relative L2 error."""
     rows = []
@@ -405,10 +400,6 @@ def stage_quant(ctx: Ctx, formats: str = QUANT_FORMATS, batches: int = 2) -> dic
 
 # ── fp6prof (full ncu profiles) ─────────────────────────────────────────────
 
-PROF_DEFAULT = (
-    "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
-    "e2m1-hnd:--kv_format e2m1 --kv_layout hnd"
-)
 # The metrics kept per profile (the full set is ~1000 metrics x launches —
 # the .ncu-rep files keep everything; the JSON keeps what the charts read).
 PROF_METRICS = (
@@ -430,7 +421,8 @@ PROF_METRICS = (
 )
 
 
-def stage_fp6prof(ctx: Ctx, variants: str = PROF_DEFAULT, count: int = 3, section_set: str = "full") -> dict:
+def stage_fp6prof(ctx: Ctx, variants: str = "", count: int = 3, section_set: str = "full") -> dict:
+    variants = variants or L_.stage_variants(L_.PROF_VARIANTS, ctx.runner.platform)
     """Full ncu profiles of the decode kernel per KV format: bytes moved vs
     time, L2 request granularity, warp stalls — why fp6 saves fewer µs than
     bytes. ``.ncu-rep`` files land in the run's log dir (open in Nsight Compute)."""

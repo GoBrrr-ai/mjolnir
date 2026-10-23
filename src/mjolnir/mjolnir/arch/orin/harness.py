@@ -89,7 +89,11 @@ def make_case(
     seed: int = 7,
     device: str = "cuda",
 ):
-    """A random case: bf16 Q, e4m3/bf16 KV pool + block table + descales."""
+    """A random case: bf16 Q, e4m3/bf16 KV pool + block table + descales.
+
+    Returns the unquantized float pool last — ``check`` uses it for the
+    ``--kv_from_float`` quantization-error reference (the pool is always
+    built from this float source; for bf16 the two are the same)."""
     gen = torch.Generator(device="cpu").manual_seed(seed)
     max_pages = (seqlen + page_size - 1) // page_size + 1
     num_pages = b * max_pages + 8
@@ -123,8 +127,8 @@ def make_case(
         kv = torch.stack((b0, b1, b2), -1).reshape(num_pages, page_size, h_k, d * 3 // 4).to(torch.uint8).to(device)
         kd = scale_h.view(1, h_k).to(device).expand(b, h_k).contiguous()
         vd = kd.clone()
-        return q, kv, table, seq_lens, qd, kd, vd
-    return q, kv, table, seq_lens, qd, kd, vd
+        return q, kv, table, seq_lens, qd, kd, vd, raw
+    return q, kv, table, seq_lens, qd, kd, vd, raw
 
 
 def _e2m3_dequant(kv: torch.Tensor, d: int, scale_h: torch.Tensor) -> torch.Tensor:
@@ -141,7 +145,7 @@ def _e2m3_dequant(kv: torch.Tensor, d: int, scale_h: torch.Tensor) -> torch.Tens
 
 def check(args) -> bool:
     dev = args.device
-    q, kv, table, seq_lens, _qd, kd, vd = make_case(
+    q, kv, table, seq_lens, _qd, kd, vd, raw = make_case(
         args.batches,
         args.q_len,
         args.seqlen,
@@ -203,12 +207,31 @@ def check(args) -> bool:
         f"check b={b} M={args.q_len} L<={args.seqlen} kv={args.kv_dtype} "
         f"split={runner.split}: rel_err={rel.item():.5f} (tol {args.tolerance}) -> {'OK' if ok else 'FAIL'}"
     )
+    # What the cache format costs (the verify quant stage parses the rel_l2=):
+    # the kernel vs attention over the UNQUANTIZED float pool. fp8 reports it
+    # under --kv_from_float; e2m3 always (its pool is built from float);
+    # bf16 is float — no error to report.
+    if args.kv_dtype == "e2m3" or (args.kv_dtype == "fp8" and args.kv_from_float):
+        if args.kv_dtype == "e2m3":
+            float_pool, f_kd, f_vd = raw.cpu(), torch.ones_like(kd).cpu(), torch.ones_like(vd).cpu()
+        else:  # fp8: the random descales stay — the kernel sees dequant(kv) * kd
+            float_pool, f_kd, f_vd = raw.cpu(), kd.cpu(), vd.cpu()
+        ref_true = ref_decode(
+            q.float().cpu(), float_pool, float_pool, table.cpu(), seq_lens.cpu(), None, f_kd, f_vd, scale
+        )
+        d_true = (got - ref_true).abs()
+        rel_q = (d_true.norm() / ref_true.norm().clamp_min(1e-6)).item()
+        print(
+            f"kv quantization error ({args.kv_dtype}): |kern-fp32 unquantized| "
+            f"max={d_true.max().item():.4g} mean={d_true.mean().item():.4g} "
+            f"rel_l2={rel_q:.4g}"
+        )
     return ok
 
 
 def bench(args) -> None:
     dev = args.device
-    q, kv, table, seq_lens, _qd, kd, vd = make_case(
+    q, kv, table, seq_lens, _qd, kd, vd, _raw = make_case(
         args.batches,
         args.q_len,
         args.seqlen,
@@ -318,6 +341,13 @@ def main() -> int:
     p.add_argument("--iters", "--iterations", type=int, default=30)
     p.add_argument("--inner", type=int, default=1, help="runs per timing window")
     p.add_argument("--check", action="store_true")
+    p.add_argument(
+        "--kv_from_float",
+        action="store_true",
+        help="also report the KV quantization error: the kernel vs attention "
+        "over the unquantized float pool (the verify quant stage parses it; "
+        "e2m3 always reports it — its pool is built from float)",
+    )
     p.add_argument("--skip_ref_check", action="store_true", help="bench only (no correctness pass)")
     p.add_argument("--sweep", action="store_true", help="the default correctness matrix")
     # Shared verify-stage flags that have no GEMV meaning: accepted so the

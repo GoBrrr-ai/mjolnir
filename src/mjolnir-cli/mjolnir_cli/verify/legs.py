@@ -146,3 +146,54 @@ def legs_from_ids(ids: str | list[str]) -> list[Leg]:
     if unknown:
         raise ValueError(f"unknown leg(s) {unknown}; known: {', '.join(CANONICAL)}")
     return [CANONICAL[i] for i in ids]
+
+
+# ── stage variant tables, per platform ──────────────────────────────────────
+# What each flag-set stage sweeps, spelled per family: the Thor's tcgen05
+# knobs (rings, L2 prefetch, evict, PDL) don't exist on the Orin GEMV, and
+# the GEMV harness accepts fp8/bf16/e2m3 only — each side names what it can
+# run. The stages resolve via stage_variants(); an explicit --variants wins.
+
+KVFMT_VARIANTS: dict[str, str] = {
+    "default": (
+        "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-interleaved:--kv_format fp8 --kv_layout interleaved|"
+        "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
+        "e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|"
+        "nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd"
+    ),
+    # The GEMV: fp8 + e2m3 KV (bf16 needs the 16-bit load path — a kernel
+    # change), HND + NHD.
+    "orin": (
+        "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-hnd:--kv_format fp8 --kv_layout hnd|"
+        "e2m3-hnd:--kv_format e2m3 --kv_layout hnd"
+    ),
+}
+
+PROF_VARIANTS: dict[str, str] = {
+    "default": (
+        "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
+        "e2m1-hnd:--kv_format e2m1 --kv_layout hnd"
+    ),
+    "orin": "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd",
+}
+
+# The quant stage's formats: the ones each family can quantize from float
+# (bf16 IS float — no error to measure; the Orin has no e3m2/e2m1/nvfp4).
+QUANT_FORMATS: dict[str, str] = {
+    "default": "fp8 e2m3 e3m2 e2m1 nvfp4",
+    "orin": "fp8 e2m3",
+}
+
+# The ab stage's default A/B: the Thor sweeps its launch knobs; the Orin's
+# meaningful wall-clock A/B is the KV format itself (fp8 vs fp6 vs bf16).
+AB_VARIANTS: dict[str, str] = {
+    "default": (
+        "base:--kv_evict_first 0|evict:--kv_evict_first 1|pdl:--kv_evict_first 0 --pdl|both:--kv_evict_first 1 --pdl"
+    ),
+    "orin": "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd",
+}
+
+
+def stage_variants(table: dict[str, str], platform: str) -> str:
+    """The platform's row of a variant table; thor/spark share the default."""
+    return table.get(platform) or table["default"]
