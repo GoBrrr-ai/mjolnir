@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import shlex
 import subprocess
 import sys
@@ -72,6 +73,7 @@ def _hf_hub_mount() -> list[str]:
 class Runner:
     image: str
     logdir: Path
+    platform: str = DEFAULT_PLATFORM  # which kernel family the harness stages drive
     ref_image: str = field(default_factory=default_ref_image)  # FlashInfer / FA2 legs
     kernel_src: Path | None = None  # checkout's src/mjolnir (mounted over the image copy)
     ncu_home: str = field(default_factory=lambda: os.environ.get("NCU_HOME", NCU_HOME_DEFAULT))
@@ -137,8 +139,15 @@ class Runner:
 
     # ── the kernel harness ─────────────────────────────────────────────────
     def harness_args(self, q: str, args: list[str] | str) -> list[str]:
+        """The kernel harness command for this platform: the module and the
+        dtype spellings differ per family (the Thor harness takes DSL dtype
+        names, the Orin harness bf16/fp8), the shared stage flags stay the
+        same (the Orin harness accepts the common aliases)."""
         if isinstance(args, str):
             args = shlex.split(args)
+        if self.platform == "orin":
+            qd = "fp8" if q == "fp8" else "bf16"
+            return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", qd, "--kv_dtype", "fp8", *args]
         qd = "Float8E4M3FN" if q == "fp8" else "BFloat16"
         return ["-m", "mjolnir.arch.thor.harness", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
 
@@ -241,6 +250,44 @@ class Runner:
 
         kv_bytes = self.batch * L * self.hk * self.d * 2 * leg.kv_bits / 8
         return rc, ncu.parse_file(log, MAIN[leg.kind], MERGE[leg.kind], L, kv_bytes)
+
+    def driver_wall(self, log: Path, script: str, L: int, iters: int, env_extra=()) -> tuple[int, float | None]:
+        """Events-timed wall clock of a driver (the FlashInfer reference on
+        platforms without ncu): parses the driver's ``mean X us/iter`` line.
+        One warm run happens inside the driver's first launches (JIT), so the
+        caller passes enough iters to amortize it."""
+        name = self._name("mjolnir-driver")
+        argv = [
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            name,
+            "--gpus",
+            "all",
+            "--entrypoint",
+            "python3",
+            "-v",
+            f"{DRIVERS_DIR}:{_IN_DRIVERS}:ro",
+        ]
+        for k, v in (
+            ("BENCH_L", L),
+            ("BENCH_ITERS", iters),
+            ("BENCH_HQ", self.hq),
+            ("BENCH_HK", self.hk),
+            ("BENCH_D", self.d),
+            ("BENCH_PAGE", self.page),
+            ("BENCH_B", self.batch),
+            ("BENCH_QLEN", self.q_len),
+        ):
+            argv += ["-e", f"{k}={v}"]
+        for k, v in env_extra:
+            argv += ["-e", f"{k}={v}"]
+        argv += [self.ref_image, f"{_IN_DRIVERS}/{script}"]  # the reference legs run on the stock image
+        rc = self._run(argv, log, name, timeout=max(self.timeout, 600.0))
+        text = log.read_text(errors="replace") if log.exists() else ""
+        m = re.search(r"mean ([0-9.]+) us/iter", text)
+        return rc, (float(m.group(1)) if m else None)
 
     # ── full ncu profile (fp6prof) ─────────────────────────────────────────
     def ncu_profile(

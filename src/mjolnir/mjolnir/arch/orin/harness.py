@@ -111,7 +111,7 @@ def make_case(
 
 def check(args) -> bool:
     dev = args.device
-    q, kv, table, seq_lens, qd, kd, vd = make_case(
+    q, kv, table, seq_lens, _qd, kd, vd = make_case(
         args.batches,
         args.q_len,
         args.seqlen,
@@ -205,10 +205,7 @@ def bench(args) -> None:
     key = runner._key(args.q_len, not args.non_causal, kv.shape[0], b, table.shape[1])
     fn = _R._COMPILED[key]
     ns = runner.ns_cap if runner.split else 1
-    launch = runner._torch_args(key, b, q_tokens, out, kv, kv, table) + (
-        scale * math.log2(math.e),
-        ns,
-    )
+    launch = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns)
     times = []
     for i in range(args.warmup + args.iters):
         torch.cuda.synchronize()
@@ -223,11 +220,14 @@ def bench(args) -> None:
     times.sort()
     med = times[len(times) // 2]
     kv_gb = seq_lens.sum().item() * 2 * args.heads_k * args.headdim * (1 if args.kv_dtype == "fp8" else 2) / 1e9
+    gbps = kv_gb / (med / 1e6)
     print(
         f"bench b={b} M={args.q_len} L={args.seqlen} kv={args.kv_dtype} "
         f"split={runner.split} ns={runner.ns_cap}: median {med:.2f} us "
-        f"({kv_gb / (med / 1e6):.0f} GB/s KV)"
+        f"({gbps:.0f} GB/s KV)"
     )
+    # The shared verify stage code parses this canonical line (stages._MEDIAN).
+    print(f"median {med:.2f} us, {gbps:.3g} GB/s (prebuilt launches, b={b}, M={args.q_len})")
 
 
 def main() -> int:
@@ -239,19 +239,31 @@ def main() -> int:
     p.add_argument("--heads_k", type=int, default=4)
     p.add_argument("--headdim", "--d", type=int, default=256)
     p.add_argument("--page_size", "--ps", type=int, default=16, choices=(16, 32, 64, 128))
-    p.add_argument("--kv_dtype", default="fp8", choices=("fp8", "bf16"))
+    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "bf16"))
+    p.add_argument("--kv_layout", default="hnd", choices=("hnd", "nhd"))
     p.add_argument("--q_dtype", default="bf16", choices=("bf16", "fp8"))
     p.add_argument("--non_causal", action="store_true")
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--tolerance", type=float, default=0.05)
     p.add_argument("--device", default="cuda")
     p.add_argument("--bench", action="store_true", help="time instead of (or after) --check")
-    p.add_argument("--warmup", type=int, default=5)
-    p.add_argument("--iters", type=int, default=30)
+    p.add_argument("--warmup", "--warmup_iterations", type=int, default=5, help="untimed launches before the window")
+    p.add_argument("--iters", "--iterations", type=int, default=30)
     p.add_argument("--inner", type=int, default=1, help="runs per timing window")
     p.add_argument("--check", action="store_true")
+    p.add_argument("--skip_ref_check", action="store_true", help="bench only (no correctness pass)")
     p.add_argument("--sweep", action="store_true", help="the default correctness matrix")
+    # Shared verify-stage flags that have no GEMV meaning: accepted so the
+    # platform-dispatched stage code can pass one arg surface to both families.
+    p.add_argument("--no_l2_flush", action="store_true", help="accepted; the prebuilt launch timing never flushes")
+    p.add_argument("--ctas_per_sm", type=int, default=1, help="the GEMV grid has no CTAs/SM knob; 1 only")
     args = p.parse_args()
+    assert args.ctas_per_sm == 1, "the Orin GEMV grid has no CTAs/SM knob (one CTA per (head, chunk))"
+    if args.kv_layout == "nhd":
+        # The GEMV consumes the shared machinery's head-major LOGICAL views
+        # (whatever the vLLM pool layout, detect/split hands the runner HND);
+        # the layout question is the backend's, so this flag is informational.
+        print("note: the Orin GEMV consumes HND logical views regardless of the vLLM pool layout")
 
     ok = True
     if args.sweep:
@@ -260,9 +272,9 @@ def main() -> int:
                 for L in (1024, 8192, 65536):
                     args.page_size, args.q_len, args.seqlen = ps, M, L
                     ok &= check(args)
-    elif args.check or not args.bench:
+    elif args.check or (not args.bench and not args.skip_ref_check):
         ok = check(args)
-    if args.bench:
+    if args.bench or args.skip_ref_check:
         bench(args)
     return 0 if ok else 1
 

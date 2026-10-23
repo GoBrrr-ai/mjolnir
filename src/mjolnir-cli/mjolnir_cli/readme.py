@@ -417,7 +417,10 @@ def collect_context(
                 ctx.tables[f"{stage}_wall"] = w
     ctx.pending = [s for s in STAGES if s not in data and s not in ("timing", "vllm", "profile")]
 
-    sweep = data.get("sweep")
+    # The headline L-sweep: the ncu sweep where ncu exists (thor); on the
+    # Orin (no ncu on L4T) the events-timed orinbench series carry the same
+    # schema (id/label/kind/role/points), so the same context code reads it.
+    sweep = data.get("sweep") or data.get("orinbench")
     if sweep:
         by = results.series_by_id(sweep)
         ours = by.get("mjolnir") or by.get("mjolnir-fp8")
