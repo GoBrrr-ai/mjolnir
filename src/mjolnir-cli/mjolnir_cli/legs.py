@@ -90,6 +90,14 @@ KERNEL: dict[str, str] = {
     "autoresearch.evaluate": "fi,mjolnir",
 }
 
+# Platform overrides of the KERNEL tables: a platform whose headline stage
+# measures differently names its own leg ids here (looked up before the
+# default table). The Orin has no ncu on L4T — its sweep is the events-timed
+# same-run comparison, and its series ids are the legs.
+_KERNEL_BY_PLATFORM: dict[str, dict[str, str]] = {
+    "orin": {"verify.sweep": "mjolnir,mjolnir-full,fi"},
+}
+
 # ── `verify vllm`: greedy MJOLNIR-vs-FlashInfer smoke modes ────────────────
 SMOKE_MODES = "graph eager e2m3 lmh8"
 
@@ -147,7 +155,11 @@ def available_serving_legs(
 
 def kernel_legs(stage: str, platform: str = DEFAULT_PLATFORM) -> str:
     """The ncu stage's harness-leg ids for a platform (research platforms get
-    the FlashInfer + FA2 baselines)."""
+    the FlashInfer + FA2 baselines). A platform override (e.g. the Orin's
+    events-timed sweep series) wins over the default table."""
+    per = _KERNEL_BY_PLATFORM.get(platform)
+    if per and stage in per:
+        return per[stage]
     if REGISTRY[platform].status == "supported":
         return KERNEL[stage]
     return _RESEARCH_KERNEL_LEGS

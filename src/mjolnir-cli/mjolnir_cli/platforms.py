@@ -52,6 +52,10 @@ class Platform:
     stock_image: str | None
     vllm_version: str | None
     status: str  # "supported" | "research"
+    # Tool capability: does the platform's rootfs/image ship Nsight Compute?
+    # False platforms refuse the ncu-profiled stages with a clear error and
+    # carry their headline data in the events-timed stages instead.
+    ncu: bool = True
     # Renderer-facing data (cycle 3a): the host software the platform needs.
     # No renderer consumes it yet; no behavior hangs on it.
     host_requirements: str = ""
@@ -106,6 +110,7 @@ REGISTRY: dict[str, Platform] = {
         stock_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         vllm_version=None,
         status="research",
+        ncu=False,
         host_requirements="JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
         short="Orin",
     ),
@@ -124,6 +129,14 @@ def get(key: str) -> Platform:
         return REGISTRY[key]
     except KeyError:
         raise KeyError(f"unknown platform {key!r} — shipped platforms: {', '.join(REGISTRY)}") from None
+
+
+def platform_ncu(platform: str | None) -> bool:
+    """Does the platform ship Nsight Compute? Unresolved platforms assume
+    yes (the default-platform table)."""
+    if platform is None:
+        return True
+    return REGISTRY[platform].ncu
 
 
 def _validate(key: str) -> str:
