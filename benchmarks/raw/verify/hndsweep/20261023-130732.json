@@ -1,0 +1,115 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "hndsweep",
+ "run_id": "20261023-130732",
+ "ts": "2026-10-23T13:07:55+00:00",
+ "default": false,
+ "host": "agx-orin-dev",
+ "image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "f5f531b",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "legs": [
+   "fi",
+   "fa2"
+  ],
+  "ls": [
+   4096
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "series": [
+  {
+   "id": "fi",
+   "label": "FlashInfer (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "NHD"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 124.65,
+     "main_us": 115.01,
+     "merge_us": 9.64,
+     "min_us": 79.78,
+     "l2_sectors": 314509.54000000004,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 67.3,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 115.01,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 9.64,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fa2",
+   "label": "FlashAttention 2 (bf16 KV)",
+   "kind": "fa2",
+   "role": "baseline",
+   "flags": "",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "bf16",
+   "kv_layout": "nhd",
+   "kv_bits": 16.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 230.71,
+     "main_us": 207.7,
+     "merge_us": 23.01,
+     "min_us": 122.05,
+     "l2_sectors": 543719.1,
+     "ctas": 28,
+     "invocations": 50,
+     "gbps": 72.72,
+     "kernels": [
+      {
+       "name": "void flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<256, 64, 64, 4, 0, 0, bfloat16_t, Flash_kernel_traits<256, 64, 64,",
+       "avg_us": 207.7,
+       "inv": 50
+      },
+      {
+       "name": "void flash_fwd_splitkv_combine_kernel<Flash_fwd_kernel_traits<256, 64, 64, 4, 0, 0, bfloat16_t, Flash_kernel_traits<256,",
+       "avg_us": 23.01,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "summary": {}
+}

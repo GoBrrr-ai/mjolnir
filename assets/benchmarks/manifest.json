@@ -1,6 +1,12 @@
 {
  "ab-heatmap": [
   {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/ab-heatmap.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "ab"
+  },
+  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
@@ -41,6 +47,12 @@
  ],
  "fp6prof-bytes-vs-time": [
   {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/fp6prof-bytes-vs-time.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "fp6prof"
+  },
+  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
@@ -54,6 +66,12 @@
   }
  ],
  "hnd-layout": [
+  {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/hnd-layout.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "hndsweep"
+  },
   {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.png",
    "model": "Qwen/Qwen3.8-27B",
@@ -113,6 +131,12 @@
  ],
  "kvfmt-heatmap": [
   {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kvfmt-heatmap.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "kvfmt"
+  },
+  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
@@ -120,6 +144,12 @@
   }
  ],
  "kvfmt-tradeoff": [
+  {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kvfmt-tradeoff.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "kvfmt"
+  },
   {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.png",
    "model": "Qwen/Qwen3.8-27B",
@@ -150,6 +180,12 @@
   }
  ],
  "quant-accuracy": [
+  {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "quant"
+  },
   {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.png",
    "model": "Qwen/Qwen3.8-27B",

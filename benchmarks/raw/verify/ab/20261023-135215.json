@@ -1,0 +1,166 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "ab",
+ "run_id": "20261023-135215",
+ "ts": "2026-10-23T13:53:31+00:00",
+ "default": false,
+ "host": "agx-orin-dev",
+ "image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "0c4b8d4",
+  "dirty": true
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "variants": [
+   [
+    "t5:fp8-hnd",
+    "--kv_format fp8 --kv_layout hnd"
+   ],
+   [
+    "t5:e2m3-hnd",
+    "--kv_format e2m3 --kv_layout hnd"
+   ]
+  ],
+  "refs": "fi",
+  "wall_iters": 200,
+  "ls": [
+   4096
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "series": [
+  {
+   "id": "fi",
+   "label": "FlashInfer (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "NHD"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 125.64,
+     "main_us": 115.02,
+     "merge_us": 10.62,
+     "min_us": 79.84,
+     "l2_sectors": 314540.32,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 66.77,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 115.02,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 10.62,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:fp8-hnd",
+   "label": "fp8-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format fp8 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 1110.0,
+     "main_us": 1110.0,
+     "merge_us": 0,
+     "min_us": 450.0,
+     "l2_sectors": 435672.23,
+     "ctas": 64,
+     "invocations": 101,
+     "gbps": 7.56,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_mjolnirarchorindecodeGEMVDecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_tens",
+       "avg_us": 1110.0,
+       "inv": 101
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:e2m3-hnd",
+   "label": "e2m3-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format e2m3 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "e2m3",
+   "kv_layout": "hnd",
+   "kv_bits": 6.0,
+   "points": [
+    {
+     "L": 4096,
+     "total_us": 634.17,
+     "main_us": 634.17,
+     "merge_us": 0,
+     "min_us": 316.7,
+     "l2_sectors": 311973.75,
+     "ctas": 64,
+     "invocations": 101,
+     "gbps": 9.92,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_mjolnirarchorindecodeGEMVDecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_tens",
+       "avg_us": 634.17,
+       "inv": 101
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "rows": [
+  {
+   "L": 4096,
+   "series": "t5:fp8-hnd",
+   "median_us": 467.49,
+   "gbps": 17.9,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:e2m3-hnd",
+   "median_us": 352.93,
+   "gbps": 17.8,
+   "ok": true
+  }
+ ],
+ "summary": {}
+}

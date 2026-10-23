@@ -1,6 +1,6 @@
 # Correctness matrix
 
-> kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype · `mjolnir verify correctness` · run `20261023-092606`
+> kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype · `mjolnir verify correctness` · run `20261023-160119`
 
 ## The question
 
@@ -15,13 +15,13 @@ Before any speed number counts, the kernel has to compute the same thing as atte
 
 ## Result
 
-- **24 / 24** checks pass (kernel output and LSE vs the bit-faithful emulator, poisoned unused pages must stay NaN-free).
+- **48 / 48** checks pass (kernel output and LSE vs the bit-faithful emulator, poisoned unused pages must stay NaN-free).
 
 | case group | passed | Q dtypes |
 |---|--:|---|
-| shapes / batches | ✅ 24/24 | bf16 |
+| shapes / batches | ✅ 48/48 | bf16, fp8 |
 
-<sub>Rendered from [`benchmarks/raw/verify/correctness/20261023-092606.json`](../../../../benchmarks/raw/verify/correctness/20261023-092606.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/correctness/20261023-160119.json`](../../../../benchmarks/raw/verify/correctness/20261023-160119.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
