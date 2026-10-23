@@ -97,7 +97,7 @@ def _median(text: str) -> tuple[float | None, float | None]:
 # ── ncu sweeps (sweep / hndsweep / ring / prefetch / ab / kvfmt) ────────────
 
 
-def run_series(ctx: Ctx, legs: list[L_.Leg], stage: str, cache: str = "all", clock: str = "base") -> list[dict]:
+def run_series(ctx: Ctx, legs: list[L_.Leg], stage: str, cache: str = "all", clock: str = "none") -> list[dict]:
     """Profile every leg at every L; one series dict per leg."""
     series = []
     for leg in legs:

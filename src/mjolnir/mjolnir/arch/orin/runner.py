@@ -90,12 +90,24 @@ class GEMVDecodeRunner:
         tile: int = 0,  # rows-per-(ty)-thread override (0 = the kernel default)
         kv_evict_first: bool = False,  # reserved: Ampere L2 policy (not wired yet)
         kv_format: str = "fp8",
+        impl: str = "gemv",  # "gemv" | "mma" (the design: orin1/notes/mma-kernel-design.md)
         device: torch.device | str = "cuda",
         sm_count: int | None = None,
     ):
-        assert head_size == gemv.GEMVDecodeKernel.HEAD_DIM, (
-            f"the Orin GEMV kernel serves head_size {gemv.GEMVDecodeKernel.HEAD_DIM} only"
-        )
+        self.impl = impl
+        if impl == "mma":
+            from mjolnir.arch.orin import mma as mma_kernel
+
+            assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
+                f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.HEAD_DIM} only"
+            )
+            self._kernel_mod, self._kernel_cls = mma_kernel, mma_kernel.MMADecodeKernel
+        else:
+            assert impl == "gemv", f"unknown orin kernel impl {impl!r} (gemv | mma)"
+            assert head_size == gemv.GEMVDecodeKernel.HEAD_DIM, (
+                f"the Orin GEMV kernel serves head_size {gemv.GEMVDecodeKernel.HEAD_DIM} only"
+            )
+            self._kernel_mod, self._kernel_cls = gemv, gemv.GEMVDecodeKernel
         assert num_heads % num_kv_heads == 0
         assert page_size in SUPPORTED_PAGE_SIZES, f"page size {page_size} unsupported"
         assert q_mode in ("bf16", "fp8")
@@ -341,9 +353,9 @@ class GEMVDecodeRunner:
                     f"GEMV kernel variant {key} not compiled before CUDA-graph "
                     "capture; call precompile() (the vLLM backend does this)"
                 )
-            fn = _disk_load(key, gemv.__file__, "orin")
+            fn = _disk_load(key, self._kernel_mod.__file__, "orin")
             if fn is None:
-                kernel = gemv.GEMVDecodeKernel(
+                kernel = self._kernel_cls(
                     self.h_r,
                     tile_size_per_bdx=self.tile or 4,
                     page_size=self.page_size,
@@ -352,7 +364,7 @@ class GEMVDecodeRunner:
                 )
                 fn = cute.compile(kernel, *compile_args, options="--opt-level 2 --enable-tvm-ffi")
                 CACHE_STATS["compiled"] += 1
-                _disk_store(key, fn, gemv.__file__, "orin")
+                _disk_store(key, fn, self._kernel_mod.__file__, "orin")
             else:
                 CACHE_STATS["loaded"] += 1
             _COMPILED[key] = fn

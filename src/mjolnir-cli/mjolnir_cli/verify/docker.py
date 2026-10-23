@@ -64,6 +64,12 @@ def ensure_image(image: str) -> str | None:
 
 _IN_DRIVERS = "/opt/mjolnir-drivers"
 _IN_NCU = "/ncu"
+# ncu cannot lock clocks on the Jetson SoCs (GA10b/GB10b: "clock control is
+# not supported" — the flag silently no-ops). The hw setup's jetson_clocks
+# service pins the clocks instead, so profiling runs with --clock-control
+# none and treats the board's lock as the source of truth. Passing "base"
+# would be a silent lie about replay conditions.
+NCU_CLOCK = "none"
 
 
 def default_ref_image(platform: str = DEFAULT_PLATFORM) -> str:
@@ -221,7 +227,13 @@ class Runner:
         return f"python3 {_IN_DRIVERS}/{script}", env
 
     def ncu_leg(
-        self, log: Path, leg: Leg, L: int, iters: int, cache: str = "all", clock: str = "base"
+        self,
+        log: Path,
+        leg: Leg,
+        L: int,
+        iters: int,
+        cache: str = "all",
+        clock: str = NCU_CLOCK,
     ) -> tuple[int, dict | None]:
         if not platform_ncu(self.platform):
             raise RuntimeError(
@@ -330,7 +342,7 @@ class Runner:
         for attempt in (f"--set {section_set}", secs):
             cname = self._name("mjolnir-prof")
             inner = (
-                f"mkdir -p /tmp/ncu-mjolnir && {_IN_NCU}/ncu --target-processes all --clock-control base "
+                f"mkdir -p /tmp/ncu-mjolnir && {_IN_NCU}/ncu --target-processes all --clock-control {NCU_CLOCK} "
                 f"--cache-control all --kernel-name {shlex.quote(FILTERS[leg.kind])} "
                 f"--launch-skip 1 --launch-count {count} {attempt} -f -o /out/{name} {cmd} && "
                 f"{_IN_NCU}/ncu --import /out/{name}.ncu-rep --page raw --csv > /out/{name}.raw.csv && "
