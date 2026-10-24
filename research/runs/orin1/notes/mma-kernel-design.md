@@ -896,3 +896,26 @@ post-PV barrier — the same hazard chain as the ring reuse.
 
 The barriers/stage: 4 (the ring wait, the dequant-end, the stats
 merge, the P-complete) — ~120 ns against a ~2-3 us stage.
+
+### Phase B result: MT=16 (1,4,1) gates 42/42 and cuts the 16K+ gap by a third (2026-10-24)
+
+First pass failed 30/30 M=1 cases with rel_err ~3.0 — the row-SUM
+partials were stored per-lane without the quad butterfly (the lane
+holds only its 2 of the warp's 8 columns -> the row_sum = 1/4 -> the
+O ~4x). One butterfly fixed it; 42/42.
+
+The sweep (MJOLNIR_MMA16=1, mma vs FI same-run):
+
+  M  L       mma      FI     ratio   (the MT=64 deferred-frame)
+  1  4096    105.0    125.0  0.84x   (0.96x)  - now a WIN
+  1  16384   296.5    227.5  1.30x   (1.59x)  -18%
+  1  65536   1051.5   818.6  1.28x   (1.58x)  -20%
+  1  262144  4075.1   3253.9 1.25x   (1.56x)  -21%
+  2  16384   305.2    238.8  1.28x
+  2  262144  4186.1   3218.0 1.30x
+
+The BW: 92 -> 113 GB/s at 16K, -> 134 at 262K (the DRAM getting fed —
+the profile's prediction confirmed: fewer instructions per byte, the
+issue slots free, the LSU runs). The remaining 1.25-1.30: the next
+levers are the 3-CTA occupancy (the register paths + the freed Q smem)
+and the MT=32 for M=3-5.
