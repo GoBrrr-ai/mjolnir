@@ -560,3 +560,24 @@ mma's k-extent per pass (the ks spans d [32ks, +32)), so the Q side
 must use the same k indexing (partition_A over the matching half-D
 view) or the loop runs D/2 k-steps of the full 16-k atoms. The
 correctness gate is the harness --check matrix either way.
+
+### The M=8 data (2026-10-24 night): FI is flat in M, the fight is pure DRAM
+
+FI at M=8 == FI at M=4 (157.8 us at 1K both; 4315.5 vs 4317.4 at 262K):
+its prefill path packs all query rows into tensor-core tiles, same as
+ours. The mma is also flat in M (6801 us at M=8 vs 6540 at M=1, 262K).
+So M-shape does NOT change the verdict — the single remaining fight is
+the 16K+ DRAM utilization: mma 82 GB/s (40%) vs FI 164 (80%).
+
+The full mma/FI table (locked clocks, mma/FI us, ratio):
+  M=1: 1K 44.8/125.9 (2.81x WIN) | 4K 125.7/126.7 (1.01x WIN)
+       | 16K 429.8/227.8 (1.88x) | 262K 6540/3309 (1.98x)
+  M=4: 1K 58.4/157.8 (2.70x WIN) | 4K 137.7/158.5 (1.15x WIN)
+       | 16K 448.6/293.5 (1.53x) | 262K 6696/4317 (1.55x)
+  M=8: 1K 69.8/157.8 (2.26x WIN) | 4K 149.1/157.9 (1.06x WIN)
+       | 16K 461.6/298.3 (1.55x) | 262K 6801/4316 (1.58x)
+(mma beats FI at L<=4096 in EVERY shape; the 16K+ gap is 1.5-2.0x,
+shape-independent — exactly the register-path + fp8-ring target.)
+
+For the M4 gate: GEMV is irrelevant now (24-50x slower at M=8); the
+gate is FI, and the pass-3 lever is the only remaining one.
