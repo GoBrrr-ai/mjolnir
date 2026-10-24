@@ -472,3 +472,31 @@ frag_layout_swizzle_16b_to_8b) needs the dbg probe ladder before the
 rewrite: fill sK8 injectively, ldmatrix, dump the 4 regs/lane, derive
 the lane->(d-pair, key) map, then the prmt recipe per fragment.
 The 2-acc + the STS-pair stores ride along.
+
+## Pass-3 probe state (2026-10-24 evening): the ldmatrix-on-fp8 fragment map
+
+dbg33b/dbg33c (/tmp/opencode/): the fp8 K tile (SR=32, D=256, plain
+row-major) viewed as (SR, D/2) bf16, run through the kernel's exact
+smem_copy_K ldmatrix, every tSrK element's raw bytes dumped per lane,
+with two fills (value = d, then value = key). Findings so far:
+
+- Each tSrK element (one 4-byte register) carries 4 CONSECUTIVE fp8
+  values of ONE key: [d, d+1, d+2, d+3] — the dequant is the x4
+  recipe on the raw register, no cross-register shuffle needed.
+- d0 (the element's first d) = 4*(l%4) + 16*(i%2) + (i>=8 groups of
+  +32 — the exact high-index pattern unverified); key = (l//4) +
+  offset(i) where offset = [0, 0, 1, 1, 9, 9, 17, 17, ...] for the
+  first 8 elements — the +1 on the odd matrix indices is the one
+  unjustified term left.
+- The element index i (0..127 per lane) = the flat cute fragment index
+  = 8 per k-step (4 n-tiles x 2 regs); the exact (k-step, n-tile, reg)
+  decomposition is the remaining decode (extend dbg33c: dump all 128
+  elements, fit d0/key against every (ks, nt, reg) hypothesis, or just
+  build the mapping as an explicit constexpr table).
+
+The register path then is: g2s -> sK8 (fp8, swizzled for the ldmatrix
+rows) -> per element: prmt-recipe on the raw 4 bytes (already the
+right consecutive-d grouping!) -> write the bf16 fragment. No sK16,
+no STS, no extraction. Plus a 16 KB fp8 ring fits (48+16=64 KB, 2
+CTAs/SM) to hide the DRAM latency (long_scoreboard 1.96, the #1 stall
+at locked clocks).
