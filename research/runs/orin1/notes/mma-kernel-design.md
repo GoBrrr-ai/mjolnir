@@ -806,3 +806,34 @@ M=6-8 — the three paths coexist behind the constexpr seqlen_q.
 
 The risk: the cross-warp S merge + the P smem round-trip = a new sync
 structure (3 barriers/stage); the M=6-8 band keeps today's kernel.
+
+### The instruction-mix profile: the ALU pipe is the wall (2026-10-24)
+
+16K M=1, both kernels at 2 CTAs/8 warps, mma 349 us vs FI 227 us:
+
+  pipe (% of peak)   MMA     FI      per-launch note
+  ALU                47.3%   30.7%   dequant + addresses + tile logic
+  fma (fp32)         17.6%   11.0%   softmax/rescale
+  fma fp16 (packed)  14.8%    5.9%   dequant HFMA2 + P converts
+  LSU                 9.1%   22.9%   FI pushes loads 2.5x harder
+  tensor HMMA         7.4%    3.0%   ours 2.5x per byte (the 64-row tile)
+  sass spills      125,504  40,768  3x FI's local traffic
+  mem throughput     30.4%   57.0%   our DRAM half-idle behind the ALU
+
+The dequant recipe is the SAME per byte as FI's (their repack) — the
+DIFFERENTIAL is the 64-row tile: 4x the softmax/P/HMMA/acc work per KV
+byte + the register pressure it causes. Our ALU clogs the issue slots
+so the LSU (9%) never feeds the DRAM (30%) that FI's kernel drives to
+57% from the same 8 warps.
+
+THE RANKED PLAN:
+1. MT=16 redesign (the k-split QK / the smem S merge / the P round-trip
+   / the N-split PV) — attacks the fp16 14.8->~6, the HMMA 7.4->~3,
+   the ALU tile share 47->~31, the spills 3x->1x, AND the occupancy
+   (150 regs -> 3 CTAs = 12 warps). The only option touching all five.
+2. The deferred-frame softmax — the O in a fixed max-frame, the P =
+   exp2(S - m_ref), no per-stage acc_O rescale (128 fp32 fmul/stage/
+   lane -> 0) + the warp-uniform re-anchor when the max drifts. A
+   chunk of the fma 17.6%. Stackable with 1.
+3. The dequant diet / the occupancy-only fixes — marginal; the dequant
+   is already FI-parity per byte. Parked.
