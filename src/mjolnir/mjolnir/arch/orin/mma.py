@@ -706,11 +706,23 @@ class MMADecodeKernel:
             m_new = m_local
             if m_new == -cutlass.Float32.inf:
                 m_new = Float32(0.0)
-            rescale = cute.math.exp2((row_max[r] - m_new) * scale_eff, fastmath=True)
-            for c in cutlass.range_constexpr(cute.size(acc_O_mn.shape[1])):
-                acc_O_mn[r, c] = acc_O_mn[r, c] * rescale
-            row_sum[r] = row_sum[r] * rescale
-            row_max[r] = m_new
+            # The DEFERRED-FRAME softmax: the O accumulates in a FIXED
+            # max-frame (row_max = the anchor) — no per-stage acc_O
+            # rescale (128 fp32 fmul/stage/lane saved; the frame
+            # cancels in the normalize and the LSE is frame-invariant).
+            # The P = exp2(S - anchor) may exceed 1 by the logit drift;
+            # re-anchor only if the logits climb >60 log2 units above
+            # the frame (the exp2(60) P ~1e18, far inside the
+            # bf16/fp32 range with the V descales).
+            if row_max[r] == -cutlass.Float32.inf:
+                # the first stage: set the frame; the acc_O is still 0.
+                row_max[r] = m_new
+            elif (m_new - row_max[r]) * scale_eff > 60.0:
+                factor = cute.math.exp2((row_max[r] - m_new) * scale_eff, fastmath=True)
+                for c in cutlass.range_constexpr(cute.size(acc_O_mn.shape[1])):
+                    acc_O_mn[r, c] = acc_O_mn[r, c] * factor
+                row_sum[r] = row_sum[r] * factor
+                row_max[r] = m_new
 
         # 2. the P = exp2(S*scale - m_new) in place; the per-thread partial
         #    sums; the group reduction; the bf16 P to the smem round-trip.
