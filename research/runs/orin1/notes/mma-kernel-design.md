@@ -529,3 +529,34 @@ the register-path rewrite: g2s -> sK8 (swizzled for ldmatrix rows) ->
 per element: the x4 prmt recipe on the 2 consecutive fp8 -> the bf16
 fragment. No sK16/sV16, no STS, no extraction; the 16 KB fp8 ring
 fits (48+16=64 KB, 2 CTAs/SM) to hide the DRAM latency.
+
+### dbg34 decode COMPLETE (same night): the register-path recipe
+
+Corrected reading (slot = one u16 = 2 fp8; real per-k elements = 8,
+the PER_K=16 dump bleeds k-step k+1 into slots 8..15 of each k row):
+
+per (lane l, k-step ks, element e in 0..7):
+  n-tile nt = e//4 ; reg r = (e//2)%2 ; half = e%2
+  key(l, e) = l//4 + nt                       (verified lanes 0/4/8)
+  dv(l, e)  = 8*r + (l%4)*2 + half            (the view-column index)
+  the element's 2 fp8 = K[d = 2*dv + half], K[d = 2*dv + half + 1]
+  -> the register (elements 2r, 2r+1 of the (nt, ks) pair) holds the
+     4 CONSECUTIVE d [2*(8r + (l%4)*2), +4) — the x4 prmt recipe
+     dequantizes it in place to the 2 bf16 the mma wants.
+
+So the register path needs NO byte permutation at all: the ldmatrix
+(on the (SR, D/2) bf16 view of the full-density fp8 tile) already
+delivers each 4-byte register as 4 consecutive d. The pipeline:
+  g2s fp8 -> sK8 (16 KB? no: SR*D bytes, swizzled for the 16 B rows)
+  per k-step: ldmatrix.x4 -> 8 elements = 4 registers
+  per register: prmt + shift/mask + fma (the x4 recipe) -> the bf16
+  fragment registers, fed straight to cute.gemm. No sK16/sV16, no
+  STS, no extraction. Smem: sQ 32 + sK8 8 + sV8 8 = 48 KB; a 16 KB
+  fp8 ring (48+16=64) keeps 2 CTAs/SM and hides the DRAM latency
+  (long_scoreboard 1.96, the #1 stall at locked clocks).
+
+Caveat to verify in the implementation: the (SR, D/2) view halves the
+mma's k-extent per pass (the ks spans d [32ks, +32)), so the Q side
+must use the same k indexing (partition_A over the matching half-D
+view) or the loop runs D/2 k-steps of the full 16-k atoms. The
+correctness gate is the harness --check matrix either way.
