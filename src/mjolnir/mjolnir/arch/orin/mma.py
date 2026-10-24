@@ -54,7 +54,7 @@ from cutlass.cute.nvgpu.warp import LdMatrix8x8x16bOp, MmaF16BF16Op
 
 import cuda.bindings.driver as cuda
 
-from mjolnir.arch.orin.decode import DescaleTensors, GEMVDecodeKernel, _e4m3_to_f32
+from mjolnir.arch.orin.decode import DescaleTensors, GEMVDecodeKernel
 
 # The e4m3 -> bf16 x4 dequant (the FlashInfer/Marlin fast_dequant_f8f16x4,
 # bf16 branch — verified bit-exact on sm_87 for normals and zero):
