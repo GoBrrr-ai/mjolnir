@@ -160,7 +160,7 @@ skipped with a hint — nothing blocks on a password.
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
   `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
   independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
-  `mjolnir hw setup` provisions a fresh Thor (`scripts/hw/setup-thor.sh`).
+  `mjolnir hw setup` provisions a fresh Jetson Thor/Orin (`scripts/hw/setup-jetson.sh`).
 
 ## Repo layout
 

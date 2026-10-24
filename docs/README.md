@@ -52,7 +52,7 @@ The retired GEMV decode kernel and its reports are in git history:
 | File | TL;DR |
 |---|---|
 | [index.md](faq/index.md) | Question list → one guide per CLI task. |
-| [setup-thor.md](faq/setup-thor.md) | First-time Thor setup: power mode, clocks, the CLI. |
+| [setup-jetson.md](faq/setup-jetson.md) | First-time Jetson (Thor/Orin) setup: power mode, clocks, the CLI. |
 | [serve-server.md](faq/serve-server.md) | `serve up/down/status/logs`, first launch, `--dry-run`. |
 | [default-image.md](faq/default-image.md) | The active image: picker / state / env / flag; `image build` + `image gates`. |
 | [default-model-quant.md](faq/default-model-quant.md) | The active model/config; config → attention backend → chart label. |

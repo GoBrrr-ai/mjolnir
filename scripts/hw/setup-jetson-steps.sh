@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-thor-steps.sh — the idempotent setup steps, sourced by setup-thor.sh
+# setup-jetson-steps.sh — the idempotent setup steps, sourced by setup-jetson.sh
 # ( UTILITIES live there; these functions only read the option globals at call time ).
 
 # ================================================================================
@@ -692,7 +692,7 @@ fan_transform() {
     { print }
     END {
       if (!done) {
-        print "setup-thor: no THERMAL_GROUP anchor in " src " — refusing to guess" > "/dev/stderr"
+        print "setup-jetson: no THERMAL_GROUP anchor in " src " — refusing to guess" > "/dev/stderr"
         exit 3
       }
     }
@@ -796,57 +796,110 @@ host_optimizations() {
     systemctl_disable_service ModemManager
 }
 
-check_jetson_clocks() {
-    # "Locked" = the oneshot unit ran jetson_clocks and stayed active
-    # (RemainAfterExit=true). The old check grepped FreqOverride= from
-    # --show output -- Thor-era format that JP 7 no longer prints (it
-    # shows only SOC family / Machine / NV Power Mode), so the check
-    # false-negotiatied every modern Jetson even with the lock active.
-    systemctl_service_is_active "jetson_clocks.service"
+jetson_clocks_lock_verified() {
+    # "Locked" = jetson_clocks actually pinned the clocks: it locks a devfreq
+    # device by writing max_freq into min_freq (/usr/bin/jetson_clocks), so
+    # every GPU devfreq device must report min_freq == max_freq. Checking
+    # `systemctl is-active` here was a false positive: the unit is a oneshot
+    # with RemainAfterExit=true, which stays "active" forever after the first
+    # run — even after nvpmodel has reset the pins.
+    local d min max found=0
+    for d in /sys/class/devfreq/*gpu*; do
+        [ -e "$d/min_freq" ] || continue
+        found=1
+        min=$(cat "$d/min_freq")
+        max=$(cat "$d/max_freq")
+        if [ "$min" != "$max" ]; then
+            echo "❌ $d is not locked (min_freq=$min != max_freq=$max)"
+            return 1
+        fi
+    done
+    if [ "$found" = "0" ]; then
+        echo "❌ no GPU devfreq device found under /sys/class/devfreq/"
+        return 1
+    fi
+    return 0
 }
 
 start_jetson_clocks_service() {
   local service_name="jetson_clocks.service"
   local service_path="/etc/systemd/system/${service_name}"
+  local wrapper_path="/usr/local/bin/mjolnir-jetson-clocks-apply.sh"
 
-  # 1) Ensure the unit file exists
-  if ! systemctl_service_exists "$service_name"; then
-    echo "ℹ️  $service_name not found; creating at $service_path"
-    sudo tee "$service_path" >/dev/null <<'EOF'
-[Unit]
-Description=Jetson Clocks Service
-After=multi-user.target
+  # 1) The apply wrapper: jetson_clocks + verify + retries. The boot-time
+  #    run races nvpmodel.service (applying the power mode resets the
+  #    devfreq pins), so the lock is verified and retried — and a unit
+  #    that cannot verify FAILS loudly instead of staying green.
+  sudo tee "$wrapper_path" >/dev/null <<'EOF'
+#!/bin/bash
+# Lock max clocks (jetson_clocks), then VERIFY min_freq == max_freq on every
+# GPU devfreq device; retry — the boot run races nvpmodel.service. Non-zero
+# exit on failure so systemd marks the unit failed instead of silently green.
+verify() {
+    local d min max found=0
+    for d in /sys/class/devfreq/*gpu*; do
+        [ -e "$d/min_freq" ] || continue
+        found=1
+        min=$(cat "$d/min_freq"); max=$(cat "$d/max_freq")
+        [ "$min" = "$max" ] || return 1
+    done
+    [ "$found" = "1" ]
+}
+for attempt in 1 2 3 4 5; do
+    /usr/bin/jetson_clocks || true
+    if verify; then
+        echo "jetson_clocks: lock verified (attempt $attempt)"
+        exit 0
+    fi
+    echo "jetson_clocks: attempt $attempt did not verify; retrying in 5s" >&2
+    sleep 5
+done
+echo "jetson_clocks: lock did NOT verify after 5 attempts" >&2
+exit 1
+EOF
+    sudo chmod +x "$wrapper_path"
+
+  # 2) Idempotent unit: nvpmodel-ordered (it resets the pins when it applies
+  #    the mode), calling the verifying wrapper.
+  local unit_wanted
+  unit_wanted='[Unit]
+Description=Jetson Clocks Service (lock max CPU/GPU/EMC clocks, verified)
+After=multi-user.target nvpmodel.service
+Wants=nvpmodel.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/jetson_clocks
+ExecStart=/usr/local/bin/mjolnir-jetson-clocks-apply.sh
 RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target
-EOF
-
-    echo "ℹ️  Reloading systemd daemon"
+'
+  if ! systemctl_service_exists "$service_name" \
+     || ! diff -q <(sudo cat "$service_path") <(printf '%s' "$unit_wanted") &>/dev/null; then
+    echo "ℹ️  Writing $service_path"
+    printf '%s' "$unit_wanted" | sudo tee "$service_path" >/dev/null
     sudo systemctl daemon-reload
+  fi
 
-    echo "ℹ️  Enabling $service_name to start on boot"
+  # 3) Enabled unconditionally (the old code only enabled on first create —
+  #    a pre-existing but disabled unit stayed disabled).
+  if ! systemctl_service_is_enabled "$service_name"; then
+    echo "ℹ️  Enabling $service_name (start on boot)"
     systemctl_enable_service "$service_name"
   fi
 
-  # 2) Check if the service is active
-  if ! systemctl_service_is_active "$service_name"; then
-    echo "ℹ️  Starting $service_name"
-    systemctl_start_service "$service_name"
-    echo "✅ $service_name started."
-    echo "ℹ️  Current clock settings:"
-    sudo jetson_clocks --show
-  fi
+  # 4) Apply now — restart re-runs the oneshot even if already active.
+  echo "ℹ️  Applying the clock lock (jetson_clocks + verify)"
+  systemctl_restart_service "$service_name"
 
-  # 3) Final health check
-  if check_jetson_clocks; then
-    echo "✅ Jetson Clocks is enabled and running."
+  # 5) The honest health check: the actual pins, not the unit state.
+  if jetson_clocks_lock_verified; then
+    echo "✅ Jetson Clocks locked (GPU devfreq min_freq == max_freq)."
+    sudo jetson_clocks --show 2>/dev/null | head -4 || true
   else
-    echo "❌ Failed to enable Jetson Clocks lock."
+    echo "❌ The clock lock did not verify — see $service_name's journal"
+    echo "   (journalctl -u $service_name). Check nvpmodel mode: nvpmodel -q"
     return 1
   fi
 }

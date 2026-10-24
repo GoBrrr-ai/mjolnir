@@ -122,6 +122,7 @@ exclude = [
     "src/mjolnir/mjolnir/arch/orin/decode.py",
     "docs/platforms/**/*.md",
     "configs/**/README.md",
+    "research/runs/**/sources/**",
 ]
 exempt = [
     "README.md",

@@ -1,4 +1,4 @@
-# I want to pre-configure a fresh Jetson Thor for mjolnir
+# I want to pre-configure a fresh Jetson (Thor/Orin) for mjolnir
 
 **Story:** "I got a fresh Thor out of the box (or reflashed it). What do I
 run to bring the *host* to the state the rest of the CLI assumes — headless,
@@ -11,9 +11,9 @@ power mode?"
 mjolnir hw setup
 ```
 
-That runs `scripts/hw/setup-thor.sh` — the port of the standalone Thor setup
-script, with the tuned fan profiles merged in — and walks the box through
-the 10 steps (in order):
+That runs `scripts/hw/setup-jetson.sh` — the port of the standalone Jetson
+setup script (detects Thor and Orin SoMs), with the tuned fan profiles
+merged in — and walks the box through the 10 steps (in order):
 
 | # | Step | What it does |
 |---|---|---|
@@ -25,8 +25,8 @@ the 10 steps (in order):
 | 6 | `memory` | 32 GB swap file at `/mnt` (zRAM disabled), fstab-persisted |
 | 7 | `fan` | install the tuned `recommended` + `max` fan profiles into `/etc/nvfancontrol.conf` (per-profile gated — never duplicated; untouched conf backed up to `.bck` on first run), then select the default profile — **`recommended`** by default |
 | 8 | `host` | disable `nvargus-daemon`, `cups`, `ModemManager` (camera/print/modem — dead weight on a server) |
-| 9 | `clocks` | `jetson_clocks.service` — locks CPU/GPU/EMC at max |
-| 10 | `power` | `nvpmodel` → MAXN (or MAXN_SUPER if present) — **applies after reboot** |
+| 9 | `power` | `nvpmodel` → MAXN (or MAXN_SUPER if present) — **applies after reboot** |
+| 10 | `clocks` | `jetson_clocks.service` — locks CPU/GPU/EMC at max, **verified** (`min_freq == max_freq` on every GPU devfreq device) and nvpmodel-ordered so a reboot can't wipe it |
 
 Every step is **idempotent** — re-running is a no-op where already
 configured, so it's safe to run after a reflash or a partial setup.
@@ -81,8 +81,8 @@ mjolnir gate --once       # confirm the clean-window gate sees the server
 
 ## Where it lives
 
-`scripts/hw/setup-thor.sh` (self-contained, Thor-only constants: SoM=thor,
-128 GB, NVIDIA carrier) driven by `mjolnir_cli/thor.py` — the CLI maps its
+`scripts/hw/setup-jetson.sh` (self-contained; detects the SoM from the
+device tree) driven by `mjolnir_cli/thor.py` — the CLI maps its
 flags to the script's options; `--dry-run` previews the plan. The conf path
 is overridable for testing via `MJOLNIR_NVFANCONF` (also honored by
 `mjolnir hw status`).

@@ -1,6 +1,6 @@
 """``mjolnir hw setup`` — Jetson AGX Thor host pre-configuration.
 
-The ported Thor HW setup (``scripts/hw/setup-thor.sh``, from the ~/thor
+The ported Jetson HW setup (``scripts/hw/setup-jetson.sh``, from the ~/thor
 scripts) brings a box to the serving baseline the rest of the CLI
 assumes: headless boot target, apt upgrade, Docker with the NVIDIA
 runtime as default, pip, jtop, a 32 GB swap file (zRAM off), the fan
@@ -42,8 +42,8 @@ DEFAULT_FAN_PROFILE = "recommended"
 
 
 def setup_script() -> Path:
-    """The ported setup script (the repo's ``scripts/hw/setup-thor.sh``)."""
-    p = resource_path("scripts/hw/setup-thor.sh")
+    """The ported setup script (the repo's ``scripts/hw/setup-jetson.sh``)."""
+    p = resource_path("scripts/hw/setup-jetson.sh")
     if not p.is_file():
         raise FileNotFoundError(f"setup script not found: {p}")
     return p
@@ -59,7 +59,7 @@ def build_cmd(
     reboot: bool = False,
     dry_run: bool = False,
 ) -> list[str]:
-    """The ``bash scripts/hw/setup-thor.sh ...`` argv for the given flags."""
+    """The ``bash scripts/hw/setup-jetson.sh ...`` argv for the given flags."""
     if fan_profile not in FAN_PROFILES:
         raise ValueError(f"bad --fan-profile '{fan_profile}' (want one of: {', '.join(FAN_PROFILES)})")
     names = [s.strip() for s in skip.split(",") if s.strip()]
@@ -125,7 +125,7 @@ def dispatch(platform: str, **kw) -> int:
     if platform not in _JETSON_FAMILY:
         typer.secho(
             f"mjolnir hw setup is not implemented for {platform} yet — what exists today is the "
-            f"Jetson setup ({', '.join(_JETSON_FAMILY)}; scripts/hw/setup-thor.sh).",
+            f"Jetson setup ({', '.join(_JETSON_FAMILY)}; scripts/hw/setup-jetson.sh).",
             fg=typer.colors.RED,
             err=True,
         )

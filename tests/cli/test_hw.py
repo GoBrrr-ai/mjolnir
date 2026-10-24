@@ -3,7 +3,7 @@
 
 The spec (plan §0.6, detection injected so tests never touch real probes):
 
-* thor detected -> the existing ``scripts/hw/setup-thor.sh`` path runs
+* thor detected -> the existing ``scripts/hw/setup-jetson.sh`` path runs
   (unchanged behaviour, now behind the detection);
 * orin detected -> the same script runs, with an explicit "untested on
   this platform" note first;
