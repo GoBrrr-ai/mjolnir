@@ -500,3 +500,32 @@ right consecutive-d grouping!) -> write the bf16 fragment. No sK16,
 no STS, no extraction. Plus a 16 KB fp8 ring fits (48+16=64 KB, 2
 CTAs/SM) to hide the DRAM latency (long_scoreboard 1.96, the #1 stall
 at locked clocks).
+
+### dbg34 (2026-10-24 night): the fragment map, decoded structure
+
+The earlier decode had a bug: each tSrK element is ONE u16 = 2 fp8
+bytes (the (SR, D/2) bf16 view's element), not a 4-byte register.
+dbg34 dumps slot[tidx, k*16 + e] = tSrK[None, None, k][e].bitcast(u16)
+with the d-fill and the key-fill. The clean table (lane 0, k-step 0):
+
+  e0: d=(0,1) key=0    e1: d=(2,3)   key=0    e2: d=(16,17)  key=0   e3: d=(18,19) key=0
+  e4: d=(0,1) key=1    e5: d=(2,3)   key=1    e6: d=(16,17)  key=1   e7: d=(18,19) key=1
+  e8: d=(0,1) key=9    ...
+
+- each element = 2 CONSECUTIVE fp8 of ONE key (the view-column pair
+  (2dv, 2dv+1)); the d0 = 4*(l%4) + [0, 2, 16, 18][pair] (+ 32*k-step
+  in the (SR, D/2)-view scaling); the key = (l//4) + offset(pair),
+  offset = [0, 1, 9, 17] for pairs 0..3 — the +1 on the odd pairs is
+  the last unjustified term (likely the x4 matrix row order).
+- PER_K=16 in the dump bleeds the next k-step into slots 8-15 of each
+  (the real per-k element count is 8 = 4 n-tiles x 2 regs); slots
+  k*16+e for e>=8 belong to k-step k+1.
+- The lane scaling: lane 1 = d+4 (the (l%4)*4 view-col base), lane 4 =
+  key+1 (the l//4 row base) — both confirmed.
+
+Next session: fit the (k-step, n-tile, reg) -> slot decomposition from
+the full 256-slot dump (the python fit over the captured tables), then
+the register-path rewrite: g2s -> sK8 (swizzled for ldmatrix rows) ->
+per element: the x4 prmt recipe on the 2 consecutive fp8 -> the bf16
+fragment. No sK16/sV16, no STS, no extraction; the 16 KB fp8 ring
+fits (48+16=64 KB, 2 CTAs/SM) to hide the DRAM latency.
