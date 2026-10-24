@@ -345,3 +345,94 @@ the identity-tensor coords and the _acc_mn_view claim, so the softmax
 same fragment as (m, k)) disagree. Next: the injective-S probe
 (Q and K with distinct magnitudes per row/col) to read the actual
 permutation off the O, then fix the slot mapping at the source.
+
+## Root cause (2026-10-24): two bugs, both found by oracle bisection
+
+The oracle ladder (dbg21-dbg31, /tmp/opencode/) proved every stage correct
+in isolation before the real kernel passed:
+
+1. **n_row_slots** (dbg21-25): the softmax/epilogue loop bound was
+   `cute.size(partition_shape_C[0])` = 4 (the full (2,2) mode-0 shape:
+   the n0-pair AND the m0-pair), but the MN view's mode 0 is
+   `shape[0][0] * shape[1]` = 2 (the reference's row_max sizing). With 4,
+   iterations r=2,3 resolved through the MN view's divmod to the SAME flat
+   slots as r=0,1: O was normalized twice (acc/row_sum^2) and the P writes
+   landed on foreign slots. Fix: `size(shape[0][0]) * size(shape[1])`.
+2. **page-table g2s** (dbg26-28): the paged addressing was
+   `page*PS + (gk_row - page*PS)` — algebraically `gk_row`. The block
+   table cancelled out; the kernel read the wrong physical rows whenever
+   the table is not the identity. Every pre-dbg26 probe passed because it
+   built an identity table. Fix: `page*PS + gk_row % PS`.
+
+Oracle methodology that worked: standalone @cute.kernel probes with
+injective codings (pow2 x odd for S; delta(d==k) V for O), dumping
+per-thread fragment slots to gmem, compared against torch refs computed
+over the SAME fp8-rounded values. dbg30 proved the MN view's (r,c) ->
+flat map directly (fill acc with the flat index, read through the view).
+Debug slots written into the dump tensors must be excluded from the
+comparison (they were 100% of the residual "mismatches").
+
+## M1 gate: PASSED (2026-10-24)
+
+- harness --check: L 32..4096, b 1..8, q_len 1..8 (the full MTP=7
+  matrix), ps 16/32/64/128, causal + non-causal: rel_err ~0.002 (tol 0.05).
+- gemv parity on the same cases: ~0.0017-0.002.
+- bf16 KV correctly refused (M1 scope: fp8 KV only).
+- probe ladder dbg9-20: clean after the fixes.
+- commit d6a9775.
+
+## M2 pass 1 (2026-10-24, commit 30afc4b): swizzle + 4-wide dequant — 2.4x + 1.24x
+
+**The bottleneck was the L1/TEX pipe, not memory.** ncu at L=4096 (M=1):
+Memory (SpeedOfLight) 76.1% but that is the L1/TEX (76.6%); DRAM
+"Max Bandwidth" 12.2%; stalls: short_scoreboard 8.87 of 13.09
+cycles/instr (68%), wait 2.03, long_scoreboard only 0.33. The plain
+512 B row-major smem rows put every ldmatrix 8-row group in the same
+banks: an 8-way conflict per ldmatrix. The grid is (HK=4, ns=16, b) =
+64 CTAs on 16 SMs (1 CTA/SM, 80 KB), num_splits is always ns_cap=16
+(kv_chunk = ceil(L/16)) — the waves do not change per-SM work.
+
+Fixes (commit 30afc4b):
+1. sQ/sK16/sV16 carry the FA2-style (8, 64)-element atom with
+   Swizzle<3,3,3>; sVt composes over the swizzled storage. Smem size
+   unchanged (80 KB, 2 CTAs/SM). A barrier is REQUIRED between the sQ
+   fill and the (now hoisted) Q ldmatrix: the flat fill scatters each
+   sQ row across all 4 warps (M=8 race caught by --check, M=1 passed
+   by timing luck).
+2. Q fragments load once before the stage loop (the per-stage reload
+   was 32 KB of ldmatrix traffic per stage).
+3. Dequant: FlashInfer/Marlin fast_dequant_f8f16x4 (prmt + shift/mask +
+   one packed-bf16 fma per 4 values). Verified bit-exact on sm_87 with
+   a CUDA probe (normals + zero exact; subnormals -> normal-formula
+   neighbors, the same documented caveat). GOTCHA: the C++ MASK1>>7 is
+   an ARITHMETIC shift on a signed int; the sign extension makes the
+   mask 0x7F007F00, NOT 0x01000100 (dbg32 caught it: b0's bits were
+   dropped).
+
+Results (same-run A/B, /tmp/opencode/ab_sweep.py):
+- mma vs gemv, M=1: 2.21-2.44x across L (was 1.03-1.11x)
+- mma vs gemv, M=4: 3.07-6.96x (was 2.02-2.26x)
+- effective KV: 23 -> 74 GB/s (36% of 204.8)
+- ncu: total warp-instr 4.63M -> 2.78M (-40%), ALU 50% -> 37%,
+  short_scoreboard 8.87 -> 1.48, total stalls 13.1 -> 4.5 cycles/instr
+
+vs FlashInfer (fi_driver.py, same recipe HQ24/HK4/D256/PS16/NHD,
+events-timed 200 iters): mma WINS at L<=4096 (M=1: 2.26x at 1K,
+1.05x at 4K; M=4: 2.24x at 1K, 1.13x at 4K), trails at 16K+
+(M=1 L=262144: 7338 vs 3264 us). FI is DRAM-bound at large L
+(165 GB/s = 80% of peak); the kernel is issue-bound at 74 GB/s.
+
+## M2 pass 2 plan: the issue-bound end game
+
+Per-warp-stage instruction budget: 1357 vs the ~1575 issue slots —
+the kernel sits AT issue capacity. Remaining cuts, in order:
+1. Register-path dequant (drop sK16/sV16, 48 KB smem): ldmatrix on
+   fp8-as-bf16 + frag_layout_swizzle_16b_to_8b (FI's approach) —
+   kills the 128 STS.16/thread/stage and halves smem traffic; makes
+   SR=64 affordable (sQ 32 + fp8 32 = 64 KB) which halves all
+   per-stage fixed costs. The big one.
+2. 2-accumulator QK chain (wait stall 2.21: the 16-deep serial HMMA
+   accumulation; split k into 2 halves, merge before softmax).
+3. Vectorized STS for the dequant output (u32-pair stores through the
+   swizzled layout; the 4-aligned c groups stay within one 16 B
+   swizzle chunk).
