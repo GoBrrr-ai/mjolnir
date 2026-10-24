@@ -148,6 +148,100 @@ class MMADecodeKernel:
         )
 
     # ------------------------------------------------------------------
+    @cute.jit
+    def g2s_stage(
+        self,
+        mK: cute.Tensor,
+        mV: cute.Tensor,
+        mPageTable,
+        sK8a: cute.Tensor,
+        sK8b: cute.Tensor,
+        sK8c: cute.Tensor,
+        sV8a: cute.Tensor,
+        sV8b: cute.Tensor,
+        sV8c: cute.Tensor,
+        tidx,
+        kv_start,
+        row0,
+        kv_len_c,
+        num_head_kv,
+        kv_head,
+        batch_idx,
+        kv_row0,
+        buf,
+    ) -> None:
+        """One KV stage: gmem -> smem fp8 (32 rows x 256 B = 4 x 16B chunks
+        per thread) into buffer `buf` of the double-buffered staging tiles.
+        The tail rows CLAMP to the last valid row (the GEMV's trick — no
+        branch); the softmax masks the overhang by kv_len_c. The prefetch
+        of a not-yet-valid stage clamps row0 the same way: the duplicated
+        rows are never read."""
+        D = self.HEAD_DIM
+        NT = self.NUM_THREADS
+        SR = self.STAGE_ROWS
+        g2s_atom = cute.make_copy_atom(
+            cpasync.CopyG2SOp(cache_mode=cpasync.LoadCacheMode.GLOBAL),
+            mK.element_type,
+            num_bits_per_copy=128,
+        )
+        for i in cutlass.range_constexpr(SR * D // NT // 16):
+            e16 = tidx + i * NT  # the 16-byte chunk index within the stage
+            r = e16 // (D // 16)
+            ck = (e16 % (D // 16)) * 16
+            gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
+            if const_expr(mPageTable is not None):
+                page = mPageTable[batch_idx, gk_row // self.page_size]
+                kv_base = (page * self.page_size + gk_row % self.page_size) * num_head_kv + kv_head
+            else:
+                kv_base = (kv_row0 + gk_row) * num_head_kv + kv_head
+            k_src = cute.make_tensor(
+                cute.make_ptr(
+                    mK.element_type,
+                    (mK.iterator + kv_base * D + ck).toint(),
+                    cute.AddressSpace.gmem,
+                    assumed_align=16,
+                ),
+                cute.make_layout(16),
+            )
+            kdst = sK8a.iterator
+            vdst = sV8a.iterator
+            if buf == 1:
+                kdst = sK8b.iterator
+                vdst = sV8b.iterator
+            if buf == 2:
+                kdst = sK8c.iterator
+                vdst = sV8c.iterator
+            k_dst = cute.make_tensor(
+                cute.make_ptr(
+                    mK.element_type,
+                    (kdst + e16 * 16).toint(),
+                    cute.AddressSpace.smem,
+                    assumed_align=16,
+                ),
+                cute.make_layout(16),
+            )
+            v_src = cute.make_tensor(
+                cute.make_ptr(
+                    mV.element_type,
+                    (mV.iterator + kv_base * D + ck).toint(),
+                    cute.AddressSpace.gmem,
+                    assumed_align=16,
+                ),
+                cute.make_layout(16),
+            )
+            v_dst = cute.make_tensor(
+                cute.make_ptr(
+                    mV.element_type,
+                    (vdst + e16 * 16).toint(),
+                    cute.AddressSpace.smem,
+                    assumed_align=16,
+                ),
+                cute.make_layout(16),
+            )
+            cute.copy(g2s_atom, k_src, k_dst)
+            cute.copy(g2s_atom, v_src, v_dst)
+
+    # ------------------------------------------------------------------
     @cute.kernel
     def kernel(
         self,
@@ -236,11 +330,33 @@ class MMADecodeKernel:
         )
         smem = cutlass.utils.SmemAllocator()
         sQ = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, D), (0, 1)), byte_alignment=16)
+        # The fp8 staging tiles, DOUBLE-BUFFERED with the second buffers
+        # ALIASED into sQ: the Q tile is dead once its fragments are
+        # hoisted (they live in registers from the fill+ldsm before the
+        # stage loop), so its 32 KB host the prefetch buffers. Total stays
+        # 80 KB -> 2 CTAs/SM: the ring hides the g2s DRAM latency (the #1
+        # stall at locked clocks) without paying the occupancy.
         sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
         sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        # the offsets are in BF16 ELEMENTS (SR*D bytes = SR*D//2 elements):
+        # the four 8 KB buffers tile sQ's 32 KB exactly.
+        sK8b = cute.make_tensor(cute.recast_ptr(sQ.iterator, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D))
+        sV8b = cute.make_tensor(
+            cute.recast_ptr(sQ.iterator + SR * D // 2, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+        )
+        sK8c = cute.make_tensor(
+            cute.recast_ptr(sQ.iterator + SR * D, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+        )
+        sV8c = cute.make_tensor(
+            cute.recast_ptr(sQ.iterator + 3 * SR * D // 2, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+        )
         # The u32 views of the fp8 staging tiles: the 4-wide dequant reads.
         sK8u = cute.make_tensor(cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
         sV8u = cute.make_tensor(cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sK8bu = cute.make_tensor(cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sV8bu = cute.make_tensor(cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sK8cu = cute.make_tensor(cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sV8cu = cute.make_tensor(cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
         sK16 = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16)
         # The V staged in the plain (row, d) orientation; the transposed
         # view for the transpose=True B-atom is a composition (the
@@ -250,12 +366,6 @@ class MMADecodeKernel:
         sVt = cute.composition(
             sV16,
             cute.make_layout((D, SR), stride=(SR, 1)),
-        )
-
-        g2s_atom = cute.make_copy_atom(
-            cpasync.CopyG2SOp(cache_mode=cpasync.LoadCacheMode.GLOBAL),
-            mK.element_type,
-            num_bits_per_copy=128,
         )
 
         # ---- stage the Q once: the q_rows real rows, the zero padding ---
@@ -326,65 +436,88 @@ class MMADecodeKernel:
         cute.arch.sync_threads()
         for k in cutlass.range_constexpr(D // 16):
             cute.copy(smem_copy_Q, tSsQ[None, None, k], tSrQ_copy[None, None, k])
+        # The barrier: the ring's prefetch buffers alias sQ, which the
+        # hoist just finished reading — no warp may write them (the stage
+        # loop's first g2s into buf 1) until every warp's ldsm is done.
+        cute.arch.sync_threads()
 
-        # The stage loop over this CTA's KV chunk (single-buffered in M1).
+        # The stage loop over this CTA's KV chunk, 2-stage pipelined:
+        # the prologue fills buf 0, then each iteration issues the NEXT
+        # stage's g2s into the other buffer before consuming the current
+        # one — the cp.async DRAM latency overlaps the dequant+mma.
+        # The prefetch's rows clamp to the chunk end (branch-free; the
+        # duplicated rows are never read).
         n_stages = cute.ceil_div(kv_len_c, SR)
-        for stage in cutlass.range(n_stages):
-            row0 = stage * SR
-
-            # 1. g2s: 32 rows x 256 B = 4 x 16B chunks per thread. The tail
-            #    rows CLAMP to the last valid row (the GEMV's trick — no
-            #    branch); the softmax masks the overhang by kv_len_c.
-            for i in cutlass.range_constexpr(SR * D // NT // 16):
-                e16 = tidx + i * NT  # the 16-byte chunk index within the stage
-                r = e16 // (D // 16)
-                ck = (e16 % (D // 16)) * 16
-                gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
-                if const_expr(mPageTable is not None):
-                    page = mPageTable[batch_idx, gk_row // self.page_size]
-                    kv_base = (page * self.page_size + gk_row % self.page_size) * num_head_kv + kv_head
-                else:
-                    kv_base = (kv_row0 + gk_row) * num_head_kv + kv_head
-                k_src = cute.make_tensor(
-                    cute.make_ptr(
-                        mK.element_type,
-                        (mK.iterator + kv_base * D + ck).toint(),
-                        cute.AddressSpace.gmem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(16),
-                )
-                k_dst = cute.make_tensor(
-                    cute.make_ptr(
-                        mK.element_type,
-                        (sK8.iterator + e16 * 16).toint(),
-                        cute.AddressSpace.smem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(16),
-                )
-                v_src = cute.make_tensor(
-                    cute.make_ptr(
-                        mV.element_type,
-                        (mV.iterator + kv_base * D + ck).toint(),
-                        cute.AddressSpace.gmem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(16),
-                )
-                v_dst = cute.make_tensor(
-                    cute.make_ptr(
-                        mV.element_type,
-                        (sV8.iterator + e16 * 16).toint(),
-                        cute.AddressSpace.smem,
-                        assumed_align=16,
-                    ),
-                    cute.make_layout(16),
-                )
-                cute.copy(g2s_atom, k_src, k_dst)
-                cute.copy(g2s_atom, v_src, v_dst)
+        if kv_len_c > 0:  # a degenerate empty chunk must not read row -1
+            self.g2s_stage(
+                mK,
+                mV,
+                mPageTable,
+                sK8,
+                sK8b,
+                sK8c,
+                sV8,
+                sV8b,
+                sV8c,
+                tidx,
+                kv_start,
+                0,
+                kv_len_c,
+                num_head_kv,
+                kv_head,
+                batch_idx,
+                kv_row0,
+                0,
+            )
             cute.arch.cp_async_commit_group()
-            cute.arch.cp_async_wait_group(0)
+            self.g2s_stage(
+                mK,
+                mV,
+                mPageTable,
+                sK8,
+                sK8b,
+                sK8c,
+                sV8,
+                sV8b,
+                sV8c,
+                tidx,
+                kv_start,
+                cutlass.min(SR, kv_len_c - 1),
+                kv_len_c,
+                num_head_kv,
+                kv_head,
+                batch_idx,
+                kv_row0,
+                1,
+            )
+            cute.arch.cp_async_commit_group()
+        for stage in cutlass.range(n_stages):
+            par = stage % 3
+            row0 = stage * SR
+            row0_next = cutlass.min((stage + 2) * SR, kv_len_c - 1)
+            self.g2s_stage(
+                mK,
+                mV,
+                mPageTable,
+                sK8,
+                sK8b,
+                sK8c,
+                sV8,
+                sV8b,
+                sV8c,
+                tidx,
+                kv_start,
+                row0_next,
+                kv_len_c,
+                num_head_kv,
+                kv_head,
+                batch_idx,
+                kv_row0,
+                (stage + 2) % 3,
+            )
+            cute.arch.cp_async_commit_group()
+            # <= 2 groups outstanding: everything up to `stage` has landed.
+            cute.arch.cp_async_wait_group(2)
             cute.arch.sync_threads()
 
             # 2. the dequant fp8 -> bf16 in smem, 4 values per iteration —
@@ -396,11 +529,19 @@ class MMADecodeKernel:
             #    old element-wise path cost ~8 ALU ops/value with
             #    byte-wide LDS and made the kernel issue-bound (the ALU
             #    pipe was ~50% of all executed instructions).
+            srcu_k = sK8u
+            srcu_v = sV8u
+            if par == 1:
+                srcu_k = sK8bu
+                srcu_v = sV8bu
+            if par == 2:
+                srcu_k = sK8cu
+                srcu_v = sV8cu
             for i in cutlass.range_constexpr(SR * D // NT // 4):
                 e4 = (tidx + i * NT) * 4
                 r = e4 // D
                 c = e4 % D
-                qk = sK8u[e4 // 4]
+                qk = srcu_k[e4 // 4]
                 qp = cute.arch.prmt(qk, qk, 0x1302)
                 out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
                 out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
@@ -410,7 +551,7 @@ class MMADecodeKernel:
                 sK16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
                 sK16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
                 sK16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                qv = sV8u[e4 // 4]
+                qv = srcu_v[e4 // 4]
                 qp = cute.arch.prmt(qv, qv, 0x1302)
                 out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
                 out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)

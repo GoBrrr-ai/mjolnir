@@ -656,3 +656,38 @@ below sm_90; cp.async caps at 16 B). The honest conclusion: on sm_87
 the 16K+ decode band belongs to FI unless the KV layout changes
 (the Thor-side conclusion — wider requests need a vLLM cache-format
 change — applies here too).
+
+## The sQ-aliased KV ring: the 16K+ serialization broken (2026-10-24, later)
+
+The single-buffered stage loop idles the DRAM during dequant+mma. The
+2-stage ring measured +20% WORSE at 1 CTA/SM (96 KB); the fix: the ring's
+second buffers ALIAS sQ — the Q tile is dead once its fragments are
+hoisted (registers), so its 32 KB host the prefetch buffers. Total stays
+80 KB -> 2 CTAs/SM AND the g2s overlaps the compute. The 3-stage variant
+(a third pair in sQ's remainder) measures PARITY with the 2-stage: the
+in-flight bytes = the wait depth (2 groups), not the buffer count.
+
+The in-flight model now fits every measurement: BW ~= (outstanding/SM ÷
+~143 KB LPDDR5 latency-BW product) x 204.8 GB/s. 2-stage ring: 64 KB/SM
+-> 92 GB/s measured (the harness's 74-82 was the pre-ring duty cycle).
+FI-TC: 128 KB/SM -> ~162 (the recon: task/research/fi-sm80-fp8-decode-
+summary — FI-TC double-buffers K and V separately with split waits,
+raw fp8 in XOR-swizzled smem, dequant per fragment in registers, L2::128B
+on every load).
+
+Same-run mma/FI with the 3-stage ring (fi_compare): 1K 0.42-0.51x WIN,
+4K 0.82-0.97x WIN/PARITY, 16K+ 1.21-1.61x (was 1.56-2.05). 4K is now a
+win; the 16K+ gap halved.
+
+### The remaining lever: the register path done FI-style
+
+Our register-path attempt failed on the A side (+32 regs for the
+even/odd fragments). FI's frag_layout_swizzle_16b_to_8b
+(data/include/flashinfer/frag_layout_swizzle.cuh) resolves the k-extent
+puzzle WITHOUT extra A fragments: 2x shfl_xor + 2x byte_perm per u32
+redistribute the ldmatrix fragment's bytes ACROSS LANES so each lane
+holds the 4 consecutive fp8 its mma k-elements need — the full-d A
+fragment stays valid. Cost ~1 instr/fp8 + the x4 dequant 2.5/fp8, and it
+frees sK16/sV16 (32 KB): the 48 KB budget enables 3 CTAs/SM (12 warps)
+or 2 CTAs with deeper rings / bigger tiles. That + the L2::128B cp.async
+hint are the path to the FI-class 128 KB/SM in flight.
