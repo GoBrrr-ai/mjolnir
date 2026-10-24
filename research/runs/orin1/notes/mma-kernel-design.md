@@ -783,3 +783,26 @@ trusting a number.
 The register paths (the even/odd 2-pass dequant, /tmp/opencode/
 regpath.patch + the ring tree edits) are archived; the tree reverts to
 b198fbd. The next real move is the M-tile redesign (below).
+
+### The M-tile redesign sketch (the next build)
+
+MT=16 for the small M (compiled per seqlen_q — the runner already keys
+on q_len), 4 warps re-rolled:
+
+  QK^T: the warps K-SPLIT the d (4 x 64) — the acc_S partial per warp
+    -> smem (16x32 f32 = 2 KB, the dead-sQ region) -> barrier -> the P
+    computed once -> smem (1 KB bf16, the reference's P round-trip)
+  PV: the warps N-SPLIT the d — the warp w owns the O columns
+    [64w, 64w+64); the A = the P fragment read from the smem P by all
+    warps (the m-atom is shared); the acc_O per warp (16, 64) = 32
+    regs/lane (vs 128 today)
+
+The payoff: the P/softmax/acc work per KV byte /4 (16 P-values per KV
+row, FI's exact ratio); the registers ~150 -> 3 CTAs/SM = 12 warps
+(the latency hiding x1.5); the Q tile 8 KB -> the smem freed for the
+ring depth if the memory latency ever matters again (it does for FI:
+long_scoreboard .31). MT=32 for M<=5, MT=64 (the current kernel) for
+M=6-8 — the three paths coexist behind the constexpr seqlen_q.
+
+The risk: the cross-warp S merge + the P smem round-trip = a new sync
+structure (3 barriers/stage); the M=6-8 band keeps today's kernel.
