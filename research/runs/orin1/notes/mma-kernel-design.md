@@ -436,3 +436,39 @@ the kernel sits AT issue capacity. Remaining cuts, in order:
 3. Vectorized STS for the dequant output (u32-pair stores through the
    swizzled layout; the 4-aligned c groups stay within one 16 B
    swizzle chunk).
+
+## M2 pass 2 (2026-10-24, commit c3e2715): 2-accumulator QK — 1.12x
+
+Clocks LOCKED at 1.3 GHz (the earlier ncu %s ran at the 306 MHz idle
+clock and distorted the balance — the wall-clock was right). Clean
+profile at L=4096 M=1 (137 us duration, matching the wall clock):
+DRAM Max Bandwidth 27.7%, L1/TEX 53.5%, L2 hit 81.7%; stalls
+cycles/instr: long_scoreboard 1.96 (the DRAM latency — now #1),
+short_scoreboard 1.79, wait 1.82. The kernel is stall-bound on all
+three fronts, NOT issue-bound (the true-clock issue demand is ~24% of
+the scheduler capacity — the earlier "issue-bound" reading was the
+idle-clock artifact).
+
+Pass 2: the QK accumulation split into 2 independent chains (the k
+halves), merged with 16 adds — the 16-deep serial HMMA chain was the
+wait-stall source. M=1: 3.29-3.72x vs gemv (the 82 GB/s effective);
+M=4: 4.43-7.82x. vs FI (locked clocks): wins at L<=4096 (the 2.8x at
+1K, the 1.0-1.14x at 4K), trails 2.0x/1.54x at 16K+ (the FI is
+DRAM-bound at 165 GB/s). The mma's M=4 costs +2.6% over M=1 (the
+tensor cores absorb the GQA rows) vs the FI's +30% — the gap shrinks
+with MTP depth (the M=8+ likely wins everywhere — worth measuring).
+
+## M2 pass 3 (the 16K+ endgame): register path + fp8 ring
+
+The DRAM latency (long_sb 1.96) needs a cp.async ring; the ring costs
++16 KB smem which forces 1 CTA/SM at the current 80 KB (the 96 KB ×
+2 > the ~164 KB/SM) — halving the latency-hiding warps. The register
+path (the dequant straight into the mma fragments from the fp8 smem,
+no sK16/sV16) drops the smem to 48 KB so 48 + a 16 KB fp8 ring =
+64 KB keeps 2 CTAs/SM — and kills the 128 STS.16/thread/stage and the
+extraction ALU. The fragment remap (which fp8 bytes land in which
+fragment register after ldmatrix on fp8-as-bf16 — the FI's
+frag_layout_swizzle_16b_to_8b) needs the dbg probe ladder before the
+rewrite: fill sK8 injectively, ldmatrix, dump the 4 regs/lane, derive
+the lane->(d-pair, key) map, then the prmt recipe per fragment.
+The 2-acc + the STS-pair stores ride along.
