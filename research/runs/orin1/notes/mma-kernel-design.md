@@ -862,3 +862,37 @@ inc-3 state stays in the history). Lesson: after any git checkout,
 VERIFY the content (grep for the marker), and commit kernel states
 explicitly — the sed+checkout cycles can silently wipe uncommitted
 work (it did; re-applied).
+
+### Phase B refined design: MT=16 via the (1,4,1) N-split arrangement
+
+SCOPE: the q_len <= 2 path only (M_TILE=16 when seqlen_q*G <= 16, else
+the current MT=64 kernel — the constexpr seqlen_q picks per compile).
+The M>=3 band keeps today's kernel until this one proves out.
+
+The (1,4,1) arrangement splits N for BOTH gemms with ONE tiled_mma:
+  QK^T (C=16x32): the warp w owns the S columns [8w, 8w+8) over the
+    FULL k=256 — 16 HMMAs/warp (the total 64, 4x less than the MT=64
+    tile's 256 at M=1 — the padding waste is the whole win).
+  PV (C=16x256): the warp w owns the d [64w, 64w+64) — 8 n-atoms x
+    2 k-steps = 16 HMMAs/warp; the acc_O per warp (16, 64) = 32 f32
+    regs (vs 128) -> ~150 regs/thread -> 3 CTAs = 12 warps.
+The A operands are SHARED across the N-warps (the Q hoist unchanged;
+the P read by every warp from smem).
+
+The cross-warp row stats (the S columns are disjoint): the per-warp
+partial max/sum per row (after the existing quad butterfly) -> the
+smem slabs (4 warps x 16 rows x 2 = 512 B) -> barrier -> every lane
+merges its rows' 4 partials. The P is then computed per-warp on its
+own columns and stored to a (16,32) bf16 swizzled tile; barrier; the
+PV's A = the ldmatrix from that tile (the smem_copy_A idiom).
+
+The smem budget: the Q tile 8 KB (was 32) + 3 ring pairs (one buffer
+aliased into the 8 KB sQ) 48 KB + sK16/sV16 32 KB = 80 KB -> 2 CTAs
+(3 CTAs needs the register paths back — the inc-1/2 machinery, the
+archived patches — as the follow-up). The P tile ALIASES sK16's first
+1 KB: the QK's ldmatrix reads complete before the stats-merge barrier,
+the P writes follow it, and the next stage's dequant waits behind the
+post-PV barrier — the same hazard chain as the ring reuse.
+
+The barriers/stage: 4 (the ring wait, the dequant-end, the stats
+merge, the P-complete) — ~120 ns against a ~2-3 us stage.
