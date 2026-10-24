@@ -283,6 +283,7 @@ class MMADecodeKernel:
         tSrK = thr_mma.make_fragment_B(thr_mma.partition_B(sK16))
         tOrVt = thr_mma.make_fragment_B(thr_mma.partition_B(sVt))
         acc_S = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
+        acc_S2 = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
         acc_O = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, D)), cutlass.Float32)
         acc_O.fill(0.0)
         n_row_slots = cutlass.const_expr(
@@ -422,12 +423,19 @@ class MMADecodeKernel:
             cute.arch.sync_threads()
 
             # 3. the QK^T: the acc_S = Q * K^T for this stage's rows (the
-            #    Q fragments loaded once before the loop).
+            #    Q fragments loaded once before the loop). Two independent
+            #    accumulator chains over the k halves: a single accumulation
+            #    is a 16-deep serial HMMA chain (the wait stalls were the #2
+            #    cost at locked clocks); the merge is 16 adds.
             acc_S.fill(0.0)
+            acc_S2.fill(0.0)
             for k in cutlass.range_constexpr(D // 16):
                 cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
-            for k in cutlass.range_constexpr(D // 16):
+            for k in cutlass.range_constexpr(D // 32):
                 cute.gemm(tiled_mma, acc_S, tSrQ[None, None, k], tSrK[None, None, k], acc_S)
+                cute.gemm(tiled_mma, acc_S2, tSrQ[None, None, k + D // 32], tSrK[None, None, k + D // 32], acc_S2)
+            for i in cutlass.range_constexpr(cute.size(acc_S)):
+                acc_S[i] = acc_S[i] + acc_S2[i]
 
             # 4. the online softmax (the quad-local row stats), the P to
             #    smem, and the O rescale. The warps own disjoint 16-row
