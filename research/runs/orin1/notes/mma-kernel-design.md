@@ -837,3 +837,28 @@ THE RANKED PLAN:
    chunk of the fma 17.6%. Stackable with 1.
 3. The dequant diet / the occupancy-only fixes — marginal; the dequant
    is already FI-parity per byte. Parked.
+
+### Phase A result: the deferred-frame softmax (2026-10-24, b35c4f0)
+
+The O accumulates in a fixed max-frame (row_max = the anchor, -inf =
+unset); the P = exp2(S - anchor) may exceed 1 by the drift; the
+warp-local re-anchor fires only when the logits climb >60 log2 units
+(the exp2(60) P ~1e18 — orders inside the bf16/fp32 range with the V
+descales). The per-stage acc_O rescale (128 fp32 fmul/stage/lane) is
+GONE; the LSE = anchor + log2(sum) is frame-invariant; the normalize
+cancels the frame. Gated 42/42 including the re-anchor path forced at
+the threshold 2.
+
+The sweep: the 16K+ ratios 1.56-1.59 (M=1) / 1.18-1.25 (M>=4) — a
+real ~2-3% cut, the best-ever 262K rows. Modest as predicted: the
+rescale was ~1/3 of the fma pipe; the ALU 47% stands — the MT=16
+build attacks it.
+
+PROCESS NOTE: the inc-3 kernel was accidentally committed inside the
+notes commit c2a63ab and the "revert" that followed was a no-op
+("Updated 0 paths") — the current-state table presented the inc-3
+numbers. Fixed in cdf5271 (the true b198fbd baseline restored; the
+inc-3 state stays in the history). Lesson: after any git checkout,
+VERIFY the content (grep for the marker), and commit kernel states
+explicitly — the sed+checkout cycles can silently wipe uncommitted
+work (it did; re-applied).
