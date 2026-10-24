@@ -720,3 +720,35 @@ exists if the shfl path is ever needed (the FP4-style in-loop dequant).
 The earlier register-path +19% was measured WITHOUT the ring: the
 serialization dominated. With the ring + the split-sQ the instruction
 savings and the freed smem compound — the config above is the bet.
+
+### The L2-hint question, closed with data (2026-10-24)
+
+Is there an equivalent of FI's cp.async `L2::128B`? Three classes, all
+measured at M=1 (the probe reproduces the committed baseline exactly):
+probe `/tmp/opencode/l2probe.py` (L2MODE=none|gran|window around the stock
+harness; sed for the in-kernel cache_mode, reverted).
+
+| knob | L=16K M=1 | verdict |
+|---|---|---|
+| baseline (GLOBAL/.cg, default fetch granularity 64) | 365.6 us / 92 GB/s | — |
+| cudaLimitMaxL2FetchGranularity=128 (the device-wide L2::128B) | 363.4 | noise |
+| persisting L2 window over the KV (2.9 MB carve, hitRatio=carve/window, streaming misses) | 362.5 (16K), 121.6 (4K vs 122.8) | noise |
+| in-kernel LoadCacheMode.STREAMING (evict-first) | 371.7 | +1.7% worse |
+| in-kernel LoadCacheMode.ALWAYS (.ca) | 371.6 | +1.7% worse |
+
+Our rows are 256B contiguous — the 8 back-to-back 16B cp.asyncs cover each
+128B granule — dbg38 (pattern vs contiguous = equal) plus gran 64->128
+doing nothing close the fetch-granularity dimension: it was never our
+loss. FI's 162 GB/s is the in-flight bytes (128-row tiles), not the hint.
+The window result adds one more: even 17% of reads hitting L2 does not
+raise throughput — the kernel is cadence-bound (the ring's wait depth
+caps outstanding bytes), not latency-bound.
+
+If the exact instruction is ever needed: the DSL exposes llvm.inline_asm
+(cute.arch.cvt_i4_to_bf16_with_shuffle_impl is implemented with it —
+llvm.inline_asm(Int32.mlir_type, [args], asm, constraints)); a
+cp.async.cg.shared.global.L2::128B is wireable the same way (smem address
+via cvta.to.shared inside the asm block). Parked — measured inert.
+
+Point 2 CLOSED. The lever stays the 96 KB in-flight config (register path
+K+V, sQ split-staging, 4-pair ring — increments 1-3).
