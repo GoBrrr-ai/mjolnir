@@ -691,3 +691,32 @@ fragment stays valid. Cost ~1 instr/fp8 + the x4 dequant 2.5/fp8, and it
 frees sK16/sV16 (32 KB): the 48 KB budget enables 3 CTAs/SM (12 warps)
 or 2 CTAs with deeper rings / bigger tiles. That + the L2::128B cp.async
 hint are the path to the FI-class 128 KB/SM in flight.
+
+### The config math (the recon + the measurements combined)
+
+FI's fp8 TC path repacks fp8->bf16 INTO SMEM (repack_fp8_tile_to_bf16,
+prefill.cuh) and uses the standard 16-bit ldmatrix — the shfl-based
+frag_layout_swizzle_16b_to_8b is their FP4 in-loop path, NOT fp8. Our
+structure is already FI-equivalent; the difference is the in-flight
+bytes (theirs 128 KB/SM via 128-row tiles, ours 64).
+
+The smem accounting at 80 KB/2 CTAs: the raw pairs + the bf16 tiles
+(sK16/sV16) + sQ compete. Raising the in-flight past 64 KB/SM REQUIRES
+dropping the bf16 tiles (the register path) AND shrinking sQ (the split
+staging, 16 KB, 2 chunks of 32 rows):
+
+  regpath (A-even/odd fragments only, no tSrQ — the same register count)
+  + sQ split-staged 16 KB (fill chunk -> sync -> the warps owning the
+    chunk ldsm their fragments via get_slice(tidx % 64) -> sync)
+  + 4 raw pairs (a, d real; b, c aliased into sQ's 16 KB)
+  = 80 KB, 2 CTAs/SM, 3 groups in flight = 48 KB/CTA = 96 KB/SM
+  -> ~137 GB/s -> 16K ~= 245 us vs FI 228 (M=1); M>=4 WINS.
+
+The L2::128B cp.async hint is not exposed by the DSL's CopyG2SOp
+(cache_mode only) — parked unless an inline-asm path shows up; FI's
+advantage is the in-flight bytes anyway. cute.arch.shuffle_sync_op
+exists if the shfl path is ever needed (the FP4-style in-loop dequant).
+
+The earlier register-path +19% was measured WITHOUT the ring: the
+serialization dominated. With the ring + the split-sQ the instruction
+savings and the freed smem compound — the config above is the bet.
