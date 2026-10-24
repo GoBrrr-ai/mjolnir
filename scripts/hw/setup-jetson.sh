@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# setup-thor.sh — Jetson AGX Thor (sm_110a) host pre-configuration.
+# setup-jetson.sh — Jetson host pre-configuration (Thor sm_110a, Orin sm_87).
 #
 # Ported from the ~/thor repo's scripts/setup.sh + utils.sh, made
 # self-contained and Thor-only (SoM=thor, 128 GB, NVIDIA carrier — the
@@ -248,7 +248,7 @@ l4t_root_device() {
 is_l4t_installed_on_sdcard() { [[ "$(l4t_root_device)" == "sdcard" ]]; }
 
 # the step functions live next to this script (bundled together into the wheel)
-source "$(dirname "$(readlink -f "$0")")/setup-thor-steps.sh"
+source "$(dirname "$(readlink -f "$0")")/setup-jetson-steps.sh"
 
 # ================================================================================
 # MAIN
@@ -378,18 +378,20 @@ else
     host_optimizations
 fi
 
-# 9. Max clocks (jetson_clocks)
-if is_skipped clocks; then
-    echo "ℹ️  Skipping: clocks"
-else
-    start_jetson_clocks_service
-fi
-
-# 10. Power mode (MAXN/SUPER)
+# 9. Power mode (MAXN/SUPER) — BEFORE the clock lock: applying the mode
+#    resets the devfreq pins, so the lock must land after it (and the
+#    nvpmodel-ordered boot service re-locks after any scheduled reboot).
 if is_skipped power; then
     echo "ℹ️  Skipping: power"
 else
     setup_power_mode
+fi
+
+# 10. Max clocks (jetson_clocks, verified)
+if is_skipped clocks; then
+    echo "ℹ️  Skipping: clocks"
+else
+    start_jetson_clocks_service
 fi
 
 echo "✅ Jetson ($SOC_TYPE) configuration completed."

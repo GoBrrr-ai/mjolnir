@@ -49,7 +49,7 @@ def hw_setup(
 ):
     """Pre-configure the Thor host (port of the ~/thor HW setup script).
 
-    Runs ``scripts/hw/setup-thor.sh``: headless boot target, apt upgrade,
+    Runs ``scripts/hw/setup-jetson.sh``: headless boot target, apt upgrade,
     Docker + NVIDIA default runtime, pip, jtop, 32 GB swap (zRAM off),
     the fan profiles (``recommended`` + ``max`` installed per-profile
     gated, with the .bck rollback backup; default selected —
