@@ -975,3 +975,37 @@ M in 6-8) -- contention-relief scale, not the MT=32 structural win.
 Cheaper equivalent if ever needed: a compile-time warp skip in the
 MT=64 (const_expr on the m-atom index vs seqlen_q*g; needs the
 stats-slab/merge structure read first).
+
+### The 3-CTA package build: the K register path + the sV16 alias + the 2-pair ring (2026-10-24, WIP)
+
+The package (MJOLNIR_REGPATH=1, MT=16 only): the K dequant in the
+fragment registers (no sK16; the (SR, D/2) bf16 view of the fp8 bytes;
+the even/odd 2-pass gemm; the single acc_S), the sV16 aliased over the
+dead-after-hoist sQ + an 8 KB pad, the 2-pair ring (a/c; the wait(1);
+the refill issued after the post-PV barrier since it retargets the
+consumed buffer), nvvm.minctasm=3. 48.5 KB dynamic -> 3 CTAs at the
+168-register cap. Compiles and runs.
+
+GATE: FAILS -- rel_err 0.45 (the M=1). The default path unaffected:
+the ring 42/42 + the M=3/4/5 OK with the flags off (re-checked on the
+same tree).
+
+ROOT CAUSE (the dbg44-47 probes, /tmp/opencode/dbg4{4,5,6,7}.py):
+the A and the B fragment k-column orders disagree. The B fragment
+(the LDSM from the swizzled (SR, D/2) view) carries the view columns
+in the SW3-permuted k-atom order {0,4,1,5,2,6,3,7} (the dbg45 phase
+C: the u32 i holds the view cols {j0(i), j0(i)+1}, the lane-0
+j0 = 8*(i%2) + 64*((i//2)%2) + 16*((i//4)%2) + 32*((i//8)%2); the
+base per the 4-element k-atom group ai = (ai&1)*64 + ((ai>>1)&1)*16 +
+((ai>>2)&1)*32). The A fragment (the dbg47: the real (MT, D/2) tile,
+the setitem fill, the LDSM read) is LINEAR (the ks -> the view cols
+16ks + 2q + (e%2) + 8*(e//4); the m = lane/4 + 8*((e//2)%2) per the
+phase-A one-hot). My A fill assumed the linear order -> the gemm pairs
+the wrong columns -> the uniform scramble (the rel_err 0.45, uniform
+across the rows, the d parities, and the d quarters -- the dbg43).
+
+THE FIX (the next increment): the A fill's ks->view-col map uses the
+B's actual order. Note the MT=64 (4,1,1) register-path map (the
+c2a63ab patch) was derived for a different arrangement and only ever
+bench-checked (--skip_ref_check) -- it likely carries the same class
+of bug; re-gate it before any revival.
