@@ -581,3 +581,78 @@ shape-independent — exactly the register-path + fp8-ring target.)
 
 For the M4 gate: GEMV is irrelevant now (24-50x slower at M=8); the
 gate is FI, and the pass-3 lever is the only remaining one.
+
+## Pass 3 measured: BOTH levers are negative (2026-10-24, locked clocks)
+
+### The 2-stage fp8 ring (96 KB, 1 CTA/SM) — +20% WORSE at depth
+
+Correctness first: the extracted `g2s_stage` + prologue/prefetch pipeline
+passed the full extended matrix 42/42 (all ps, M 1/8, causal+non-causal,
+L 32..131072 incl. non-multiples of SR, b=4, paged). The clamped-row0
+prefetch is branch-free; the trailing sync after dequant protects the
+buffer reuse. Patch archived: `/tmp/opencode/ring.patch`.
+
+Timing (same-run, prebuilt launches, M=1): 16K 516.3 µs vs the
+single-buffered 429.8 (+20%), 262K 7922.6 vs 6540 (+21%). Effective KV
+BW 82 -> 68 GB/s. The stall math predicted it: 4 warps x 0.20 issue <
+8 warps x 0.17 — the lost warp dominates the hidden g2s latency.
+
+### The register path (K side, 2-pass even/odd) — +19% WORSE at depth
+
+The mechanism, after three oracle probes (dbg35/36/37, all committed to
+/tmp/opencode):
+- The B side is CORRECT and cheap: ldmatrix on the (SR, D/2) bf16 view
+  of the full-density fp8 tile delivers each u32 register pair as 4
+  consecutive d; the even pass masks the LOW bytes into the recipe
+  position ((u & 0x00FF00FF) << 8), the odd pass needs NO shift (the
+  odd bytes already sit there) — ~160 instr/lane/stage vs ~320.
+- The A side MUST match in view units (the view halves the mma k-extent:
+  A k=256 vs B k=128 is unrunnable), which forces the A fragments to be
+  filled directly: a generic CopyS2ROp tiled-copy does NOT match the mma
+  A-fragment layout (dbg35: duplicated slots), and a composed strided
+  view mis-decodes (dbg37: the j-stride collapses). The decoded m16k16
+  A-fragment map (dbg36, from the known-correct LDSM load): per 8-element
+  k-step, row m0 + 8*((e//2)%2), col k0 + (e%2) + 8*(e//4), m0 =
+  16*warp + lane/4, k0 = 2*(lane%4). With the warp term the fill is
+  correct: full matrix 42/42, rel_err 0.0020.
+- BUT the two A fragments cost +32 live registers on a kernel at the
+  ptxas ceiling; merging the passes into one acc (dropping acc_S2, -16
+  regs) made it WORSE still (+28%) — the 2-acc HMMA chains are
+  load-bearing even with the dequant between them. Net: the ~160 saved
+  dequant instructions never show up; the wall at depth is NOT the ALU.
+
+Patch archived: `/tmp/opencode/regpath.patch`. Reverted to c3e2715.
+
+### The standing (same-run vs FI ONLY, GEMV dropped from comparisons)
+
+fi_compare (2026-10-24): mma/FI — 1K 0.53/0.49/0.60 (M=1/4/8, WIN),
+4K 1.18/1.04/1.09, 16K+ 1.56-2.05x. The mma wins L<=1024, is
+parity-to-behind at 4096, and the 16K+ gap is ~1.6x (M>=4) / 2.0x (M=1).
+
+### M4 gate: WIRED, verdict NO FLIP
+
+`stage_orinbench` gained the opt-in `mjolnir-mma` legs (correctness gate
++ prebuilt-launch timing + series; `--legs mjolnir-mma,fi`). The gate
+run (sweep/20261024-110825, raw JSON committed): mma vs FI ratio
+FI/mma = 1.73x at L=128 (WIN), 0.88x at 4K, 0.53x at 8K, 0.49-0.51x at
+16K+ — the mma does NOT win the geomean, so the default stays GEMV
+(whose serving-path full numbers remain the shipped series). The mma is
+a measured, gated opt-in.
+
+### ns=8 vs 16 (pass 3d): a non-lever
+
+The merge kernel is ~4-5 us of launch floor (~1% at 16K). The harness
+--max_splits path for the mma bench is half-wired (mO_partial shape
+mismatch — the harness fixes ns_cap=16), not worth completing: the
+lever is bounded at ~1%.
+
+### What would actually close the 16K+ gap
+
+The physical read rate: the mma pulls KV at ~41 GB/s (2 CTAs x 8 KB in
+flight per stage) vs FI's ~82. Doubling bytes-in-flight needs either
++smem (the ring: measured negative at 1 CTA), +CTAs (ns is capped by
+the grid at 64 already), or a wider copy engine (TMA does not exist
+below sm_90; cp.async caps at 16 B). The honest conclusion: on sm_87
+the 16K+ decode band belongs to FI unless the KV layout changes
+(the Thor-side conclusion — wider requests need a vLLM cache-format
+change — applies here too).
