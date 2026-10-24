@@ -919,3 +919,25 @@ the profile's prediction confirmed: fewer instructions per byte, the
 issue slots free, the LSU runs). The remaining 1.25-1.30: the next
 levers are the 3-CTA occupancy (the register paths + the freed Q smem)
 and the MT=32 for M=3-5.
+
+### The MT=32 occupancy trap + the fix (2026-10-24)
+
+The first MT=32 sweep read 1.71-1.76x — WORSE than the MT=64. The
+smem: the sQ doubles to 16 KB but only the pair-b K was aliased (the
+V real) -> 89 KB dynamic -> 1 CTA/SM = 4 warps. The fix: the 16 KB
+sQ hosts BOTH pair-b buffers (the sV8b alias at +SR*D//2 bf16
+elements; exact fit) -> 81 KB -> 2 CTAs. Gate: the ring 42/42 + the
+M=3/4/5 at the ps 16/32 all OK first shot.
+
+The M=3-5 band (the MT=32, the deferred-frame softmax):
+
+  4K    0.76-0.78x  WIN
+  16K   1.13-1.14x
+  64K   1.08-1.09x
+  262K  1.05-1.06x  near-parity
+
+The band table now: the M=1-2 (MT=16) 1.25-1.30; the M=3-5 (MT=32)
+1.05-1.14; the M=6-8 (MT=64) 1.18-1.41. The M=6-8 is the worst band —
+the MT=48 (3 m-atoms, the (3,1,1) arrangement, the 4th warp idle) is
+the open question for the MTP=5's q_len=6. The M=1-2's next lever is
+the 3-CTA occupancy (the register ceiling 255 -> the cap experiment).
