@@ -1010,6 +1010,11 @@ class MMADecodeKernel:
                 s_partial = Float32(0.0)
                 for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
                     s_partial += acc_S_mn[r, c]
+                # the quad reduction: the lane holds only its 2 columns'
+                # partial — the butterfly merges the quad's 4 before the
+                # store (the same reduction the max above does).
+                s_partial += cute.arch.shuffle_sync_bfly(s_partial, offset=2, mask=-1, mask_and_clamp=31)
+                s_partial += cute.arch.shuffle_sync_bfly(s_partial, offset=1, mask=-1, mask_and_clamp=31)
                 if tidx % 4 == 0:
                     row = tScS_mn[r, 0][2]
                     sStat[(warp * MT + row) * 2 + 1] = s_partial
