@@ -131,8 +131,8 @@ class MMADecodeKernel:
             "the fp8 Q lands with M3 (the pack is bf16-Q only for now)"
         )
         batch_size = mQ.shape[0]
-        if const_expr(self.small_tile and seqlen_q * self.g <= 16):
-            self.kernel16(
+        if const_expr(self.small_tile and seqlen_q * self.g <= 32):
+            self.kernel_small(
                 mQ,
                 mK,
                 mV,
@@ -148,6 +148,7 @@ class MMADecodeKernel:
                 seqlen_k,
                 softmax_scale_log2,
                 num_splits,
+                16 if seqlen_q * self.g <= 16 else 32,
             ).launch(
                 grid=(cute.size(mV.shape[-2]), num_splits, batch_size),
                 block=[self.NUM_THREADS, 1, 1],
@@ -659,7 +660,7 @@ class MMADecodeKernel:
 
     # ------------------------------------------------------------------
     @cute.kernel
-    def kernel16(
+    def kernel_small(
         self,
         mQ: cute.Tensor,
         mK: cute.Tensor,
@@ -676,16 +677,19 @@ class MMADecodeKernel:
         seqlen_k: Int32,
         softmax_scale_log2: Float32,
         num_splits: Int32,
+        mt: cutlass.Constexpr[int],
     ):
-        """The MT=16 variant (q_len*G <= 16): the (1,4,1) arrangement
-        N-splits BOTH gemms — the warp w owns the S columns [8w, 8w+8)
-        and the O columns [64w, 64w+64), 16 HMMAs each. The row stats
-        merge across the warps through a smem slab (the S columns are
-        disjoint); the P round-trips through a (16, 32) bf16 tile that
-        aliases sK16's head, so the PV's A ldmatrix reads it in every
-        warp. The deferred-frame softmax (no per-stage O rescale)."""
+        """The small-M variant (mt = 16 or 32): the warps N-split BOTH
+        gemms — the arrangement (mt/16, 4/(mt/16), 1) gives the warp w
+        the S columns of its n-atom slice and the O columns of its d
+        slice, 16 HMMAs each. The row stats merge across the warps
+        through a smem slab initialized neutral (the max -inf, the sum
+        0) so every warp may merge all 4 entries without decoding the
+        arrangement; the P round-trips through a (mt, 32) bf16 tile
+        aliasing sK16's head. The deferred-frame softmax (no per-stage
+        O rescale)."""
         D = self.HEAD_DIM
-        MT = 16
+        MT = mt
         SR = self.STAGE_ROWS
         NT = self.NUM_THREADS
         G = self.g
@@ -746,9 +750,17 @@ class MMADecodeKernel:
         sQ = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, D), (0, 1)), byte_alignment=16)
         sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
         sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
-        # the pair b: the K aliases the 8 KB sQ, the V is real.
+        # the pair b: the K aliases the sQ head; for MT=32 the 16 KB sQ
+        # also hosts the V (the 2-CTA budget — a real third buffer would
+        # push the dynamic smem to 89 KB and collapse the occupancy to
+        # 1 CTA/SM).
         sK8b = cute.make_tensor(cute.recast_ptr(sQ.iterator, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D))
-        sV8b = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        if const_expr(MT == 32):
+            sV8b = cute.make_tensor(
+                cute.recast_ptr(sQ.iterator + SR * D // 2, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+            )
+        else:
+            sV8b = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
         sK8c = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
         sV8c = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
         sK8u = cute.make_tensor(cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
@@ -766,6 +778,11 @@ class MMADecodeKernel:
         # reads complete before the stats-merge barrier, the P writes
         # follow it, and the next dequant waits behind the post-PV barrier.
         sP = cute.make_tensor(sK16.iterator, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)))
+        # the neutral slab: the warps of the other m-bands leave -inf/0 —
+        # the merge may read all 4 entries without decoding the arrangement.
+        for i in cutlass.range_constexpr(4 * MT):
+            sStat[i * 2] = -cutlass.Float32.inf
+            sStat[i * 2 + 1] = Float32(0.0)
 
         for i in cutlass.range_constexpr(MT * D // NT):
             e = tidx + i * NT
@@ -778,9 +795,11 @@ class MMADecodeKernel:
             else:
                 sQ[R, c] = cutlass.BFloat16(0.0)
 
+        m_atoms = MT // 16
+        n_arr = 4 // m_atoms
         tiled_mma = cute.make_tiled_mma(
             MmaF16BF16Op(cutlass.BFloat16, cutlass.Float32, (16, 8, 16)),
-            (1, 4, 1),
+            (m_atoms, n_arr, 1),
             permutation_mnk=(MT, SR, 16),
         )
         thr_mma = tiled_mma.get_slice(tidx)
