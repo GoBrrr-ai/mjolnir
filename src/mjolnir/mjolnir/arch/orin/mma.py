@@ -261,7 +261,9 @@ class MMADecodeKernel:
         acc_S = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
         acc_O = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, D)), cutlass.Float32)
         acc_O.fill(0.0)
-        n_row_slots = cutlass.const_expr(cute.size(thr_mma.partition_shape_C((MT, SR))[0]))
+        n_row_slots = cutlass.const_expr(
+            cute.size(thr_mma.partition_shape_C((MT, SR))[0][0]) * cute.size(thr_mma.partition_shape_C((MT, SR))[1])
+        )
         row_max = cute.make_rmem_tensor((n_row_slots,), cutlass.Float32)
         row_sum = cute.make_rmem_tensor((n_row_slots,), cutlass.Float32)
         row_max.fill(-cutlass.Float32.inf)
@@ -307,7 +309,7 @@ class MMADecodeKernel:
                 gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
                 if const_expr(mPageTable is not None):
                     page = mPageTable[batch_idx, gk_row // self.page_size]
-                    kv_base = (page * self.page_size + (gk_row - page * self.page_size)) * num_head_kv + kv_head
+                    kv_base = (page * self.page_size + gk_row % self.page_size) * num_head_kv + kv_head
                 else:
                     kv_base = (kv_row0 + gk_row) * num_head_kv + kv_head
                 k_src = cute.make_tensor(
