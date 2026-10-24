@@ -941,3 +941,37 @@ The band table now: the M=1-2 (MT=16) 1.25-1.30; the M=3-5 (MT=32)
 the MT=48 (3 m-atoms, the (3,1,1) arrangement, the 4th warp idle) is
 the open question for the MTP=5's q_len=6. The M=1-2's next lever is
 the 3-CTA occupancy (the register ceiling 255 -> the cap experiment).
+
+### Full-sweep consolidation + the 3-CTA register-cap probe (2026-10-24)
+
+The 18-shape sweep (M in {1,4,8} x L in {1K..262K}, MJOLNIR_MMA16=1 ->
+the dispatch: M=1 MT16 / M=4 MT32 / M=8 MT64): all three bands
+reproduce the committed numbers -- the kernel16->kernel_small
+parameterization cost nothing. New: L=1024 wins big (0.41-0.51x --
+the FI launch floor 126-159 us vs our 64-75 us).
+
+  M=1 (MT16):  0.51 0.84 1.31 1.28 1.30 1.27
+  M=4 (MT32):  0.41 0.78 1.13 1.08 1.08 1.06
+  M=8 (MT64):  0.48 0.89 1.26 1.21 1.20 1.18
+
+The register-cap probe (MJOLNIR_REGCAP=1 -> nvvm.minctasm=3, the
+__launch_bounds__(128,3) equivalent; the DSL LaunchConfig exposes
+min_blocks_per_mp, _generate_kernel_attrs emits nvvm.minctasm):
+
+  regs 255 -> 168 (the cap honored, under the 170 target)
+  local mem 1024 ld + 1024 st sectors/launch ~ 32 KB -- negligible
+  16K M=1: 298.0 -> 306.0 us (+2.7% -- the ILP loss, no spill wall)
+
+VERDICT: GO. The live set fits <=170. The package: the register
+paths (drop sK16/sV16 -> ~50 KB -> 3 CTAs at the 54.6 KB budget) +
+the P-tile relocation + min_blocks_per_mp=3. 3 CTAs x 128 threads x
+168 regs = 64512 <= 65536 -- fits on both axes. The expected win:
++50% warps -> the BW 113-134 toward the FI 147-165 GB/s.
+
+MT=48 parked (the math): the (3,1,1) idles the 4th warp or needs the
+96-thread plumbing; the sQ 24 KB -> 89 KB smem = 1 CTA without more
+aliasing; the win bounded at -25% row-work (one garbage m-atom per
+M in 6-8) -- contention-relief scale, not the MT=32 structural win.
+Cheaper equivalent if ever needed: a compile-time warp skip in the
+MT=64 (const_expr on the m-atom index vs seqlen_q*g; needs the
+stats-slab/merge structure read first).
