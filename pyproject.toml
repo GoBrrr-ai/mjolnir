@@ -84,7 +84,7 @@ python-version = "3.12"
 # type checker cannot see through (the tracer evaluates them at compile
 # time) — same rationale as the ruff per-file-ignores above.
 [[tool.ty.overrides]]
-include = ["src/mjolnir/mjolnir/arch/orin/decode.py"]
+include = ["src/mjolnir/mjolnir/arch/orin/decode.py", "src/mjolnir/mjolnir/arch/orin/mma.py"]
 rules.not-subscriptable = "ignore"
 rules.invalid-assignment = "ignore"
 
