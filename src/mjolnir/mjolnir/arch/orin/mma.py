@@ -91,6 +91,12 @@ class MMADecodeKernel:
         self.g = qhead_per_kvhead
         self.page_size = page_size
         self.causal = bool(causal)
+        # The MT=16 experimental path (the (1,4,1) N-split arrangement,
+        # q_len <= 2): opt-in via the env so the default stays the proven
+        # MT=64 kernel until it gates and benches.
+        import os
+
+        self.small_tile = os.environ.get("MJOLNIR_MMA16", "") == "1"
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -125,6 +131,29 @@ class MMADecodeKernel:
             "the fp8 Q lands with M3 (the pack is bf16-Q only for now)"
         )
         batch_size = mQ.shape[0]
+        if const_expr(self.small_tile and seqlen_q * self.g <= 16):
+            self.kernel16(
+                mQ,
+                mK,
+                mV,
+                mO,
+                mLSE,
+                mCuSeqlensQ,
+                mCuSeqlensK,
+                mDescale,
+                mO_partial,
+                mLSE_partial,
+                mPageTable,
+                seqlen_q,
+                seqlen_k,
+                softmax_scale_log2,
+                num_splits,
+            ).launch(
+                grid=(cute.size(mV.shape[-2]), num_splits, batch_size),
+                block=[self.NUM_THREADS, 1, 1],
+                stream=stream,
+            )
+            return
         self.kernel(
             mQ,
             mK,
@@ -605,6 +634,403 @@ class MMADecodeKernel:
             self.pv(tiled_mma, acc_S, smem_copy_V, tOsVt, tOrVt, tOrVt_copy, acc_O)
 
         # 6. the epilogue.
+        self.epilogue(
+            acc_O,
+            row_max,
+            row_sum,
+            n_row_slots,
+            thr_mma,
+            tidx,
+            mO,
+            mLSE,
+            mO_partial,
+            mLSE_partial,
+            o_off,
+            num_head,
+            v_descale,
+            scale_eff,
+            seqlen_q,
+            is_varlen_q,
+            q_row_base,
+            batch_idx,
+            kv_head,
+            split_idx,
+        )
+
+    # ------------------------------------------------------------------
+    @cute.kernel
+    def kernel16(
+        self,
+        mQ: cute.Tensor,
+        mK: cute.Tensor,
+        mV: cute.Tensor,
+        mO: cute.Tensor,
+        mLSE: cute.Tensor | None,
+        mCuSeqlensQ: cute.Tensor | None,
+        mCuSeqlensK: cute.Tensor | None,
+        mDescale: DescaleTensors | None,
+        mO_partial: cute.Tensor | None,
+        mLSE_partial: cute.Tensor | None,
+        mPageTable: cute.Tensor | None,
+        seqlen_q: cutlass.Constexpr[int],
+        seqlen_k: Int32,
+        softmax_scale_log2: Float32,
+        num_splits: Int32,
+    ):
+        """The MT=16 variant (q_len*G <= 16): the (1,4,1) arrangement
+        N-splits BOTH gemms — the warp w owns the S columns [8w, 8w+8)
+        and the O columns [64w, 64w+64), 16 HMMAs each. The row stats
+        merge across the warps through a smem slab (the S columns are
+        disjoint); the P round-trips through a (16, 32) bf16 tile that
+        aliases sK16's head, so the PV's A ldmatrix reads it in every
+        warp. The deferred-frame softmax (no per-stage O rescale)."""
+        D = self.HEAD_DIM
+        MT = 16
+        SR = self.STAGE_ROWS
+        NT = self.NUM_THREADS
+        G = self.g
+
+        kv_head = cute.arch.block_idx()[0]
+        split_idx = cute.arch.block_idx()[1]
+        batch_idx = cute.arch.block_idx()[2]
+        tidx = cute.arch.thread_idx()[0]
+        warp = tidx // 32
+
+        is_varlen_q = const_expr(mCuSeqlensQ is not None)
+        is_varlen_k = const_expr(mCuSeqlensK is not None)
+
+        if const_expr(is_varlen_q):
+            num_head = mQ.shape[1]
+            q_row_base = Int32(mCuSeqlensQ[batch_idx])
+        else:
+            num_head = mQ.shape[2]
+            q_row_base = batch_idx * seqlen_q
+        if const_expr(is_varlen_k):
+            kv_row0 = Int32(mCuSeqlensK[batch_idx])
+            kv_len = Int32(mCuSeqlensK[batch_idx + 1]) - kv_row0
+        else:
+            kv_row0 = batch_idx * seqlen_k
+            kv_len = seqlen_k
+        num_head_kv = mV.shape[-2]
+
+        kv_chunk = (kv_len + num_splits - 1) // num_splits
+        kv_start = split_idx * kv_chunk
+        kv_len_c = cutlass.min(kv_chunk, cutlass.max(Int32(0), kv_len - kv_start))
+
+        qk_descale = Float32(1.0)
+        v_descale = Float32(1.0)
+        if const_expr(mDescale is not None):
+            if const_expr(mDescale.q_descale is not None):
+                qk_descale = qk_descale * Float32(mDescale.q_descale[batch_idx, kv_head])
+            if const_expr(mDescale.k_descale is not None):
+                qk_descale = qk_descale * Float32(mDescale.k_descale[batch_idx, kv_head])
+            if const_expr(mDescale.v_descale is not None):
+                v_descale = Float32(mDescale.v_descale[batch_idx, kv_head])
+        scale_eff = softmax_scale_log2 * qk_descale
+
+        o_off = q_row_base * num_head * D
+        if const_expr(mO_partial is not None):
+            if const_expr(is_varlen_q):
+                split_stride = mO_partial.shape[1] * num_head * D
+            else:
+                split_stride = mO_partial.shape[1] * mO_partial.shape[2] * num_head * D
+            o_off = o_off + split_idx * split_stride
+
+        bf16_atom = cute.make_composed_layout(
+            cute.make_swizzle(3, 3, 3),
+            0,
+            cute.make_layout((8, 64), stride=(64, 1)),
+        )
+        smem = cutlass.utils.SmemAllocator()
+        # the Q tile (16, 256) bf16 = 8 KB — the 4x-smaller M tile.
+        sQ = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, D), (0, 1)), byte_alignment=16)
+        sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        # the pair b: the K aliases the 8 KB sQ, the V is real.
+        sK8b = cute.make_tensor(cute.recast_ptr(sQ.iterator, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D))
+        sV8b = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        sK8c = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        sV8c = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
+        sK8u = cute.make_tensor(cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sV8u = cute.make_tensor(cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sK8bu = cute.make_tensor(cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sV8bu = cute.make_tensor(cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sK8cu = cute.make_tensor(cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sV8cu = cute.make_tensor(cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        sK16 = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16)
+        sV16 = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16)
+        sVt = cute.composition(sV16, cute.make_layout((D, SR), stride=(SR, 1)))
+        # the cross-warp row-stat slab: [warp][row][max|sum]
+        sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
+        # the P tile (16, 32) bf16 aliasing sK16's head: the QK's ldmatrix
+        # reads complete before the stats-merge barrier, the P writes
+        # follow it, and the next dequant waits behind the post-PV barrier.
+        sP = cute.make_tensor(sK16.iterator, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)))
+
+        for i in cutlass.range_constexpr(MT * D // NT):
+            e = tidx + i * NT
+            R = e // D
+            c = e % D
+            if seqlen_q * G > R:
+                m = R // G
+                r = R % G
+                sQ[R, c] = cutlass.BFloat16(mQ[batch_idx, Int32(m), kv_head * G + r, c])
+            else:
+                sQ[R, c] = cutlass.BFloat16(0.0)
+
+        tiled_mma = cute.make_tiled_mma(
+            MmaF16BF16Op(cutlass.BFloat16, cutlass.Float32, (16, 8, 16)),
+            (1, 4, 1),
+            permutation_mnk=(MT, SR, 16),
+        )
+        thr_mma = tiled_mma.get_slice(tidx)
+        tSrQ = thr_mma.make_fragment_A(thr_mma.partition_A(sQ))
+        tSrK = thr_mma.make_fragment_B(thr_mma.partition_B(sK16))
+        tOrVt = thr_mma.make_fragment_B(thr_mma.partition_B(sVt))
+        acc_S = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
+        acc_S2 = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
+        acc_O = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, D)), cutlass.Float32)
+        acc_O.fill(0.0)
+        n_row_slots = cutlass.const_expr(
+            cute.size(thr_mma.partition_shape_C((MT, SR))[0][0]) * cute.size(thr_mma.partition_shape_C((MT, SR))[1])
+        )
+        row_max = cute.make_rmem_tensor((n_row_slots,), cutlass.Float32)
+        row_sum = cute.make_rmem_tensor((n_row_slots,), cutlass.Float32)
+        row_max.fill(-cutlass.Float32.inf)
+        row_sum.fill(0.0)
+
+        smem_copy_Q = cute.make_tiled_copy_A(
+            cute.make_copy_atom(LdMatrix8x8x16bOp(transpose=False, num_matrices=4), cutlass.BFloat16),
+            tiled_mma,
+        )
+        smem_copy_K = cute.make_tiled_copy_B(
+            cute.make_copy_atom(LdMatrix8x8x16bOp(transpose=False, num_matrices=4), cutlass.BFloat16),
+            tiled_mma,
+        )
+        smem_copy_V = cute.make_tiled_copy_B(
+            cute.make_copy_atom(LdMatrix8x8x16bOp(transpose=True, num_matrices=4), cutlass.BFloat16),
+            tiled_mma,
+        )
+        smem_thr_Q = smem_copy_Q.get_slice(tidx)
+        smem_thr_K = smem_copy_K.get_slice(tidx)
+        smem_thr_V = smem_copy_V.get_slice(tidx)
+        tSsQ = smem_thr_Q.partition_S(sQ)
+        tSsK = smem_thr_K.partition_S(sK16)
+        tOsVt = smem_thr_V.partition_S(sVt)
+        tSsP = smem_thr_Q.partition_S(sP)
+        tSrQ_copy = smem_thr_Q.retile(tSrQ)
+        tSrK_copy = smem_thr_K.retile(tSrK)
+        tOrVt_copy = smem_thr_V.retile(tOrVt)
+        tSrP = thr_mma.make_fragment_A(thr_mma.partition_A(sP))
+        tSrP_copy = smem_thr_Q.retile(tSrP)
+
+        cute.arch.sync_threads()
+        for k in cutlass.range_constexpr(D // 16):
+            cute.copy(smem_copy_Q, tSsQ[None, None, k], tSrQ_copy[None, None, k])
+        cute.arch.sync_threads()
+
+        n_stages = cute.ceil_div(kv_len_c, SR)
+        if kv_len_c > 0:
+            self.g2s_stage(
+                mK,
+                mV,
+                mPageTable,
+                sK8,
+                sK8b,
+                sK8c,
+                sV8,
+                sV8b,
+                sV8c,
+                tidx,
+                kv_start,
+                0,
+                kv_len_c,
+                num_head_kv,
+                kv_head,
+                batch_idx,
+                kv_row0,
+                0,
+            )
+            cute.arch.cp_async_commit_group()
+            self.g2s_stage(
+                mK,
+                mV,
+                mPageTable,
+                sK8,
+                sK8b,
+                sK8c,
+                sV8,
+                sV8b,
+                sV8c,
+                tidx,
+                kv_start,
+                cutlass.min(SR, kv_len_c - 1),
+                kv_len_c,
+                num_head_kv,
+                kv_head,
+                batch_idx,
+                kv_row0,
+                1,
+            )
+            cute.arch.cp_async_commit_group()
+        for stage in cutlass.range(n_stages):
+            par = stage % 3
+            row0 = stage * SR
+            row0_next = cutlass.min((stage + 2) * SR, kv_len_c - 1)
+            self.g2s_stage(
+                mK,
+                mV,
+                mPageTable,
+                sK8,
+                sK8b,
+                sK8c,
+                sV8,
+                sV8b,
+                sV8c,
+                tidx,
+                kv_start,
+                row0_next,
+                kv_len_c,
+                num_head_kv,
+                kv_head,
+                batch_idx,
+                kv_row0,
+                (stage + 2) % 3,
+            )
+            cute.arch.cp_async_commit_group()
+            cute.arch.cp_async_wait_group(2)
+            cute.arch.sync_threads()
+
+            srcu_k = sK8u
+            srcu_v = sV8u
+            if par == 1:
+                srcu_k = sK8bu
+                srcu_v = sV8bu
+            if par == 2:
+                srcu_k = sK8cu
+                srcu_v = sV8cu
+            for i in cutlass.range_constexpr(SR * D // NT // 4):
+                e4 = (tidx + i * NT) * 4
+                r = e4 // D
+                c = e4 % D
+                qk = srcu_k[e4 // 4]
+                qp = cute.arch.prmt(qk, qk, 0x1302)
+                out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                sK16[r, c] = (out1 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sK16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sK16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sK16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                qv = srcu_v[e4 // 4]
+                qp = cute.arch.prmt(qv, qv, 0x1302)
+                out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                sV16[r, c] = (out1 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sV16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sV16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sV16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+            cute.arch.sync_threads()
+
+            acc_S.fill(0.0)
+            acc_S2.fill(0.0)
+            for k in cutlass.range_constexpr(D // 16):
+                cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
+            for k in cutlass.range_constexpr(D // 32):
+                cute.gemm(tiled_mma, acc_S, tSrQ[None, None, k], tSrK[None, None, k], acc_S)
+                cute.gemm(tiled_mma, acc_S2, tSrQ[None, None, k + D // 32], tSrK[None, None, k + D // 32], acc_S2)
+            for i in cutlass.range_constexpr(cute.size(acc_S)):
+                acc_S[i] = acc_S[i] + acc_S2[i]
+
+            # the row stats: the per-warp partial max over THIS warp's 8
+            # S columns (the quad butterfly), stored to the slab; the
+            # merge after the barrier gives every warp the global row max.
+            acc_S_mn = self._acc_mn_view(acc_S)
+            acc_O_mn = self._acc_mn_view(acc_O)
+            mcS = cute.make_identity_tensor((1, 1, MT, SR))
+            cS = mcS[0, 0, None, None]
+            tScS_mn = self._acc_mn_view(thr_mma.partition_C(cS))
+            for r in cutlass.range_constexpr(n_row_slots):
+                row = tScS_mn[r, 0][2]
+                m_local = -cutlass.Float32.inf
+                tok = row // G
+                for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
+                    stage_row = row0 + tScS_mn[0, c][3]
+                    gk = kv_start + stage_row
+                    lim = kv_len - seqlen_q + tok
+                    if stage_row < kv_len_c and gk <= lim:
+                        m_local = cute.arch.fmax(m_local, acc_S_mn[r, c])
+                m_local = cute.arch.fmax(
+                    m_local,
+                    cute.arch.shuffle_sync_bfly(m_local, offset=2, mask=-1, mask_and_clamp=31),
+                )
+                m_local = cute.arch.fmax(
+                    m_local,
+                    cute.arch.shuffle_sync_bfly(m_local, offset=1, mask=-1, mask_and_clamp=31),
+                )
+                if m_local == -cutlass.Float32.inf:
+                    m_local = Float32(0.0)
+                if tidx % 4 == 0:
+                    sStat[(warp * MT + row) * 2] = m_local
+            cute.arch.sync_threads()
+            for r in cutlass.range_constexpr(n_row_slots):
+                row = tScS_mn[r, 0][2]
+                m_new = -cutlass.Float32.inf
+                for w in cutlass.range_constexpr(4):
+                    m_new = cute.arch.fmax(m_new, sStat[(w * MT + row) * 2])
+                if m_new == -cutlass.Float32.inf:
+                    m_new = Float32(0.0)
+                # the deferred-frame anchor: the first stage sets it; the
+                # re-anchor only on the >60-log2 drift.
+                if row_max[r] == -cutlass.Float32.inf:
+                    row_max[r] = m_new
+                elif (m_new - row_max[r]) * scale_eff > 60.0:
+                    factor = cute.math.exp2((row_max[r] - m_new) * scale_eff, fastmath=True)
+                    for c in cutlass.range_constexpr(cute.size(acc_O_mn.shape[1])):
+                        acc_O_mn[r, c] = acc_O_mn[r, c] * factor
+                    row_sum[r] = row_sum[r] * factor
+                    row_max[r] = m_new
+
+            # the P into acc_S + the (16, 32) bf16 tile; the per-warp
+            # partial sums to the slab for the second merge.
+            for r in cutlass.range_constexpr(n_row_slots):
+                row = tScS_mn[r, 0][2]
+                tok = row // G
+                for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
+                    stage_row = row0 + tScS_mn[0, c][3]
+                    p = Float32(0.0)
+                    if stage_row < kv_len_c and kv_start + stage_row <= kv_len - seqlen_q + tok:
+                        p = cute.math.exp2(acc_S_mn[r, c] * scale_eff - row_max[r] * scale_eff, fastmath=True)
+                    acc_S_mn[r, c] = p
+                    sP[row, Int32(tScS_mn[0, c][3])] = p.to(cutlass.BFloat16)
+            for r in cutlass.range_constexpr(n_row_slots):
+                s_partial = Float32(0.0)
+                for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
+                    s_partial += acc_S_mn[r, c]
+                if tidx % 4 == 0:
+                    row = tScS_mn[r, 0][2]
+                    sStat[(warp * MT + row) * 2 + 1] = s_partial
+            cute.arch.sync_threads()
+            for r in cutlass.range_constexpr(n_row_slots):
+                row = tScS_mn[r, 0][2]
+                s_total = Float32(0.0)
+                for w in cutlass.range_constexpr(4):
+                    s_total += sStat[(w * MT + row) * 2 + 1]
+                row_sum[r] += s_total
+
+            # the PV: the A = the ldmatrix from the COMPLETED smem P tile
+            # (each warp wrote its own columns; the barrier above makes
+            # the tile whole) — the per-warp B covers its d-quarter.
+            for k in cutlass.range_constexpr(SR // 16):
+                cute.copy(smem_copy_Q, tSsP[None, None, k], tSrP_copy[None, None, k])
+            for k in cutlass.range_constexpr(cute.size(tOrVt.layout.shape[2])):
+                cute.copy(smem_copy_V, tOsVt[None, None, k], tOrVt_copy[None, None, k])
+                cute.gemm(tiled_mma, acc_O, tSrP[None, None, k], tOrVt[None, None, k], acc_O)
+            cute.arch.sync_threads()
+
         self.epilogue(
             acc_O,
             row_max,
