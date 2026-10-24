@@ -97,6 +97,11 @@ class MMADecodeKernel:
         import os
 
         self.small_tile = os.environ.get("MJOLNIR_MMA16", "") == "1"
+        # The 3-CTA occupancy probe: nvvm.minctasm (= __launch_bounds__
+        # min-blocks) makes ptxas cap the registers to <=170/thread.
+        # Probe only — the smem still binds at 2 CTAs until the register
+        # paths land, so this measures the cap's spill/ILP cost alone.
+        self.regcap = os.environ.get("MJOLNIR_REGCAP", "") == "1"
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -152,6 +157,7 @@ class MMADecodeKernel:
             ).launch(
                 grid=(cute.size(mV.shape[-2]), num_splits, batch_size),
                 block=[self.NUM_THREADS, 1, 1],
+                min_blocks_per_mp=3 if self.regcap else 0,
                 stream=stream,
             )
             return
