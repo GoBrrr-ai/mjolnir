@@ -752,3 +752,34 @@ via cvta.to.shared inside the asm block). Parked — measured inert.
 
 Point 2 CLOSED. The lever stays the 96 KB in-flight config (register path
 K+V, sQ split-staging, 4-pair ring — increments 1-3).
+
+### The ncu verdict: the kernel is ARITHMETIC-bound, not memory-bound (2026-10-24)
+
+Profiled the 128 KB/SM build vs FI at 16K M=1 (the stall cycles per
+issued instruction):
+
+  ours:   wait .36 | math_pipe_throttle .12 | short_sb .03 | LONG_SB .027
+  FI:     LONG_SB .31 | wait .155 | short_sb .08 | barrier .075 | math .047
+
+Both run 255 regs -> 8 warps/SM. FI is DRAM-latency-bound AND STILL 1.6x
+FASTER; we stall on fixed-latency ALU chains + the math pipe. The
+in-flight bytes were never the lever: 2/3/4 groups in flight measured
+363.8/377.6/388.5 us (the monotonic WORSE — the register paths' 2-pass
+dequant costs, not the ring). The L2 window + the fetch-granularity
+results now have their mechanism: nothing memory-side was ever the cap.
+
+THE STRUCTURAL COST: the M tile is 64 rows; q_len*6 <= 48 are real. The
+P/softmax/acc_O work per KV byte scales with MT — ours processes 64
+P-values per KV row where FI (CTA_TILE_Q=16) processes 16 — 4x the
+compute per byte. The padded-band skip (warp-uniform, compile-time
+per seqlen_q) measured NEUTRAL — the softmax was not the throttle
+either; the acc/softmax work is structural to MT=64.
+
+MEASUREMENT HYGIENE: a timed-out gate run left a DEADLOCKED container
+spinning on the GPU for 33 min; the FI leg read 2.2x slow until
+`docker rm -f` — after any timeout, `docker ps` for leftovers before
+trusting a number.
+
+The register paths (the even/odd 2-pass dequant, /tmp/opencode/
+regpath.patch + the ring tree edits) are archived; the tree reverts to
+b198fbd. The next real move is the M-tile redesign (below).
