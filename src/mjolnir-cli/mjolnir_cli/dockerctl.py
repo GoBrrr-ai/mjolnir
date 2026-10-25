@@ -424,6 +424,15 @@ def build_run_args(
             "FLASHINFER_CUDA_ARCH_LIST=8.7",
             "-e",
             "CUTE_DSL_ARCH=sm_87",
+            # torch 2.13's expandable segments query NVML fabric info when
+            # creating a segment; the Orin's NVML has no fabric info and the
+            # query hard-fails at the first allocation ("Expected
+            # NVML_SUCCESS == ...nvmlDeviceGetGpuFabricInfoV_"). The Thor's
+            # NVML implements it, so _CONTAINER_ENV's expandable_segments:True
+            # stays there; the plain caching allocator loses nothing that
+            # matters on the unified-memory board.
+            "-e",
+            "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False",
         ]
     for kv in backend_env(s):
         cmd += ["-e", kv]
