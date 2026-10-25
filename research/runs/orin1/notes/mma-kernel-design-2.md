@@ -657,3 +657,36 @@ normalized bf16 O + the fp32 LSE is the FI's shipped posture).
   owned window: the shared vLLM server is DOWN (the gate UNREACHABLE,
   no containers) -- starting the smoke container is safe, the benches
   are not.
+
+## Session 6c: the smoke verdict + the correctness bisect
+
+The serve smoke PASSED (healthy 385s: the merged config, the MJOLNIR
+backend, the sm_87 kernels compiled fresh 45s, the weights 17.6GiB,
+the graphs captured) -- and the server GENERATES, but with a degenerate
+"Register Register Register" loop: a correctness bug in the serving
+path, not sampling noise (persists greedy + thinking-off).
+
+Bisect (each step one eager restart, ~3 min, the same 17*23 probe):
+1. eager (MJOLNIR, no graphs): LOOPS -> not the capture path.
+2. AWQ_FLASHINFER (pure FI, same image/model/template): PERFECT ->
+   the model/image/GDN/template all fine; the bug is the Mjolnir
+   serving path. (Also: vLLM 0.32 renamed the layouts -- HND is an
+   alias of LBHNC; the log line is correct, not a bug.)
+3. MJOLNIR_ATTN_DRAFT_T5=0 (the drafter's MTP layers on FI): PERFECT,
+   byte-identical to FI -> the TARGET decode + the verify (q_len 4,
+   mt32) on Mjolnir are CLEAN; the bug is the DRAFTER's layers on
+   Mjolnir (the MTP head's draft steps).
+
+Two serving-path bugs found and fixed en route (both committed):
+- the shared backend's ensure_compiled(q_len, with_reduction, causal)
+  -- the Thor's positional layout -- hit the Orin's
+  (q_len, causal, num_pages, batch, max_blocks): the args shifted and
+  the dummy pool size became a bool. The Orin now takes the Thor
+  layout; with_reduction is a no-op there.
+- the Orin runner lacked kv_row_bytes (the shared _kv_views needs it).
+
+The remaining suspects for the draft-path bug: the fp8 Q path in the
+drafter's shape, the split-KV combine, or the drafter's pool/block
+table handling. Next bisects: MJOLNIR_ATTN_MAX_QLEN=1 (the verify on
+FI, the draft still Mjolnir), then MJOLNIR_ATTN_Q_DTYPE=bf16 and
+MJOLNIR_ATTN_MAX_SPLITS=1.
