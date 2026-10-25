@@ -41,6 +41,7 @@ from mjolnir.runner import (
     _disk_store,
 )
 from . import decode as gemv
+from .combine import combine_launch
 from .plan import BLOCKS_PER_SM, COMBINE_MAX_SPLITS
 
 _log = logging.getLogger("vllm.mjolnir")
@@ -179,6 +180,7 @@ class GEMVDecodeRunner:
         self._o_part = torch.empty(self.ns_cap * rows_cap * self.h_q * self.d, dtype=torch.float32, device=dev)
         self._lse_part = torch.empty(self.ns_cap * self.h_q * rows_cap, dtype=torch.float32, device=dev)
         self._rows_cap = rows_cap
+        self._combine_fns: dict = {}  # (b, ql) -> the fused combine (combine.py)
 
     # ------------------------------------------------------------------ plan
     def n_tiles(self, q_len: int) -> int:
@@ -447,25 +449,41 @@ class GEMVDecodeRunner:
         return pack[: rows * self.h_q * self.d].view(rows, self.h_q, self.d).reshape(-1)
 
     def _combine(self, b: int, ql: int, out: torch.Tensor):
-        """The chunk-normalized LSE combine (torch, static shapes per
-        capture): O = Σ_s exp(lse_s − L)·O_s with L = max + log Σ exp."""
+        """The chunk-normalized LSE combine: O = Σ_s exp(lse_s − L)·O_s
+        with L = max + log Σ exp. One fused kernel (combine.py) — the
+        eager torch form issued ~20 small kernels (~150 us of GPU per
+        call, more than the decode kernel itself). Compiled once per
+        capacity config; the shapes are runtime Int32s so one binary
+        serves every capture size. Capture paths must warm up before
+        capture (the vLLM backend does)."""
         rows = b * ql
         ns = self.ns_cap
-        o_p = self._o_part[: ns * rows * self.h_q * self.d].view(ns, rows, self.h_q, self.d)
-        l_p = (
-            self._lse_part[: ns * rows * self.h_q]
-            .view(ns, b, self.h_q, ql)
-            .permute(0, 2, 1, 3)
-            .reshape(ns, self.h_q, rows)
-        )
-        l0 = l_p.max(dim=0).values  # (h_q, rows)
-        w = (l_p - l0.unsqueeze(0)).exp()  # (ns, h_q, rows): -inf splits -> 0
-        o = (o_p.permute(1, 0, 2, 3) * w.permute(2, 0, 1).unsqueeze(-1)).sum(dim=1)
-        o = o / w.sum(dim=0).permute(1, 0).unsqueeze(-1).clamp_min(torch.finfo(torch.float32).tiny)
-        tokens = b * ql
-        out = out[:tokens]
-        target = out.view(tokens, self.h_q, self.d) if out.dim() == 2 else out
-        target.copy_(o.reshape(tokens, self.h_q, self.d).to(target.dtype))
+        # raw torch tensors (the TVM-FFI convention, like _torch_args);
+        # one compiled variant per (batch, q_len) — the shapes the FFI
+        # bakes. The buffers are the capacity flats (fixed at init).
+        args = (self._o_part, self._lse_part, out.view(-1), ns, rows, self.h_q, b, ql)
+        key = (b, ql)
+        fn = self._combine_fns.get(key)
+        if fn is None:
+            if torch.cuda.is_current_stream_capturing():
+                raise RuntimeError("the combine kernel must be compiled before CUDA-graph capture")
+            import cutlass.cute as cute
+            from cutlass import Int32
+
+            fn = cute.compile(
+                combine_launch,
+                self._cute(self._o_part, assumed_align=4),
+                self._cute(self._lse_part, assumed_align=4),
+                self._cute(out.view(-1), assumed_align=4),
+                Int32(ns),
+                Int32(rows),
+                Int32(self.h_q),
+                Int32(b),
+                Int32(ql),
+                options="--opt-level 2 --enable-tvm-ffi",
+            )
+            self._combine_fns[key] = fn
+        fn(*args)
 
     def run(
         self,
