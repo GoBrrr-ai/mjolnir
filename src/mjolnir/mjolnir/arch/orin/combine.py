@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import cutlass
 import cutlass.cute as cute
+import cuda.bindings.driver as cuda
 from cutlass import Float32, Int32
 
 D = 256  # the MMA kernel's HEAD_DIM
@@ -97,8 +98,10 @@ def combine_launch(
     h_q: Int32,
     b: Int32,
     ql: Int32,
+    stream: cuda.CUstream = None,
 ):
     combine_kernel(mO_part, mLse, mOut, max_ns, ns, rows, h_q, b, ql).launch(
         grid=(rows * h_q, 1, 1),
         block=(NUM_THREADS, 1, 1),
+        stream=stream,
     )
