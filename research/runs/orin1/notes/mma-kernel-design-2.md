@@ -852,3 +852,21 @@ state. Next debug session: dump the drafter's per-step qsum/kvsum
 trend against a run where the drafter is on FI (config A) and diff
 the MTP pool's page-169 content growth; the fused-draft ql=4 calls
 (29 of them) are also unexplained vs the 60 ql=1 calls.
+
+## Session 7 wrap: the open-item sweep
+
+1. **ns_cap=1**: FIXED + validated (the combine always runs; the
+   MAX_SPLITS=1 serve generates the identical clean derivation).
+2. **The kernel-exexecution question**: CLOSED -- 553 T5-branch calls
+   in one completion; the kernels run. The old zero-dump: the
+   EngineCore swallows raw stdout (the file append sees everything).
+3. **The draft-step bug**: the margin double-count FOUND + FIXED (the
+   cu == the seq_lens per the t5 contract); the C-loop PERSISTS --
+   the residual is drafter-side tensor content, parked with the
+   precise findings (the B verdict above). The pin stays; A at
+   2.10/round is the shipped state.
+4. **Phase-2 Q-tiling**: NO-GO, data-backed -- the mma variants sit at
+   REG=254-255 (the ceiling) in the cached sm_87 fatbins.
+5. **bench e2e**: LAUNCHED (the owned window; the official
+   AWQ_FLASHINFER vs the Mjolnir AWQ_MJOLNIR, the depths 0-32K, the
+   conc 1/2/4). bench accuracy: queued after it.
