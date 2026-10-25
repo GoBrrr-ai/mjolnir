@@ -25,6 +25,7 @@ def serve_up(
     wait: bool = typer.Option(True, "--wait/--no-wait", help="wait for /health before returning"),
     wait_timeout: float = typer.Option(1800.0, "--wait-timeout"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    env: list[str] = typer.Option([], "--env", help="extra container env KEY=VALUE (repeatable)"),
 ):
     """Start the vLLM server (custom image, config from --model/--config).
     Anything after the flags is forwarded to ``vllm serve`` (e.g.
@@ -37,7 +38,14 @@ def serve_up(
     if stale:
         typer.secho(f"warning: {stale}", fg=typer.colors.YELLOW, err=True)
     try:
-        dockerctl.serve_up(s, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run, serve_args=tuple(ctx.args))
+        dockerctl.serve_up(
+            s,
+            wait=wait,
+            wait_timeout_s=wait_timeout,
+            dry_run=dry_run,
+            serve_args=tuple(ctx.args),
+            extra_env=tuple(env),
+        )
     except (dockerctl.DockerError, TimeoutError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from e
