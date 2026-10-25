@@ -600,7 +600,15 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             q_len,
             cam.block_table_tensor,
             cam.seq_lens,
-            margin=self._plan_margin,
+            # NO margin. The t5 contract (the kernel's causal tail) is that
+            # seq_lens INCLUDE the query tokens, so cu_seqlens must equal
+            # them exactly. The fused-draft margin (num_speculative_tokens)
+            # double-counted them: every row attended num_spec stale KV
+            # rows past the true context -- the draft steps degraded
+            # (acceptance 0.69) and with the Mjolnir drafter the poisoned
+            # proposals scored 0.0 and the output looped (2026-10-25, the
+            # file debug dump: lens=[22] cu=[0, 25] on a ql=1 step).
+            margin=0,
             causal=causal,
         )
         # Never compiled inside graph capture: build() runs outside it.
