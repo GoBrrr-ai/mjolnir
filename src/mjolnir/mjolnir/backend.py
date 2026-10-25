@@ -849,7 +849,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     f"cu={runner._cu[: n + 1].tolist()} "
                     f"bt0={md.plan.block_table[0, :4].tolist()} "
                     f"slots={md.slot_mapping[:6].tolist()} "
-                    f"kc={tuple(k_cache.shape)} id={(id(k_cache) // 64) % 100000}\n"
+                    f"kc={tuple(k_cache.shape)} ptr={k_cache.data_ptr()}\n"
                 )
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
