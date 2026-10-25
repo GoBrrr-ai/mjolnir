@@ -1,0 +1,78 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "vllm",
+ "run_id": "20261025-212810",
+ "ts": "2026-10-25T21:29:52+00:00",
+ "default": true,
+ "host": "agx-orin-dev",
+ "image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "aa03c5c",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "smoke_modes": "",
+  "model": "Qwen/Qwen3-0.6B",
+  "tokens": 128,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "cases": [
+  {
+   "label": "runner test_backend_runner_picks_the_kernel_and_caps_the_splits",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261025-212810/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_graph_replay_reads_the_current_seq_lens",
+   "passed": false,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261025-212810/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_kv_len_follows_the_live_seq_lens_not_the_plan",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261025-212810/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_mtp_verify_shape",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261025-212810/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_non_causal_block",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261025-212810/vllm/test_runner.log"
+  },
+  {
+   "label": "runner test_padding_rows_are_zero_not_nan",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261025-212810/vllm/test_runner.log"
+  }
+ ],
+ "summary": {
+  "passed": 5,
+  "failed": 1
+ }
+}

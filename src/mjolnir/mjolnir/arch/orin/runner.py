@@ -40,6 +40,7 @@ from mjolnir.runner import (
     SUPPORTED_PAGE_SIZES,
     _disk_load,
     _disk_store,
+    _stream,
 )
 from . import decode as gemv
 from .combine import combine_launch
@@ -110,7 +111,12 @@ class GEMVDecodeRunner:
         sm_count: int | None = None,
     ):
         self.impl = impl
-        self._variant = _mma_variant() if impl == "mma" else ""  # read once: _key() is per call
+        # "+s1": the launch passes the stream as an explicit trailing arg
+        # (the Thor convention). The pre-s1 binaries were traced with the
+        # TVM-FFI env-stream marker instead -- a DIFFERENT signature (the
+        # stream skipped from the args) that also escaped every CUDA-graph
+        # capture. The marker orphans every pre-s1 disk entry.
+        self._variant = (_mma_variant() if impl == "mma" else "") + "+s1"  # read once: _key() is per call
         if impl == "mma":
             from mjolnir.arch.orin import mma as mma_kernel
 
@@ -309,9 +315,7 @@ class GEMVDecodeRunner:
 
     def _compile_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table, cu=None):
         """The compile-time argument tuple: cute tensors (they bind dtypes,
-        shapes and the Constexpr M) + the fake TVM-FFI env stream."""
-        import cutlass.cute as cute
-
+        shapes and the Constexpr M) + a real stream (see the tail)."""
         rows = b * key.q_len
         ns = self.ns_cap if key.split else 1
         m_q = self._cute(q[:rows].view(b, key.q_len, self.h_q, self.d))
@@ -349,7 +353,12 @@ class GEMVDecodeRunner:
             0,  # seqlen_k: unused on the varlen-k path (cu_seqlens_k rules)
             0.0,  # softmax_scale_log2 (runtime)
             ns,  # num_splits (runtime grid.y)
-            cute.runtime.make_fake_stream(use_tvm_ffi_env_stream=True),
+            # A REAL stream so the traced signature keeps it as an ordinary
+            # launch arg (the Thor convention). The fake env-stream marker
+            # instead SKIPS the param and reads the FFI env at launch —
+            # which no caller sets, so the kernel launched on the default
+            # stream and ESCAPED every torch.cuda.graph capture.
+            _stream(),
         )
 
     def _torch_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table):
@@ -504,7 +513,7 @@ class GEMVDecodeRunner:
         # raw torch tensors (the TVM-FFI convention, like _torch_args);
         # one compiled variant per (batch, q_len) — the shapes the FFI
         # bakes. The buffers are the capacity flats (fixed at init).
-        args = (self._o_part, self._lse_part, out.view(-1), ns, rows, self.h_q, b, ql)
+        args = (self._o_part, self._lse_part, out.view(-1), ns, rows, self.h_q, b, ql, _stream())
         key = (b, ql)
         fn = self._combine_fns.get(key)
         if fn is None:
@@ -524,6 +533,7 @@ class GEMVDecodeRunner:
                 Int32(self.h_q),
                 Int32(b),
                 Int32(ql),
+                _stream(),  # a real stream arg (see _compile_args)
                 options="--opt-level 2 --enable-tvm-ffi",
             )
             self._combine_fns[key] = fn
@@ -563,6 +573,11 @@ class GEMVDecodeRunner:
                 k_cache = k_cache.view(torch.float8_e4m3fn)
             if v_cache.dtype == torch.uint8:
                 v_cache = v_cache.view(torch.float8_e4m3fn)
+        # The compile bakes the pool's page size (every tensor dim is in the
+        # TVM-FFI signature); a mismatched pool would read garbage strides.
+        assert k_cache.shape[1] == self.page_size and v_cache.shape[1] == self.page_size, (
+            f"the pool page size {tuple(k_cache.shape[1:3])} != the runner's {self.page_size}"
+        )
         # Materialize the (b, h_k) descales (one captured broadcast each).
         self._scale_buf(self._kd, b, k_scale)
         self._scale_buf(self._vd, b, v_scale)
@@ -584,7 +599,15 @@ class GEMVDecodeRunner:
             )
         self._fill_cu(plan.seq_lens, b)
         launch = self._torch_args(key, b, q3, out, k_cache, v_cache, plan.block_table)
-        launch = (*launch, float(softmax_scale) * math.log2(math.e), self.ns_cap if key.split else 1)
+        # The stream is an ordinary trailing launch arg, resolved to torch's
+        # CURRENT stream per call: the capture stream during torch.cuda.graph
+        # capture (so the kernel enters the graph), the live stream otherwise.
+        launch = (
+            *launch,
+            float(softmax_scale) * math.log2(math.e),
+            self.ns_cap if key.split else 1,
+            _stream(),
+        )
         fn(*launch)
         if key.split:
             self._combine(b, ql, out)
