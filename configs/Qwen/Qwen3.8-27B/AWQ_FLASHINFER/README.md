@@ -16,7 +16,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 | KV cache | fp8 · skip: sliding_window |
 | Attention backend | FLASHINFER |
 | Spec decode | MTP ×3 |
-| GPU memory util | 0.90 |
+| GPU memory util | 0.72 |
 | Parsing | qwen3_coder / qwen3 |
 
 ## Serve

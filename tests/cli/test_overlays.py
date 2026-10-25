@@ -212,25 +212,25 @@ def test_validate_error_for_an_unmapped_backend_names_the_backend_value():
             "orin",
             {"kv-cache-dtype": "fp8", "attention-backend": "FLASH_ATTN"},
             "orin: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN'"
-            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+            " — fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)",
         ),
         (
             "thor",
             {"kv-cache-dtype": "fp8", "attention-backend": "FLASH_ATTN"},
             "thor: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN'"
-            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+            " — fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)",
         ),
         (
             "spark",
             {"kv-cache-dtype": "fp8", "attention-backend": "FLASH_ATTN"},
             "spark: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN'"
-            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+            " — fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)",
         ),
         (
             "orin",
             {"kv-cache-dtype": "fp8", "attention-config": {"backend": "flash_attn", "flash_attn_version": 4}},
             "orin: kv-cache-dtype 'fp8' cannot be served with attention-backend 'FLASH_ATTN@4'"
-            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+            " — fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)",
         ),
         (
             "thor",
@@ -250,7 +250,7 @@ def test_validate_error_for_an_unmapped_backend_names_the_backend_value():
             "thor",
             {"kv-cache-dtype": "fp8", "attention-backend": "TRITON_KITCHEN_SINK"},
             "thor: kv-cache-dtype 'fp8' cannot be served with attention-backend 'TRITON_KITCHEN_SINK'"
-            " — fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only",
+            " — fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)",
         ),
     ],
 )

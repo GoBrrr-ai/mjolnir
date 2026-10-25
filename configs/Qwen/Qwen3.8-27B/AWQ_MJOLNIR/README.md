@@ -1,22 +1,36 @@
-# AWQ_MJOLNIR — Qwen3.8-27B on Jetson Orin (sm_87), the Mjolnir decode kernels
+# Qwen/Qwen3.8-27B
 
-twolven's AWQ (compressed-tensors int4 W4A16, the built-in MTP head) with the
-fp8 KV on the Mjolnir Orin kernels: the FMA GEMV and the `mma.m16n8k16`
-decode kernel (both hd 256, fp8 KV, q_len ≤ 8 — the MTP K=3 verify shape is
-q_len 4). The weights ride Marlin W4A16 (the native int4 path on sm_87); the
-prefill and the mixed steps ride the fallback — resolved automatically:
-the FA4 default fails its fp8-KV probe on sm_87 and the backend downgrades
-to FlashInfer (`MJOLNIR_ATTN_FALLBACK=FLASHINFER` forces it explicitly if
-ever needed).
+`AWQ_MJOLNIR` — compressed-tensors · serving profile. Flags live in
+[config.yaml](config.yaml), platform deltas in [platforms/](platforms/); every number on
+this page derives from the committed raw data ([history](../../../../benchmarks/history.jsonl), [raw](../../../../benchmarks/raw/)). The model's [README](../README.md).
 
-The AGX Orin 64GB memory/batch tuning lives in `platforms/orin.yaml` (shared
-with AWQ_FLASHINFER). fp8 KV ships no scales (the checkpoint has none; the
-descales default to 1.0 — the same posture as AWQ_FLASHINFER).
+## Serving profile
 
-## Status
+| parameter | Orin |
+|---|---|
+| Checkpoint | `twolven/Qwen3.8-27B-abliterated-AWQ-MTP` |
+| Format | compressed-tensors |
+| Max context | 190K |
+| Max concurrency | 5 |
+| Prefill chunk | 8K |
+| KV cache | fp8 · skip: sliding_window |
+| Attention backend | MJOLNIR |
+| Spec decode | MTP ×3 |
+| GPU memory util | 0.72 |
+| Parsing | qwen3_coder / qwen3 |
 
-- [ ] serve smoke on the AGX Orin (the first vLLM-path test for this family —
-      `verify vllm` is N/A until the hd128 widening or a hd256 smoke model)
-- [ ] `bench e2e` vs AWQ_FLASHINFER (restarts the server per leg — needs an
-      owned window)
-- [ ] `bench accuracy`
+## Serve
+
+**Jetson Orin**
+```bash
+mjolnir serve up --config AWQ_MJOLNIR
+```
+Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
+
+Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=AWQ_MJOLNIR).
+
+## Benchmarks
+
+**no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `Qwen/Qwen3.8-27B` / `AWQ_MJOLNIR` on Jetson Orin so far.
+
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#kernel), one chapter per verify stage.

@@ -18,6 +18,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+import yaml
+
 from mjolnir_cli import cachectl, overlays
 from mjolnir_cli.config import (
     CONTAINER_NAME,
@@ -330,6 +332,29 @@ def _container_path(s: Settings, host: Path) -> str:
         return f"{LOCAL_CONFIGS_MOUNT}/{s.model}/{rel}"
 
 
+def serving_config(s: Settings) -> tuple[Path, str] | None:
+    """(host file, container path) of the config the server actually receives:
+    the platform overlay deep-merged over ``config.yaml`` and written under
+    the data dir when the config carries one for this platform, else ``None``
+    (the plain config passes through). The overlay must reach vLLM, not only
+    the validate gate — ``validate_serving`` checks the merge but the merge
+    itself was silently dropped before this existed (the Orin tuning —
+    utilization, max-num-seqs, max-model-len — never applied to a serve)."""
+    if s.platform is None:
+        return None
+    overlay = overlays.load_overlay(Path(s.config_path).parent, s.platform)
+    if not overlay:
+        # no overlay, or an empty marker one (a platforms/ file that only
+        # lists the platform): the plain config passes through unchanged
+        return None
+    base = yaml.safe_load(Path(s.config_path).read_text())
+    merged = overlays.merge_config(base or {}, overlay)
+    out = s.data_dir / "serve" / f"{s.model.replace('/', '--')}--{s.quant}--{s.platform}.yaml"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.safe_dump(merged, sort_keys=False))
+    return Path(out), "/data/serve-config.yaml"
+
+
 def build_run_args(
     s: Settings,
     image: str | None = None,
@@ -393,9 +418,12 @@ def build_run_args(
     # last -e wins). An explicit extra_env entry still wins over these.
     if getattr(s, "platform", None) == "orin":
         cmd += [
-            "-e", "TORCH_CUDA_ARCH_LIST=8.7",
-            "-e", "FLASHINFER_CUDA_ARCH_LIST=8.7",
-            "-e", "CUTE_DSL_ARCH=sm_87",
+            "-e",
+            "TORCH_CUDA_ARCH_LIST=8.7",
+            "-e",
+            "FLASHINFER_CUDA_ARCH_LIST=8.7",
+            "-e",
+            "CUTE_DSL_ARCH=sm_87",
         ]
     for kv in backend_env(s):
         cmd += ["-e", kv]
@@ -408,6 +436,7 @@ def build_run_args(
         cmd += ["-e", f"HF_HUB_CACHE={HF_DOWNLOAD_DIR}"]
 
     d = s.data_dir
+    serving = serving_config(s)
     mounts = [
         (str(d / "models"), "/data/models"),
         (str(d / "cache"), "/data/cache"),
@@ -434,6 +463,8 @@ def build_run_args(
     # under /configs.
     if is_local_config(s):
         mounts.append((str(user_configs_dir() / s.model), f"{config_model_dir(s)}:ro"))
+    if serving is not None:
+        mounts.append((str(serving[0]), serving[1]))
     mounts += list(extra_mounts)
     for host, container in mounts:
         if host.startswith("/data") is False and not Path(host).exists() and not host.startswith(("/dev/shm", "/etc/")):
@@ -445,7 +476,7 @@ def build_run_args(
 
     serve = (
         "vllm serve "
-        f"--config {config_model_dir(s)}/{s.quant}/config.yaml "
+        f"--config {(serving[1] if serving else f'{config_model_dir(s)}/{s.quant}/config.yaml')} "
         "--host 0.0.0.0 "
         "--cpu-offload-gb 0 "
         "--pipeline-parallel-size 1 "
