@@ -160,7 +160,12 @@ class GEMVDecodeRunner:
                 (blocks_per_sm * sm_count + self.h_k - 1) // self.h_k,
             )
         )
-        self.split = self.ns_cap > 1
+        # The mma kernel always uses the fixed split-KV grid and writes
+        # partials, so the combine must ALWAYS run -- it is exact at ns=1
+        # (one partial merges to itself). With split tied to ns_cap>1 the
+        # ns_cap=1 config skipped the combine and the output was never
+        # merged: total noise on serve (2026-10-25).
+        self.split = True
         self.kv_stages = kv_stages
         self.tile = tile
 
