@@ -926,6 +926,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 p = self._dbg_pending
                 self._dbg_pending = None
                 tag = "mtp" if "mtp" in str(p["layer"]) else "tgt"
+                torch.cuda.synchronize()  # the write-lag test: sync EVERYTHING
                 p["out"] = output.detach().float().cpu().numpy()
                 p["scale"] = float(self.scale)
                 p["opart_sum"] = float(runner._o_part.float().abs().sum().item())
