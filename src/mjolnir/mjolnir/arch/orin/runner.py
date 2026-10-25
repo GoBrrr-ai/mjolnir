@@ -475,6 +475,7 @@ class GEMVDecodeRunner:
                 self._cute(self._o_part, assumed_align=4),
                 self._cute(self._lse_part, assumed_align=4),
                 self._cute(out.view(-1), assumed_align=4),
+                Int32(ns),  # max_ns: the unroll bound (= ns_cap, runner-fixed)
                 Int32(ns),
                 Int32(rows),
                 Int32(self.h_q),

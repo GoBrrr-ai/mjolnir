@@ -120,8 +120,9 @@ per (kv-head, chunk) computes all M rows, KV read once; LeanAttention
 4. **Harness + verify wiring**: ✅ landed — `mjolnir verify` dispatches to
    this family (the correctness sweep; the headline `sweep` runs the
    events-timed same-run comparison vs the FlashInfer FA2-TC reference on
-   the stock image — no ncu exists on L4T, so wall clock carries the
-   headline data and the ncu-profiled stages refuse with a clear error).
+   the stock image. ncu exists on L4T (JP7 ships it) and the
+   ncu-profiled stages run on-device; the headline `sweep` stays
+   events-timed by design — same-run ratios under locked clocks).
 5. **Single-image serving**: the overlay image resolves arch at runtime
    (entrypoint exports the per-arch `TORCH_CUDA_ARCH_LIST` /
    `FLASHINFER_CUDA_ARCH_LIST` / `CUTE_DSL_ARCH`), the GEMV kernel

@@ -32,6 +32,7 @@ def combine_kernel(
     mO_part: cute.Tensor,  # (ns_cap*rows_cap*h_q*D) fp32 flat
     mLse: cute.Tensor,  # (ns_cap*b_cap*h_q*ql_cap) fp32 flat
     mOut: cute.Tensor,  # (rows_cap*h_q*D) bf16 flat
+    max_ns: cutlass.Constexpr[int],  # the unroll/predication bound (= ns_cap)
     ns: Int32,
     rows: Int32,
     h_q: Int32,
@@ -47,10 +48,16 @@ def combine_kernel(
     ls_s = b * h_q * ql
     ls_b = h_q * ql
 
+    # Both loops unroll over max_ns with the s < ns predication: the
+    # dynamic-range form serialized every split's load behind the loop
+    # branch (~34 us; the FI merge overlaps all partial rows in flight
+    # and lands at 11). Unrolled, the loads issue independently and the
+    # latency hides under the acc chain.
     # 1. L = max_s lse[s, h, r]
     L = -cutlass.Float32.inf
-    for s in cutlass.range(ns):
-        L = cutlass.max(L, mLse[s * ls_s + bb * ls_b + h * ql + qq])
+    for s in cutlass.range_constexpr(max_ns):
+        if s < ns:
+            L = cutlass.max(L, mLse[s * ls_s + bb * ls_b + h * ql + qq])
 
     # 2. the weighted sum over the splits; the exp weights recomputed per
     #    element pass (ns <= 64 exp2s are nothing next to the loads).
@@ -58,12 +65,13 @@ def combine_kernel(
     sw = Float32(0.0)
     acc0 = Float32(0.0)
     acc1 = Float32(0.0)
-    for s in cutlass.range(ns):
-        w = cute.math.exp2((mLse[s * ls_s + bb * ls_b + h * ql + qq] - L) * ln2e, fastmath=True)
-        sw = sw + w
-        obase = s * rows * h_q * D + r * h_q * D + h * D
-        acc0 = acc0 + w * mO_part[obase + tidx]
-        acc1 = acc1 + w * mO_part[obase + tidx + NUM_THREADS]
+    for s in cutlass.range_constexpr(max_ns):
+        if s < ns:
+            w = cute.math.exp2((mLse[s * ls_s + bb * ls_b + h * ql + qq] - L) * ln2e, fastmath=True)
+            sw = sw + w
+            obase = s * rows * h_q * D + r * h_q * D + h * D
+            acc0 = acc0 + w * mO_part[obase + tidx]
+            acc1 = acc1 + w * mO_part[obase + tidx + NUM_THREADS]
     scale = 1.0 / cutlass.max(sw, Float32(_TINY))
     obase = r * h_q * D + h * D
     mOut[obase + tidx] = (acc0 * scale).to(mOut.element_type)
@@ -75,13 +83,14 @@ def combine_launch(
     mO_part: cute.Tensor,
     mLse: cute.Tensor,
     mOut: cute.Tensor,
+    max_ns: cutlass.Constexpr[int],
     ns: Int32,
     rows: Int32,
     h_q: Int32,
     b: Int32,
     ql: Int32,
 ):
-    combine_kernel(mO_part, mLse, mOut, ns, rows, h_q, b, ql).launch(
+    combine_kernel(mO_part, mLse, mOut, max_ns, ns, rows, h_q, b, ql).launch(
         grid=(rows * h_q, 1, 1),
         block=(NUM_THREADS, 1, 1),
     )
