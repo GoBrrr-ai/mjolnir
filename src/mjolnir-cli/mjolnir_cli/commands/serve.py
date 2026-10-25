@@ -12,8 +12,12 @@ from mjolnir_cli.commands._common import HELP_CTX, settings
 app = typer.Typer(help="Drive the vLLM container (the patched image).", no_args_is_help=True, context_settings=HELP_CTX)
 
 
-@app.command("up")
+@app.command(
+    "up",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
 def serve_up(
+    ctx: typer.Context,
     model: str | None = typer.Option(None, "--model"),
     config: str | None = typer.Option(None, "--config", help="config quant name, e.g. NVFP4_FA4hd256"),
     image: str | None = typer.Option(None, "--image"),
@@ -22,7 +26,9 @@ def serve_up(
     wait_timeout: float = typer.Option(1800.0, "--wait-timeout"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
-    """Start the vLLM server (custom image, config from --model/--config)."""
+    """Start the vLLM server (custom image, config from --model/--config).
+    Anything after the flags is forwarded to ``vllm serve`` (e.g.
+    ``-- --enforce-eager``)."""
     s = settings(model, config, image, port)
     if not s.config_path.exists():
         typer.secho(f"config not found: {s.config_path}", fg=typer.colors.RED, err=True)
@@ -31,7 +37,7 @@ def serve_up(
     if stale:
         typer.secho(f"warning: {stale}", fg=typer.colors.YELLOW, err=True)
     try:
-        dockerctl.serve_up(s, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run)
+        dockerctl.serve_up(s, wait=wait, wait_timeout_s=wait_timeout, dry_run=dry_run, serve_args=tuple(ctx.args))
     except (dockerctl.DockerError, TimeoutError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from e
