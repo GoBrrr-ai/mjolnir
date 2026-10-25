@@ -9,15 +9,16 @@ Everything the vLLM backend needs that is not vLLM-specific:
   splits beyond a sequence's need take the kernel's ``kv_len == 0`` path
   (O = 0 / LSE = -inf) and drop out of the combine — CUDA-graph safe with
   no re-capture, exactly like the t5 family's fixed work grid;
-* persistent device buffers: the ``cu_seqlens_k`` prefix sums (pinned
-  staging + async copy, the t5 ``work_buf`` pattern), the (b, h_k)
+* persistent device buffers: the ``cu_seqlens_k`` prefix sums (derived
+  on the device from vLLM's live ``seq_lens`` inside every launch, so a
+  replayed CUDA graph and a fused multi-step draft see the current
+  lengths — nothing length-dependent is staged from the host), the (b, h_k)
   descales the kernel's 2D indexing needs (materialized from vLLM's
   per-tensor / per-head / per-(seq, head) scales by a captured broadcast
   copy), and the fp32 split partials sized by the capacity invariant;
 * the launch: dense (b, M, h_q, d) Q/O views (vLLM's spec batches are
   uniform-q-len), the vLLM block table zero-copy as the page table, and
-  the chunk-normalized LSE combine (torch, static shapes per capture —
-  the known launch-floor debt; a fused merge is research lever #3).
+  the chunk-normalized LSE combine (one fused kernel, combine.py).
 
 Nothing here imports vLLM. The kernel is compiled per variant through the
 shared on-disk cache under the ``orin`` family name.
@@ -71,6 +72,16 @@ class GEMVKey:
     batch: int = 0
     max_blocks: int = 0
     impl: str = "gemv"  # gemv | mma — the compiled kernel class
+    # The mma kernel's trace-time env probes (MJOLNIR_MMA16 / MJOLNIR_REGCAP /
+    # MJOLNIR_REGPATH) change the generated code, so they are part of the
+    # key: the disk cache must never hand one probe's binary to another.
+    variant: str = ""
+
+
+def _mma_variant() -> str:
+    import os
+
+    return ",".join(f"{k}={os.environ.get(k, '')}" for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH"))
 
 
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
@@ -88,7 +99,8 @@ class GEMVDecodeRunner:
         max_num_seqs: int,
         max_q_len: int = 1,
         q_mode: str = "bf16",  # "bf16" | "fp8" (dynamic per (seq, kv head))
-        max_splits: int = 0,  # 0 = the Alg. 1 capacity
+        max_splits: int = 0,  # 0 = the Alg. 1 capacity; > 0 = exactly this many splits
+        split_cap: int = 0,  # > 0: an upper bound on the auto capacity (MJOLNIR_ATTN_MAX_SPLITS)
         kv_stages: int = 0,  # ring depth override (0 = the kernel default)
         tile: int = 0,  # rows-per-(ty)-thread override (0 = the kernel default)
         kv_evict_first: bool = False,  # reserved: Ampere L2 policy (not wired yet)
@@ -98,6 +110,7 @@ class GEMVDecodeRunner:
         sm_count: int | None = None,
     ):
         self.impl = impl
+        self._variant = _mma_variant() if impl == "mma" else ""  # read once: _key() is per call
         if impl == "mma":
             from mjolnir.arch.orin import mma as mma_kernel
 
@@ -152,14 +165,10 @@ class GEMVDecodeRunner:
         # optimum across L (the 4-CTA capacity over-splits the 16-SM
         # grid and the extra partials only add combine traffic).
         blocks_per_sm = 2 if impl == "mma" else BLOCKS_PER_SM
-        self.ns_cap = (
-            max_splits
-            if max_splits > 0
-            else min(
-                COMBINE_MAX_SPLITS,
-                (blocks_per_sm * sm_count + self.h_k - 1) // self.h_k,
-            )
-        )
+        auto = min(COMBINE_MAX_SPLITS, (blocks_per_sm * sm_count + self.h_k - 1) // self.h_k)
+        if split_cap > 0:
+            auto = min(auto, split_cap)
+        self.ns_cap = max_splits if max_splits > 0 else max(1, auto)
         # The mma kernel always uses the fixed split-KV grid and writes
         # partials, so the combine must ALWAYS run -- it is exact at ns=1
         # (one partial merges to itself). With split tied to ns_cap>1 the
@@ -171,7 +180,10 @@ class GEMVDecodeRunner:
 
         dev = self.device
         rows_cap = max_num_seqs * max_q_len
+        # cu_seqlens_k: cu[0] stays 0; run() writes cu[1:b+1] on the device
+        # from the live seq_lens right before each launch.
         self._cu = torch.zeros(max_num_seqs + 1, dtype=torch.int32, device=dev)
+        self._n_splits = torch.zeros(max_num_seqs, dtype=torch.int32, device=dev)
         # (b, h_k) descales the kernel's 2D indexing needs; a captured
         # broadcast copy materializes them from vLLM's scale shapes per step.
         self._kd = torch.ones(max_num_seqs, self.h_k, dtype=torch.float32, device=dev)
@@ -211,19 +223,23 @@ class GEMVDecodeRunner:
         margin: int = 0,
         causal: bool = True,
     ) -> StepPlan:
-        """CPU plan + async copy into the persistent device buffers.
+        """The step's plan: nothing length-dependent lives on the host.
 
-        ``margin`` plans every sequence that many tokens longer (the fused
-        multi-step draft decode); the kernel masks with the device
-        ``cu_seqlens``, so the plan stays valid while they grow."""
+        The grid is the fixed split capacity and the kernel's per-sequence
+        ``kv_len`` is the device ``cu_seqlens_k``, which :meth:`run` derives
+        from the DEVICE ``seq_lens`` inside the launch sequence (one
+        captured cumsum). So ``seq_lens_cpu`` (an upper bound is fine) and
+        ``margin`` are accepted for the shared builder's call shape and
+        ignored: the plan stays exact when vLLM rewrites ``seq_lens`` on
+        the GPU after the build — the drafter's prepare/update-inputs
+        kernels, a FULL CUDA graph replayed without a rebuild (the
+        speculator's draft prefill/decode graphs), or the fused multi-step
+        draft decode advancing them in place. A host-staged cu (the
+        previous design) was stale in every one of those cases."""
         assert 1 <= q_len <= self.max_q_len and num_seqs <= self.max_num_seqs
-        lens = [int(x) + margin for x in seq_lens_cpu[:num_seqs]]
-        # cu_seqlens_k: prefix sums (device, graph-safe via pinned staging).
-        cu = [0]
-        for n in lens:
-            cu.append(cu[-1] + max(n, 0))
-        cu_h = torch.tensor(cu, dtype=torch.int32).pin_memory()
-        self._cu[: num_seqs + 1].copy_(cu_h, non_blocking=True)
+        assert seq_lens.dtype == torch.int32 and seq_lens.device == self._cu.device, (
+            "the device seq_lens must be int32 on the runner's device (the launch reads them)"
+        )
         return StepPlan(
             num_seqs=num_seqs,
             q_len=q_len,
@@ -232,12 +248,19 @@ class GEMVDecodeRunner:
             with_reduction=self.split,
             block_table=block_table,
             seq_lens=seq_lens,
-            work=self._cu,  # repurposed: the device cu_seqlens_k
-            n_splits=self._cu.new_zeros(num_seqs),  # unused by this family
+            work=self._cu,  # repurposed: the device cu_seqlens_k (filled by run())
+            n_splits=self._n_splits[:num_seqs],  # unused by this family
             chunk_tiles=0,
             num_chunks=0,
             causal=causal or q_len == 1,
         )
+
+    def _fill_cu(self, seq_lens: torch.Tensor, b: int) -> None:
+        """cu_seqlens_k[1:b+1] = cumsum(seq_lens[:b]) on the device, on the
+        launch's stream (captured into a CUDA graph with the kernel, so a
+        replay reads the live lengths). cu[0] is the constant 0 written at
+        construction; nothing else writes this buffer."""
+        torch.cumsum(seq_lens[:b], dim=0, dtype=torch.int32, out=self._cu[1 : b + 1])
 
     # ---------------------------------------------------------------- compile
     def _key(
@@ -250,6 +273,7 @@ class GEMVDecodeRunner:
     ) -> GEMVKey:
         return GEMVKey(
             impl=self.impl,
+            variant=self._variant,
             q_dtype=torch.float8_e4m3fn if self.fp8_q else torch.bfloat16,
             out_dtype=self.out_dtype,
             heads_q=self.h_q,
@@ -558,6 +582,7 @@ class GEMVDecodeRunner:
                 key,
                 self._compile_args(key, b, q3, out, k_cache, v_cache, plan.block_table),
             )
+        self._fill_cu(plan.seq_lens, b)
         launch = self._torch_args(key, b, q3, out, k_cache, v_cache, plan.block_table)
         launch = (*launch, float(softmax_scale) * math.log2(math.e), self.ns_cap if key.split else 1)
         fn(*launch)
