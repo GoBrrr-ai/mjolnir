@@ -328,7 +328,6 @@ class GEMVDecodeKernel:
             kv_row0 = batch_idx * seqlen_k
             kv_len = seqlen_k
         kv_row_stride = mV.shape[-2] * ROW_B  # bytes (fp6) / elements (fp8) per KV row
-        num_head_kv = mV.shape[-2]
 
         # ---- SplitKV: this CTA's KV chunk (identity at num_splits=1) --------
         kv_chunk = (kv_len + num_splits - 1) // num_splits
@@ -514,14 +513,17 @@ class GEMVDecodeKernel:
                     row = st * R + ty * TILE + j
                     crow = row if row < kv_len_c else kv_len_c - 1
                     if const_expr(PAGED):
-                        # Paged gather: page = row//PS, off = row - page*PS,
-                        # phys pool row = page_table[batch, page]*PS + off.
+                        # Paged gather: page = row//PS, off = row - page*PS.
+                        # The pool view's strides are runtime values (vLLM's
+                        # BHN2D interleave is not the flat (np, ps, h_k, d)
+                        # order this used to hardcode — serving read garbage);
+                        # crd2idx reads them off the layout, which the runner
+                        # marks dynamic, so one binary serves any strides.
                         grow = kv_start + crow
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
-                        kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        k_row = kv_base * ROW_B
-                        v_row = kv_base * ROW_B
+                        k_row = cute.crd2idx((pidx, grow - page * PS, kv_head, 0), mK.layout)
+                        v_row = cute.crd2idx((pidx, grow - page * PS, kv_head, 0), mV.layout)
                     else:
                         k_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
                         v_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
@@ -560,8 +562,7 @@ class GEMVDecodeKernel:
                         grow = kv_start + crow
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
-                        kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        v_row = kv_base * ROW_B
+                        v_row = cute.crd2idx((pidx, grow - page * PS, kv_head, 0), mV.layout)
                     else:
                         v_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
                     slot0 = (st * R + ty * TILE + j) * SLOT_B
@@ -699,8 +700,7 @@ class GEMVDecodeKernel:
                         grow = kv_start + crow
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
-                        kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        k_row = kv_base * ROW_B
+                        k_row = cute.crd2idx((pidx, grow - page * PS, kv_head, 0), mK.layout)
                     else:
                         k_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
                     slot0 = (st * R + ty * TILE + j) * SLOT_B
@@ -788,8 +788,7 @@ class GEMVDecodeKernel:
                         grow = kv_start + crow
                         page = grow // PS
                         pidx = mPageTable[batch_idx, page]
-                        kv_base = (pidx * PS + (grow - page * PS)) * num_head_kv + kv_head
-                        v_row = kv_base * ROW_B
+                        v_row = cute.crd2idx((pidx, grow - page * PS, kv_head, 0), mV.layout)
                     else:
                         v_row = (kv_row0 + kv_start + crow) * kv_row_stride + kv_head * ROW_B
                     slot0 = (st * R + ty * TILE + j) * SLOT_B

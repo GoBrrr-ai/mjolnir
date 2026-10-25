@@ -249,13 +249,22 @@ class MMADecodeKernel:
             gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
             if const_expr(mPageTable is not None):
                 page = mPageTable[batch_idx, gk_row // self.page_size]
-                kv_base = (page * self.page_size + gk_row % self.page_size) * num_head_kv + kv_head
+                # The pool view's strides are runtime values — vLLM's BHN2D
+                # interleave is NOT the flat (np, ps, h_k, d) order this used
+                # to hardcode, and every offline probe fed a contiguous pool,
+                # so serving read garbage (orin1: the stride probe). crd2idx
+                # reads them off the layout, which the runner marks dynamic,
+                # so one binary serves any physical stride order.
+                rowin = gk_row % self.page_size
+                kv_base = cute.crd2idx((page, rowin, kv_head, 0), mK.layout)
+                kv_base_v = cute.crd2idx((page, rowin, kv_head, 0), mV.layout)
             else:
                 kv_base = (kv_row0 + gk_row) * num_head_kv + kv_head
+                kv_base_v = kv_base
             k_src = cute.make_tensor(
                 cute.make_ptr(
                     mK.element_type,
-                    (mK.iterator + kv_base * D + ck).toint(),
+                    (mK.iterator + kv_base + ck).toint(),
                     cute.AddressSpace.gmem,
                     assumed_align=16,
                 ),
@@ -285,7 +294,7 @@ class MMADecodeKernel:
             v_src = cute.make_tensor(
                 cute.make_ptr(
                     mV.element_type,
-                    (mV.iterator + kv_base * D + ck).toint(),
+                    (mV.iterator + kv_base_v + ck).toint(),
                     cute.AddressSpace.gmem,
                     assumed_align=16,
                 ),
