@@ -573,3 +573,61 @@ attention is now at parity with the band table's kernel-only ratios.
 TODO: the combine's 33.6 us is still 3x the FI's 10.9 (the 144-block
 grid underfills the machine); a multi-row-per-block tiling would close
 it. The torch._lse_combine dead code was removed with the fused path.
+
+## Session 6: the FlashInfer source spike (prefill.cuh v0.7.0.post1)
+
+The research agent's summary + the direct read of the batch-paged kernel
+body (L3800-4432) and the launcher budget (L2822-2893). The competitor at
+our exact shape (M=6 packed 36 rows, GQA 24:4, hd256, fp8 KV, 16K):
+
+**Structure**: CTA_TILE_Q=16 (packed_qo_len 36 -> 3 q-tile CTAs per
+(kv-head, split)), 1 Q-warp + 4 KV-warps = 128 threads, NO
+producer/consumer split. NUM_MMA_KV=2 from the smem budget
+((83968-8192)/32768; 2 CTAs/SM x 84KB cap -- the same 2-CTA occupancy as
+ours). CTA_TILE_KV = 128 rows/iter.
+
+**The KV rows SPLIT ACROSS THE 4 KV-WARPS** (kv_idx_base = chunk_start +
+(iter*NUM_WARPS_KV + warp_idx_kv) * NUM_MMA_KV * 16): each warp stages
+ITS OWN 16-row slice, dequants IN REGISTERS (ldmatrix the raw fp8 via
+the swizzle-view shuffles + frag_layout_swizzle_16b_to_8b +
+fast_dequant_f8f16x4 = our exact prmt recipe), computes S for its rows.
+The P round-trips through smem (p_smem[CTA_TILE_Q * CTA_TILE_KV]).
+
+**The O is D-SPLIT across the warps** ("split-D path",
+o_frag[NUM_MMA_Q][O_FRAG_D][8], NUM_MMA_D_VO_TILE=16): each warp
+accumulates the disjoint O columns -> NO cross-warp O reduction. The
+acc_O per thread = 16 x 256 / (4 warps x 32 lanes) = 32 registers.
+
+**The register budget that makes the in-register dequant fit**: acc_O 32
++ the Q fragments 64 (the full-d A, needed by every warp's QK) + the S
+small -> ~150-200 of 255. OUR MT=64 kernel: acc_O 128 alone -- the
+reason the register path was "register-dead" there.
+
+**The pipeline**: NOT an N-ring -- a 2-deep K/V time-multiplex with
+SPLIT commits (the K(i+1) issued right after the QK consumes K(i); the
+V(i+1) after the PV); separate K/V smem for fp8 at CTA_TILE_Q=16
+(kKVShared=false); the smem holds ONLY raw fp8 -> {V(i), K(i+1)} =
+64KB/CTA = 128KB/SM in flight (ours ~64KB/SM: sK16/sV16 eat the
+budget). k_scale folds into sm_scale host-side; v_scale at the output
+(the same as our scale_eff folding).
+
+**The GQA qo-tiling**: the packed (token, head-in-group) rows via
+group_size divmod inside the kernel; our M=6 (36 packed rows) = 3
+CTA_TILE_Q=16 tiles -> the KV chunk read by 3 CTAs per split
+(L2-served when co-scheduled; the FI runs ~79% of DRAM peak on
+GH200). The q-tile CTAs write DISJOINT output rows -> the combine is
+unchanged.
+
+**The redesign shape for Orin M=6-8** (the FI-fitted): the Q-tiling
+grid dimension + the MT=16-32 tiles + the register dequant (the M=1-2
+sK8v machinery) + the d-split O + the deeper raw-fp8 ring. The open
+register question: the kernel_small at mt=32 with the register path
+(the M=1-2 demand ~250 at mt=16 + the acc_O delta) -- needs the ptxas
+probe before any port. The alternative hybrid: keep the smem-dequant
+kernel_small mt=32 structure and add ONLY the Q-tiling grid (2 tiles at
+M=6) -- the acc_O 64, the re-read x2 L2-mitigated, the smallest diff.
+
+**The cheaper sibling finding**: the FI MergeStates partials are BF16
+(not fp32) -- 2x less merge traffic; ours are fp32. A bf16-partial
+variant is a small combine/kernel change (the accuracy: the chunk-
+normalized bf16 O + the fp32 LSE is the FI's shipped posture).
