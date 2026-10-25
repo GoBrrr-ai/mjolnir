@@ -410,6 +410,23 @@ class MMADecodeKernel:
         # reference's sVt pattern — a directly-allocated transposed
         # layout loses the 16B alignment the ldsm needs).
         sV16 = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16)
+        # The u32 views of the bf16 tiles: the dequant stores 2 packed
+        # bf16x2 per iteration instead of 4 scalars. Byte-identical to
+        # bf16_atom: Swizzle(3,3,3) on an (8,64) bf16 atom == Swizzle(3,2,3)
+        # on an (8,32) u32 atom (the granule xor row, re-indexed in 4 B).
+        u32_atom = cute.make_composed_layout(
+            cute.make_swizzle(3, 2, 3),
+            0,
+            cute.make_layout((8, 32), stride=(32, 1)),
+        )
+        sK16u = cute.make_tensor(
+            cute.recast_ptr(sK16.iterator, dtype=cutlass.Uint32),
+            cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
+        )
+        sV16u = cute.make_tensor(
+            cute.recast_ptr(sV16.iterator, dtype=cutlass.Uint32),
+            cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
+        )
         sVt = cute.composition(
             sV16,
             cute.make_layout((D, SR), stride=(SR, 1)),
@@ -594,20 +611,17 @@ class MMADecodeKernel:
                 out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
                 out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
                 out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                sK16[r, c] = (out1 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sK16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sK16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sK16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                cu = c // 2
+                sK16u[r, cu] = out1.bitcast(cutlass.Uint32)
+                sK16u[r, cu + 1] = out2.bitcast(cutlass.Uint32)
                 qv = srcu_v[e4 // 4]
                 qp = cute.arch.prmt(qv, qv, 0x1302)
                 out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
                 out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
                 out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
                 out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                sV16[r, c] = (out1 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sV16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sV16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sV16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sV16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                sV16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
             cute.arch.sync_threads()
 
             # 3. the QK^T: the acc_S = Q * K^T for this stage's rows (the
@@ -762,6 +776,14 @@ class MMADecodeKernel:
             0,
             cute.make_layout((8, 64), stride=(64, 1)),
         )
+        # The byte-identical u32 re-index of bf16_atom (Swizzle(3,3,3) on
+        # (8,64) bf16 == Swizzle(3,2,3) on (8,32) u32): the dequant stores
+        # 2 packed bf16x2 per iteration instead of 4 scalars.
+        u32_atom = cute.make_composed_layout(
+            cute.make_swizzle(3, 2, 3),
+            0,
+            cute.make_layout((8, 32), stride=(32, 1)),
+        )
         smem = cutlass.utils.SmemAllocator()
         # the Q tile (16, 256) bf16 = 8 KB — the 4x-smaller M tile.
         sQ = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, D), (0, 1)), byte_alignment=16)
@@ -796,6 +818,10 @@ class MMADecodeKernel:
                 cute.tile_to_shape(bf16_atom, (SR, D // 2), (0, 1)),
             )
             sV16 = cute.make_tensor(sQ.iterator, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)))
+            sV16u = cute.make_tensor(
+                cute.recast_ptr(sV16.iterator, dtype=cutlass.Uint32),
+                cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
+            )
             # sP BEFORE sStat: the swizzled tile needs a 1024B-aligned base —
             # the 512B sStat between the 8K buffers lands sP at 48.5K.
             sP = smem.allocate_tensor(
@@ -837,6 +863,14 @@ class MMADecodeKernel:
             )
             sV16 = smem.allocate_tensor(
                 cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16
+            )
+            sK16u = cute.make_tensor(
+                cute.recast_ptr(sK16.iterator, dtype=cutlass.Uint32),
+                cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
+            )
+            sV16u = cute.make_tensor(
+                cute.recast_ptr(sV16.iterator, dtype=cutlass.Uint32),
+                cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
             )
             sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
             # the P tile (16, 32) bf16 aliasing sK16's head: the QK's ldmatrix
@@ -1058,20 +1092,16 @@ class MMADecodeKernel:
                     out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
                     out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
                     out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                    sK16[r, c] = (out1 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                    sK16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                    sK16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                    sK16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                    sK16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                    sK16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
                 qv = srcu_v[e4 // 4]
                 qp = cute.arch.prmt(qv, qv, 0x1302)
                 out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
                 out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
                 out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
                 out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                sV16[r, c] = (out1 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sV16[r, c + 1] = ((out1 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sV16[r, c + 2] = (out2 & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
-                sV16[r, c + 3] = ((out2 >> 16) & 0xFFFF).to(cutlass.Uint16).bitcast(cutlass.BFloat16)
+                sV16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                sV16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
             cute.arch.sync_threads()
 
             acc_S.fill(0.0)
