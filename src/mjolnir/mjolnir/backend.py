@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
@@ -838,6 +839,19 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 "set MJOLNIR_ATTN_KV_LAYOUT or MJOLNIR_ATTN_DISABLE=1"
             )
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            # per-call dump -> a FILE (the EngineCore swallows raw stdout);
+            # the draft-prefill-vs-verify identity diff, config C isolation
+            n = md.plan.num_seqs
+            with open("/tmp/mjolnir_dbg.log", "a") as f:
+                f.write(
+                    f"layer={getattr(layer, 'layer_name', '?')} ql={md.plan.q_len} b={n} "
+                    f"lens={md.plan.seq_lens[:n].tolist()} "
+                    f"slots={md.slot_mapping[:6].tolist()} "
+                    f"run={id(runner) % 100000} "
+                    f"qsum={query.float().sum().item():.4g} "
+                    f"kvsum={k_cache[md.plan.block_table[0, :2].long()].float().sum().item():.6g}\n"
+                )
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
