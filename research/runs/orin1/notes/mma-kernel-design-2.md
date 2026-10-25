@@ -774,3 +774,36 @@ an FB marker at the fallback branch + the storage data_ptr (the id of
 a fresh view is meaningless). The load-bearing question it answers:
 DO THE MJOLNIR KERNELS EXECUTE IN SERVING AT ALL, or does everything
 ride the fallback? (STATS counters exist but are never surfaced.)
+
+## Session 7b: THE C-LOOP ROOT CAUSE -- the plan margin double-counted the query tokens
+
+The file debug dump (/tmp/mjolnir_dbg.log, the FB marker + the storage
+data_ptr) cracked it in one probe:
+
+1. **The kernels DO execute in serving**: 553 T5-branch calls vs 36 FB
+   (the profile run, the prefills, the first mixed cycle). The earlier
+   zero-dump was the EngineCore swallowing raw stdout -- the file append
+   sees everything. The load-bearing kernel-execution question: CLOSED.
+2. **The draft's KV pool is NOT the target's**: the MTP layer's
+   k_cache ptr is distinct from every target layer's. The
+   poisoned-pool-via-shared-tensor theory: DEAD.
+3. **THE BUG: `lens=[22] cu=[0, 25]` -- on EVERY T5 step the kernel's
+   cu_seqlens was seq_lens + num_speculative_tokens.** The plan margin
+   (added for the fused multi-step draft decode) double-counted the
+   query tokens: the kernel's own T5 contract is "seq_lens INCLUDE the
+   M query tokens, row m attends KV[0 .. kv_len - M + m]" -- so the
+   correct cu equals the cam's seq_lens exactly. With the margin,
+   EVERY row (draft q1 AND verify q4) attended num_spec stale-KV rows
+   past the true context.
+
+Why every config behaved as it did:
+- A (the FI drafter): the verify rows +3-stale -> the acceptance
+  2.1-2.67, degraded from the true ~2.8+ but workable.
+- B (the Mjolnir drafter): the draft steps +3-stale -> the garbage
+  drafts -> 0.69/round under the clean FI verify.
+- C (both): the garbage drafts score 0.0 -> the "Register" loop.
+
+THE FIX: margin=0 in the builder's plan call (the commit message
+carries the reasoning). The fused-draft device-cu refresh path (the
+Thor DSpark/DFlash opt-ins) is the separate concern -- if it needs a
+margin, it must be gated on that path, not applied to every step.
