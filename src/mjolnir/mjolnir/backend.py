@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
@@ -568,17 +567,18 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         return q_len
 
     def _seq_lens_cpu(self, cam):
-        # The EXACT per-request lengths from the device tensor — never
-        # seq_lens_cpu_upper_bound and never a possibly-stale host copy.
-        # The kernel's kv_len comes straight from the cu_seqlens planned
-        # here, and the UB is explicitly optimistic (the draft steps carry
-        # target UB + step): planning from it made rows attend stale
-        # draft-cache rows past the true context — those rows are
-        # guaranteed garbage because draft slots are reused every cycle
-        # and rejected writes are never rolled back (the vLLM
-        # custom-backend contract; the "extra tiles are empty" comment
-        # this replaces was wrong — the kernel has no separate seq_lens
-        # mask, the cu IS the mask).
+        ub = getattr(cam, "seq_lens_cpu_upper_bound", None)
+        if ub is not None:
+            # An upper bound is fine for planning: every family's kernel
+            # masks with the exact device seq_lens at launch (Thor reads
+            # them directly; Orin derives its cu_seqlens from them on the
+            # device inside the launch), so extra tiles / splits are empty.
+            # Planning never syncs the GPU, and a plan stays valid while a
+            # fused draft decode advances the seq_lens in place.
+            return ub
+        legacy = getattr(cam, "seq_lens_cpu", None)
+        if legacy is not None:
+            return legacy
         with _gpu_sync_allowed():
             return cam.seq_lens.cpu()
 
@@ -603,15 +603,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             q_len,
             cam.block_table_tensor,
             cam.seq_lens,
-            # NO margin. The t5 contract (the kernel's causal tail) is that
-            # seq_lens INCLUDE the query tokens, so cu_seqlens must equal
-            # them exactly. The fused-draft margin (num_speculative_tokens)
-            # double-counted them: every row attended num_spec stale KV
-            # rows past the true context -- the draft steps degraded
-            # (acceptance 0.69) and with the Mjolnir drafter the poisoned
-            # proposals scored 0.0 and the output looped (2026-10-25, the
-            # file debug dump: lens=[22] cu=[0, 25] on a ql=1 step).
-            margin=0,
+            margin=self._plan_margin,
             causal=causal,
         )
         # Never compiled inside graph capture: build() runs outside it.
@@ -786,9 +778,6 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         **kwargs: Any,
     ):
         if not getattr(attn_metadata, "is_t5", False):
-            if os.environ.get("MJOLNIR_ATTN_DEBUG"):
-                with open("/tmp/mjolnir_dbg.log", "a") as f:
-                    f.write(f"FB layer={getattr(layer, 'layer_name', '?')} ql={query.shape[0]}\n")
             if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
                 query = self._quantize_q(layer, query)
                 # The base forward passes the layer's q scale as q_descale
@@ -849,48 +838,6 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 "set MJOLNIR_ATTN_KV_LAYOUT or MJOLNIR_ATTN_DISABLE=1"
             )
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
-        if os.environ.get("MJOLNIR_ATTN_DEBUG"):
-            # per-call input dump -> a FILE (the EngineCore swallows raw
-            # stdout prints): the draft-vs-verify anomaly hunt
-            n = md.plan.num_seqs
-            with open("/tmp/mjolnir_dbg.log", "a") as f:
-                f.write(
-                    f"layer={getattr(layer, 'layer_name', '?')} ql={md.plan.q_len} b={n} "
-                    f"causal={md.plan.causal} lens={md.plan.seq_lens[:n].tolist()} "
-                    f"cu={runner._cu[: n + 1].tolist()} "
-                    f"bt0={md.plan.block_table[0, :4].tolist()} "
-                    f"slots={md.slot_mapping[:6].tolist()} "
-                    f"kc={tuple(k_cache.shape)} ptr={k_cache.data_ptr()} "
-                    f"ks={layer._k_scale.flatten()[:2].tolist() if hasattr(layer, '_k_scale') and layer._k_scale is not None else '?'} "
-                    f"run={id(runner) % 100000} "
-                    f"qsum={query.float().sum().item():.4g} "
-                    f"qnan={int(torch.isnan(query.float()).sum())} "
-                    f"kvsum={k_cache[md.plan.block_table[0, :2].long()].float().sum().item():.6g} "
-                    f"kvnan={int(torch.isnan(k_cache[md.plan.block_table[0, :2].long()].float()).sum())}\n"
-                )
-            # the npz capture for the offline replay: the first 3 T5 calls
-            self._dbg_i = getattr(self, "_dbg_i", 0)
-            if self._dbg_i < 3:
-                try:
-                    os.makedirs("/tmp/mjolnir_dbg", exist_ok=True)
-                    pages = md.plan.block_table[0, :2].long()
-                    self._dbg_i += 1
-                    self._dbg_pending = {
-                        "q": query.detach().float().cpu().numpy(),
-                        "k": k_cache[pages].float().cpu().numpy(),
-                        "v": v_cache[pages].float().cpu().numpy(),
-                        "cu": runner._cu[: n + 1].cpu().numpy(),
-                        "bt": md.plan.block_table[:1, :2].cpu().numpy(),
-                        "kd": runner._kd[:n].cpu().numpy(),
-                        "vd": runner._vd[:n].cpu().numpy(),
-                        "layer": getattr(layer, "layer_name", "?"),
-                        "ql": md.plan.q_len,
-                        "ns_cap": runner.ns_cap,
-                        "out_pre": output.detach().float().cpu().numpy().copy(),
-                    }
-                except Exception as e:  # noqa: BLE001 -- never break serving on debug
-                    with open("/tmp/mjolnir_dbg.log", "a") as f:
-                        f.write(f"capture failed: {e}\n")
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
@@ -919,22 +866,6 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             layer._v_scale,
             self.scale,
         )
-        if getattr(self, "_dbg_pending", None) is not None:
-            try:
-                import numpy as np
-
-                p = self._dbg_pending
-                self._dbg_pending = None
-                tag = "mtp" if "mtp" in str(p["layer"]) else "tgt"
-                torch.cuda.synchronize()  # the write-lag test: sync EVERYTHING
-                p["out"] = output.detach().float().cpu().numpy()
-                p["scale"] = float(self.scale)
-                p["opart_sum"] = float(runner._o_part.float().abs().sum().item())
-                p["lsepart_sum"] = float(runner._lse_part.float().sum().item())
-                np.savez(f"/tmp/mjolnir_dbg/call_{tag}_ql{p['ql']}.npz", **p)
-            except Exception as e:  # noqa: BLE001 -- debug only
-                with open("/tmp/mjolnir_dbg.log", "a") as f:
-                    f.write(f"npz save failed: {e}\n")
         return output
 
 
