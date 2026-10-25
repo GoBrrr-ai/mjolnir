@@ -919,3 +919,41 @@ these shared buffers surviving into the verify's kernel read.
 - E5: the fused-draft probe: MJOLNIR_ATTN_FUSED_DRAFT=0 (the Thor
   knob) on the eager C -- if the loop vanishes, the fused path is the
   channel.
+
+### The web-research sweep (the vLLM 0.32 internals + the issue family) -- THREE CONTRACT VIOLATIONS FOUND
+
+The full findings: task/research/vllm-v032-spec-decode-internals/summary.md.
+The headline: #59724 is our EXACT fingerprint (MTP + a native backend ->
+EXACTLY 0% acceptance, the target coherent, 2.8 with another backend);
+#60333 is the drafter-only-degradation class (the draft layers silently
+drop fp8 KV scales); #54498 is the off-by-K draft-context class with a
+per-position fingerprint; #58894 is a permanent 0.0% collapse ON JETSON
+ORIN. The streams are RULED OUT: the drafter's forward runs on the same
+default stream as everything else; every stream in the spec-decode path
+is a host-copy side stream.
+
+The contract ("attend exactly to per-request GPU seq_lens; the draft
+cache rows beyond seq_lens are STALE BY DESIGN -- the slots are reused
+every cycle and rejected writes are never rolled back") convicts three
+things in our code, all fixed in one commit:
+
+1. **`_seq_lens_cpu` preferred `seq_lens_cpu_upper_bound`** -- the UB is
+   "explicitly optimistic" (the draft steps carry target UB + step), and
+   our kernel's kv_len comes STRAIGHT from the cu we plan. The "extra
+   tiles are empty" comment was false: the kernel has no separate
+   seq_lens mask, the cu IS the mask. Fixed: plan from the exact device
+   seq_lens (the .cpu() sync per build is fine -- the build runs outside
+   graph capture, one build per step per group).
+2. **`ensure_compiled` wrote `self._cu[1] = q_len`** -- the LIVE staging,
+   clobbering the real boundaries the next launch reads whenever the
+   path fires mid-serving (any kernel-cache miss recompiles eagerly).
+   Fixed: a local dummy cu.
+3. **`_COMPILED` is module-level** -- shared across the drafter's and the
+   target's runner instances; the research flagged shape-keyed cache
+   collisions across kv-cache groups by name. The keys include
+   num_pages/batch/max_blocks so the collision is benign for now, but
+   the dump now records id(runner) per call to verify the instances.
+   (Not changed yet -- E2 first.)
+
+The dump also gained the per-layer `_k_scale` values (the #60333 check:
+do the MTP layer's fp8 KV scales arrive, or silently default to 1.0?).
