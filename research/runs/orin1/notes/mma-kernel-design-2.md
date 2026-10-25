@@ -463,3 +463,42 @@ stay 1024-aligned) and `tidx < (MT//16)*32` guards around the mma
 sections (warp-uniform, free at MT=64). The payoff: acc_O 96 (+32
 regs ILP), -25% tensor work, -25% ldmatrix redundancy (3 warps read
 the B operands, not 4).
+
+## Session 5b: the split capacity matches the MMA occupancy
+
+The auto plan used BLOCKS_PER_SM=4 -- the GEMV CTA's residency (~100
+regs, ~6 KiB smem). Every MMA shape is pinned at 2 CTAs/SM (255 regs +
+50-82 KiB smem both bind), so the capacity over-split: 16 splits on 16
+SMs = 64 CTAs = 2 waves. The runner now picks blocks_per_sm = 2 for
+impl="mma" -> ns_cap 8 at batch 1 (32 CTAs = exactly 1 wave).
+
+Band (same-run mma/FI, package flags, the new default):
+
+| M | 4K | 16K | 64K |
+|---|-----|-----|-----|
+| 1 | 0.659 | 0.966 | 0.920 |
+| 2 | 0.533 | 0.940 | 0.927 |
+| 3 | 0.641 | 0.963 | 0.922 |
+| 4 | 0.640 | 0.967 | 0.913 |
+| 5 | 0.665 | 0.962 | 0.917 |
+| 6 | 0.704 | 1.080 | 1.032 |
+| 7 | 0.730 | 1.058 | 1.035 |
+| 8 | 0.722 | 1.071 | 1.035 |
+
+M=6 262K: 1.004 (session 5). The 4K band gained 5-8% everywhere (the
+grid fills the machine at short L); M=6-8 16K gained ~2%.
+
+Dead ends this session, measured: MT=48 (the tile-waste cut is
+invisible -- the kernel is memory/dependency-bound; identical times at
+M=6/8 16K/64K with the idle-warp guards correct and 24/24 green), the
+per-element causal-mask hoist in softmax_p (a 3-9% REGRESSION -- the
+duplicated bodies cost more than the saved compares; reverted), the
+fragment-K 2-pass port to the big kernel (register-dead: acc_O alone
+is 128 = MT*D/NT, the regpath working set ~250 at MT=16 scales to
+~380 vs the 255 cap -- 3 CTAs need <=170).
+
+The M=6-8 16K residual (~6-8%) is the design's latency floor: the
+barrier-lockstep stage loop (2 syncs + the cp.async wait per stage),
+the sK16/sV16 dequant round trip (32 of ~96 KB stage traffic), and the
+255-reg cap. The next lever is warp-specialized producers/consumers --
+a redesign, not a knob.

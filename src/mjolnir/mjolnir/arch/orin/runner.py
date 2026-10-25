@@ -141,12 +141,18 @@ class GEMVDecodeRunner:
         # one grid serves every capture size; larger batches leave the extra
         # splits empty (kv_len == 0 -> O = 0 / LSE = -inf, dropped by the
         # combine). The kernel's empty-chunk path makes the over-plan free.
+        # BLOCKS_PER_SM is the kernel's resident-CTA occupancy: the GEMV
+        # CTA (~100 regs, ~6 KiB smem) fits 4; every MMA shape is pinned
+        # at 2 (255 regs + 50-82 KiB smem both bind) — the measured
+        # optimum across L (the 4-CTA capacity over-splits the 16-SM
+        # grid and the extra partials only add combine traffic).
+        blocks_per_sm = 2 if impl == "mma" else BLOCKS_PER_SM
         self.ns_cap = (
             max_splits
             if max_splits > 0
             else min(
                 COMBINE_MAX_SPLITS,
-                (BLOCKS_PER_SM * sm_count + self.h_k - 1) // self.h_k,
+                (blocks_per_sm * sm_count + self.h_k - 1) // self.h_k,
             )
         )
         self.split = self.ns_cap > 1
