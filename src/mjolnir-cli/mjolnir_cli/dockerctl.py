@@ -551,8 +551,9 @@ def serve_up(
     wait_timeout_s: float = 1800.0,
     dry_run: bool = False,
     serve_args: tuple[str, ...] = (),
+    extra_env: tuple[str, ...] = (),
 ) -> None:
-    cmd = build_run_args(s, serve_args=serve_args)
+    cmd = build_run_args(s, serve_args=serve_args, extra_env=extra_env)
     if dry_run:
         print(" ".join(cmd))
         return
