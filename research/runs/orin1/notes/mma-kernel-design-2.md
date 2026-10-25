@@ -721,3 +721,25 @@ INTERIM WORKAROUND SHIPPED: the orin dockerctl env pins
 MJOLNIR_ATTN_DRAFT_T5=0 (the drafter on the fallback) -- the fully
 correct config at the healthy acceptance. Remove when the draft-step
 KV-write path is fixed.
+
+## Session 6e: the final validation -- the orin serving SHIPS
+
+The full config (the graphs on, no eager) + the workaround, healthy
+in 170s: "What is 17*23?" -> "17 x 23 = **391**" with the coherent
+reasoning and a natural stop, the acceptance 48/18 = 2.67 tokens/round
+(the excellent MTP K=3 rate), CUDA graphs captured and replaying.
+
+The AWQ_MJOLNIR config is VALIDATED end to end on the AGX Orin:
+the merged overlay tuning, the MJOLNIR backend (the mma decode kernels
+serving the 16 target-attention layers' decode + verify), the fp8 KV,
+the MTP K=3 spec decode at the healthy acceptance, the FI fallback for
+the prefill/mixed steps and (interim) the drafter.
+
+Open items:
+- the draft-step KV-write bug (the MTP head on Mjolnir poisons the
+  verify's input) -- the next debug session; the acceptance matrix is
+  the regression harness (the fix: C from 0.0+loops to ~2.1+clean
+  without touching A/B).
+- the ns_cap=1 kernel config produces total noise -- guard or fix.
+- bench e2e / bench accuracy: the owned-window items.
+- the Phase-2 Q-tiling redesign: the user's go/no-go.
