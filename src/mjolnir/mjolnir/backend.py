@@ -568,14 +568,17 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         return q_len
 
     def _seq_lens_cpu(self, cam):
-        ub = getattr(cam, "seq_lens_cpu_upper_bound", None)
-        if ub is not None:
-            # An upper bound is fine for planning: the kernel masks with the
-            # exact device seq_lens, extra tiles are empty.
-            return ub
-        legacy = getattr(cam, "seq_lens_cpu", None)
-        if legacy is not None:
-            return legacy
+        # The EXACT per-request lengths from the device tensor — never
+        # seq_lens_cpu_upper_bound and never a possibly-stale host copy.
+        # The kernel's kv_len comes straight from the cu_seqlens planned
+        # here, and the UB is explicitly optimistic (the draft steps carry
+        # target UB + step): planning from it made rows attend stale
+        # draft-cache rows past the true context — those rows are
+        # guaranteed garbage because draft slots are reused every cycle
+        # and rejected writes are never rolled back (the vLLM
+        # custom-backend contract; the "extra tiles are empty" comment
+        # this replaces was wrong — the kernel has no separate seq_lens
+        # mask, the cu IS the mask).
         with _gpu_sync_allowed():
             return cam.seq_lens.cpu()
 
@@ -858,6 +861,8 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     f"bt0={md.plan.block_table[0, :4].tolist()} "
                     f"slots={md.slot_mapping[:6].tolist()} "
                     f"kc={tuple(k_cache.shape)} ptr={k_cache.data_ptr()} "
+                    f"ks={layer._k_scale.flatten()[:2].tolist() if hasattr(layer, '_k_scale') and layer._k_scale is not None else '?'} "
+                    f"run={id(runner) % 100000} "
                     f"qsum={query.float().sum().item():.4g} "
                     f"qnan={int(torch.isnan(query.float()).sum())} "
                     f"kvsum={k_cache[md.plan.block_table[0, :2].long()].float().sum().item():.6g} "
