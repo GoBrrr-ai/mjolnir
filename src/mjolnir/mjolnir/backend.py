@@ -875,9 +875,9 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     pages = md.plan.block_table[0, :2].long()
                     self._dbg_i += 1
                     self._dbg_pending = {
-                        "q": query.detach().cpu().numpy(),
-                        "k": k_cache[pages].detach().cpu().numpy(),
-                        "v": v_cache[pages].detach().cpu().numpy(),
+                        "q": query.detach().float().cpu().numpy(),
+                        "k": k_cache[pages].float().cpu().numpy(),
+                        "v": v_cache[pages].float().cpu().numpy(),
                         "cu": runner._cu[: n + 1].cpu().numpy(),
                         "bt": md.plan.block_table[:1, :2].cpu().numpy(),
                         "kd": runner._kd[:n].cpu().numpy(),
@@ -923,7 +923,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 p = self._dbg_pending
                 self._dbg_pending = None
                 tag = "mtp" if "mtp" in str(p["layer"]) else "tgt"
-                p["out"] = output.detach().cpu().numpy()
+                p["out"] = output.detach().float().cpu().numpy()
                 p["scale"] = float(self.scale)
                 np.savez(f"/tmp/mjolnir_dbg/call_{tag}_ql{p['ql']}.npz", **p)
             except Exception as e:  # noqa: BLE001 -- debug only
