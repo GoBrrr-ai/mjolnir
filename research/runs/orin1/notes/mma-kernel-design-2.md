@@ -502,3 +502,46 @@ barrier-lockstep stage loop (2 syncs + the cp.async wait per stage),
 the sK16/sV16 dequant round trip (32 of ~96 KB stage traffic), and the
 255-reg cap. The next lever is warp-specialized producers/consumers --
 a redesign, not a knob.
+
+## Session 5c: the M=3 isolation, the MT=48 engagement proof, the eager-path cost
+
+Isolation at M=3/16K (the same M, both kernels): kernel_small mt=32
+((2,2,1), acc_O 64) 255.7us replay vs the big kernel MT=64 ((4,1,1),
+acc_O 128) 290.9us — +13.8% time on +18.8% instructions (the SFU/exp2
+exactly 2x: the softmax per-element work scales with MT). The kernel is
+ISSUE-bound; the dead-row mma+softmax work is the surplus.
+
+MT=48 redone with the engagement PROOF (the tensor pipe 26.8% vs the
+MT=64's 30.0% — the earlier zero-delta bench was a stale build): the
+bench shows -1..-1.5% at 16K/64K but +1..+3.6% at 4K — a wash across L
+(the geomean differs by 0.3%). NOT flipped per the same-run-win
+discipline; reverted. The idle warp still dequants its tidx-strided
+share — the dequant chain (the real wall) is MT-independent, which
+caps any tile-shape lever at ~1%.
+
+The "full-serving-path 7.8x" anomaly: resolved as the eager path's
+torch-dispatch cost. runner.run per call is ~600us of CPU (mostly
+_combine's ~12 torch ops + _scale_buf), M-INDEPENDENT (810us at M=1 vs
+836us at M=6 — not an M=6 pathology). Under the vLLM CUDA-graph
+capture the combine is captured (static shapes per capture) and the
+replay is the prebuilt cost. Nothing to fix in the kernel; the eager
+number is only visible outside capture.
+
+FINAL BAND (same-run mma/FI, package flags, ns=8 default):
+
+| M | 4K | 16K | 64K | 262K |
+|---|------|------|------|------|
+| 1 | 0.659 | 0.966 | 0.920 | 0.903 |
+| 2 | 0.533 | 0.940 | 0.927 | 0.906 |
+| 3 | 0.641 | 0.963 | 0.922 | 0.901 |
+| 4 | 0.640 | 0.967 | 0.913 | 0.889 |
+| 5 | 0.665 | 0.962 | 0.917 | 0.892 |
+| 6 | 0.704 | 1.080 | 1.032 | 1.013 |
+| 7 | 0.730 | 1.058 | 1.035 | 1.015 |
+| 8 | 0.722 | 1.071 | 1.035 | 1.014 |
+
+M=1-5 beat FI at every L. M=6-8: win at 4K, parity at 64K/262K
+(within the +-1.5% same-run noise), and a real ~6-8% loss only at 16K
+— the barrier-lockstep stage loop + the sK16/sV16 dequant round trip
+at the 255-reg cap. The next lever there is warp-specialized
+producers/consumers (a redesign).
