@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
@@ -834,6 +835,18 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 "set MJOLNIR_ATTN_KV_LAYOUT or MJOLNIR_ATTN_DISABLE=1"
             )
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
+        if os.environ.get("MJOLNIR_ATTN_DEBUG"):
+            # per-call input dump: the draft-vs-verify anomaly hunt (the
+            # seq_lens/cu the kernel actually sees, per layer)
+            n = md.plan.num_seqs
+            print(
+                f"[mjolnir-dbg] layer={getattr(layer, 'layer_name', '?')} "
+                f"ql={md.plan.q_len} b={n} causal={md.plan.causal} "
+                f"lens={md.plan.seq_lens[:n].tolist()} "
+                f"cu={runner._cu[: n + 1].tolist()} "
+                f"bt0={md.plan.block_table[0, :4].tolist()}",
+                flush=True,
+            )
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
