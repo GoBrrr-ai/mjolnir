@@ -125,6 +125,10 @@ class GEMVDecodeRunner:
         self.max_q_len = max_q_len
         self.fp8_q = q_mode == "fp8"
         self.kv_format = kv_format
+        # bytes of one K (or V) row -- the shared backend's _kv_views splits
+        # the fused cache into the K/V views with it (the thor runner carries
+        # the same attribute). fp6 e2m3 packs 4 values per 3 bytes.
+        self.kv_row_bytes = self.d * 3 // 4 if kv_format == "e2m3" else self.d * {"fp8": 1, "bf16": 2}[kv_format]
         self.kv_evict_first = bool(kv_evict_first)
         self.device = torch.device(device)
         # e2m3: the 64-entry code -> value table (exact for every code,
