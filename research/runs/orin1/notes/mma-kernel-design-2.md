@@ -690,3 +690,34 @@ drafter's shape, the split-KV combine, or the drafter's pool/block
 table handling. Next bisects: MJOLNIR_ATTN_MAX_QLEN=1 (the verify on
 FI, the draft still Mjolnir), then MJOLNIR_ATTN_Q_DTYPE=bf16 and
 MJOLNIR_ATTN_MAX_SPLITS=1.
+
+## Session 6d: the acceptance matrix -- the draft-step KV writes poison the verify
+
+The full bisect with the spec-decode counters (num_drafts = the ROUNDS):
+
+| config                    | drafter | verify  | output | acceptance     |
+|---------------------------|---------|---------|--------|----------------|
+| A  DRAFT_T5=0             | FI      | Mjolnir | clean  | 42/20 = 2.1/rd |
+| B  MAX_QLEN=1             | Mjolnir | FI      | clean  | 24/35 = 0.69/rd|
+| C  defaults               | Mjolnir | Mjolnir | LOOPS  | 0.0            |
+
+(plus: the bf16-Q loops; the long prompt loops; the MAX_SPLITS=1 run
+produced total noise -- the ns_cap=1 kernel config is its own untested
+corner, void as a bisect; the "spec NONE" probe never ran -- its health
+waiter saw config B take port 6001, a false positive.)
+
+Conclusions:
+1. The Mjolnir verify + the Mjolnir-written target KV are numerically
+   perfect (A: 2.1/round, the healthy MTP K=3 rate).
+2. The Mjolnir DRAFTER is degraded (B: 0.69/round) -- the drafts
+   usable, the drafter's context subtly wrong.
+3. The MTP-head draft steps on Mjolnir POISON THE VERIFY'S INPUT:
+   the same verify code scores 2.1/rd in A and 0.0 in C. The only
+   channel between them is the KV state the draft steps write --
+   the draft-step KV-write path (the slots, the layout view, or a
+   shared runner buffer like _cu) is the bug.
+
+INTERIM WORKAROUND SHIPPED: the orin dockerctl env pins
+MJOLNIR_ATTN_DRAFT_T5=0 (the drafter on the fallback) -- the fully
+correct config at the healthy acceptance. Remove when the draft-step
+KV-write path is fixed.
