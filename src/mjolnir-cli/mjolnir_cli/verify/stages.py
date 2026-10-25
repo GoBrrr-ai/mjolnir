@@ -528,42 +528,32 @@ def stage_vllm(
     cases = []
     orin = ctx.runner.platform == "orin"
     log = ctx.logdir / "vllm" / "test_runner.log"
-    if orin:
-        # The GEMV family serves head_size 256 only; the default smoke model
-        # (Qwen3-0.6B) is head_size 128. The plugin smoke needs a hd256 model
-        # (the repo's headline) or the hd128 GEMV variant -- until then the
-        # stage reports the gap instead of a doomed run. The kernel-level
-        # correctness on this platform is the sweep-gated harness matrix.
-        ctx.out(
-            "   (N/A on Orin: the GEMV serves head_size 256; the smoke model is hd128."
-            " The hd128 GEMV variant -- or a hd256 smoke model -- unlocks this stage)"
-        )
-        return {
-            "cases": [
-                {"label": "plugin smoke", "passed": False, "note": "needs a hd256 model (GEMV serves hd256 only)"}
-            ],
-            "params": {"smoke_modes": "", "model": model, "tokens": tokens},
-        }
-        # tests/test_runner.py exercises the thor family (its runner and the
-        # bit-faithful emulator live there); the orin's correctness gate is
-        # the harness --sweep matrix the correctness stage runs. The smoke
-        # below is the real plugin check on this platform.
-        ctx.out("   (runner tests: thor-family suite — the Orin's correctness is the sweep-gated matrix)")
-    rc = ctx.runner.tests(log, repo, "python3 tests/test_runner.py", timeout, hf)
+    # Each family's runner suite (no vLLM): tests/test_runner.py drives the
+    # Thor runner against its bit-faithful emulator; tests/test_orin_runner.py
+    # drives the Orin runner (mma + GEMV) against the fp32 reference on the
+    # vLLM 0.32 serving contract -- live device seq_lens, FULL-graph replay
+    # without a metadata rebuild, the fused draft advance, padding rows,
+    # the non-causal drafter block.
+    suite = "tests/test_orin_runner.py" if orin else "tests/test_runner.py"
+    rc = ctx.runner.tests(log, repo, f"python3 {suite}", timeout, hf)
     text = log.read_text(errors="replace") if log.exists() else ""
     for line in text.splitlines():
         m = re.search(r"(✅|❌) (test_\S+)", line)
         if m:
             cases.append({"label": f"runner {m.group(2).rstrip(':')}", "passed": m.group(1) == "✅", "log": str(log)})
             ctx.out("   " + line.strip())
-    if not orin and rc != 0 and not any(not c["passed"] for c in cases):
+    if rc != 0 and not any(not c["passed"] for c in cases):
         cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
-    # The smoke modes a platform can actually run: e2m3 needs the vLLM fp6
-    # cache-write patch (the Mjolnir image), lmh8 needs fp8 tensor cores
-    # (sm_100+), spec needs a served drafter -- the stock-image Orin runs
-    # the backend plugin itself (MJOLNIR falls back to CUSTOM on stock vLLM).
     if orin:
-        smoke_modes = " ".join(m for m in smoke_modes.split() if m in ("graph", "eager"))
+        # The plugin smoke needs a head_size-256 model on this platform (both
+        # Orin kernels serve hd256; the default smoke model is hd128 and would
+        # run entirely on the fallback). The served end-to-end check is the
+        # spec stage against the AWQ_MJOLNIR config.
+        ctx.out("   (smoke: N/A on Orin -- the Orin kernels serve head_size 256, the smoke model is hd128)")
+        return {"cases": cases, "params": {"smoke_modes": "", "model": model, "tokens": tokens}}
+    # The smoke modes: e2m3 needs the vLLM fp6 cache-write patch (the
+    # Mjolnir image), lmh8 needs fp8 tensor cores (sm_100+), spec needs a
+    # served drafter.
     for mode in smoke_modes.split():
         args = f"--model {model} --max_tokens {tokens}"
         if mode == "eager":
