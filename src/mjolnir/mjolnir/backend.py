@@ -868,6 +868,26 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     f"kvsum={k_cache[md.plan.block_table[0, :2].long()].float().sum().item():.6g} "
                     f"kvnan={int(torch.isnan(k_cache[md.plan.block_table[0, :2].long()].float()).sum())}\n"
                 )
+            # the npz capture for the offline replay: the first 3 T5 calls
+            self._dbg_i = getattr(self, "_dbg_i", 0)
+            if self._dbg_i < 3:
+                try:
+                    pages = md.plan.block_table[0, :2].long()
+                    self._dbg_i += 1
+                    self._dbg_pending = {
+                        "q": query.detach().cpu().numpy(),
+                        "k": k_cache[pages].detach().cpu().numpy(),
+                        "v": v_cache[pages].detach().cpu().numpy(),
+                        "cu": runner._cu[: n + 1].cpu().numpy(),
+                        "bt": md.plan.block_table[:1, :2].cpu().numpy(),
+                        "kd": runner._kd[:n].cpu().numpy(),
+                        "vd": runner._vd[:n].cpu().numpy(),
+                        "layer": getattr(layer, "layer_name", "?"),
+                        "ql": md.plan.q_len,
+                    }
+                except Exception as e:  # noqa: BLE001 -- never break serving on debug
+                    with open("/tmp/mjolnir_dbg.log", "a") as f:
+                        f.write(f"capture failed: {e}\n")
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
@@ -896,6 +916,19 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             layer._v_scale,
             self.scale,
         )
+        if getattr(self, "_dbg_pending", None) is not None:
+            try:
+                import numpy as np
+
+                p = self._dbg_pending
+                self._dbg_pending = None
+                tag = "mtp" if "mtp" in str(p["layer"]) else "tgt"
+                p["out"] = output.detach().cpu().numpy()
+                p["scale"] = float(self.scale)
+                np.savez(f"/tmp/mjolnir_dbg/call_{tag}_ql{p['ql']}.npz", **p)
+            except Exception as e:  # noqa: BLE001 -- debug only
+                with open("/tmp/mjolnir_dbg.log", "a") as f:
+                    f.write(f"npz save failed: {e}\n")
         return output
 
 
