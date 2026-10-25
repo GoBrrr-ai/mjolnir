@@ -885,6 +885,8 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                         "vd": runner._vd[:n].cpu().numpy(),
                         "layer": getattr(layer, "layer_name", "?"),
                         "ql": md.plan.q_len,
+                        "ns_cap": runner.ns_cap,
+                        "out_pre": output.detach().float().cpu().numpy().copy(),
                     }
                 except Exception as e:  # noqa: BLE001 -- never break serving on debug
                     with open("/tmp/mjolnir_dbg.log", "a") as f:
@@ -926,6 +928,8 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 tag = "mtp" if "mtp" in str(p["layer"]) else "tgt"
                 p["out"] = output.detach().float().cpu().numpy()
                 p["scale"] = float(self.scale)
+                p["opart_sum"] = float(runner._o_part.float().abs().sum().item())
+                p["lsepart_sum"] = float(runner._lse_part.float().sum().item())
                 np.savez(f"/tmp/mjolnir_dbg/call_{tag}_ql{p['ql']}.npz", **p)
             except Exception as e:  # noqa: BLE001 -- debug only
                 with open("/tmp/mjolnir_dbg.log", "a") as f:
