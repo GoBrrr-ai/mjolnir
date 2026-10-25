@@ -807,3 +807,21 @@ THE FIX: margin=0 in the builder's plan call (the commit message
 carries the reasoning). The fused-draft device-cu refresh path (the
 Thor DSpark/DFlash opt-ins) is the separate concern -- if it needs a
 margin, it must be gated on that path, not applied to every step.
+
+## Session 7c: the Phase-2 Q-tiling register probe -- NO-GO, data-backed
+
+The ptxas probe ran CPU-only against the cached sm_87 fatbins (the .o
+files are host stubs; the device fatbin sits in .rodata at the
+0xBA55ED50 magic -- carve it and cuobjdump --dump-resource-usage it;
+/tmp/opencode/regs2.py). The cached variants:
+
+- the MMA decode kernels: REG=254-255 -- the architectural ceiling
+  (matches the 255-reg + 50-82 KiB smem bind from the ncu sweeps)
+- the GEMV variants: REG=96-128
+
+Phase-2 Q-tiling (mt=32) doubles the per-thread acc_O registers on a
+kernel already at 255: guaranteed spills, a certain regression. The
+"ptxas register probe" gate that any port demanded: ANSWERED. Phase-2
+stays parked; the mt=16 M is the design's ceiling on sm_87. Any future
+Q-tiling needs a different accumulator strategy (smem/TMEM-like), not
+a tile-size bump.
