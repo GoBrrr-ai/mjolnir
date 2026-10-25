@@ -857,7 +857,11 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     f"cu={runner._cu[: n + 1].tolist()} "
                     f"bt0={md.plan.block_table[0, :4].tolist()} "
                     f"slots={md.slot_mapping[:6].tolist()} "
-                    f"kc={tuple(k_cache.shape)} ptr={k_cache.data_ptr()}\n"
+                    f"kc={tuple(k_cache.shape)} ptr={k_cache.data_ptr()} "
+                    f"qsum={query.float().sum().item():.4g} "
+                    f"qnan={int(torch.isnan(query.float()).sum())} "
+                    f"kvsum={k_cache[md.plan.block_table[0, :2].long()].float().sum().item():.6g} "
+                    f"kvnan={int(torch.isnan(k_cache[md.plan.block_table[0, :2].long()].float()).sum())}\n"
                 )
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
