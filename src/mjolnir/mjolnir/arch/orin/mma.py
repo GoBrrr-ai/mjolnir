@@ -161,7 +161,7 @@ class MMADecodeKernel:
             ).launch(
                 grid=(cute.size(mV.shape[-2]), num_splits, batch_size),
                 block=[self.NUM_THREADS, 1, 1],
-                min_blocks_per_mp=3 if (self.regcap or self.regpath) else 0,
+                min_blocks_per_mp=3 if self.regcap else 0,
                 stream=stream,
             )
             return
@@ -771,8 +771,10 @@ class MMADecodeKernel:
             # the sQ + this pad — both dead after the A-fragment fill —
             # and the ring is 2-pair (a, c; the refill issues after the
             # post-PV barrier since it retargets the consumed buffer).
-            # 48.5 KB dynamic -> 3 CTAs/SM at the <=170-register cap.
-            sPad = smem.allocate_tensor(cutlass.BFloat16, cute.make_layout(SR * D // 2), byte_alignment=16)
+            # 49.5 KB dynamic; the fp8 stagings read through SWIZZLED
+            # u16-pair views (the plain row-major view made every ldmatrix
+            # an 8-way bank conflict at the 256B row stride).
+            sPad = smem.allocate_tensor(cutlass.BFloat16, cute.make_layout(SR * D // 2), byte_alignment=16)  # noqa: F841
             sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
             sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
             sK8c = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
@@ -794,10 +796,12 @@ class MMADecodeKernel:
                 cute.tile_to_shape(bf16_atom, (SR, D // 2), (0, 1)),
             )
             sV16 = cute.make_tensor(sQ.iterator, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)))
-            sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
+            # sP BEFORE sStat: the swizzled tile needs a 1024B-aligned base —
+            # the 512B sStat between the 8K buffers lands sP at 48.5K.
             sP = smem.allocate_tensor(
                 cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)), byte_alignment=16
             )
+            sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
         else:
             sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
             sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
@@ -907,6 +911,11 @@ class MMADecodeKernel:
         tSsQ = smem_thr_Q.partition_S(sQ)
         if const_expr(mt == 16 and self.regpath):
             tSsK = smem_thr_K.partition_S(sK8v)
+            sK8v_c = cute.make_tensor(
+                cute.recast_ptr(sK8c.iterator, dtype=cutlass.BFloat16),
+                cute.tile_to_shape(bf16_atom, (SR, D // 2), (0, 1)),
+            )
+            tSsK_c = smem_thr_K.partition_S(sK8v_c)
         else:
             tSsK = smem_thr_K.partition_S(sK16)
         tOsVt = smem_thr_V.partition_S(sVt)
@@ -1067,13 +1076,19 @@ class MMADecodeKernel:
 
             acc_S.fill(0.0)
             if const_expr(mt == 16 and self.regpath):
+                # the fragment ldmatrix follows the ring parity — this
+                # stage's fp8 K lives in buffer `par`; the partition is
+                # bound to a base pointer, so the source rotates too.
+                tSsK_cur = tSsK
+                if par == 2:
+                    tSsK_cur = tSsK_c
                 # the register-path QK: pass even masks the LOW byte of each
                 # fragment u16 into the recipe position (the even d); pass
                 # odd needs no shift. The dequant + ldmatrix between the
                 # passes breaks the HMMA dependency chain, and the single
                 # acc_S (no acc_S2) saves 16 registers under the cap.
                 for k in cutlass.range_constexpr(D // 32):
-                    cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
+                    cute.copy(smem_copy_K, tSsK_cur[None, None, k], tSrK_copy[None, None, k])
                 for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
                     qp = (tSrKu[i] & 0x00FF00FF) << 8
                     out = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
@@ -1081,7 +1096,7 @@ class MMADecodeKernel:
                 for k in cutlass.range_constexpr(D // 32):
                     cute.gemm(tiled_mma, acc_S, tSrQ_even[None, None, k], tSrK[None, None, k], acc_S)
                 for k in cutlass.range_constexpr(D // 32):
-                    cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
+                    cute.copy(smem_copy_K, tSsK_cur[None, None, k], tSrK_copy[None, None, k])
                 for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
                     out = (tSrKu[i] & _DEQ_MASK_SIGN) | ((tSrKu[i] & _DEQ_MASK_LSB) >> 4)
                     tSrKu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
