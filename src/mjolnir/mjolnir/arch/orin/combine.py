@@ -13,7 +13,8 @@ baked at 256 (the MMA kernel's HEAD_DIM); ns/rows/h_q/b/ql are runtime
 Int32s so one compile serves every capture shape. The tensor layouts
 are the runner's capacity buffers (fixed at construction, so the baked
 extents are stable). The empty-chunk splits write lse = -inf -> weight
-0; an all-empty row normalizes to 0 (the torch combine's clamp_min).
+0; an all-empty row normalizes to 0 (the torch combine's clamp_min) —
+L is floored at -FLT_MAX so that row never computes -inf - -inf.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from cutlass import Float32, Int32
 D = 256  # the MMA kernel's HEAD_DIM
 NUM_THREADS = 128
 _TINY = 1.1754944e-35  # torch.finfo(torch.float32).tiny, rounded
+_NEG_FLOOR = -3.4028234e38  # -torch.finfo(torch.float32).max: the finite L floor
 
 
 @cute.kernel
@@ -53,8 +55,14 @@ def combine_kernel(
     # branch (~34 us; the FI merge overlaps all partial rows in flight
     # and lands at 11). Unrolled, the loads issue independently and the
     # latency hides under the acc chain.
-    # 1. L = max_s lse[s, h, r]
-    L = -cutlass.Float32.inf
+    # 1. L = max_s lse[s, h, r], floored at a FINITE -FLT_MAX: a row whose
+    #    every split is empty (all lse = -inf — a CUDA-graph padding request
+    #    with seq_len 0, or a dummy/profile step) would otherwise get
+    #    L = -inf and w = exp2(-inf - -inf) = NaN, a NaN output row instead
+    #    of the documented 0 (and a NaN row poisons any per-tensor reduction
+    #    downstream). With the floor, every -inf lse weighs exactly 0 and a
+    #    real lse (>= -FLT_MAX) is unaffected.
+    L = Float32(_NEG_FLOOR)
     for s in cutlass.range_constexpr(max_ns):
         if s < ns:
             L = cutlass.max(L, mLse[s * ls_s + bb * ls_b + h * ql + qq])
