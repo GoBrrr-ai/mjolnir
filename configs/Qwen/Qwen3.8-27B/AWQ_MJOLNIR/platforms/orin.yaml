@@ -1,11 +1,14 @@
 # AGX Orin 64GB — the platform tuning the platform-neutral config.yaml does
-# not set: on the 64GB Orin the AWQ checkpoint plus an fp8 KV pool at 0.9
-# utilization leaves room for a 190K context across at most 5 sequences, and
-# the 8K token batch with a 32-token prefix-match unit is the Orin scheduler
-# tuning (smaller prefill chunks and finer prefix blocks for its memory
-# bandwidth). This is the config's only overlay: it exists on Orin only.
+# not set. The board's resident host usage (desktop + agent infra, ~12 GiB)
+# caps gpu-memory-utilization: 0.72 leaves a ~2 GiB startup cushion at the
+# free-memory check (0.9 was the paper tuning and fails the check on this
+# board). The pool still holds a single 190K context; the 5-sequence extreme
+# degrades to scheduler queueing. The 8K token batch with a 32-token
+# prefix-match unit is the Orin scheduler tuning (smaller prefill chunks and
+# finer prefix blocks for its memory bandwidth). Same value as
+# AWQ_FLASHINFER's overlay — the e2e legs must be memory-comparable.
 max-num-seqs: 5
 max-model-len: 190K
 max-num-batched-tokens: 8K
-gpu-memory-utilization: 0.9
+gpu-memory-utilization: 0.72
 prefix-match-unit: 32

@@ -95,17 +95,24 @@ def test_orin_awq_baseline_dry_run_and_merged_overlay(tmp_path, monkeypatch):
     on orin's own (upstream) image with no Mjolnir env (FlashInfer reads the
     fp8 KV natively), and the orin overlay's 64GB tuning merges over the
     platform-neutral base — model identity, backends, KV dtype, MTP K=3 and
-    the chat template come from config.yaml; max-num-seqs / 190K / 8K / 0.9 /
-    prefix-match-unit only from platforms/orin.yaml. The serve-time gate
-    accepts the merged config on orin."""
+    the chat template come from config.yaml; max-num-seqs / 190K / 8K / 0.72 /
+    prefix-match-unit only from platforms/orin.yaml. The merged config — not
+    the base — is what the container receives (--config /data/serve-config.yaml,
+    the file mounted from the data dir): the overlay must reach vLLM, not
+    only the validate gate. The serve-time gate accepts the merge on orin."""
+    data = tmp_path / "data"
     monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
-    env = {"MJOLNIR_PLATFORM": "orin", "MJOLNIR_STATE": str(tmp_path / "state.json")}
+    env = {
+        "MJOLNIR_PLATFORM": "orin",
+        "MJOLNIR_STATE": str(tmp_path / "state.json"),
+        "MJOLNIR_DATA": str(data),
+    }
     r = CliRunner().invoke(
         cli.app, ["serve", "up", "--model", MODEL, "--config", "AWQ_FLASHINFER", "--dry-run"], env=env
     )
     assert r.exit_code == 0, r.output
     line = next(ln for ln in r.output.splitlines() if ln.startswith("docker run "))
-    serve = f"vllm serve --config /configs/{MODEL}/AWQ_FLASHINFER/config.yaml {_SERVE_TAIL}"
+    serve = f"vllm serve --config /data/serve-config.yaml {_SERVE_TAIL}"
     assert f"-p {DEFAULT_PORT}:8000 {REGISTRY['orin'].default_image} -lc {serve}" in line
     assert "-e MJOLNIR_CONFIG=" not in line  # FlashInfer serves fp8 natively: no Mjolnir reader env
     assert "-e MJOLNIR_ATTN_KV_SCALES=" not in line  # fp8 needs no scales
@@ -126,12 +133,20 @@ def test_orin_awq_baseline_dry_run_and_merged_overlay(tmp_path, monkeypatch):
         "max-num-seqs": 5,
         "max-model-len": "190K",
         "max-num-batched-tokens": "8K",
-        "gpu-memory-utilization": 0.9,
+        "gpu-memory-utilization": 0.72,
         "prefix-match-unit": 32,
     }.items():
         assert merged[k] == v, k
         assert k not in base, f"{k} is Orin-64GB tuning: the overlay's, never the base's"
     overlays.validate_serving(d / "config.yaml", "orin")  # does not raise
+
+    # the file the container receives IS the merge, written under the data dir
+    written = yaml.safe_load((data / "serve" / f"{MODEL.replace('/', '--')}--AWQ_FLASHINFER--orin.yaml").read_text())
+    assert written == merged
+    assert (
+        f"-v {data / 'serve' / f'{MODEL.replace("/", "--")}--AWQ_FLASHINFER--orin.yaml'}:/data/serve-config.yaml"
+        in line
+    )
 
 
 # ── the error paths and the read-only commands (docker faked at the boundary) ─

@@ -352,7 +352,7 @@ class Settings:
     platform: str | None = None  # unresolved until resolve() (flag > env > host detection)
     image: str = field(default_factory=lambda: _env("MJOLNIR_IMAGE", DEFAULT_IMAGE))
     port: int = field(default_factory=lambda: _env_int("MJOLNIR_PORT", DEFAULT_PORT))
-    data_dir: Path = field(default_factory=lambda: Path("~/.local/share/mjolnir").expanduser())
+    data_dir: Path = field(default_factory=lambda: Path(_env("MJOLNIR_DATA", "~/.local/share/mjolnir")).expanduser())
     label: str | None = None  # explicit backend-label override (history log); else derived from quant
 
     @property

@@ -25,7 +25,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 ```bash
 mjolnir serve up --config NVFP4_FA4hd256
 ```
-Availability: ❌ fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only
+Availability: ❌ fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)
 
 Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_FA4hd256).
 
