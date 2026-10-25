@@ -872,6 +872,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             self._dbg_i = getattr(self, "_dbg_i", 0)
             if self._dbg_i < 3:
                 try:
+                    os.makedirs("/tmp/mjolnir_dbg", exist_ok=True)
                     pages = md.plan.block_table[0, :2].long()
                     self._dbg_i += 1
                     self._dbg_pending = {
