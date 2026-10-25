@@ -825,3 +825,14 @@ kernel already at 255: guaranteed spills, a certain regression. The
 stays parked; the mt=16 M is the design's ceiling on sm_87. Any future
 Q-tiling needs a different accumulator strategy (smem/TMEM-like), not
 a tile-size bump.
+
+**Post-fix matrix so far**: A (the FI drafter + the Mjolnir verify)
+with the margin fix: CLEAN x3, the correct derivation, 126/60 = 2.10
+tokens/round -- the verify side is fully healthy. The post-fix content
+dump: zero NaNs, the cu == the lens everywhere, the MTP pool's KV sums
+growing as the draft tokens land, the MTP storage ptr distinct. The
+residual C-loop (0.0/177) is DRAFTER-SIDE; B (the Mjolnir drafter +
+the FI verify, MJOLNIR_ATTN_MAX_QLEN=1) is the discriminator: the
+pre-fix B was 0.69/round -- if post-fix B is still ~0.7 the drafter's
+corruption is not the margin; if it jumps to ~2 the margin was the
+whole drafter story and C's residual is an interaction.
