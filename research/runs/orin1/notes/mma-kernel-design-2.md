@@ -743,3 +743,34 @@ Open items:
 - the ns_cap=1 kernel config produces total noise -- guard or fix.
 - bench e2e / bench accuracy: the owned-window items.
 - the Phase-2 Q-tiling redesign: the user's go/no-go.
+
+## Session 7 (2026-10-25): the ns_cap=1 fix + the C-bug hunt resumes
+
+**The kernel exonerated at the draft shapes** (`/tmp/opencode/draftshape.py`):
+8/8 pass at the exact serving shapes the gates never covered -- varlen
+short-L (b=5, lens<=30..120, q1/q2/q4), page 64, HND, fp8, 2 CTAs/SM.
+The mma kernel is numerically correct everywhere it can be reached.
+
+**ns_cap=1: FIXED.** Mechanism: the mma kernel always uses the fixed
+split-KV grid and writes partials; `self.split = self.ns_cap > 1`
+skipped the combine at ns_cap=1 -> the output never merged -> total
+noise. Fix: `self.split = True` (the combine is exact at ns=1 -- one
+partial merges to itself). VALIDATED: the MAX_SPLITS=1 serve generates
+the identical clean derivation. Commit in the image.
+
+**The workaround pin explains the "C is clean" false alarm**: the
+dockerctl Orin block pins MJOLNIR_ATTN_DRAFT_T5=0 into EVERY Orin
+serve, so all post-pin "defaults" runs were actually config A (the
+docker `-e` last-wins lets `--env MJOLNIR_ATTN_DRAFT_T5=1` override).
+**The true-C retest on the post-fix image: STILL LOOPS** -- "To
+Register Register...", 0.0/177 acceptance. The bug is real and
+current. (The A-config runs: clean x3, 1.79/round -- consistent.)
+
+**The stdout debug dump is void**: the env-gated print in
+MjolnirImpl.forward's T5 branch produced ZERO docker-log lines with
+the env verified in the container -- the EngineCore swallows raw
+stdout. Re-instrumented as a FILE append (/tmp/mjolnir_dbg.log) with
+an FB marker at the fallback branch + the storage data_ptr (the id of
+a fresh view is meaningless). The load-bearing question it answers:
+DO THE MJOLNIR KERNELS EXECUTE IN SERVING AT ALL, or does everything
+ride the fallback? (STATS counters exist but are never surfaced.)
