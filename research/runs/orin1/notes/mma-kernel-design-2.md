@@ -836,3 +836,19 @@ the FI verify, MJOLNIR_ATTN_MAX_QLEN=1) is the discriminator: the
 pre-fix B was 0.69/round -- if post-fix B is still ~0.7 the drafter's
 corruption is not the margin; if it jumps to ~2 the margin was the
 whole drafter story and C's residual is an interaction.
+
+**B VERDICT (post-fix): 33/55 = 0.60/round, UNCHANGED from the pre-fix
+0.69.** The margin was a real bug (kept fixed) but the drafter's
+degradation is a separate, deeper serving-integration bug. Final
+matrix: A (FI drafter + Mjolnir verify) 2.10/round clean; B (Mjolnir
+drafter + FI verify) 0.60/round clean-output; C (both) 0.0 + loops.
+The kernel is exonerated at every serving shape, the metadata is
+proven consistent, no NaNs -- the residual lives in the MTP layer's
+TENSOR CONTENT path (the drafter's q comes from the drafter's hidden
+states; its KV pool is written by both the FI prefill and the Mjolnir
+draft steps). The interim workaround (the drafter on FlashInfer, the
+dockerctl DRAFT_T5=0 pin) STAYS: config A is the validated shipped
+state. Next debug session: dump the drafter's per-step qsum/kvsum
+trend against a run where the drafter is on FI (config A) and diff
+the MTP pool's page-169 content growth; the fused-draft ql=4 calls
+(29 of them) are also unexplained vs the 60 ql=1 calls.
