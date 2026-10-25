@@ -103,7 +103,8 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_Q_DTYPE` | `fp8` | `fp8` (dynamic per-(seq, KV head) quantization) or `bf16` |
 | `MJOLNIR_ATTN_MAX_QLEN` | `1 + num_speculative_tokens` | the largest q_len Mjolnir takes |
 | `MJOLNIR_ATTN_CTAS` | `2` | CTAs per SM (2 is fastest on Thor) |
-| `MJOLNIR_ATTN_MAX_SPLITS` | `16` | max KV chunks per sequence (1 = never split, no merge kernel) |
+| `MJOLNIR_ATTN_MAX_SPLITS` | `16` | max KV chunks per sequence (1 = never split, no merge kernel). On Orin it caps the split capacity the kernel's occupancy picks (8 for the mma kernel on AGX Orin) |
+| `MJOLNIR_ATTN_ORIN_IMPL` | `mma` | Orin only: `mma` (tensor cores; fp8 KV, head_dim 256, q_len ≤ 8, bf16 Q) or `gemv` (FMA; every KV format, the fallback when the mma does not apply) |
 | `MJOLNIR_ATTN_KV_STAGES` | `0` | KV ring depth override (0 = the tuned default) |
 | `MJOLNIR_ATTN_PDL` | `0` | `1`: programmatic dependent launch |
 | `MJOLNIR_ATTN_L2_PREFETCH` | `0` | TMA-prefetch K/V this many tiles ahead into L2 |

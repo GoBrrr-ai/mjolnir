@@ -37,8 +37,10 @@ def ref_decode(
     k_descale: torch.Tensor,  # (b, h_k)
     v_descale: torch.Tensor,  # (b, h_k)
     softmax_scale: float,
+    causal: bool = True,
 ) -> torch.Tensor:
-    """fp32 reference: dequantize, causal tail, softmax, PV."""
+    """fp32 reference: dequantize, causal tail (or the whole context when
+    ``causal`` is False — a parallel drafter's block), softmax, PV."""
     b, M, h_q, d = q.shape
     h_k = k_pool.shape[2]
     h_r = h_q // h_k
@@ -66,7 +68,7 @@ def ref_decode(
         vd = v_descale[bi].float().view(h_k, 1, 1)
         qd = q_descale[bi].float().view(h_k, 1, 1) if q_descale is not None else 1.0
         for m in range(M):
-            lim = L - M + 1 + m  # the causal tail: keys 0 .. L-M+m
+            lim = L - M + 1 + m if causal else L  # the causal tail: keys 0 .. L-M+m
             q_m = qf[bi, m].view(h_k, h_r, d)  # (h_k, h_r, d)
             s = torch.einsum("hrd,hld->hrl", q_m, k_seq.transpose(0, 1)) * (softmax_scale * qd * kd)
             s[:, :, lim:] = -torch.inf
@@ -201,6 +203,7 @@ def check(args) -> bool:
         ref_kd,
         ref_vd,
         scale,
+        causal=not args.non_causal,
     )
     rel = (got - ref).norm() / ref.norm().clamp_min(1e-6)
     ok = rel.item() < args.tolerance
@@ -218,7 +221,16 @@ def check(args) -> bool:
         else:  # fp8: the random descales stay — the kernel sees dequant(kv) * kd
             float_pool, f_kd, f_vd = raw.cpu(), kd.cpu(), vd.cpu()
         ref_true = ref_decode(
-            q.float().cpu(), float_pool, float_pool, table.cpu(), seq_lens.cpu(), None, f_kd, f_vd, scale
+            q.float().cpu(),
+            float_pool,
+            float_pool,
+            table.cpu(),
+            seq_lens.cpu(),
+            None,
+            f_kd,
+            f_vd,
+            scale,
+            causal=not args.non_causal,
         )
         d_true = (got - ref_true).abs()
         rel_q = (d_true.norm() / ref_true.norm().clamp_min(1e-6)).item()
@@ -357,7 +369,12 @@ def main() -> int:
     p.add_argument("--no_l2_flush", action="store_true", help="accepted; the prebuilt launch timing never flushes")
     p.add_argument("--ctas_per_sm", type=int, default=1, help="the GEMV grid has no CTAs/SM knob; 1 only")
     p.add_argument("--max_splits", type=int, default=0, help="split-KV capacity (0 = the auto plan)")
-    p.add_argument("--impl", default="gemv", choices=("gemv", "mma"), help="the decode kernel (mma = the design scaffold, see research/runs/orin1)")
+    p.add_argument(
+        "--impl",
+        default="gemv",
+        choices=("gemv", "mma"),
+        help="the decode kernel (mma = the tensor-core kernel, the serving default for fp8 KV)",
+    )
     args = p.parse_args()
     assert args.ctas_per_sm == 1, "the Orin GEMV grid has no CTAs/SM knob (one CTA per (head, chunk))"
     if args.kv_layout == "nhd":

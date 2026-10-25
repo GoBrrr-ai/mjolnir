@@ -32,14 +32,16 @@ ampere-fa2-dsl/fa2_ampere.py):
 - The causal mask is PER-TOKEN (the MTP drafts see one fewer future
   key each): the row (m, r) attends to the keys gk <= kv_len - q_len +
   m — the GEMV ref_decode contract; the M=1 degenerates to the no-op.
+  A non-causal kernel (``causal=False``) lets every row see the whole
+  context (``_key_limit``).
 - The descales follow the GEMV's contract: the K scale folds into
   scale_eff (the S side), the V scale divides at the epilogue, the
   LSE = (m*scale_eff + log2 l) * ln2 with the GEMV's exact coords.
 - The split-KV partial O/LSE per (split, row) — merged by the existing
   torch combine.
 
-Status: M1 in progress. NOT wired into the default paths; `--impl mma`
-exercises it.
+Status: the Orin serving default for fp8 KV (``arch/orin/__init__.py``,
+``MJOLNIR_ATTN_ORIN_IMPL=gemv`` opts out); ``--impl mma`` on the harness.
 """
 
 from __future__ import annotations
@@ -188,6 +190,19 @@ class MMADecodeKernel:
         )
 
     # ------------------------------------------------------------------
+    def _key_limit(self, kv_len, seqlen_q: int, tok):
+        """The last key the query token ``tok`` attends (inclusive). Causal
+        (decode, the MTP verify): the per-token tail kv_len - q_len + tok —
+        the seq_lens INCLUDE the q_len query tokens. Non-causal (a parallel
+        drafter's block — DSpark / DFlash — where every query token sees
+        every key, the backend's MJOLNIR_ATTN_NONCAUSAL path): the whole
+        context. Plain Python at trace time: ``self.causal`` is a constant,
+        so this folds into the mask with no runtime branch (the kernel used
+        to ignore the flag and apply the causal tail to non-causal steps)."""
+        if self.causal:
+            return kv_len - seqlen_q + tok
+        return kv_len - 1
+
     @cute.jit
     def g2s_stage(
         self,
@@ -1157,7 +1172,7 @@ class MMADecodeKernel:
                 for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
                     stage_row = row0 + tScS_mn[0, c][3]
                     gk = kv_start + stage_row
-                    lim = kv_len - seqlen_q + tok
+                    lim = self._key_limit(kv_len, seqlen_q, tok)
                     if stage_row < kv_len_c and gk <= lim:
                         m_local = cute.arch.fmax(m_local, acc_S_mn[r, c])
                 m_local = cute.arch.fmax(
@@ -1199,7 +1214,7 @@ class MMADecodeKernel:
                 for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
                     stage_row = row0 + tScS_mn[0, c][3]
                     p = Float32(0.0)
-                    if stage_row < kv_len_c and kv_start + stage_row <= kv_len - seqlen_q + tok:
+                    if stage_row < kv_len_c and kv_start + stage_row <= self._key_limit(kv_len, seqlen_q, tok):
                         p = cute.math.exp2(acc_S_mn[r, c] * scale_eff - row_max[r] * scale_eff, fastmath=True)
                     acc_S_mn[r, c] = p
                     sP[row, Int32(tScS_mn[0, c][3])] = p.to(cutlass.BFloat16)
@@ -1345,7 +1360,7 @@ class MMADecodeKernel:
             for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
                 stage_row = row0 + tScS_mn[0, c][3]
                 gk = kv_start + stage_row
-                lim = kv_len - seqlen_q + tok
+                lim = self._key_limit(kv_len, seqlen_q, tok)
                 if stage_row < kv_len_c and gk <= lim:
                     m_local = cute.arch.fmax(m_local, acc_S_mn[r, c])
             m_local = cute.arch.fmax(
@@ -1387,7 +1402,7 @@ class MMADecodeKernel:
             for c in cutlass.range_constexpr(cute.size(acc_S_mn.shape[1])):
                 stage_row = row0 + tScS_mn[0, c][3]
                 p = Float32(0.0)
-                if stage_row < kv_len_c and kv_start + stage_row <= kv_len - seqlen_q + tok:
+                if stage_row < kv_len_c and kv_start + stage_row <= self._key_limit(kv_len, seqlen_q, tok):
                     p = cute.math.exp2(acc_S_mn[r, c] * scale_eff - row_max[r] * scale_eff, fastmath=True)
                 acc_S_mn[r, c] = p
                 s_partial += p
