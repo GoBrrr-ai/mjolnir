@@ -631,3 +631,29 @@ M=6) -- the acc_O 64, the re-read x2 L2-mitigated, the smallest diff.
 (not fp32) -- 2x less merge traffic; ours are fp32. A bf16-partial
 variant is a small combine/kernel change (the accuracy: the chunk-
 normalized bf16 O + the fp32 LSE is the FI's shipped posture).
+
+## Session 6b: the phase-1 serving integration
+
+- The AWQ_MJOLNIR config created (the Qwen3.8-27B, the AWQ W4A16 riding
+  Marlin -- the native sm_87 int4 path per the availability matrix -- the
+  fp8 KV on the Mjolnir kernels, the MTP K=3 -> the verify q_len 4 =
+  the kernel_small mt32 path). The platforms/orin.yaml is the
+  AWQ_FLASHINFER's tuning copy. No env sidecar needed: the backend
+  self-resolves the fallback per-arch (the FA4 fp8-KV probe fails on
+  sm_87 -> the automatic FLASHINFER downgrade with a warning).
+- The availability matrix row added: (kv fp8, MJOLNIR, orin) = NATIVE
+  + the dtype-level why updated + the tests transcribed (93 pass).
+  The serve-blocker: the first smoke attempt died on the missing row.
+- The narandill/mjolnir-vllm:v0.32.0 arm64 image pulled, found 38
+  commits stale (no fused combine, no ns_cap 2, the old matrix) ->
+  rebuilt locally from the working tree (all 16 patches verified).
+- The checkpoint downloaded to the host HF cache; served via the
+  MJOLNIR_HF_CACHE mount (no second copy under the data dir).
+- The serve smoke: the first vLLM-path test for the family (the verify
+  vllm stage is N/A on the Orin until the hd128 widening or a hd256
+  smoke model). The dry-run confirms the platform env (CUTE_DSL_ARCH=
+  sm_87, TORCH_CUDA_ARCH_LIST=8.7 appended after the Thor's).
+- The restart-per-leg benches (bench e2e/accuracy) deferred until an
+  owned window: the shared vLLM server is DOWN (the gate UNREACHABLE,
+  no containers) -- starting the smoke container is safe, the benches
+  are not.
