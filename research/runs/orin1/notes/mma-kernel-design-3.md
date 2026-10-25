@@ -101,3 +101,46 @@ with `mma: replay: rel_err 20.69`. The probe bisect
 The graph-replay test's own capture also writes the cu via a captured
 `torch.cumsum` -- that part always worked (torch ops ride the capture
 stream); only the FFI launches needed the fix.
+
+## Session 10 (2026-10-26): THE ROOT CAUSE -- the kernels hardcoded a contiguous KV pool
+
+The A/B/C subtraction + the C-gemv cross-check pinned the failure to the
+ql=4 T5 path, but the decisive instrument was the **stride probe** (a
+BHN2D-shaped pool sliced the way the serving's `_kv_views` does):
+
+- contiguous pool (every offline probe + the whole test suite): rel 0.0019 OK
+- the serving's exact views (`pool[..., :D].transpose(1, 2)`, strides
+  (131072, 512, 32768, 1)): **rel 1.41 FAIL at every ql** -- freshly
+  compiled for those strides, both kernels.
+
+Mechanism: both kernels address KV rows with FLAT pointer arithmetic --
+`(pidx*PS + off) * num_head_kv + kv_head` (`* D` in the mma) -- valid only
+for a fully contiguous `(np, ps, h_k, d)` K tensor. vLLM 0.32 interleaves
+K|V in the last dim (the logical [L,B,H,N,C], C=2D) under EVERY layout
+name, so the flat math never holds in real serving; the docstring's "the
+kernel takes strides as runtime arguments" was aspirational. Every offline
+probe passed because the harness feeds the same contiguous tensor as K and
+V. The FFI *does* carry + check strides (a mismatch fails loudly:
+"Mismatched mK.strides[0]") -- consistent compile/launch strides in
+serving, so nothing errored; the kernel just read the wrong addresses.
+
+**The fix (39117cf, patch 0007)**: the KV gathers go through
+`cute.crd2idx((page, row_in_page, kv_head, 0), mK.layout)` -- the tensor's
+own layout -- and `_cute` marks the KV tensors `mark_layout_dynamic()` so
+the strides stay runtime values (the dummy-compiled capture path stays
+valid for any pool). One site in the mma's shared `g2s_stage`, four in the
+gemv; `num_head_kv` (gemv) went dead and is gone. Variant `+s1` -> `+s2`
+orphans the flat-math binaries. Post-fix stride probe: 12/12 OK (both
+impls x contig/strided x ql 1/2/4); tests/kernel/test_orin_runner 6/6.
+
+Consequences for the campaign bookkeeping: config A (the pin) never
+exercised ANY Mjolnir kernel (the `_is_draft` group-mismark force-fallbacked
+the 16 target layers with the mtp one), B exercised the ql=1 T5 path --
+which was CORRECT because... the draft steps' strided reads were garbage
+too -- B's 2.10 needs re-explanation (see session 10b). The ns=16
+over-split theory died: the offline output is identical at ns=0/8/16.
+
+Also confirmed benign-but-real: the kernel disk cache has never delivered
+a binary on this board ("Function prefix ..._args_spec not found" on every
+load -> a ~16s recompile per process; `_export`/`_disk_load` symbol
+desync). Filed for later; the serving is correct without it.
