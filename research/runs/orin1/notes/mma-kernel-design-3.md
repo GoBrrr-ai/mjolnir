@@ -59,3 +59,45 @@ Orin): live seq_lens vs the plan, graph capture on dummy lengths then
 replay with the real ones + an in-place advance, padding rows 0 not NaN,
 the q_len-4 verify, the non-causal block, the Runner's selection. Not
 yet run on the board -- the A/B/C matrix is the gate (Session 8's plan).
+
+## Session 9b (2026-10-25, the board): the kernels ESCAPED every graph capture
+
+The first on-board `verify vllm`: 5/6 -- the graph-replay test failed
+with `mma: replay: rel_err 20.69`. The probe bisect
+(/tmp/opencode/{replay,eager,bake,rows,varlen,descale,ladder,ps64}_probe.py):
+
+1. **The captured CUMSUM re-ran at replay (cu=[0,2500,3016] -- live) but
+   the KERNEL DID NOT** (`out == warm-up output: True`; after
+   `out.zero_()` + a manual-cu replay the out stayed 0). The launch was
+   never in the graph.
+2. **Root cause: the TVM-FFI env-stream marker.** `_compile_args` ended
+   with `make_fake_stream(use_tvm_ffi_env_stream=True)` -- per the DSL
+   docs that SKIPS the stream param from the signature and reads the
+   stream "through the environment stream obtained from caller context".
+   Nobody set that env, so every launch landed on the DEFAULT stream:
+   fine eagerly (vLLM's forward rides the default stream -- config A's
+   short-context probes never noticed), fatal under capture (the launch
+   escapes; the replay produces the capture-time result).
+3. **The fix (committed): the Thor convention.** `_compile_args` traces a
+   REAL `cuda.CUstream` (`_stream()` = torch's current stream) so the
+   signature keeps the stream as an ordinary 16th launch arg, and
+   `run()` appends `_stream()` per call -- the capture stream during
+   `torch.cuda.graph`, the live stream eagerly. The combine gets the
+   same treatment (a new trailing `stream` param + the arg). Probe
+   verdict: the replay now re-runs the kernel (`out != warm`), both
+   impls.
+4. **The variant gains `+s1`**: the pre-s1 disk binaries carry the old
+   15-arg signature -- the marker orphans them. `run()` also asserts
+   the pool's page size against the runner's (the compile bakes every
+   tensor dim; a mismatched pool reads garbage strides -- the probe
+   hour's lesson: `_runner()` hardwired the test module's PS=16 while
+   the probes fed ps=64 pools, and EVERY "ps=64 failure" was that
+   stale-binary artifact, not a kernel bug).
+5. ⚠️ **`ref_decode` full-batch looks wrong for b>=2** (the same kernel
+   output matches the per-row ref and mismatches the full-batch one at
+   ps=16/b=2). The tests only use it via per-row slices -- park, but
+   check before any full-batch ref use.
+
+The graph-replay test's own capture also writes the cu via a captured
+`torch.cumsum` -- that part always worked (torch ops ride the capture
+stream); only the FFI launches needed the fix.
