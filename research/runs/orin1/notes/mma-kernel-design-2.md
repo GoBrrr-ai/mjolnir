@@ -870,3 +870,52 @@ the MTP pool's page-169 content growth; the fused-draft ql=4 calls
 5. **bench e2e**: LAUNCHED (the owned window; the official
    AWQ_FLASHINFER vs the Mjolnir AWQ_MJOLNIR, the depths 0-32K, the
    conc 1/2/4). bench accuracy: queued after it.
+
+## Session 8: the bug-fix campaign -- the research phase (CPU-only, the bench owns the GPU)
+
+### Eliminated channels (the code-read of the image's vLLM 0.32)
+
+- **DraftTokensHandler.copy_stream** (spec_decode/utils.py:51): host
+  copy of draft tokens for grammar validation ONLY
+  (has_structured_output_reqs) -- our probes have none; the early
+  return leaves it unused. ELIMINATED.
+- **AdaptiveVerificationManager._copy_stream**: confidence-prob
+  host copies only. ELIMINATED.
+- **thor-fused-draft-t5-plan-refresh.patch**: rebuilds the draft
+  attention metadata on the FULL-cudagraph replay path only -- our
+  probes are eager (--enforce-eager). NOT ACTIVE on our path.
+- The speculator's draft loop (target_dependent_ar/speculator.py:340):
+  the FIRST draft token issues separately, then the remaining
+  num_speculative_steps-1 via _fused_multi_step_decode (if
+  supports_decode_metadata_update) or _multi_step_decode (per-step).
+  Explains the dump's ~2 ql=1 calls per cycle; the 29 ql=4 mtp calls
+  are the VERIFY's MTP-layer pass (1/cycle), not a fused draft.
+
+### The surviving suspect for Bug 2 (the C-only verify poisoning)
+
+The runner (and ALL its per-call device buffers: _cu staging, _kd/_vd
+descales, the packed-Q buffer, _o_part/_lse_part partials) is built
+PER KV-CACHE GROUP, and the MTP layer plausibly shares the target's
+group (same page size/dtype/dims). The draft steps rewrite all of
+these between the verify's layer launches; same-stream ordering should
+protect, and no side stream exists on our path -- so if E1 shows the
+verify's INPUT is identical in A and C, the corruption is IN one of
+these shared buffers surviving into the verify's kernel read.
+
+### The post-bench experiment plan (the GPU, after bench e2e)
+
+- E1: A-config + C-config, both with the dump: diff the VERIFY's
+  kvsum (the target-pool pages 169-170) and qsum for the same prompt.
+  Different -> the target pool IS poisoned (find the writer); same ->
+  the shared runner buffers/kernel state.
+- E2: dump id(runner) per call: is the MTP's runner the SAME instance
+  as the target layers'? (The shared-buffer hypothesis' premise.)
+- E3: the drafter's content trend: the mtp calls' qsum/kvsum per draft
+  step, C vs B -- where do the drafts' inputs diverge from sane?
+- E4: the runner-state isolation: temporarily clone the per-call
+  buffers (the descales + the packed-Q + the partials) per layer
+  and re-run C -- if the loop vanishes, the shared-buffer race is
+  confirmed and the fix is the buffer-per-group split.
+- E5: the fused-draft probe: MJOLNIR_ATTN_FUSED_DRAFT=0 (the Thor
+  knob) on the eager C -- if the loop vanishes, the fused path is the
+  channel.
