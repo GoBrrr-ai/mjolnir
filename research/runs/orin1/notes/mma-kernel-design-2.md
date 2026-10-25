@@ -545,3 +545,31 @@ M=1-5 beat FI at every L. M=6-8: win at 4K, parity at 64K/262K
 — the barrier-lockstep stage loop + the sK16/sV16 dequant round trip
 at the 255-reg cap. The next lever there is warp-specialized
 producers/consumers (a redesign).
+
+## Session 5d: the fused combine kernel — the biggest serving-path win
+
+The band tables above time the PREBUILT main kernel only; the FI
+driver's run() includes its combine (BatchPrefill's
+PersistentVariableLengthMergeStatesKernel = 10.9 us at m6/16k, the main
+BatchPrefill kernel 284.3). Our combine was the runner's eager torch
+chain: ~20 small kernels, ~150 us of GPU per call (517 us of
+dispatch-bound span) — MORE than the decode kernel itself, and it
+erased every kernel win in the serving path.
+
+Fix: combine.py — one fused kernel, one block per (row, q-head), the
+two d elements per thread, the exp weights recomputed per pass, the
+empty-chunk -inf splits weigh 0. d=256 baked (the MMA HEAD_DIM);
+ns/rows/h_q/b/ql are runtime Int32s so one binary serves every capture
+shape; the tensors are the capacity flats via the _cute/from_dlpack
+idiom and the TVM-FFI maps the raw torch tensors at the launch (the
+same convention as _torch_args; --enable-tvm-ffi required). One
+compiled variant per (b, ql); the capture paths must warm up first
+(the vLLM backend does).
+
+Measured (m6/16K): the combine 517 -> 33.6 us (the full run span 763
+-> 302 us). The FI's kernel+combine is 284+11 = 295 — the serving-path
+attention is now at parity with the band table's kernel-only ratios.
+
+TODO: the combine's 33.6 us is still 3x the FI's 10.9 (the 144-block
+grid underfills the machine); a multi-row-per-block tiling would close
+it. The torch._lse_combine dead code was removed with the fused path.
