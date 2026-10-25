@@ -387,12 +387,17 @@ class GEMVDecodeRunner:
     def ensure_compiled(
         self,
         q_len: int,
+        with_reduction: bool = False,  # thor-layout no-op here: the combine is always the fused kernel
         causal: bool = True,
         num_pages: int = 0,
         batch: int = 1,
         max_blocks: int = 1,
     ):
-        """Compile one variant with dummy tensors if it is missing.
+        """Compile one variant with dummy tensors if it is missing. The
+        positional layout matches the Thor runner's (the shared backend's
+        build() calls ``ensure_compiled(q_len, plan.with_reduction,
+        plan.causal)`` blind) -- the args used to land shifted and the
+        dummy-pool size became a bool.
 
         The TVM-FFI signature bakes tensor shapes, so the dummies must match
         the shapes the launch will use: pass the pool size, the batch (the
