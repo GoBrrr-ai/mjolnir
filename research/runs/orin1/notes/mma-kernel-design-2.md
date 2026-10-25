@@ -414,3 +414,52 @@ not the lever (ns=8/16/32 flat at 16K). The remaining levers: the V
 smem round-trip (sV16 write + ldmatrix read = half the stage traffic)
 would need the transposed-B fragment archaeology AND a register budget
 that does not exist; 3 CTAs need <=170 regs.
+
+## Session 5 (2026-10-25): the u32 packed dequant stores
+
+The M=6 profile said issue-bound (wait 1.63 + short_scoreboard 0.98,
+tensor pipe 30%, LSU 27%, conflicts 3.19M at 16K). The dequant loop was
+storing every converted bf16 as a scalar ST.U16 -- 8 stores/iteration,
+128/thread/stage, ~4-way bank conflicted (the swizzle de-conflicts the
+ldmatrix, not the scalar stores).
+
+Fix: u32 views of the swizzled bf16 tiles. Byte-identical re-index:
+Swizzle(3,3,3) on an (8,64) bf16 atom == Swizzle(3,2,3) on an (8,32)
+u32 atom (the granule-xor-row pattern re-expressed in 4B units; the
+swizzle preserves the low 4 bits, so adjacent bf16 pairs stay
+adjacent). Each fma_packed_bf16x2 output IS a bf16x2 -> one u32 store
+per pair: 4 stores/iteration instead of 8, bit-exact.
+
+Both kernels: the big kernel (sK16u/sV16u) and kernel_small (V only in
+the regpath; K+V in the mt=32 path). Gates: msweep 24/24 both flag
+states, ring_check 42/42, ruff clean.
+
+Band (same-run mma/FI, package flags; was -> is):
+
+| M | 4K | 16K | 64K | 262K |
+|---|----|-----|-----|------|
+| 1 | 0.72->0.705 | 1.03->0.987 | 0.98->0.925 | 0.97->0.887 |
+| 2 | 0.63->0.581 | 1.04->0.959 | 1.02->0.949 | |
+| 3 | | ->0.979 | ->0.915 | |
+| 4 | | ->0.980 | ->0.909 | |
+| 5 | | ->0.980 | ->0.912 | |
+| 6 | 0.84->0.775 | 1.249->1.098 | 1.204->1.031 | 1.184->1.004 |
+| 8 | 0.88->0.816 | 1.257->1.102 | 1.212->1.038 | |
+
+The MIO pressure was throttling the whole issue stream: 343->304us
+(ncu) at M=6 16K, conflicts 3.19M->0.82M, tensor pipe 30->35%. Every
+band now beats FI at 16K+ except M=6/8 at 16K (~1.10) and 64K
+(~1.03); M=6 262K is parity. Stalls now wait 1.80 + short_sb 1.08 --
+dependency-bound at 255 regs (acc_O alone 128 = MT*D/NT).
+
+MT=48 re-tested with the edit CONFIRMED in the file (the first attempt
+silently did not stick; the "passing" gates ran MT=64): 24/24 FAIL
+(rel_err 0.3-11.8, all M/L). Two structural breaks: the sV8c alias
+overflows the 24KB sQ into sK8, and the (3,1,1) idle warp 3 produces
+garbage tScS coords -> the epilogue's `q_rows > R` guard passes for
+garbage R < q_rows -> spurious live-row writes. A retry needs sV8c as
+a real 8KB alloc (24+8+8+8+16+16 = 80K, still 2 CTAs -- the offsets
+stay 1024-aligned) and `tidx < (MT//16)*32` guards around the mma
+sections (warp-uniform, free at MT=64). The payoff: acc_O 96 (+32
+regs ILP), -25% tensor work, -25% ldmatrix redundancy (3 warps read
+the B operands, not 4).
