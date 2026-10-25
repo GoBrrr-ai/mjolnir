@@ -115,8 +115,11 @@ class GEMVDecodeRunner:
         # (the Thor convention). The pre-s1 binaries were traced with the
         # TVM-FFI env-stream marker instead -- a DIFFERENT signature (the
         # stream skipped from the args) that also escaped every CUDA-graph
-        # capture. The marker orphans every pre-s1 disk entry.
-        self._variant = (_mma_variant() if impl == "mma" else "") + "+s1"  # read once: _key() is per call
+        # capture. The marker orphans every pre-s1 disk entry. s2: the KV
+        # gathers read the pool through the view's own (dynamic) strides --
+        # the pre-s2 binaries hardcoded the flat contiguous layout and read
+        # garbage from vLLM's interleaved pool (orin1, the stride probe).
+        self._variant = (_mma_variant() if impl == "mma" else "") + "+s2"  # read once: _key() is per call
         if impl == "mma":
             from mjolnir.arch.orin import mma as mma_kernel
 
@@ -295,11 +298,18 @@ class GEMVDecodeRunner:
             max_blocks=max_blocks,
         )
 
-    def _cute(self, t: torch.Tensor, assumed_align: int = 16):
+    def _cute(self, t: torch.Tensor, assumed_align: int = 16, dynamic_layout: bool = False):
         from cutlass.cute.runtime import from_dlpack
 
         src = t.view(torch.uint8) if t.dtype == torch.float8_e4m3fn else t
         ct = from_dlpack(src, assumed_align=assumed_align)
+        if dynamic_layout:
+            # The KV pool views' strides are runtime values (vLLM's BHN2D
+            # interleave): the kernels gather rows through crd2idx on this
+            # layout, so the strides must not bake at trace time — one
+            # binary then serves the dummy-compiled capture path and any
+            # real pool stride order alike.
+            ct = ct.mark_layout_dynamic()
         if t.dtype == torch.float8_e4m3fn:
             ct.element_type = gemv.cutlass.Float8E4M3FN
         return ct
@@ -320,8 +330,8 @@ class GEMVDecodeRunner:
         ns = self.ns_cap if key.split else 1
         m_q = self._cute(q[:rows].view(b, key.q_len, self.h_q, self.d))
         m_o = self._cute(o[:rows].view(b, key.q_len, self.h_q, self.d))
-        m_k = self._cute(k_cache)
-        m_v = self._cute(v_cache)
+        m_k = self._cute(k_cache, dynamic_layout=True)
+        m_v = self._cute(v_cache, dynamic_layout=True)
         pt = self._cute(block_table)
         ds = self._descales(b)
         return (
