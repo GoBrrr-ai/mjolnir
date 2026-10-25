@@ -433,6 +433,16 @@ def build_run_args(
             # matters on the unified-memory board.
             "-e",
             "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False",
+            # INTERIM CORRECTNESS WORKAROUND (2026-10-25): the MTP head's
+            # draft steps on the Mjolnir kernels poison the verify's input
+            # (the acceptance matrix: the FI drafter + the Mjolnir verify =
+            # 2.1 accepted/round + clean; the Mjolnir drafter + the FI
+            # verify = 0.69/round + clean; both Mjolnir = 0.0 + looping
+            # output). Route the drafter to the fallback until the
+            # draft-step KV-write path is fixed -- see
+            # research/runs/orin1/notes/mma-kernel-design-2.md session 6c.
+            "-e",
+            "MJOLNIR_ATTN_DRAFT_T5=0",
         ]
     for kv in backend_env(s):
         cmd += ["-e", kv]
