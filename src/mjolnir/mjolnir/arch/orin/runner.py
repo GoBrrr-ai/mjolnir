@@ -283,7 +283,7 @@ class GEMVDecodeRunner:
             v_descale=self._cute(self._vd[:b], assumed_align=4),
         )
 
-    def _compile_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table):
+    def _compile_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table, cu=None):
         """The compile-time argument tuple: cute tensors (they bind dtypes,
         shapes and the Constexpr M) + the fake TVM-FFI env stream."""
         import cutlass.cute as cute
@@ -303,7 +303,7 @@ class GEMVDecodeRunner:
             m_o,
             None,  # mLSE: vLLM decode needs no final LSE
             None,  # mCuSeqlensQ: dense (b, M, h_q, d) Q
-            self._cute(self._cu[: b + 1], assumed_align=4),  # mCuSeqlensK
+            self._cute(self._cu[: b + 1] if cu is None else cu, assumed_align=4),  # mCuSeqlensK
             ds,
             self._cute(self._lut, assumed_align=4) if self._lut is not None else None,
             self._cute(
@@ -423,8 +423,13 @@ class GEMVDecodeRunner:
         kv_dtype = {"fp8": torch.float8_e4m3fn, "e2m3": torch.uint8, "bf16": torch.bfloat16}[key.kv_format]
         kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=kv_dtype)
         bt = torch.zeros(b, max_blocks, dtype=torch.int32, device=dev)
-        self._cu[1] = q_len  # one sequence of q_len tokens
-        self._get_compiled(key, self._compile_args(key, b, q, o, kv, kv, bt))
+        # LOCAL dummy cu_seqlens — never the live staging. Writing
+        # self._cu[1] here clobbered the real boundaries the next launch
+        # reads whenever this path fired mid-serving (a kernel-cache miss
+        # recompiles eagerly and this used to poison the very next call).
+        cu = torch.zeros(b + 1, dtype=torch.int32, device=dev)
+        cu[1] = q_len  # one sequence of q_len tokens
+        self._get_compiled(key, self._compile_args(key, b, q, o, kv, kv, bt, cu=cu))
         torch.cuda.synchronize(dev)
 
     def precompile(self, q_lens=None):
