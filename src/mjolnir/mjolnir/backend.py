@@ -775,6 +775,9 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         **kwargs: Any,
     ):
         if not getattr(attn_metadata, "is_t5", False):
+            if os.environ.get("MJOLNIR_ATTN_DEBUG"):
+                with open("/tmp/mjolnir_dbg.log", "a") as f:
+                    f.write(f"FB layer={getattr(layer, 'layer_name', '?')} ql={query.shape[0]}\n")
             if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
                 query = self._quantize_q(layer, query)
                 # The base forward passes the layer's q scale as q_descale
@@ -836,17 +839,18 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             )
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
         if os.environ.get("MJOLNIR_ATTN_DEBUG"):
-            # per-call input dump: the draft-vs-verify anomaly hunt (the
-            # seq_lens/cu the kernel actually sees, per layer)
+            # per-call input dump -> a FILE (the EngineCore swallows raw
+            # stdout prints): the draft-vs-verify anomaly hunt
             n = md.plan.num_seqs
-            print(
-                f"[mjolnir-dbg] layer={getattr(layer, 'layer_name', '?')} "
-                f"ql={md.plan.q_len} b={n} causal={md.plan.causal} "
-                f"lens={md.plan.seq_lens[:n].tolist()} "
-                f"cu={runner._cu[: n + 1].tolist()} "
-                f"bt0={md.plan.block_table[0, :4].tolist()}",
-                flush=True,
-            )
+            with open("/tmp/mjolnir_dbg.log", "a") as f:
+                f.write(
+                    f"layer={getattr(layer, 'layer_name', '?')} ql={md.plan.q_len} b={n} "
+                    f"causal={md.plan.causal} lens={md.plan.seq_lens[:n].tolist()} "
+                    f"cu={runner._cu[: n + 1].tolist()} "
+                    f"bt0={md.plan.block_table[0, :4].tolist()} "
+                    f"slots={md.slot_mapping[:6].tolist()} "
+                    f"kc={tuple(k_cache.shape)} id={(id(k_cache) // 64) % 100000}\n"
+                )
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
