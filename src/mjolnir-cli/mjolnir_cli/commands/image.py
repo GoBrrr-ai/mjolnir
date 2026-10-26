@@ -128,8 +128,35 @@ def image_build(
 
 
 @app.command("gates")
-def image_gates(image: str | None = typer.Option(None, "--image"), dry_run: bool = typer.Option(False, "--dry-run")):
-    """Run the sm_110 gate-probe canaries against the image (fresh container,
-    no server needed)."""
+def image_gates(
+    image: str | None = typer.Option(None, "--image"),
+    arch: str | None = typer.Option(None, "--arch", help="Board family (thor|orin). Defaults to the detected one."),
+    task: str | None = typer.Option(None, "--task", help="Run one named canary instead of the arch's legs."),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    """Run the gate-probe canaries for this board's arch against the image
+    (fresh containers, no server needed; GPU probes self-skip off-arch)."""
     s = settings(None, None, image, None)
-    raise typer.Exit(tasks.run_task(s, "gates", [], dry_run=dry_run))
+    if task is not None:
+        raise typer.Exit(tasks.run_task(s, task, [], dry_run=dry_run))
+    board = arch or s.platform
+    if not board:
+        typer.secho(
+            "no board arch detected -- pass --arch thor|orin (or --task <name>)",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(4)
+    legs = tasks.legs_for(board)
+    if not any(t.arch == board for t in legs):
+        known = ", ".join(sorted({t.arch for t in tasks.TASKS if t.arch}))
+        typer.secho(
+            f"no canary legs for arch '{board}' (known: {known}) -- pass --task <name>",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(4)
+    rc = 0
+    for t in legs:
+        rc = max(rc, tasks.run_task(s, t.name, [], dry_run=dry_run))
+    raise typer.Exit(rc)
