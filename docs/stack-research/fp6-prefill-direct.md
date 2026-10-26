@@ -120,20 +120,18 @@ per-step sync and the no-graphs restriction gone, and the
 ## Status
 
 - [x] Research (this doc)
-- [x] Sources extracted from the image (`/tmp/opencode/fi-src/`); core hunks
-      drafted in `patched/` (vec_dtypes.cuh fp6 type + vec_cast delegation,
-      cp_async.cuh `pred_load_128b_src<12>`, permuted_smem.cuh
-      `load_128b_async_fp6`)
-- [ ] prefill.cuh: fp6 produce branches (both swizzle paths) + the in-place
-      expand pass at the fp4-repack hook (prefill.cuh:2589/2650) + the scale
-      param threading
-- [ ] jit_utils.py dtype string + prefill.py gating (modeled on kv_cache_sf)
-- [ ] diff → `docker/vllm-thor/patches/fi-fp6-kv-ampere-prefill.patch` +
-      FLASHINFER_PATCH_ORDER + FLASHINFER_FIXES sentinel + PATCHES.md
-- [ ] CPU validation: rebuild a side-tag image, nvcc-compile the fp6
-      instantiation in-container (no GPU needed for compilation)
-- [ ] Image-gate canary for the unpack (tasks.py, runs with `image gates`)
+- [x] Sources extracted from the image (`/tmp/opencode/fi-src/`); all hunks
+      authored → `docker/vllm-thor/patches/fi-fp6-kv-ampere-prefill.patch`
+      (6 files: vec_dtypes, cp_async, permuted_smem, prefill, modules.py,
+      jit_utils.py), registered in `FLASHINFER_PATCH_ORDER` +
+      `FLASHINFER_FIXES` sentinels + `PATCHES.md`
+- [x] Compile-validated CPU-side: the patch applies to a pristine tree, and
+      the fp6 expand instantiates clean for sm_87 (`nvcc -c`, exit 0) —
+      `/tmp/opencode/fi-test/`
+- [ ] Image build of the side tag `v0.32.0-fp6direct` (in flight) + the
+      unpack canary in `image gates`
 - [ ] vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`), probe-gated
-- [ ] A/B: fp6-direct vs fp8-scratch vs fp8, same-run, across L
+- [ ] Runtime: greedy parity vs fp8, then the same-run A/B
+      (fp6-direct vs fp8-scratch vs fp8) across L
 - [ ] Default flip decision per the bench discipline (a default flips only
       with a same-run A/B win across L)
