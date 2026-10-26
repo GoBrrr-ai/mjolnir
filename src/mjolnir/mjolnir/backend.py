@@ -736,9 +736,8 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
 
     def _forward_fp6_fallback(self, layer, query, key, value, kv_cache, attn_metadata, *rest, **kwargs):
         """A fallback step on an fp6 cache: expand the pages this step reads
-        to e4m3 as code * s_c / S (s_c the channel scale, S the layer's
-        per-head k/v scale, the descale FA4 applies), point a copy of the
-        metadata at the scratch, and run the base forward on it."""
+        to e4m3 as code * s_c / S, point a copy of the metadata at the
+        scratch, and run the base forward on it."""
         from . import kvfp6
 
         if torch.cuda.is_current_stream_capturing():
@@ -753,11 +752,21 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         kvfp6.expand_pages_to_fp8(kv_cache, pages["src_pages"], scratch, self.head_size, st["k_ratio"], st["v_ratio"])
         md = copy.copy(attn_metadata)
         md.block_table = pages["block_table"]
-        return super().forward(layer, query, key, value, scratch[: max(1, pages["total"])], md, *rest, **kwargs)
+        # The base forward dtype-checks the cache against the plan's fp8:
+        # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
+        return super().forward(
+            layer,
+            query,
+            key,
+            value,
+            scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
+            md,
+            *rest,
+            **kwargs,
+        )
 
     def _quantize_q(self, layer, query: torch.Tensor) -> torch.Tensor:
-        """Static fp8 Q for the fallback, as the attention layer would
-        quantize it: Q / q_scale, saturated to e4m3, per tensor or per KV head."""
+        """Static fp8 Q for the fallback, as the layer would quantize it."""
         scale = layer._q_scale
         n = query.shape[0]
         if scale.numel() == 1:
