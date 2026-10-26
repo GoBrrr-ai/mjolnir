@@ -305,7 +305,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
                 # page map, and the fallback would read past the scratch (the
                 # IMA). Their output is unused, so they skip it and ride the
                 # base's uint8->fp8 view of the packed pool.
-                if pages["total"] * self._page >= cam.max_seq_len:
+                attach = pages["total"] * self._page >= cam.max_seq_len
+                if os.environ.get("MJOLNIR_ATTN_DEBUG"):
+                    with open("/data/cache/mjolnir_fp6.log", "a") as f:
+                        f.write(
+                            f"build total={pages['total']} page={self._page} cam_max={cam.max_seq_len} attach={attach}\n"
+                        )
+                if attach:
                     md.mjolnir_fp6_pages = pages
             return md
         STATS["t5_steps"] += 1
