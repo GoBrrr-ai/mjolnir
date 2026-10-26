@@ -62,6 +62,23 @@ it is removed — gated on a
 rule; `mjolnir drop-caches` clears on demand). Without the grant the clear is
 skipped with a hint — nothing blocks on a password.
 
+### The Thor (sm_110) path is load-bearing — never break it
+
+`src/mjolnir/mjolnir/backend.py` + `builder.py` orchestration is shared by every
+arch family. Any change there must keep **both** fallbacks working:
+
+- **FA4 (Thor) vs FlashInfer (Orin)**: gate every dtype/Q/layout assumption on
+  `_FALLBACK`; never assume one. Thor's fp6 fallback needs the fp8-Q quantize
+  before the dispatch; FlashInfer's wants bf16 (`_fallback_fp8_q` is False).
+- **Metadata shapes differ**: FA4 is flat (`block_table`); FlashInfer nests
+  (`.prefill`/`.decode.block_tables`). Retarget every shape a base may read.
+- **No arch-blind choices**: capability-gate Triton/torch paths (Triton's
+  fp8e4nv needs sm_89+), probe-gate anything sm_110-only, and re-run the
+  affected family's canary (`mjolnir image gates`) on kernel-adjacent edits.
+- **Merge gate**: a branch merges to main only after a Thor e2e verify
+  (`mjolnir verify` + a serve smoke; `bench e2e` when perf-relevant). A green
+  Orin run does not clear the Thor.
+
 ### Keep hand-written files under the length limit
 
 **Keep every hand-written file within the `limit` in `[tool.mjolnir.file-length]`
