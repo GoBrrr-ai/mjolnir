@@ -115,7 +115,13 @@ def _fa4_serves_fp8_kv() -> bool | None:
     if cfg is None or cfg.model_config is None:
         return None
     cache_dtype = str(getattr(cfg.cache_config, "cache_dtype", "auto"))
-    if cache_dtype not in FP8_CACHE_DTYPES:
+    if cache_dtype in FP6_CACHE_DTYPES:
+        # fp6: the prefill fallback reads the e4m3 scratch the pages expand
+        # to, so gate the fallback on fp8 -- not on the config's own dtype
+        # (an fp6 config must flip to FlashInfer on sm_87 exactly like an
+        # fp8 one, or _Base binds to FA4 and the fp6 gate rejects).
+        cache_dtype = "fp8"
+    elif cache_dtype not in FP8_CACHE_DTYPES:
         return True  # nothing to gate: FA reads bf16/fp16 KV on any version
     head = cfg.model_config.get_head_size()
     return bool(flash_attn_supports_kv_cache_dtype(cache_dtype, head_size=head, supports_fa4_hd256=True))
