@@ -348,10 +348,21 @@ def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
         state = {}
         for side, rows in (("k", ks), ("v", vs)):
             ch = torch.tensor(rows, dtype=torch.float32, device=dev).contiguous()  # (h_k, d)
-            head = ch.amax(dim=1) * (kvscales.E2M3_MAX / 448.0)  # (h_k,) fallback descale
-            state[f"{side}_ch"] = ch
-            state[f"{side}_head"] = head
-            state[f"{side}_ratio"] = (ch / head[:, None]).contiguous()
+            if _FALLBACK == "FLASH_ATTN":
+                # FA4 reads one fp8 dtype with a per-head descale: the scratch
+                # holds e4m3(code * s_c / S) and S (per head) rides
+                # layer._k_scale / _v_scale.
+                head = ch.amax(dim=1) * (kvscales.E2M3_MAX / 448.0)  # (h_k,) fallback descale
+                state[f"{side}_ch"] = ch
+                state[f"{side}_head"] = head
+                state[f"{side}_ratio"] = (ch / head[:, None]).contiguous()
+            else:
+                # FlashInfer's native paged kernels take no KV descale: the
+                # scratch holds the true code * s_c (<= the calibrated amax,
+                # which must fit e4m3's 448) and the layer's scales stay 1.
+                state[f"{side}_ch"] = ch
+                state[f"{side}_head"] = torch.ones_like(ch[:, 0])
+                state[f"{side}_ratio"] = ch.contiguous()
             state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()  # (h_q, d)
         state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
         layer._mjolnir_fp6 = state
