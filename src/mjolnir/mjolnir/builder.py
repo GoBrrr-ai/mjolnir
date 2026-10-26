@@ -15,6 +15,7 @@ import torch
 
 from mjolnir.runner import StepPlan, env_flag
 
+from . import banner
 from .backend import STATS
 
 from .backend import (
@@ -28,7 +29,6 @@ from .backend import (
     _kv_format,
     _max_q_len,
     _unsupported_arch_reason,
-    banner,
     logger,
 )
 from .platforms import detect, load_kernel
