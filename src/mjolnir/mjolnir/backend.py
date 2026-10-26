@@ -749,7 +749,11 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         _, H, N, _ = kv_cache.shape
         scratch = _fp6_scratch(pages["total"], H, N, 2 * self.head_size, kv_cache.device)
         st = layer._mjolnir_fp6
-        kvfp6.expand_pages_to_fp8(kv_cache, pages["src_pages"], scratch, self.head_size, st["k_ratio"], st["v_ratio"])
+        # The warmup/dummy passes carry arbitrary block-table entries; clamp
+        # the gather in-bounds (their output is unused). Real steps index the
+        # pool, so this is a no-op for them.
+        src = pages["src_pages"].clamp(0, kv_cache.shape[0] - 1)
+        kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
         md = copy.copy(attn_metadata)
         md.block_table = pages["block_table"]
         # The base forward dtype-checks the cache against the plan's fp8:
