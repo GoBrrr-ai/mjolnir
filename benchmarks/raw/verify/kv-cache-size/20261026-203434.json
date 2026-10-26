@@ -1,0 +1,139 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "kv-cache-size",
+ "run_id": "20261026-203434",
+ "ts": "2026-10-26T20:40:51+00:00",
+ "default": true,
+ "host": "agx-orin-dev",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "9cfff21",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "legs": "mjolnir:AWQ_MJOLNIR,mjolnir:AWQ_MJOLNIR_E2M3,mjolnir:AWQ_MJOLNIR_E2M3_VT64K",
+  "model": null,
+  "e2e_pp": 2048,
+  "e2e_tg": 128,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "rows": [
+  {
+   "id": "mjolnir-AWQ_MJOLNIR",
+   "side": "mjolnir",
+   "config": "AWQ_MJOLNIR",
+   "image": "narandill/mjolnir-vllm:v0.32.0",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "MJOLNIR",
+   "kv_dtype": "fp8",
+   "gpu_memory_utilization": null,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261026-203434/kv-cache-size/mjolnir-AWQ_MJOLNIR.log",
+   "kv_gib": 19.91,
+   "kv_tokens": 575866,
+   "max_model_len": 194560,
+   "max_concurrency": 2.96,
+   "load_gib": 17.62,
+   "weights_gib": null,
+   "activation_gib": null,
+   "non_torch_gib": null,
+   "cudagraph_gib": null,
+   "startup_s": 120.8
+  },
+  {
+   "id": "mjolnir-AWQ_MJOLNIR_E2M3",
+   "side": "mjolnir",
+   "config": "AWQ_MJOLNIR_E2M3",
+   "image": "narandill/mjolnir-vllm:v0.32.0",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "MJOLNIR",
+   "kv_dtype": "fp6_e2m3",
+   "gpu_memory_utilization": null,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261026-203434/kv-cache-size/mjolnir-AWQ_MJOLNIR_E2M3.log",
+   "kv_gib": 21.09,
+   "kv_tokens": 795466,
+   "max_model_len": 194560,
+   "max_concurrency": 4.09,
+   "load_gib": 17.62,
+   "weights_gib": null,
+   "activation_gib": null,
+   "non_torch_gib": null,
+   "cudagraph_gib": null,
+   "startup_s": 129.6
+  },
+  {
+   "id": "mjolnir-AWQ_MJOLNIR_E2M3_VT64K",
+   "side": "mjolnir",
+   "config": "AWQ_MJOLNIR_E2M3_VT64K",
+   "image": "narandill/mjolnir-vllm:v0.32.0",
+   "model": "Qwen/Qwen3.8-27B",
+   "backend": "MJOLNIR",
+   "kv_dtype": "fp6_e2m3",
+   "gpu_memory_utilization": null,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261026-203434/kv-cache-size/mjolnir-AWQ_MJOLNIR_E2M3_VT64K.log",
+   "kv_gib": 20.38,
+   "kv_tokens": 769120,
+   "max_model_len": 194560,
+   "max_concurrency": 3.95,
+   "load_gib": 17.62,
+   "weights_gib": null,
+   "activation_gib": null,
+   "non_torch_gib": null,
+   "cudagraph_gib": null,
+   "startup_s": 125.7
+  }
+ ],
+ "cases": [
+  {
+   "label": "mjolnir-AWQ_MJOLNIR",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261026-203434/kv-cache-size/mjolnir-AWQ_MJOLNIR.log"
+  },
+  {
+   "label": "mjolnir-AWQ_MJOLNIR_E2M3",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261026-203434/kv-cache-size/mjolnir-AWQ_MJOLNIR_E2M3.log"
+  },
+  {
+   "label": "mjolnir-AWQ_MJOLNIR_E2M3_VT64K",
+   "passed": true,
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261026-203434/kv-cache-size/mjolnir-AWQ_MJOLNIR_E2M3_VT64K.log"
+  }
+ ],
+ "summary": {
+  "mjolnir-AWQ_MJOLNIR": {
+   "kv_tokens": 575866,
+   "max_concurrency": 2.96
+  },
+  "mjolnir-AWQ_MJOLNIR_E2M3": {
+   "kv_tokens": 795466,
+   "max_concurrency": 4.09
+  },
+  "mjolnir-AWQ_MJOLNIR_E2M3_VT64K": {
+   "kv_tokens": 769120,
+   "max_concurrency": 3.95
+  }
+ }
+}
