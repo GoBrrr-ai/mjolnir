@@ -448,7 +448,15 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             with open("/data/cache/mjolnir_fp6.log", "a") as f:
                 f.write("expand ok\n")
         md = copy.copy(attn_metadata)
-        md.block_table = pages["block_table"]
+        # The base forward plans from the nested sub-metadata's block tables,
+        # not a top-level field: point them at the scratch remap, or the
+        # kernel gathers the scratch by the pool's page ids (the IMA).
+        for sub in ("prefill", "decode"):
+            nested = getattr(md, sub, None)
+            if nested is not None and getattr(nested, "block_tables", None) is not None:
+                nested = copy.copy(nested)
+                nested.block_tables = pages["block_table"]
+                setattr(md, sub, nested)
         # The base forward dtype-checks the cache against the plan's fp8:
         # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
         try:
