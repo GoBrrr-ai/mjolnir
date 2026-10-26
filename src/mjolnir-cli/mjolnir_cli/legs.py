@@ -120,11 +120,53 @@ _BASELINE: dict[str, str] = {
 }
 
 
+# Platform overrides of the SERVING tables: a platform whose model family
+# names its own configs lists its stages here (looked up before the default
+# table). The Orin serves the Qwen3.8-27B AWQ family: AWQ weights for sm_87,
+# per-channel fp6 scales for its KV, and the native-FlashInfer config as the
+# stock-backend baseline.
+_SERVING_BY_PLATFORM: dict[str, dict[str, tuple[Leg, ...]]] = {
+    "orin": {
+        "verify.kv-cache-size": (
+            (MJOLNIR, "AWQ_MJOLNIR"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "verify.spec": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "verify.profile": ((MJOLNIR, "AWQ_MJOLNIR_E2M3"), (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K")),
+        "bench.ab": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "bench.e2e": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "bench.accuracy": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+        ),
+    },
+}
+
+
 def legs_for_stage(name: str, platform: str = DEFAULT_PLATFORM) -> tuple[Leg, ...]:
-    """The stage's legs on a platform: the full table on a supported one; on
-    a research platform its official baseline only — the platform's own
+    """The stage's legs on a platform: a platform override first (a family
+    that names its own configs), the full table on a supported one; on a
+    research platform its official baseline only — the platform's own
     baseline config when it names one (``_BASELINE``), else the thor table's
     official side. The Mjolnir legs arrive with the platform's kernel."""
+    per = _SERVING_BY_PLATFORM.get(platform)
+    if per and name in per:
+        return per[name]
     ls = SERVING[name]
     if REGISTRY[platform].status == "supported":
         return ls
