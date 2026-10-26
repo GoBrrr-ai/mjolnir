@@ -34,7 +34,6 @@ the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
 from __future__ import annotations
 
 import copy
-import dataclasses
 import logging
 import os
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -476,11 +475,11 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     _n = getattr(md, _sub, None)
                     if _n is None:
                         continue
-                    _fields = dataclasses.fields(_n) if dataclasses.is_dataclass(_n) else ()
-                    for _fd in _fields:
-                        _t2 = _t(getattr(_n, _fd.name, None))
+                    for _k, _v in vars(_n).items():
+                        _t2 = _t(_v)
                         if _t2:
-                            f.write(f"  {_sub}.{_fd.name} = {_t2}\n")
+                            f.write(f"  {_sub}.{_k} = {_t2}\n")
+                f.write(f"impl idx={_t(self.paged_kv_indices)} indptr={_t(self.paged_kv_indptr.gpu)} last={_t(self.paged_kv_last_page_len.gpu)}\n")
         # The base forward dtype-checks the cache against the plan's fp8:
         # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
         try:
