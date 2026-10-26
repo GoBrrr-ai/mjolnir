@@ -437,20 +437,30 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                     f"nreqs={getattr(attn_metadata, 'num_reqs', '?')} scratch={tuple(scratch.shape)}\n"
                 )
         kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            torch.cuda.synchronize()  # the IMA hunt
+            with open("/data/cache/mjolnir_fp6.log", "a") as f:
+                f.write("expand ok\n")
         md = copy.copy(attn_metadata)
         md.block_table = pages["block_table"]
         # The base forward dtype-checks the cache against the plan's fp8:
         # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
-        return super().forward(
-            layer,
-            query,
-            key,
-            value,
-            scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
-            md,
-            *rest,
-            **kwargs,
-        )
+        try:
+            return super().forward(
+                layer,
+                query,
+                key,
+                value,
+                scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
+                md,
+                *rest,
+                **kwargs,
+            )
+        finally:
+            if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+                torch.cuda.synchronize()  # the IMA hunt
+                with open("/data/cache/mjolnir_fp6.log", "a") as f:
+                    f.write("fi fallback ok\n")
 
     def _quantize_q(self, layer, query: torch.Tensor) -> torch.Tensor:
         """Static fp8 Q for the fallback, as the layer would quantize it."""
