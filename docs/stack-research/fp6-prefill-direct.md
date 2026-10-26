@@ -96,10 +96,42 @@ context length** (0.75× the KV bytes in a bandwidth-bound regime), the
 per-step sync and the no-graphs restriction gone, and the
 `MJOLNIR_ATTN_DRAFT_T5=0`-on-fp6 refusal revisitable.
 
+## Derived facts (read from the extracted image sources, /tmp/opencode/fi-src/)
+
+- `upcast_size<T>() = sizeof(b128_t)/sizeof(T)` (permuted_smem.cuh:43) — 16
+  elements per 16-B smem column for any 1-byte KV type. The produce loop's
+  per-j gmem advance is `(pack_ratio) * upcast_size`: fp8 `8*16=128` codes,
+  fp4 `4*16=64` bytes, **fp6 `6*16=96` bytes** — each j-chunk covers 128
+  codes; the j-loop bound `NUM_MMA_D/(8/sizeof(DTypeKV))` is unchanged for a
+  1-byte fp6 struct (`sizeof == 1`), so the smem side needs no edits.
+- The cp.async src-size is a **runtime operand** in the existing
+  `pred_load_128b` (`"r"(src_in_bytes)` with zero-fill) — a 12-byte partial
+  slot load is a copy of that asm with a constant 12.
+- **The scales plumbing already exists**: `batch_prefill` ships
+  `kv_cache_sf` (packed-uint8 NVFP4 KV + per-block UE4M3 scale tensors,
+  fa2-only) — prefill.py:1385. The fp6 scale tensor rides the same
+  extra-tensor-param path with a per-channel layout instead of per-16 blocks.
+- fp4 keeps its packed codes in smem and dequantizes per-fragment
+  (`compute_qk`: `ldmatrix → frag_layout_swizzle_16b_to_8b/4b →
+  vec_cast<DTypeQ, DTypeKV>::cast<8>`) — so a 1-byte fp6 type whose
+  `vec_cast` delegates to the e4m3 conversion makes the smem tile, post
+  in-place expansion, byte-identical to fp8 with **zero compute_qk changes**.
+
 ## Status
 
 - [x] Research (this doc)
-- [ ] FlashInfer patch: unpack core + produce branch + gating
+- [x] Sources extracted from the image (`/tmp/opencode/fi-src/`); core hunks
+      drafted in `patched/` (vec_dtypes.cuh fp6 type + vec_cast delegation,
+      cp_async.cuh `pred_load_128b_src<12>`, permuted_smem.cuh
+      `load_128b_async_fp6`)
+- [ ] prefill.cuh: fp6 produce branches (both swizzle paths) + the in-place
+      expand pass at the fp4-repack hook (prefill.cuh:2589/2650) + the scale
+      param threading
+- [ ] jit_utils.py dtype string + prefill.py gating (modeled on kv_cache_sf)
+- [ ] diff → `docker/vllm-thor/patches/fi-fp6-kv-ampere-prefill.patch` +
+      FLASHINFER_PATCH_ORDER + FLASHINFER_FIXES sentinel + PATCHES.md
+- [ ] CPU validation: rebuild a side-tag image, nvcc-compile the fp6
+      instantiation in-container (no GPU needed for compilation)
 - [ ] Image-gate canary for the unpack (tasks.py, runs with `image gates`)
 - [ ] vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`), probe-gated
 - [ ] A/B: fp6-direct vs fp8-scratch vs fp8, same-run, across L
