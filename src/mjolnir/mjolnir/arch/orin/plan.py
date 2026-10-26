@@ -1,4 +1,4 @@
-"""Host-side split-KV planning for the Orin GEMV decode kernel.
+"""Host-side split-KV planning for the Orin mma decode kernel.
 
 Pure, torch-free, and **board-agnostic**: every board in the Orin family
 (AGX Orin 64/32 GB, Orin NX 16/8 GB, Orin Nano 8/4 GB) is the same
@@ -15,10 +15,10 @@ from __future__ import annotations
 
 # FlashInfer Alg. 1 (scheduler.cuh:176-187): fill up to
 # ``BLOCKS_PER_SM * sm_count`` CTAs with (kv_head, split, batch) blocks.
-# 4 is the conservative occupancy estimate for the 96-thread GEMV CTA
-# (~100 regs, ~6 KiB smem -> 4-6 resident CTAs/SM); it keeps the
-# partial-write traffic small. The runner may override per call
-# (``force_splits``) after measuring.
+# 4 is the conservative occupancy estimate for a small CTA (~100 regs,
+# ~6 KiB smem -> 4-6 resident CTAs/SM); it keeps the partial-write
+# traffic small. The runner may override per call (``force_splits``)
+# after measuring.
 BLOCKS_PER_SM = 4
 
 # The LSE combine's slot capacity (the fp32 partial buffers are indexed

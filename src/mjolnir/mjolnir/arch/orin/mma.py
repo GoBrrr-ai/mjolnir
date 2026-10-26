@@ -2,8 +2,9 @@
 (the MTP=7 verify shape: 7 drafts + the real token = 8 query tokens).
 
 The design lives in research/runs/orin1/notes/mma-kernel-design.md; the
-evidence for why the GEMV's scalar-issue roofline caps it at ~20 GB/s
-lives in gemv-vs-mma-bottleneck.md. The structure follows NVIDIA's
+evidence for why the retired GEMV's scalar-issue roofline capped it at
+~20 GB/s lives in gemv-vs-mma-bottleneck.md (the kernel itself: the
+``gemv-archive`` git tag). The structure follows NVIDIA's
 Ampere FlashAttention-2 DSL example (research/runs/orin1/sources/
 ampere-fa2-dsl/fa2_ampere.py):
 
@@ -16,7 +17,7 @@ ampere-fa2-dsl/fa2_ampere.py):
   PV's A operand sees the K=16 per mma atom (an N-split warp
   arrangement would halve it and break the PV).
 - The KV: 32 rows per stage — the fp8 rows cp.async'd raw (the paged
-  gather, the GEMV's make_ptr idiom, the tail clamp), dequantized
+  gather, the make_ptr idiom, the tail clamp), dequantized
   fp8->bf16 IN SMEM, then the reference's ldmatrix -> mma.m16n8k16 path
 - The bf16 smem tiles are UNSWIZZLED in M1 (the plain row-major — the
   swizzle is the M2 bank-conflict pass). The V is staged plain and read
@@ -31,22 +32,21 @@ ampere-fa2-dsl/fa2_ampere.py):
   geometry-agnostic).
 - The causal mask is PER-TOKEN (the MTP drafts see one fewer future
   key each): the row (m, r) attends to the keys gk <= kv_len - q_len +
-  m — the GEMV ref_decode contract; the M=1 degenerates to the no-op.
+  m — the ref_decode contract; the M=1 degenerates to the no-op.
   A non-causal kernel (``causal=False``) lets every row see the whole
   context (``_key_limit``).
-- The descales follow the GEMV's contract: the K scale folds into
+- The descales follow the shared contract: the K scale folds into
   scale_eff (the S side), the V scale divides at the epilogue, the
-  LSE = (m*scale_eff + log2 l) * ln2 with the GEMV's exact coords.
-- The split-KV partial O/LSE per (split, row) — merged by the existing
-  torch combine.
+  LSE = (m*scale_eff + log2 l) * ln2.
 
-Status: the Orin serving default for fp8 KV (``arch/orin/__init__.py``,
-``MJOLNIR_ATTN_ORIN_IMPL=gemv`` opts out); ``--impl mma`` on the harness.
+Status: the family's only kernel — every Orin KV format (fp8, fp6 e2m3)
+serves through it; ``python -m mjolnir.arch.orin.harness`` drives it.
 """
 
 from __future__ import annotations
 
 import math
+from typing import NamedTuple, Optional
 
 import cutlass
 import cutlass.cute as cute
@@ -56,7 +56,25 @@ from cutlass.cute.nvgpu.warp import LdMatrix8x8x16bOp, MmaF16BF16Op
 
 import cuda.bindings.driver as cuda
 
-from mjolnir.arch.orin.decode import DescaleTensors, GEMVDecodeKernel
+
+# The descales, formerly FA4's ``DescaleTensors`` (a NamedTuple of three
+# optional cute tensors with a ``__new_from_mlir_values__`` tracing hook).
+# Defined here because the kernel package must not import vLLM — and the FA4
+# interface does not exist on Ampere anyway.
+class DescaleTensors(NamedTuple):
+    q_descale: Optional[cute.Tensor] = None
+    k_descale: Optional[cute.Tensor] = None
+    v_descale: Optional[cute.Tensor] = None
+
+    def __new_from_mlir_values__(self, values):
+        # None fields carry no MLIR value, so `values` only covers the
+        # non-None fields IN ORDER — rehydrate positionally (padding at the
+        # end would shift k<-v<-None and silently swap the descales).
+        it = iter(values)
+        return DescaleTensors(
+            *(None if f is None else next(it) for f in (self.q_descale, self.k_descale, self.v_descale))
+        )
+
 
 # The e4m3 -> bf16 x4 dequant (the FlashInfer/Marlin fast_dequant_f8f16x4,
 # bf16 branch — verified bit-exact on sm_87 for normals and zero):
@@ -71,10 +89,10 @@ _DEQ_BIAS = cutlass.Int32(0x7B807B80)
 
 
 class MMADecodeKernel:
-    """The traced CuTe kernel. The arg surface mirrors the GEMV's
-    GEMVDecodeKernel.__call__ so the runner's packing is shared."""
+    """The traced CuTe kernel. The arg surface follows the shared runner
+    packing (the fp8/Q-descale contract the retired GEMV established)."""
 
-    HEAD_DIM = GEMVDecodeKernel.HEAD_DIM  # 256
+    HEAD_DIM = 256  # Qwen3.8-27B's head size
     M_TILE = 64  # the 4 warps x 16-row mma atoms; q_len*6 <= 48 pads in
     STAGE_ROWS = 32  # the KV rows per smem stage
     NUM_THREADS = 128  # 4 warps
@@ -83,7 +101,7 @@ class MMADecodeKernel:
     def __init__(
         self,
         qhead_per_kvhead: int,
-        tile_size_per_bdx: int = 4,  # unused (the GEMV API compat)
+        tile_size_per_bdx: int = 4,  # unused (the legacy FA2 API compat)
         page_size: int = 0,
         causal: bool = True,
         kv_format: str = "fp8",
@@ -240,7 +258,7 @@ class MMADecodeKernel:
     ) -> None:
         """One KV stage: gmem -> smem fp8 (32 rows x 256 B = 4 x 16B chunks
         per thread) into buffer `buf` of the double-buffered staging tiles.
-        The tail rows CLAMP to the last valid row (the GEMV's trick — no
+        The tail rows CLAMP to the last valid row (no branch — no
         branch); the softmax masks the overhang by kv_len_c. The prefetch
         of a not-yet-valid stage clamps row0 the same way: the duplicated
         rows are never read. With k_dst_view set (the register path), the
@@ -381,7 +399,7 @@ class MMADecodeKernel:
         kv_start = split_idx * kv_chunk
         kv_len_c = cutlass.min(kv_chunk, cutlass.max(Int32(0), kv_len - kv_start))
 
-        # The per-(batch, kv_head) descales (the GEMV's exact semantics).
+        # The per-(batch, kv_head) descales (the shared fp8-Q contract).
         qk_descale = Float32(1.0)
         v_descale = Float32(1.0)
         if const_expr(mDescale is not None):
@@ -393,7 +411,7 @@ class MMADecodeKernel:
                 v_descale = Float32(mDescale.v_descale[batch_idx, kv_head])
         scale_eff = softmax_scale_log2 * qk_descale
 
-        # The O/LSE flat row offset (the GEMV's exact math). The head*D term
+        # The O/LSE flat row offset (the shared exact math). The head*D term
         # is added per-row in the epilogue with the global head index — no
         # kv_head term here, it would double-count.
         o_off = q_row_base * num_head * D
@@ -748,7 +766,7 @@ class MMADecodeKernel:
             #    bands (the (4,1,1) arrangement), so the row stats reduce
             #    across the quad only. The mask: the stage-local row bound
             #    plus the per-token causal tail (the row's token m attends
-            #    to the keys gk <= kv_len - q_len + m — the GEMV
+            #    to the keys gk <= kv_len - q_len + m — the shared
             #    ref_decode contract).
             self.softmax_p(
                 thr_mma,
@@ -1557,7 +1575,7 @@ class MMADecodeKernel:
         split_idx: Int32,
     ):
         """The normalize + the store. The final mode: the O + the LSE at
-        o_off; the split mode: the fp32 partials (the GEMV's offset
+        o_off; the split mode: the fp32 partials (the shared offset
         math). The M row R -> (m, r) = divmod(R, 6) (the token-major);
         the O at o_off + m*row_stride + (kv_head*6 + r)*D. Each thread
         stores the fragment slots it owns — the slot's global (row, col)

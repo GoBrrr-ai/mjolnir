@@ -6,11 +6,11 @@ against the reference on this device:
 
   O1 plugin   mjolnir.register() resolves (MJOLNIR on a patched vLLM, CUSTOM
               on stock); must not raise
-  O2 gemv     q=1 fp8-KV decode vs ref_decode -- the contiguous pool and the
+  O2 mma      fp8-KV decode vs ref_decode -- the contiguous pool and the
               serving's K|V-interleaved views (vLLM 0.32 interleaves K|V in
-              the last dim under every layout name)
-  O3 mma      q=4 fp8-KV decode, same two layouts (the MTP verify shape)
-  O4 mma fp6  the packed e2m3 pool + the code LUT + per-channel scales via
+              the last dim under every layout name), q_len 1 and 4 (the MTP
+              verify shape)
+  O3 mma fp6  the packed e2m3 pool + the code LUT + per-channel scales via
               the q_mul/o_mul fold (M1+M2) vs the dequantized reference,
               both layouts, q_len 1 and 4
 
@@ -20,7 +20,7 @@ CUDA), so the same image can gate on any board.
 
 import torch
 
-from mjolnir.arch.orin import GEMVDecodeRunner
+from mjolnir.arch.orin import OrinDecodeRunner
 from mjolnir.arch.orin.harness import ref_decode
 from mjolnir.kvfp6 import e2m3_values
 
@@ -30,8 +30,8 @@ PS = 64  # the board's pool page size
 SCALE = 1.0 / (D**0.5)
 
 
-def _runner(impl: str, b: int, M: int, **kw) -> GEMVDecodeRunner:
-    return GEMVDecodeRunner(
+def _runner(b: int, M: int, **kw) -> OrinDecodeRunner:
+    return OrinDecodeRunner(
         num_heads=H_Q,
         num_kv_heads=H_K,
         head_size=D,
@@ -40,7 +40,6 @@ def _runner(impl: str, b: int, M: int, **kw) -> GEMVDecodeRunner:
         max_num_seqs=b,
         max_q_len=M,
         q_mode="bf16",
-        impl=impl,
         device="cuda",
         **kw,
     )
@@ -65,7 +64,7 @@ def _verdict(tag: str, kind: str, mode: str, M: int, out: torch.Tensor, ref: tor
     return "OK" if ok else "FAIL"
 
 
-def check_fp8(impl: str, mode: str, M: int) -> str:
+def check_fp8(mode: str, M: int) -> str:
     import mjolnir.arch.orin.runner as OR
 
     OR._COMPILED.clear()
@@ -77,7 +76,7 @@ def check_fp8(impl: str, mode: str, M: int) -> str:
     )
     seq_lens = torch.tensor([L], dtype=torch.int32, device="cuda")
     out = torch.empty(b * M, H_Q, D, dtype=torch.bfloat16, device="cuda")
-    runner = _runner(impl, b, M)
+    runner = _runner(b, M)
     plan = runner.plan(seq_lens.tolist(), b, M, table, seq_lens)
     if mode == "contig":
         runner.run(plan, q.view(b * M, H_Q, D), out, kv, kv, kd, vd, SCALE)
@@ -96,7 +95,7 @@ def check_fp8(impl: str, mode: str, M: int) -> str:
         vd.float().cpu(),
         SCALE,
     )[0]
-    return _verdict(impl, "fp8", mode, M, out, ref)
+    return _verdict("mma", "fp8", mode, M, out, ref)
 
 
 def _pack_e2m3(mag: torch.Tensor) -> torch.Tensor:
@@ -147,7 +146,7 @@ def check_fp6(mode: str, M: int) -> str:
     q, pool, table, seq_lens, q_mul, o_mul, ks, vs = _build_per_channel(b, M, 1500, 3, "cuda")
     seq_lens = torch.tensor([L], dtype=torch.int32, device="cuda")
     out = torch.empty(b * M, H_Q, D, dtype=torch.bfloat16, device="cuda")
-    runner = _runner("mma", b, M, kv_format="e2m3")
+    runner = _runner(b, M, kv_format="e2m3")
     plan = runner.plan(seq_lens.tolist(), b, M, table, seq_lens)
     rb = D * 3 // 4
     ones = torch.ones(b, H_K, device="cuda")
@@ -191,7 +190,7 @@ def main() -> int:
         print(f"[orin-gates] device is sm_{cc[0]}{cc[1]}, not sm_87 -- self-skip")
         return 0
     results = [probe_plugin()]
-    results += [check_fp8(impl, mode, m) for impl in ("gemv", "mma") for mode in ("contig", "strided") for m in (1, 4)]
+    results += [check_fp8(mode, m) for mode in ("contig", "strided") for m in (1, 4)]
     results += [check_fp6(mode, m) for mode in ("contig", "strided") for m in (1, 4)]
     ok = all(r == "OK" for r in results)
     print("ORIN GATES: ALL OK" if ok else "ORIN GATES: SOME FAILED")

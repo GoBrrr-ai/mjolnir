@@ -62,10 +62,9 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003", "B008"]
 # running log-sum-exp accumulator named `l`, named-but-unused tile loop
 # variables, and math comments (GEMM shapes, tile layouts) that read like code.
 "src/mjolnir/mjolnir/arch/thor/decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "SIM300"]
-# The Orin GEMV kernel: same DSL conventions as the traced t5 family (the
-# pre-PEP 604 Optional form the DSL tracer expects, nested staged ifs,
-# min/max instead of the ternary SIM wants).
-"src/mjolnir/mjolnir/arch/orin/decode.py" = ["F403", "F405", "E741", "RUF005", "B007", "UP006", "UP035", "UP045", "SIM102", "SIM108", "SIM300", "FURB136"]
+# The Orin mma kernel: DescaleTensors keeps the pre-PEP 604 Optional form the
+# DSL tracer expects (moved here from the retired GEMV kernel).
+"src/mjolnir/mjolnir/arch/orin/mma.py" = ["UP045"]
 "src/mjolnir/mjolnir/arch/thor/call.py" = ["F403", "F405", "ERA001", "RUF005", "RUF059", "UP006", "UP035", "SIM300"]
 "src/mjolnir/mjolnir/arch/thor/const.py" = ["RUF005"]
 "src/mjolnir/mjolnir/arch/thor/harness.py" = ["F403", "F405", "E741"]
@@ -84,7 +83,7 @@ python-version = "3.12"
 # type checker cannot see through (the tracer evaluates them at compile
 # time) — same rationale as the ruff per-file-ignores above.
 [[tool.ty.overrides]]
-include = ["src/mjolnir/mjolnir/arch/orin/decode.py", "src/mjolnir/mjolnir/arch/orin/mma.py"]
+include = ["src/mjolnir/mjolnir/arch/orin/mma.py"]
 rules.not-subscriptable = "ignore"
 rules.invalid-assignment = "ignore"
 
@@ -119,7 +118,6 @@ include = ["*.py", "*.sh", "*.j2", "*.md"]
 exclude = [
     "src/mjolnir/mjolnir/arch/thor/decode.py",
     "src/mjolnir/mjolnir/arch/thor/call.py",
-    "src/mjolnir/mjolnir/arch/orin/decode.py",
     "src/mjolnir/mjolnir/arch/orin/mma.py",
     "docs/platforms/**/*.md",
     "configs/**/README.md",

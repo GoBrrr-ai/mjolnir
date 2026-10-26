@@ -1,9 +1,9 @@
-"""The Orin (sm_87) harness: correctness + benchmark driver for the GEMV
+"""The Orin (sm_87) harness: correctness + benchmark driver for the mma
 decode kernel — the family sibling of ``mjolnir.arch.thor.harness``.
 
 Run standalone: ``python -m mjolnir.arch.orin.harness --help``. The kernel
-is arch-portable FMA (cp.async + shfl + exp2), so this harness runs on any
-sm_80+ device — on a Thor it is the development smoke; the Orin *numbers*
+targets sm_87 (mma.sync m16n8k16 + cp.async), so this harness runs on any
+sm_87+ device — on a Thor it is the development smoke; the Orin *numbers*
 come from running it (and ``mjolnir verify``) on an Orin.
 
 Correctness model: the kernel computes scores and P in fp32 (no P
@@ -24,7 +24,7 @@ import math
 
 import torch
 
-from .runner import GEMVDecodeRunner
+from .runner import OrinDecodeRunner
 
 
 def ref_decode(
@@ -164,7 +164,7 @@ def check(args) -> bool:
     )
     b = args.batches
     scale = 1.0 / math.sqrt(args.headdim)
-    runner = GEMVDecodeRunner(
+    runner = OrinDecodeRunner(
         num_heads=args.heads_q,
         num_kv_heads=args.heads_k,
         head_size=args.headdim,
@@ -174,7 +174,6 @@ def check(args) -> bool:
         max_q_len=args.q_len,
         q_mode=args.q_dtype,
         kv_format=args.kv_dtype,
-        impl=args.impl,
         max_splits=args.max_splits,
         device=dev,
     )
@@ -261,7 +260,7 @@ def bench(args) -> None:
     )
     b = args.batches
     scale = 1.0 / math.sqrt(args.headdim)
-    runner = GEMVDecodeRunner(
+    runner = OrinDecodeRunner(
         num_heads=args.heads_q,
         num_kv_heads=args.heads_k,
         head_size=args.headdim,
@@ -271,7 +270,6 @@ def bench(args) -> None:
         max_q_len=args.q_len,
         q_mode=args.q_dtype,
         kv_format=args.kv_dtype,
-        impl=args.impl,
         max_splits=args.max_splits,
         device=dev,
     )
@@ -335,7 +333,7 @@ def bench(args) -> None:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Orin GEMV decode harness (correctness + bench).")
+    p = argparse.ArgumentParser(description="Orin mma decode harness (correctness + bench).")
     p.add_argument("--batches", "--b", type=int, default=1)
     p.add_argument("--seqlen", "--s", type=int, default=4096)
     p.add_argument("--q_len", "--M", type=int, default=1)
@@ -343,7 +341,7 @@ def main() -> int:
     p.add_argument("--heads_k", type=int, default=4)
     p.add_argument("--headdim", "--d", type=int, default=256)
     p.add_argument("--page_size", "--ps", type=int, default=16, choices=(16, 32, 64, 128))
-    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "bf16", "e2m3"))
+    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "e2m3"))
     p.add_argument("--kv_layout", default="hnd", choices=("hnd", "nhd"))
     p.add_argument("--q_dtype", default="bf16", choices=("bf16", "fp8"))
     p.add_argument("--non_causal", action="store_true")
@@ -364,24 +362,19 @@ def main() -> int:
     )
     p.add_argument("--skip_ref_check", action="store_true", help="bench only (no correctness pass)")
     p.add_argument("--sweep", action="store_true", help="the default correctness matrix")
-    # Shared verify-stage flags that have no GEMV meaning: accepted so the
+    # Shared verify-stage flags that have no mma meaning: accepted so the
     # platform-dispatched stage code can pass one arg surface to both families.
     p.add_argument("--no_l2_flush", action="store_true", help="accepted; the prebuilt launch timing never flushes")
-    p.add_argument("--ctas_per_sm", type=int, default=1, help="the GEMV grid has no CTAs/SM knob; 1 only")
+    p.add_argument("--ctas_per_sm", type=int, default=2, help="the Orin grid has no CTAs/SM knob; 2 only")
     p.add_argument("--max_splits", type=int, default=0, help="split-KV capacity (0 = the auto plan)")
-    p.add_argument(
-        "--impl",
-        default="gemv",
-        choices=("gemv", "mma"),
-        help="the decode kernel (mma = the tensor-core kernel, the serving default for fp8 KV)",
-    )
     args = p.parse_args()
-    assert args.ctas_per_sm == 1, "the Orin GEMV grid has no CTAs/SM knob (one CTA per (head, chunk))"
+    assert args.q_dtype == "bf16", "the mma kernel takes a bf16 query (the fp8-Q pack was the retired GEMV's; M3)"
+    assert args.ctas_per_sm == 2, "the Orin mma grid is pinned at 2 CTAs/SM (255 regs + the smem bind)"
     if args.kv_layout == "nhd":
-        # The GEMV consumes the shared machinery's head-major LOGICAL views
+        # The mma consumes the shared machinery's head-major LOGICAL views
         # (whatever the vLLM pool layout, detect/split hands the runner HND);
         # the layout question is the backend's, so this flag is informational.
-        print("note: the Orin GEMV consumes HND logical views regardless of the vLLM pool layout")
+        print("note: the Orin mma consumes HND logical views regardless of the vLLM pool layout")
 
     ok = True
     if args.sweep:
