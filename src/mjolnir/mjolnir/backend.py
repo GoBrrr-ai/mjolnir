@@ -479,7 +479,12 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                         _t2 = _t(_v)
                         if _t2:
                             f.write(f"  {_sub}.{_k} = {_t2}\n")
-                f.write(f"impl idx={_t(self.paged_kv_indices)} indptr={_t(self.paged_kv_indptr.gpu)} last={_t(self.paged_kv_last_page_len.gpu)}\n")
+                for _bname in ("paged_kv_indices", "paged_kv_indptr", "paged_kv_last_page_len"):
+                    _b = getattr(self, _bname, None)
+                    if _b is None:
+                        continue
+                    _g = getattr(_b, "gpu", _b)
+                    f.write(f"  impl.{_bname} = {_t(_g)}\n")
         # The base forward dtype-checks the cache against the plan's fp8:
         # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
         try:
