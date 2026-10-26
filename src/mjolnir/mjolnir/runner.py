@@ -152,7 +152,11 @@ def _disk_load(key, kernel_path: str, family: str):
             return None
         import cutlass.cute as cute
 
-        module = cute.runtime.load_module(str(entry[0]))
+        # The compiled fn is a TVM-FFI object (--enable-tvm-ffi), so the
+        # store wrote an FFI-symbol-only object; load it in TVM-FFI mode or
+        # the executor-style load demands an _args_spec symbol the export
+        # never writes (every load failed, every process recompiled ~16s).
+        module = cute.runtime.load_module(str(entry[0]), enable_tvm_ffi=True)
         fn = getattr(module, entry[1])
         _DISK_MODULES[key] = module
         _log.debug("Mjolnir: loaded %s from %s", key, entry[0])
