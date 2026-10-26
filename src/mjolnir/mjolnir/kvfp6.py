@@ -274,6 +274,8 @@ def expand_pages_to_fp8(
     assert 2 * row_bytes(d) == C and out.shape[1:] == (H, N, 2 * d) and out.stride(3) == 1
     if P == 0:
         return out[:0]
+    if k_ratio is not None or v_ratio is not None:
+        return _expand_ratio_torch(kv_cache, src_blocks, out, d, k_ratio, v_ratio)
     _expand_kernel[(P, H, N)](
         kv_cache,
         src_blocks,
@@ -285,14 +287,47 @@ def expand_pages_to_fp8(
         out.stride(0),
         out.stride(1),
         out.stride(2),
-        k_ratio if k_ratio is not None else out,
-        v_ratio if v_ratio is not None else out,
+        out,
+        out,
         e2m3_values(kv_cache.device),
-        RATIO=k_ratio is not None,
+        RATIO=False,
         D=d,
         G_BLOCK=triton.next_power_of_2(d // 4),
         num_warps=1,
     )
+    return out[:P]
+
+
+def _expand_ratio_torch(
+    kv_cache: torch.Tensor,  # (B, h_k, N, 2 * row_bytes) uint8 e2m3 layer view
+    src_blocks: torch.Tensor,  # (P,) int32
+    out: torch.Tensor,  # (>= P, h_k, N, 2 * d) uint8 (e4m3 bytes), unit last stride
+    d: int,
+    k_ratio: torch.Tensor | None,  # (h_k, d) fp32
+    v_ratio: torch.Tensor | None,
+) -> torch.Tensor:
+    """The ratio (per-channel M2) expansion in torch: Triton's ``fp8e4nv``
+    needs sm_89+ and sm_87 has no e4m3 cvt, so the continuous requant runs
+    on torch's software cast. The no-ratio path (the pure LUT bytes) stays
+    in the Triton kernel."""
+    P = src_blocks.shape[0]
+    H = kv_cache.shape[1]
+    rb = row_bytes(d)
+    dev = kv_cache.device
+    pages = kv_cache[src_blocks.to(torch.int64)]  # (P, H, N, 2*rb) uint8
+    idx = torch.arange(d, device=dev)
+    bb, oo = (idx * 6) // 8, (idx * 6) % 8
+    hi = (bb + 1).clamp(max=rb - 1)
+    lut = e2m3_values(dev)
+    halves = []
+    for side, ratio in enumerate((k_ratio, v_ratio)):
+        half = pages[..., side * rb : (side + 1) * rb]
+        codes = ((half[..., bb].int() >> oo) | (half[..., hi].int() << (8 - oo))) & 0x3F
+        vals = lut[codes.reshape(-1)].reshape(*codes.shape)  # (P, H, N, d) fp32
+        if ratio is not None:
+            vals = vals * ratio.view(1, H, 1, d).to(torch.float32)
+        halves.append(vals.to(torch.float8_e4m3fn).view(torch.uint8))
+    out[:P] = torch.cat(halves, dim=-1)
     return out[:P]
 
 
