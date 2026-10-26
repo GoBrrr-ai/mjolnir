@@ -448,9 +448,13 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             with open("/data/cache/mjolnir_fp6.log", "a") as f:
                 f.write("expand ok\n")
         md = copy.copy(attn_metadata)
-        # The base forward plans from the nested sub-metadata's block tables,
-        # not a top-level field: point them at the scratch remap, or the
-        # kernel gathers the scratch by the pool's page ids (the IMA).
+        # Point every block-table surface the base may plan from at the
+        # scratch remap: FlashAttention's metadata is flat (`block_table`),
+        # FlashInfer's nests them under .prefill/.decode. Whichever shape
+        # this fallback's base uses, it must not gather the scratch by the
+        # pool's page ids.
+        if hasattr(md, "block_table"):
+            md.block_table = pages["block_table"]
         for sub in ("prefill", "decode"):
             nested = getattr(md, sub, None)
             if nested is not None and getattr(nested, "block_tables", None) is not None:
@@ -536,30 +540,32 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         **kwargs: Any,
     ):
         if not getattr(attn_metadata, "is_t5", False):
-            if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_pages", None) is not None:
-                # The fallback reads the e4m3 scratch; Q stays bf16 (FI's
-                # maybe_quant_query quantizes; FA4's fp8-Q is the branch below).
-                # Without the pages (the profile/dummy passes) the base
-                # forward's uint8->fp8 view handles the cache as-is.
-                return self._forward_fp6_fallback(
-                    layer,
-                    query,
-                    key,
-                    value,
-                    kv_cache,
-                    attn_metadata,
-                    output,
-                    output_scale,
-                    output_block_scale,
-                    *args,
-                    **kwargs,
-                )
             if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
                 query = self._quantize_q(layer, query)
                 # The base forward passes the layer's q scale as q_descale
-                # only when it believes the layer quantized Q.
+                # only when it believes the layer quantized Q. FA4's fp6
+                # fallback rides this too (Q, K and V in one fp8 dtype);
+                # FlashInfer's maybe_quant_query wants bf16, so its fp6
+                # fallback arrives unquantized (_fallback_fp8_q is False).
                 self.supports_quant_query_input = True
             try:
+                if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_pages", None) is not None:
+                    # The fallback reads the e4m3 scratch. Without the pages
+                    # (the profile/dummy passes) the base forward's
+                    # uint8->fp8 view handles the cache as-is.
+                    return self._forward_fp6_fallback(
+                        layer,
+                        query,
+                        key,
+                        value,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        output_scale,
+                        output_block_scale,
+                        *args,
+                        **kwargs,
+                    )
                 return super().forward(
                     layer,
                     query,
