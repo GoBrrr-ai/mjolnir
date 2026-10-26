@@ -191,3 +191,21 @@ Confirmed on the board's stored object directly (no GPU): the .o has
 returns the `tvm_ffi.core Function` cleanly. Fix: 6414d69 (patch 0008) --
 one flag. The first post-fix serve should log loads from /data/cache and
 skip the ~16s compile.
+
+## Session 10d (2026-10-26): the spec sweep, take one -- the baseline is in
+
+Two staging traps cost a run: (1) the stage's default --image is "the
+active one", which was still the stock vLLM after the rebuild -- the
+mjolnir legs booted the OFFICIAL image (no working plugin env) and died at
+startup; `mjolnir image use` now points at narandill/mjolnir-vllm:v0.32.0.
+(2) The wait-healthy loop does not notice a container that exited -- a
+dead leg burns its full 1800s timeout (7 x 30 min on take one); a
+container-status check inside that loop is the right fix, filed for later.
+
+The prefix-match-unit fix is validated: all 7 official-AWQ_FLASHINFER
+points served and measured (the crash before was EngineCore refusing
+816-token group blocks under a 32-token unit). The FI baseline at c=1:
+k=3 is the sweet spot (19.0 t/s/req, per-position 0.86/0.70/0.55); the
+acceptance decays smoothly to k=7 (0.84/0.65/0.50/0.39/0.31/0.24/0.18).
+Re-running the full sweep (both legs) on the rebuilt image -- the run also
+validates 0008's disk-cache loads on the board (the banner's loaded count).
