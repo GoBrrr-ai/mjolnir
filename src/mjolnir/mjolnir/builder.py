@@ -29,10 +29,10 @@ from .backend import (
     _kv_format,
     _max_q_len,
     _unsupported_arch_reason,
+    _NONCAUSAL,
     logger,
 )
 from .platforms import detect, load_kernel
-from .runner import _NONCAUSAL
 
 try:
     from vllm.v1.attention.backend import AttentionCGSupport
