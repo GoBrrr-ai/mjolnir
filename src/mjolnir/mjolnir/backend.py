@@ -707,9 +707,12 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         # fp6: the fallback reads an fp8 scratch (see _forward_fp6_fallback)
         self._fp6 = cache_dtype in FP6_CACHE_DTYPES
         quantized_kv = cache_dtype in MJOLNIR_CACHE_DTYPES
+        # fp8 Q for the fallback steps: FA4 takes a quantized query (and the
+        # fp6 scratch rides its fp8-Q). FlashInfer's maybe_quant_query wants
+        # bf16 and quantizes internally, so an FI fallback always sees bf16.
         self._fallback_fp8_q = (
-            bool(self.supports_quant_query_input) and quantized_kv and _FALLBACK == "FLASH_ATTN"
-        ) or self._fp6
+            _FALLBACK == "FLASH_ATTN" and bool(self.supports_quant_query_input) and (quantized_kv or self._fp6)
+        )
         self.supports_quant_query_input = False
         self._kv_layout: str | None = None
         self._t5_reason = _layer_reason(self)
