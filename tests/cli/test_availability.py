@@ -141,7 +141,7 @@ KV_ROWS: list[tuple[str, str, str, str, tuple[str, ...]]] = [
     ("fp8", MJOLNIR, SPARK, UNAVAILABLE, ()),
     # fp6 (e2m3): the Mjolnir kernel on thor — no fallback reader anywhere
     ("fp6_e2m3", MJOLNIR, THOR, NATIVE, ("Mjolnir", "calibrated scales")),
-    ("fp6_e2m3", MJOLNIR, ORIN, UNAVAILABLE, ()),
+    ("fp6_e2m3", MJOLNIR, ORIN, NATIVE, ("mma", "FlashInfer fallback", "e4m3 scratch")),
     ("fp6_e2m3", MJOLNIR, SPARK, UNAVAILABLE, ()),
     ("fp6_e2m3", FLASHINFER, THOR, UNAVAILABLE, ()),
     # nvfp4: the FA2 path (families 80/90/120) and the FlashInfer backend on
@@ -234,7 +234,10 @@ def test_kv_state_on_an_unmapped_backend_keeps_the_transplanted_dtype_why():
     # (byte-identical to the cycle-2 matrix — pinned fully in test_overlays)
     cell = kv_state("fp8", "TRITON_KITCHEN_SINK", THOR)
     assert cell.state == UNAVAILABLE
-    assert cell.why == "fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)"
+    assert (
+        cell.why
+        == "fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)"
+    )
 
 
 # ── 4. style lint over the whole table (plan §4: enforced in test) ──────────
