@@ -40,14 +40,16 @@ def hw_setup(
         "--fan-profile",
         help="recommended (default) | max | cool | quiet — recommended/max are installed by this step if missing",
     ),
-    swap_size: int = typer.Option(32, "--swap-size", help="swap file size in GB (default 32 — the 128 GB Thor SoM)"),
+    swap_size: int = typer.Option(32, "--swap-size", help="swap file size in GB (default 32)"),
     skip: str = typer.Option(
-        "", "--skip", help="comma-separated steps to skip: gui,upgrade,pip,docker,jtop,nsight,memory,fan,host,clocks,power"
+        "",
+        "--skip",
+        help="comma-separated steps to skip: gui,upgrade,pip,docker,jtop,nsight,memory,fan,host,clocks,power",
     ),
     reboot: bool = typer.Option(False, "--reboot", help="reboot at the end if a step required one (non-interactive)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="print the plan, change nothing"),
 ):
-    """Pre-configure the Thor host (port of the ~/thor HW setup script).
+    """Pre-configure the Jetson host (Thor/Orin — port of the ~/thor HW setup script).
 
     Runs ``scripts/hw/setup-jetson.sh``: headless boot target, apt upgrade,
     Docker + NVIDIA default runtime, pip, jtop, 32 GB swap (zRAM off),

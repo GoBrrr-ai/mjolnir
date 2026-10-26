@@ -1,4 +1,4 @@
-"""``mjolnir hw setup`` — Jetson AGX Thor host pre-configuration.
+"""``mjolnir hw setup`` — Jetson host pre-configuration (Thor/Orin).
 
 The ported Jetson HW setup (``scripts/hw/setup-jetson.sh``, from the ~/thor
 scripts) brings a box to the serving baseline the rest of the CLI
