@@ -107,6 +107,7 @@ PATCH_ORDER = [
 # no behavior on any device.
 FLASHINFER_PATCH_ORDER = [
     "thor-gdn-prefill-fi-sm110.patch",
+    "fi-fp6-kv-ampere-prefill.patch",
 ]
 
 
