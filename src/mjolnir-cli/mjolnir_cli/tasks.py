@@ -1,10 +1,11 @@
 """Image canary tasks + the clean-window gate.
 
-The canaries are the sm_110 gate probes and the Thor-authored kernel tests
+The canaries are per-arch gate probes and the arch-authored kernel tests
 that ship with the image build (``docker/vllm-thor/``); ``mjolnir image
-gates`` runs them in a fresh container against an image (no server needed;
-GPU tests self-skip on a box without CUDA). Kernel correctness and
-benchmarks live in ``mjolnir verify``.
+gates`` runs the legs for the detected board (``--arch`` overrides,
+``--task`` runs one named canary), in fresh containers against an image (no
+server needed; GPU tests self-skip on a box without CUDA). Kernel
+correctness and benchmarks live in ``mjolnir verify``.
 """
 
 from __future__ import annotations
@@ -25,23 +26,33 @@ class Task:
     script: str  # repo-relative path
     desc: str
     gpu: bool = True
+    arch: str | None = None  # the board family this canary validates; None = arch-agnostic
 
 
 TASKS: list[Task] = [
     Task(
-        "gates",
+        "thor-gates",
         "docker/vllm-thor/kernel_test_sm110_gates.py",
         "sm_110 gate-probe canary (T6 GDN, T9 FA4, T10 draft-CG, T11 hd256)",
+        arch="thor",
+    ),
+    Task(
+        "orin-gates",
+        "docker/vllm-thor/kernel_test_orin_gates.py",
+        "sm_87 gate-probe canary (O1 plugin, O2 gemv, O3 mma fp8, O4 mma fp6 M1+M2)",
+        arch="orin",
     ),
     Task(
         "fi-update",
         "docker/vllm-thor/kernel_test_fi_update.py",
         "fused draft-decode FI kernel (advance plan vs numpy reference)",
+        arch="thor",
     ),
     Task(
         "dspark-nc",
         "docker/vllm-thor/kernel_test_dspark_draft_nonncausal.py",
         "DSpark non-causal draft cudagraph (gate/route/capture-replay/determinism)",
+        arch="thor",
     ),
     Task(
         "functional",
@@ -52,6 +63,12 @@ TASKS: list[Task] = [
 ]
 
 BY_NAME = {t.name: t for t in TASKS}
+
+
+def legs_for(arch: str | None) -> list[Task]:
+    """The canary legs for a board family: its arch-specific probes first,
+    then the arch-agnostic ones."""
+    return [t for t in TASKS if t.arch == arch] + [t for t in TASKS if t.arch is None]
 
 
 def task_container(task: Task) -> str:
