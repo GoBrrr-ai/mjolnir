@@ -428,6 +428,14 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         # the gather in-bounds (their output is unused). Real steps index the
         # pool, so this is a no-op for them.
         src = pages["src_pages"].clamp(0, kv_cache.shape[0] - 1)
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            sp, bt = pages["src_pages"], pages["block_table"]
+            with open("/tmp/mjolnir_fp6.log", "a") as f:
+                f.write(
+                    f"total={pages['total']} src[{int(sp.min())},{int(sp.max())}] pool={kv_cache.shape[0]} "
+                    f"bt[{int(bt.min())},{int(bt.max())}] btshape={tuple(bt.shape)} "
+                    f"nreqs={getattr(attn_metadata, 'num_reqs', '?')} scratch={tuple(scratch.shape)}\n"
+                )
         kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
         md = copy.copy(attn_metadata)
         md.block_table = pages["block_table"]
