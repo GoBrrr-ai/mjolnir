@@ -564,6 +564,10 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             )
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
         if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            torch.cuda.synchronize()  # the IMA hunt: name the kernel that faults
+            with open("/tmp/mjolnir_fp6.log", "a") as f:
+                f.write("write_kv ok\n")
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
             # per-call dump -> a FILE (the EngineCore swallows raw stdout);
             # the draft-prefill-vs-verify identity diff, config C isolation
             n = md.plan.num_seqs
@@ -593,6 +597,10 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 q_mul=st["k_mul"],
                 o_mul=st["v_mul"],
             )
+            if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+                torch.cuda.synchronize()
+                with open("/tmp/mjolnir_fp6.log", "a") as f:
+                    f.write("mma fp6 ok\n")
             return output
         runner.run(
             md.plan,
