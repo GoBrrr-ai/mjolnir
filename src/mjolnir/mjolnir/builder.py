@@ -9,6 +9,7 @@ through TYPE_CHECKING and a lazy get_builder_cls -- no import cycle.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import torch
