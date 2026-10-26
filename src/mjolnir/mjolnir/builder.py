@@ -299,7 +299,14 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             STATS["fallback_steps"] += 1
             md = super().build(common_prefix_len, cam, fast_build)
             if self._fp6:
-                md.mjolnir_fp6_pages = self._fp6_page_map(cam)
+                pages = self._fp6_page_map(cam)
+                # The scratch must cover the plan's longest sequence. The
+                # warmup/profile passes plan huge dummy seq_lens over a tiny
+                # page map, and the fallback would read past the scratch (the
+                # IMA). Their output is unused, so they skip it and ride the
+                # base's uint8->fp8 view of the packed pool.
+                if pages["total"] * self._page >= cam.max_seq_len:
+                    md.mjolnir_fp6_pages = pages
             return md
         STATS["t5_steps"] += 1
         t5 = self.t5
