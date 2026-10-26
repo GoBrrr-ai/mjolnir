@@ -292,6 +292,36 @@ FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
             "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
         ),
     ],
+    "fp6 prefill direct-read on Ampere (Mjolnir packed e2m3 KV, no scratchpad)": [
+        # The fp6 element type + the vec_cast delegation to the e4m3
+        # conversion (vec_dtypes.cuh) — the type everything else keys on.
+        (
+            "data/include/flashinfer/vec_dtypes.cuh",
+            "struct alignas(1) mjolnir_fp6_e2m3_sv",
+        ),
+        # The partial-src cp.async loader (12-byte fp6 slots).
+        (
+            "data/include/flashinfer/cp_async.cuh",
+            "pred_load_128b_src",
+        ),
+        # The "used, not just defined" sentinel: the expand call site wired
+        # into the K compute chain (a partial apply that lands the helper
+        # without the call would compile and silently no-op).
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>",
+        ),
+        # The V-side call site.
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>",
+        ),
+        # The scale params threading through the JIT signature.
+        (
+            "jit/attention/modules.py",
+            '"maybe_k_fp6_scales"',
+        ),
+    ],
 }
 
 

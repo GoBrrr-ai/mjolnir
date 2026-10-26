@@ -39,6 +39,7 @@ Base this was verified against: **vllm 0.32.0**
 | `thor-fa4-hd256-1cta-decode-sm110.patch` | — (Thor-authored) | **The 1CTA decode carve-out for the FA4 hd256 kernel (the v11 "N-2 decode" workstream).** Decode-shaped hd256 calls — `max_seqlen_q <= 8` (decode M 1..8, incl. MTP verify; prefill is 1024+), non-local, dense or paged-128 TMA (the kernel's only legal paged mode) — now OR into the `hd256_use_2cta` carve-out in `vllm_flash_attn/cute/interface.py` (one hunk), so the kernel drops its 2CTA cluster to a single CTA (`cluster (1,1)`, `CtaGroup.ONE`): a **1.56× decode win** at L=8192 M=1 (clean micro-bench 2CTA 323 µs → 1CTA 207 µs), with 1CTA == 2CTA == fp32-ref within fp8 tolerance; the kernel file is untouched and the 2CTA prefill path is unchanged (separate compile keys coexist in one process). The in-tree hd256 SplitKV machinery was investigated and is a no-win on **both** the 2CTA and 1CTA paths — kept inert (see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below). |
 | `thor-mjolnir-attention-backend.patch` | — (Thor-authored) | **The `MJOLNIR` attention-backend name.** Adds `MJOLNIR = "mjolnir.backend.MjolnirAttentionBackend"` to `AttentionBackendEnum` (`v1/attention/backends/registry.py`), so `vllm serve <model> --attention-backend MJOLNIR` parses (the CLI resolves the name through the enum *before* plugins could add one — an `Enum` cannot grow at runtime) and `Attention.__init__`'s `AttentionBackendEnum[backend.get_name()]` round-trip works. The class itself comes from the `mjolnir-kernel` package, installed by the `Dockerfile`; its `vllm.general_plugins` entry point also maps `CUSTOM` to the same class, so a stock vLLM can use `--attention-backend CUSTOM`. Also makes **FlashAttention 4 the Mjolnir backend's default fallback** (its prefill/mixed-step backend) on sm_110: a `fa_utils.py` hunk resolves `flash_attn_version` to 4 when the selected backend is `MJOLNIR`/`CUSTOM`, `MJOLNIR_ATTN_FALLBACK` is unset or `FLASH_ATTN`, and none is configured — see "The Mjolnir attention backend" below. |
 | `thor-fp6-e2m3-kv-cache.patch` | — (Thor-authored) | **The `fp6_e2m3` KV cache dtype.** Adds `"fp6_e2m3"` to `CacheDType` (`config/cache.py`), its storage dtype (`uint8`) and `is_quantized_kv_cache` (`utils/torch_utils.py`), and `KVQuantMode.FP6_E2M3` with its `get_kv_quant_mode` mapping (`v1/kv_cache_interface.py`). Nothing else: the Mjolnir backend publishes the packed cell size (`customize_spec`: `d·6/8` bytes per K and per V row), writes the cache, reads it in decode, and expands a step's pages to e4m3 for the FA4 fallback. Inert unless a config sets `kv-cache-dtype: fp6_e2m3`; no other backend accepts it. See "fp6 e2m3 KV cache" below. |
+| `fi-fp6-kv-ampere-prefill.patch` | — (Mjolnir-authored, **FlashInfer-side**) | **Packed-fp6 (e2m3) KV direct-read for FlashInfer's Ampere (sm_80-family) FA2 prefill** — the scratchpad-free fp6 fallback: the produce stage stages 16 codes (12 bytes, partial-src cp.async) per smem slot and an in-place pass rewrites each slot to e4m3 (`code · s_channel`, per-(kv-head, channel) float scales via two new optional `maybe_{k,v}_fp6_scales` params), after which the tile is byte-identical to fp8 and **every** downstream path (per-fragment `vec_cast`, both tile shapes) runs unchanged. Inert unless the fp6 dtype string is requested; see "fp6 prefill direct-read (flashinfer side, sm_80/87)" below. |
 | `thor-gdn-prefill-sm110.patch` | — (Thor-authored) | GDN **prefill** grant in `_resolve_gdn_prefill_backend()` (the fast FlashInfer kernel for the model's GDN layers) — probe-gated at import; see "Thor sm_110 gate probes". |
 | `thor-fa4-fp8kv-sm110.patch` | — (Thor-authored) | **FA4 + FP8-KV** eligibility gate (probe-gated fam(110) OR-term in `flash_attn_supports_kv_cache_dtype`) + the FA4 arch assert widened to `(10, 11)` — **inert until a config selects FA4** (default stays FlashInfer); see "Thor sm_110 gate probes". |
 | `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
@@ -481,6 +482,55 @@ kernel package's fp6 modules. **Tests:** `tests/kernel/test_runner.py` (the
 write vs the kernel package's quantizer and packer, the expansion vs a
 decode, T5 on an fp6 cache vs the emulator) and `smoke_vllm.py --kv fp6_e2m3`
 (`mjolnir verify vllm`, mode `e2m3`).
+
+## fp6 prefill direct-read — `patches/fi-fp6-kv-ampere-prefill.patch` (2026-10-27)
+
+**What:** FlashInfer's Ampere FA2 prefill learns to read the packed-fp6
+(e2m3) KV cache **directly — no fp8 scratch expansion**. Research verdict
+(`docs/stack-research/fp6-prefill-direct.md`): sm_87 has no fp8 tensor cores,
+so FlashInfer already dequantizes quantized KV in-kernel on Ampere ("essentially
+free", its own PR #4746) — and NVFP4 KV (software unpack) runs there at ≈fp8
+speed after #4769. The fp6 path is the same machinery with a different unpack.
+
+**Mechanics (all `if constexpr`-guarded, inert for every existing dtype):**
+
+- `vec_dtypes.cuh`: the 1-byte `mjolnir_fp6_e2m3_sv` element + `vec_cast`
+  specializations for `half`/`bf16` that **delegate to the e4m3 conversion** —
+  post-expansion the smem tile *is* fp8, so `compute_qk`/`compute_sfm_v` are
+  untouched (no per-fragment changes, no new compute paths).
+- `cp_async.cuh` / `permuted_smem.cuh`: `pred_load_128b_src<12>` — a 16-byte
+  slot cp.async reading only the first 12 bytes (PTX zero-fills the rest; the
+  runtime src-size operand already exists in `pred_load_128b`). A slot holds
+  16 codes = 12 packed bytes; gmem rows advance 0.75× the fp8 bytes.
+- `prefill.cuh`: fp6 branches in `produce_kv` / `page_produce_kv` /
+  `page_produce_kv_on_the_fly` (both swizzle modes; the per-j gmem scalar is
+  `6·upcast_size` — 96 bytes per 128 codes, the fp4 `4·16` pattern's 0.75×
+  sibling), and `expand_fp6_tile_to_fp8` — a flat thread-strided pass at the
+  fp4-repack hook: each slot's 12 bytes (4 codes per 3 bytes, LSB-first — the
+  kvfp6 row layout) expand to 16 e4m3 bytes `code · s_channel` via the native
+  `cuda_fp6.h` conversion and the per-(kv_head, channel) float scales from two
+  new optional params (`maybe_{k,v}_fp6_scales`, threaded through
+  `modules.py`'s `additional_tensor_names` like the NVFP4 `maybe_*_cache_sf`).
+  The shared-K/V time-slicing and both tile shapes are covered by the
+  in-place expansion (the slot bytes are rewritten before any fragment read).
+- `jit/utils.py`: the `mjolnir_fp6_e2m3` → `mjolnir_fp6_e2m3_sv` dtype string
+  (no torch dtype exists for 6-bit float; the packed pool rides uint8 bytes).
+
+**Numerics:** identical to the validated fp8-scratch path — the scratch holds
+`e4m3(code · s_c)` with scales at 1; the kernel now computes the same bytes
+per tile. **Fragility:** the per-j gmem scalars and the j-loop bound are the
+bump-fragile parts — re-derive `upcast_size` and the fp4/fp8 scalars from the
+new base's `produce_kv` before re-adapting (the full recipe lives in
+`docs/stack-research/fp6-prefill-direct.md`). **Validation status: patch
+applies to the pinned tree, the headers + the fp6 expand instantiation
+compile for sm_87 (nvcc, CPU-side); runtime canary + the vLLM-side
+`MJOLNIR_ATTN_FP6_DIRECT` wiring are pending.**
+
+**Sentinel:** `verify_patches.py` checks the fp6 struct in `vec_dtypes.cuh`,
+the partial-src loader in `cp_async.cuh`, and — the "used, not just defined"
+sentinel — the `expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>` call
+site in `prefill.cuh` (a partial apply that lands the helper without the
+compute-side call would compile and silently no-op).
 
 ## The Mjolnir attention backend — `patches/thor-mjolnir-attention-backend.patch`
 
