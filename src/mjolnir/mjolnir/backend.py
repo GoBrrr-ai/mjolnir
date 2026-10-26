@@ -825,9 +825,11 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         **kwargs: Any,
     ):
         if not getattr(attn_metadata, "is_t5", False):
-            if self._fp6:
+            if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_pages", None) is not None:
                 # The fallback reads the e4m3 scratch; Q stays bf16 (FI's
                 # maybe_quant_query quantizes; FA4's fp8-Q is the branch below).
+                # Without the pages (the profile/dummy passes) the base
+                # forward's uint8->fp8 view handles the cache as-is.
                 return self._forward_fp6_fallback(
                     layer,
                     query,
