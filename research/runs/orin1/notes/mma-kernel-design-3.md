@@ -209,3 +209,52 @@ k=3 is the sweet spot (19.0 t/s/req, per-position 0.86/0.70/0.55); the
 acceptance decays smoothly to k=7 (0.84/0.65/0.50/0.39/0.31/0.24/0.18).
 Re-running the full sweep (both legs) on the rebuilt image -- the run also
 validates 0008's disk-cache loads on the board (the banner's loaded count).
+
+## Session 11 (2026-10-26): fp6 to the serving config -- three staging fixes
+
+**The configs.** `AWQ_MJOLNIR_E2M3` (fp6_e2m3 + the .env sidecar pointing
+`MJOLNIR_ATTN_KV_SCALES` at `kv_scales/e2m3-awq.json` -- the AWQ checkpoint's
+own calibration; the model-level `e2m3.json` belongs to the NVFP4 model) and
+the `AWQ_MJOLNIR_E2M3_VT64K` sibling (VocabTrim on top, so the fp6-only leg
+stays clean for the A/B). Verified by serve --dry-run: the sidecar's -e is
+appended AFTER the auto-wiring's -e and docker's last -e wins, so the AWQ
+scales override the format-based default. The .env files are hand-written
+(the tooling guard blocks agent writes to .env paths).
+
+**The calibrate path ignored the platform overlay.** It read the raw
+config.yaml (no gpu-memory-utilization) -> the engine wanted
+0.92 x 61.35 GiB with 54 free -> OOM at init_device. Fixed at the root:
+the calibrate command now builds `dockerctl.serving_config(s)` (the merged
+serve-config, mounted by build_run_args) and passes that path -- the
+overlay's 0.72 / max-num-seqs / prefix-match-unit reach the engine
+(c7711e2). Validated: boots at 0.72 -> 44.17 GiB. Staging note: the first
+0.72 run died mid-generation at 17% once, silently -- the `| tail` pipe ate
+the traceback; long runs go to the background unpiped.
+
+**The fp6 gate rejected the Orin's fallback.** First draft-vocab run died
+at the selector: MJOLNIR + fp6_e2m3 -> "kv_cache_dtype not supported".
+`MjolnirAttentionBackend.supports_kv_cache_dtype` allowed fp6 only with
+`_FALLBACK == "FLASH_ATTN"` (the Thor's FA4). On the Orin the FA4 probe
+fails (no sm_87 kernels) -> the fallback resolves to FLASHINFER -> fp6
+rejected. The condition's intent is "the fallback can read the e4m3
+scratch the fp6 pages expand to" -- FlashInfer does that on sm_87 (config
+C). Widened to `_fallback_serves_fp8_scratch()` = FLASH_ATTN | FLASHINFER
+(9caa6b7); the fp8-Q condition at the builder stays FA4-only (that one IS
+about FA4's quantized-query input).
+
+**draftvocab rides fp8.** The draftvocab path kept the config's fp6 dtype,
+i.e. a token-counting run on the not-yet-proven fp6 serving path. Forced
+`kv_cache_dtype="fp8"` like calibrate.py -- the ranking is
+quant-insensitive (9caa6b7). The fp6 path gets its smoke from the serve,
+not from a calibration.
+
+**The e2m3-awq calibration** (54 prompts / 48,751 tokens / 260 s, 17
+layers = 16 full-attention + the MTP layer): K amax 12-23 with median
+channels 3.5-6; V amax grows with depth, 7.5 at layer 3 to 132 at layer 63
+-- the deep-V outliers are exactly why M2's per-channel scales exist.
+
+**The serve needs an image rebuild**: serve runs the image's package, and
+the built v0.32.0 predates the fp6 M1/M2 kernel commits and this gate fix.
+Rebuilt in place (same tag; the layer cache keeps it to the changed
+COPY/install layers). The calibrate/draftvocab containers did not need it
+(they mount the checkout over /opt/mjolnir-src).
