@@ -358,10 +358,14 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
                 page_idx += list(range(n))
             off += n
         dev = cam.block_table_tensor.device
-        rows = torch.tensor(req_idx, dtype=torch.long).pin_memory().to(dev, non_blocking=True)
-        cols = torch.tensor(page_idx, dtype=torch.long).pin_memory().to(dev, non_blocking=True)
+        # Synchronous H2D: an async copy from a pinned staging that dies at
+        # end-of-statement is a use-after-free race -- the symptom is exactly
+        # an intermittent IMA that skips clean warmups.
+        rows = torch.tensor(req_idx, dtype=torch.long).pin_memory().to(dev)
+        cols = torch.tensor(page_idx, dtype=torch.long).pin_memory().to(dev)
         src = cam.block_table_tensor[rows, cols].to(torch.int32).contiguous()
-        return {"src_pages": src, "block_table": remap.pin_memory().to(dev, non_blocking=True), "total": total}
+        src = cam.block_table_tensor[rows, cols].to(torch.int32).contiguous()
+        return {"src_pages": src, "block_table": remap.to(dev), "total": total}
 
     def build_for_cudagraph_capture(self, common_attn_metadata):
         return self.build(0, common_attn_metadata)
