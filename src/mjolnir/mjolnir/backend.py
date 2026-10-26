@@ -407,17 +407,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
     supports_update_block_table: bool = False
 
     def __init__(self, kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs):
-        cache_config = getattr(vllm_config, "cache_config", None)
-        saved_dtype = getattr(cache_config, "cache_dtype", None)
-        fp6_scratch = saved_dtype is not None and _kv_format(saved_dtype) == "e2m3"
+        cache_config = vllm_config.cache_config
+        saved_dtype = cache_config.cache_dtype
+        fp6_scratch = _kv_format(saved_dtype) == "e2m3"
         if fp6_scratch and _FALLBACK in ("FLASHINFER", "FLASH_ATTN"):
-            # The fallback builder maps cache_config.cache_dtype for its
-            # wrappers (FlashInfer's get_dtype_for_flashinfer raises on
-            # fp6_e2m3). The fallback never touches the fp6 pages: every
-            # step it runs expands them to an e4m3 scratch (kvfp6), so it
-            # must see fp8. The instance attrs it sets (self.cache_dtype /
-            # self.kv_cache_dtype) are read from, not the config, and the
-            # config's real dtype is restored below for the Mjolnir side.
+            # The fallback builder maps the cache dtype for its wrappers and
+            # raises on fp6_e2m3; it only ever reads the e4m3 scratch the fp6
+            # pages expand to (kvfp6), so it sees fp8. Restored below.
             cache_config.cache_dtype = "fp8"
         try:
             super().__init__(kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs)
