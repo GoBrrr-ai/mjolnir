@@ -189,7 +189,12 @@ KV_AVAILABILITY: dict[str, dict[str, dict[str, Availability]]] = {
             "thor": Availability(
                 NATIVE,
                 "The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.",
-            )
+            ),
+            "orin": Availability(
+                NATIVE,
+                "The Orin mma kernel reads the packed rows (the LUT dequant to bf16 operands); the per-channel "
+                "scales fold into the Q and the output — prefill rides the FlashInfer fallback on an e4m3 scratch.",
+            ),
         },
     },
     "nvfp4": {
@@ -220,7 +225,7 @@ KV_AVAILABILITY: dict[str, dict[str, dict[str, Availability]]] = {
 # messages byte-identically, so they deliberately carry NO trailing period.
 # A table cell's why ends with one; these do not.
 _KV_WHYS: dict[str, str] = {
-    "fp6_e2m3": "fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
+    "fp6_e2m3": "fp6 (e2m3) KV is read by the Mjolnir kernels on thor and Orin (the Orin's prefill rides the FlashInfer fallback on an e4m3 scratch)",
     "fp8": "fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)",
     "nvfp4": "nvfp4 KV rides the FA2 path (fa2-nvfp4 families are sm_80/90/120, never sm_110) and has no FlashInfer path",
     "int8": "int8 KV is int8_per_token_head — served by the Triton attention backend only",
