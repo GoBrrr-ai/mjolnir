@@ -117,6 +117,46 @@ per-step sync and the no-graphs restriction gone, and the
   `vec_cast` delegates to the e4m3 conversion makes the smem tile, post
   in-place expansion, byte-identical to fp8 with **zero compute_qk changes**.
 
+## vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`) — design
+
+Seam facts read from the code:
+
+- `builder.py:87-98`: the base builder's `__init__` runs with
+  `cache_config.cache_dtype` **masqueraded to `"fp8"`** (restored after) —
+  that is why today's fallback wrappers are fp8. The DIRECT path needs a
+  second, fp6 wrapper set; the masquerade stays for the base.
+- `_forward_fp6_fallback` (backend.py:428): expand → `super().forward` on the
+  scratch. The fp6 metadata (`mjolnir_fp6_pages`: total/src_pages/block_table)
+  and the scratch geometry live in the builder's `build()` (the block-table
+  swap).
+- The pool row layout: `_kv_views` splits K|V at `d·6/8` bytes; the scales are
+  per (layer, kv head, channel) — `kvscales.e2m3_scales` returns **separate K
+  and V tables** (`[h_k][d]` each, fp32) — so the kernel gets two scale
+  tensors, matching the two new params.
+
+The DIRECT path (all behind `MJOLNIR_ATTN_FP6_DIRECT=1` + fp6 + `_FALLBACK ==
+"FLASHINFER"` + Ampere):
+
+1. **Builder** (`build()`): when direct, skip `_fp6_page_map`/the swap and
+   plan against the pool (the block table already indexes it; the packed row
+   bytes are what the fp6 wrapper expects). The fp8 scratch machinery stays
+   for the non-direct path and for FA4.
+2. **Impl** (`_forward_fp6_fallback` direct branch): lazily create ONE fp6
+   batch-prefill module per (dtype-shape config) via
+   `flashinfer.prefill.get_batch_prefill_module("fa2", ..., "mjolnir_fp6_e2m3",
+   ...)` — the string flows through the patched `dtype_map_kv`/
+   `filename_safe_dtype_map_kv` to the `mjolnir_fp6_e2m3_sv` C++ type — cache
+   it on the layer, and run it on the packed pool + the two scale tensors.
+   No vLLM-side dtype validation is crossed: the base builder keeps its fp8
+   masquerade, and the direct wrapper is ours.
+3. **Scales**: the layer's `_mjolnir_fp6` state already carries the per-layer
+   scale tensors (`st["k_ratio"]/["v_ratio"]` neighbors) — add the fp32
+   `[h_k, d]` K/V scale tensors at install time (`_install_fp6_scales`).
+4. **Graphs**: the fp6-direct fallback step is capture-safe (no per-step
+   host page map, stable pointers) — revisit `enable_cuda_graph = False`
+   (currently set for ALL fp6) once the direct path is validated: scope it to
+   the scratch path only.
+
 ## Status
 
 - [x] Research (this doc)
