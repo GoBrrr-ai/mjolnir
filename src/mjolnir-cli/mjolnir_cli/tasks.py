@@ -43,6 +43,11 @@ TASKS: list[Task] = [
         arch="orin",
     ),
     Task(
+        "fp6-expand",
+        "docker/vllm-thor/kernel_test_fp6_expand.py",
+        "fp6 prefill expand canary (the patched flashinfer's in-smem e2m3->e4m3 vs the kvfp6 table)",
+    ),
+    Task(
         "fi-update",
         "docker/vllm-thor/kernel_test_fi_update.py",
         "fused draft-decode FI kernel (advance plan vs numpy reference)",
