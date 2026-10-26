@@ -130,4 +130,18 @@ def dispatch(platform: str, **kw) -> int:
             err=True,
         )
         raise typer.Exit(2) from None
+    if platform == "orin":
+        # The fan profiles the script installs are Thor-tuned (tjMAX / PWM
+        # curves); Orin needs its own — skip the step until they land, never
+        # silently.
+        names = [s.strip() for s in kw.get("skip", "").split(",") if s.strip()]
+        if "fan" not in names:
+            kw["skip"] = ",".join([*names, "fan"])
+            typer.secho(
+                "orin: skipping the fan-profile step — the profiles it installs are "
+                "Thor-tuned (tjMAX / PWM curves) and would misconfigure the Orin fan. "
+                "Orin gets dedicated profiles later; until then set the fan manually "
+                "(jtop) or run scripts/hw/setup-jetson.sh --fan-profile … yourself.",
+                fg=typer.colors.YELLOW,
+            )
     return run_setup(**kw)

@@ -57,7 +57,10 @@ def hw_setup(
     gated, with the .bck rollback backup; default selected —
     ``recommended`` by default), service cleanup, locked max clocks,
     MAXN power mode. Idempotent — safe to re-run; the script asks for
-    sudo."""
+    sudo.
+
+    On Orin the fan-profile step is skipped automatically (the profiles
+    are Thor-tuned; Orin gets dedicated ones later)."""
     try:
         rc = thor.dispatch(
             resolve_platform(None),
