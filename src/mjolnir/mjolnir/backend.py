@@ -33,7 +33,6 @@ the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
 
 from __future__ import annotations
 
-import copy
 import logging
 import os
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -447,46 +446,15 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             torch.cuda.synchronize()  # the IMA hunt
             with open("/data/cache/mjolnir_fp6.log", "a") as f:
                 f.write("expand ok\n")
-        md = copy.copy(attn_metadata)
-        # Point every block-table surface the base may plan from at the
-        # scratch remap: FlashAttention's metadata is flat (`block_table`),
-        # FlashInfer's nests them under .prefill/.decode. Whichever shape
-        # this fallback's base uses, it must not gather the scratch by the
-        # pool's page ids.
-        if hasattr(md, "block_table"):
-            md.block_table = pages["block_table"]
-        for sub in ("prefill", "decode"):
-            nested = getattr(md, sub, None)
-            if nested is not None and getattr(nested, "block_tables", None) is not None:
-                nested = copy.copy(nested)
-                nested.block_tables = pages["block_table"]
-                setattr(md, sub, nested)
         if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
-
-            def _t(x):
-                if not isinstance(x, torch.Tensor) or x.numel() == 0:
-                    return None
-                flat = x.flatten()[:64].float()
-                return f"{tuple(x.shape)}:{x.dtype}[{flat.min().item():.4g},{flat.max().item():.4g}]"
-
+            torch.cuda.synchronize()  # the IMA hunt
             with open("/data/cache/mjolnir_fp6.log", "a") as f:
-                f.write(f"q={_t(query)} scratch={_t(scratch)}\n")
-                for _sub in ("prefill", "decode"):
-                    _n = getattr(md, _sub, None)
-                    if _n is None:
-                        continue
-                    for _k, _v in vars(_n).items():
-                        _t2 = _t(_v)
-                        if _t2:
-                            f.write(f"  {_sub}.{_k} = {_t2}\n")
-                for _bname in ("paged_kv_indices", "paged_kv_indptr", "paged_kv_last_page_len"):
-                    _b = getattr(self, _bname, None)
-                    if _b is None:
-                        continue
-                    _g = getattr(_b, "gpu", _b)
-                    f.write(f"  impl.{_bname} = {_t(_g)}\n")
-        # The base forward dtype-checks the cache against the plan's fp8:
-        # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
+                f.write("expand ok\n")
+        # The base's build planned this step against the scratch remap (the
+        # builder swapped the block table for the plan and restored the cam),
+        # so the wrapper's buffers already index the scratch: no metadata
+        # surgery here. The scratch is presented as the fp8 tensor the plan's
+        # dtype expects.
         try:
             return super().forward(
                 layer,
@@ -494,7 +462,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 key,
                 value,
                 scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
-                md,
+                attn_metadata,
                 *rest,
                 **kwargs,
             )
