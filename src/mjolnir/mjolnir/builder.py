@@ -327,9 +327,14 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         a shared prefix page is expanded once per request that uses it)."""
         num_reqs = cam.num_reqs
         lens = [int(x) for x in self._seq_lens_cpu(cam)[:num_reqs]]
-        n_pages = [max(1, -(-L // self._page)) if L > 0 else 0 for L in lens]
-        total = sum(n_pages)
         width = cam.block_table_tensor.shape[1]
+        # The lens may be an upper bound (seq_lens_cpu_upper_bound): fine for
+        # T5 over-planning, but the page map indexes the block table with it
+        # — cap at the table's width or the gather runs off the end (the IMA
+        # the warmup hit). The extra pages expand garbage that no valid plan
+        # reads.
+        n_pages = [min(max(1, -(-L // self._page)) if L > 0 else 0, width) for L in lens]
+        total = sum(n_pages)
         remap = torch.zeros(cam.block_table_tensor.shape[0], width, dtype=torch.int32)
         req_idx, page_idx, off = [], [], 0
         for r, n in enumerate(n_pages):
