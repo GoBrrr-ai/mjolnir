@@ -3,12 +3,16 @@
 # caps gpu-memory-utilization: 0.72 leaves a ~2 GiB startup cushion at the
 # free-memory check (0.9 was the paper tuning and fails the check on this
 # board). The pool still holds a single 190K context; the 5-sequence extreme
-# degrades to scheduler queueing. The 8K token batch with a 32-token
+# degrades to scheduler queueing. The 8K token batch with a 16-token
 # prefix-match unit is the Orin scheduler tuning (smaller prefill chunks and
-# finer prefix blocks for its memory bandwidth). Same value as
-# AWQ_FLASHINFER's overlay — the e2e legs must be memory-comparable.
+# finer prefix blocks for its memory bandwidth). 16, not the production 32:
+# vLLM 0.32 validates that prefix-match-unit divides every prefix-cacheable
+# group's block size, and this model's hybrid groups lcm to 816 (816 % 32
+# != 0 -> EngineCore refuses to start; 16 divides it and every page-64
+# world). Same value as AWQ_FLASHINFER's overlay — the e2e legs must be
+# memory-comparable.
 max-num-seqs: 5
 max-model-len: 190K
 max-num-batched-tokens: 8K
 gpu-memory-utilization: 0.72
-prefix-match-unit: 32
+prefix-match-unit: 16
