@@ -105,13 +105,14 @@ REGISTRY: dict[str, Platform] = {
         name="Jetson Orin",
         sm=(8, 7),
         sm_family="sm_87",
-        image_repo="narandill/mjolnir-orin",
-        default_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
+        # One image serves every platform; the tag follows the upstream vLLM
+        # version. The stock image stays the baselines-only side.
+        image_repo="narandill/mjolnir-vllm",
+        default_image="narandill/mjolnir-vllm:v0.32.0",
         stock_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         vllm_version=None,
         status="research",
         ncu=True,  # JP7 ships Nsight Compute (nsight-compute-2026.1.1 in the r39.2 repo)
-
         host_requirements="JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
         short="Orin",
     ),
