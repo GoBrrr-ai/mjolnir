@@ -203,6 +203,12 @@
  ],
  "spec-drafts": [
   {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/spec-drafts.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "spec"
+  },
+  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",

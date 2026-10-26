@@ -88,10 +88,18 @@ SERIES_STYLE = {
     "NVFP4_FA2": ("fa2", "^", True),
     # the fast experiment config: Mjolnir orange, plus marker, dotted fill in bars
     "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": ("mjolnir", "P", True),
+    # the Orin's AWQ family — same identities, same variant roles
+    "AWQ_MJOLNIR": ("mjolnir", "s", False),  # fp8 KV: the hollow Mjolnir variant
+    "AWQ_MJOLNIR_E2M3": ("mjolnir", "o", True),
+    "AWQ_FLASHINFER": ("flashinfer", "D", True),
+    "AWQ_MJOLNIR_E2M3_VT64K": ("mjolnir", "P", True),
 }
 # bar fill pattern per series (identity is never color-only: hollow = fp8 KV,
 # dotted = the fp8 lm_head + draft-vocab experiment)
-SERIES_HATCH = {"NVFP4_MJOLNIR_E2M3_LMH8_VT64K": ".."}
+SERIES_HATCH = {
+    "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": "..",
+    "AWQ_MJOLNIR_E2M3_VT64K": "..",
+}
 
 
 def color(mode: Mode, series_id: str) -> str:
@@ -212,7 +220,19 @@ def title(ax, mode: Mode, text: str, subtitle: str | None = None, fontsize: int 
         )
 
 
-def footer(fig, mode: Mode, text: str, below_in: float | None = None) -> None:
+def _board_line() -> str:
+    """The right-footer line for the board this render runs on (the platform
+    record's name + sm family). Falls back to the Thor line off a checkout."""
+    try:
+        from mjolnir_cli.platforms import REGISTRY, UnknownPlatform, resolve_platform
+
+        p = REGISTRY[resolve_platform(None)]
+        return f"MJOLNIR · {p.name} · {p.sm_family}"
+    except (ImportError, KeyError, UnknownPlatform):
+        return "MJOLNIR · Jetson AGX Thor · sm_110"
+
+
+def footer(fig, mode: Mode, text: str, below_in: float | None = None, right: str | None = None) -> None:
     # below the axes (and their x labels): the bbox-tight save grows to fit.
     # Horizontally the two texts are pinned to the content's edges at save time
     # (``fit_footer``): placed at the figure's edges they would stretch the tight
@@ -223,7 +243,7 @@ def footer(fig, mode: Mode, text: str, below_in: float | None = None) -> None:
     right = fig.text(
         0.995,
         y,
-        "MJOLNIR · Jetson AGX Thor · sm_110",
+        right or _board_line(),
         ha="right",
         va="top",
         color=mode.text_dim,
