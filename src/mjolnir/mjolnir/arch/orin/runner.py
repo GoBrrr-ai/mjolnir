@@ -559,14 +559,22 @@ class GEMVDecodeRunner:
         k_scale: torch.Tensor,  # fp32: 1 elem (per tensor), (h_k,), or (b, h_k)
         v_scale: torch.Tensor,
         softmax_scale: float,
-        q_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — fp6 K scales (later)
-        o_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — fp6 V scales (later)
+        q_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — the fp6 K channel scales, folded into Q
+        o_mul: torch.Tensor | None = None,  # (h_q, d) fp32 — the fp6 V channel scales, post-multiplied
         q_scale: torch.Tensor | None = None,  # fp8 Q descales: (1,)/(h_k,)/(b, h_k)
     ):
-        assert q_mul is None and o_mul is None, "fp6 channel scales land with the fp6 variant"
         b, ql = plan.num_seqs, plan.q_len
         tokens = b * ql
         q_pack = self.q_pack  # local: ty narrows the Optional against the fp8_q guard
+        if q_mul is not None:
+            # fp6 e2m3: the K's per-channel scales fold into the Q —
+            # q . k = sum_c (q_c s_c) code_c — so the cache codes carry no
+            # descale and the kernel's math is untouched. The multiply is a
+            # captured op on the packed-Q layout.
+            q3m = query[:tokens]
+            if q3m.dim() == 2:
+                q3m = q3m.view(tokens, self.h_q, self.d)
+            query = (q3m.float() * q_mul).to(torch.bfloat16).view(query[:tokens].shape)
         if self.fp8_q and query.dtype != torch.float8_e4m3fn:
             # bf16 query: the dynamic per-(seq, kv head) e4m3 pack writes the
             # descales itself; a pre-quantized fp8 query passes through and
@@ -621,3 +629,7 @@ class GEMVDecodeRunner:
         fn(*launch)
         if key.split:
             self._combine(b, ql, out)
+        if o_mul is not None:
+            # fp6 e2m3: the V's channel scales land on the output —
+            # O_c = s_c sum_t p_t code_tc — one captured broadcast multiply.
+            out[:tokens].view(tokens, self.h_q, self.d).mul_(o_mul.to(torch.bfloat16))
