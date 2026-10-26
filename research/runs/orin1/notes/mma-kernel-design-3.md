@@ -258,3 +258,30 @@ the built v0.32.0 predates the fp6 M1/M2 kernel commits and this gate fix.
 Rebuilt in place (same tag; the layer cache keeps it to the changed
 COPY/install layers). The calibrate/draftvocab containers did not need it
 (they mount the checkout over /opt/mjolnir-src).
+
+## Session 12 (2026-10-26): the GEMV retires; the fp6 gate's third bug
+
+**The routing surprise.** select_impl still routed fp6 -> the GEMV (the
+M1/M2 commits gave the mma the fp6 capability but the flip never
+happened) -- the fp6 smoke would have exercised the GEMV with the
+per-channel scales, a path nothing probed. Per the directive the GEMV
+retires entirely (gemv-archive keeps it): the mma is the family's only
+kernel, select_impl is gone, the Runner validates (hd256 / fp8+e2m3 /
+M<=8, MJOLNIR_ATTN_ORIN_IMPL=gemv raises), DescaleTensors moved to
+mma.py (the DSL-tracer Optional form kept -- the UP045 ignore moved
+with it). bf16 KV needs no matrix change: a non-quantized KV routes
+the whole layer to the fallback; the GEMV was never reached.
+
+**The fp6 serve crash (the third gate bug).** The FA4-fallback probe
+short-circuits True for non-fp8 configs ("nothing to gate"), so an fp6
+config never flipped the fallback to FlashInfer on sm_87 -- _Base bound
+to FA4, whose supports_kv_cache_dtype('fp8') is False off sm90/sm100,
+and the fp6 gate (which asks the fallback to read the e4m3 scratch)
+rejected. Fix: an fp6 config probes the fallback with fp8 (the
+scratch's dtype). Found by the crashed serve (Exited 1, the same
+selector ValueError as the draftvocab run).
+
+**Test debt caught by the sweep**: the orin dry-run test still expected
+prefix-match-unit 32 (the overlay fix 9996161 landed 16 and missed it)
+-- pre-existing, fixed in passing; the stale-container tests fail on
+the clean tree too (filed separately, 10/10c's wait-healthy item).
