@@ -168,3 +168,26 @@ Campaign state: kernel exonerated -> root cause (the contiguous-KV
 hardcode) -> fixed -> matrix clean -> pin dropped. Next: the spec sweep
 (official-AWQ_FLASHINFER vs mjolnir-AWQ_MJOLNIR, k=1..7), then the e2e
 benches (bench e2e / bench accuracy -- now unlocked per the directive).
+
+## Session 10c (2026-10-26): the kernel disk cache never worked -- and now it does
+
+The "cache load failed -> compiling, cache off" on EVERY process start was
+a store/load FORMAT MISMATCH:
+
+- `cute.compile(..., --enable-tvm-ffi)` returns a TVMFFIJitCompiledFunction;
+  its `export_to_c(path, function_name=...)` (tvm_ffi_provider.py) writes
+  an object carrying `__tvm_ffi_<symbol>` + `__cute_internal_<symbol>_*`
+  and NO `_args_spec`.
+- `_disk_load` called `cute.runtime.load_module(path)` WITHOUT
+  `enable_tvm_ffi=True`, so `ExternalBinaryModule.__getattr__` took the
+  executor-style path, which does `engine.lookup("<prefix>_args_spec")` --
+  a symbol the TVM-FFI export never writes. Every load failed
+  ("Failed to lookup function '..._args_spec'"), every process recompiled
+  (~16s) and re-stored an object nothing could ever load.
+
+Confirmed on the board's stored object directly (no GPU): the .o has
+`__tvm_ffi_mjolnir_orin_6976b2c...` and zero `_args_spec` strings;
+`load_module(..., enable_tvm_ffi=True)` + `getattr(module, prefix)`
+returns the `tvm_ffi.core Function` cleanly. Fix: 6414d69 (patch 0008) --
+one flag. The first post-fix serve should log loads from /data/cache and
+skip the ~16s compile.
