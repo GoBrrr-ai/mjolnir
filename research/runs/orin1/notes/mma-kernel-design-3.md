@@ -144,3 +144,27 @@ Also confirmed benign-but-real: the kernel disk cache has never delivered
 a binary on this board ("Function prefix ..._args_spec not found" on every
 load -> a ~16s recompile per process; `_export`/`_disk_load` symbol
 desync). Filed for later; the serving is correct without it.
+
+## Session 10b (2026-10-26): the matrix flips clean; the pin drops
+
+Post-fix graphs-on matrix (the same 17*23 probe, temp 0, max_tokens 60):
+
+| leg | config | text | accepted |
+| --- | --- | --- | --- |
+| A | the pin (the group on FI) | correct | 42.0 |
+| A-gemv | the pin + the gemv kernel | correct | 42.0 |
+| B | MAX_QLEN=1 | correct | 42.0 |
+| C | everything Mjolnir | correct | 42.0 |
+
+All four byte-identical: the Mjolnir path reproduces the FlashInfer token
+stream exactly under greedy decoding. 0006 (the pin removal) applied on
+top. The pre-fix B contradiction (the ql=1 draft steps reading the same
+strided pool the stride probe convicts) stays parked -- the pre-fix
+binaries are orphaned and the post-fix correctness makes it academic; the
+leading theory is that B's fused-draft metadata capture rode the fallback
+gate, which the dump cannot show (the FB branch never logged).
+
+Campaign state: kernel exonerated -> root cause (the contiguous-KV
+hardcode) -> fixed -> matrix clean -> pin dropped. Next: the spec sweep
+(official-AWQ_FLASHINFER vs mjolnir-AWQ_MJOLNIR, k=1..7), then the e2e
+benches (bench e2e / bench accuracy -- now unlocked per the directive).
