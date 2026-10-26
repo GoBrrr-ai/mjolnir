@@ -418,6 +418,14 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         # MJOLNIR_ATTN_DRAFT_T5=0 runs every drafter step on the fallback;
         # MJOLNIR_ATTN_FUSED_DRAFT=0 makes vLLM rebuild the draft metadata
         # between draft steps instead of fusing them into one graph.
+        # GROUP-level, not per-layer: vLLM hands the builder one layer_names
+        # list per KV-cache group, and the MTP layer shares the target's
+        # full-attention group (the same spec) -- so _is_draft is true for
+        # the TARGET's layers too. Harmless while MJOLNIR_ATTN_DRAFT_T5
+        # defaults to 1 (the pin below is what made the mismark poison
+        # config A: it force-fallbacked the whole group, kernels never
+        # served); if you add draft-conditional behavior, gate it per LAYER
+        # name, not on this flag. (orin1 notes, mma-kernel-design-3.md.)
         self._is_draft = any("mtp" in n or "draft" in n for n in layer_names)
         self._force_fallback = self._is_draft and env_flag("MJOLNIR_ATTN_DRAFT_T5", "1") in ("0", "false", "no")
         if env_flag("MJOLNIR_ATTN_FUSED_DRAFT", "1") in ("0", "false", "no"):
