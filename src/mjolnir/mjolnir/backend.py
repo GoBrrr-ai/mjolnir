@@ -34,6 +34,7 @@ the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
 from __future__ import annotations
 
 import copy
+import dataclasses
 import logging
 import os
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -461,6 +462,25 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 nested = copy.copy(nested)
                 nested.block_tables = pages["block_table"]
                 setattr(md, sub, nested)
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+
+            def _t(x):
+                if not isinstance(x, torch.Tensor) or x.numel() == 0:
+                    return None
+                flat = x.flatten()[:64].float()
+                return f"{tuple(x.shape)}:{x.dtype}[{flat.min().item():.4g},{flat.max().item():.4g}]"
+
+            with open("/data/cache/mjolnir_fp6.log", "a") as f:
+                f.write(f"q={_t(query)} scratch={_t(scratch)}\n")
+                for _sub in ("prefill", "decode"):
+                    _n = getattr(md, _sub, None)
+                    if _n is None:
+                        continue
+                    _fields = dataclasses.fields(_n) if dataclasses.is_dataclass(_n) else ()
+                    for _fd in _fields:
+                        _t2 = _t(getattr(_n, _fd.name, None))
+                        if _t2:
+                            f.write(f"  {_sub}.{_fd.name} = {_t2}\n")
         # The base forward dtype-checks the cache against the plan's fp8:
         # the scratch holds the e4m3 bytes, so present it as the fp8 tensor.
         try:
