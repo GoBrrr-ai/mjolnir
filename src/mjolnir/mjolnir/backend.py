@@ -271,16 +271,18 @@ def _unsupported_arch_reason(device) -> str | None:
 # fp6 (e2m3) KV: preconditions and per-channel scales
 # --------------------------------------------------------------------------
 def _check_fp6(t5_reason, layer_names) -> None:
-    """fp6 caches have exactly two readers: T5 and the fallback's fp8 scratch."""
+    """fp6 caches have exactly two readers: the mma/T5 decode kernel and the
+    fallback's fp8 scratch (any fallback that serves fp8 KV: FA4 on thor,
+    FlashInfer on orin)."""
     if t5_reason is not None:
         raise ValueError(
             f"kv cache dtype fp6_e2m3 needs the Mjolnir decode kernel, but it is off for "
             f"{layer_names[:1]}: {t5_reason}. Serve fp8 KV for this model."
         )
-    if _FALLBACK != "FLASH_ATTN":
+    if not _fallback_serves_fp8_scratch():
         raise ValueError(
-            f"kv cache dtype fp6_e2m3 needs the FLASH_ATTN fallback (prefill reads an fp8 "
-            f"scratch through it); MJOLNIR_ATTN_FALLBACK is {_FALLBACK}"
+            f"kv cache dtype fp6_e2m3 needs a fallback that reads the fp8 scratch (FLASH_ATTN "
+            f"or FLASHINFER); MJOLNIR_ATTN_FALLBACK is {_FALLBACK}"
         )
     from . import kvscales
 
