@@ -114,8 +114,10 @@ def test_merge_config_does_not_mutate_its_inputs():
 @pytest.mark.parametrize(
     ("platform", "merged"),
     [
-        # fp6 (e2m3) KV: Mjolnir on thor, and nothing else anywhere
+        # fp6 (e2m3) KV: the Mjolnir kernels on thor and orin (the Orin's
+        # prefill rides the FlashInfer fallback on an e4m3 scratch)
         ("thor", {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"}),
+        ("orin", {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"}),
         # fp8 KV: FlashInfer serves it on every platform; FA4 and Mjolnir are thor-only
         ("thor", {"kv-cache-dtype": "fp8", "attention-backend": "FLASHINFER"}),
         ("spark", {"kv-cache-dtype": "fp8", "attention-backend": "FLASHINFER"}),
@@ -136,16 +138,11 @@ def test_validate_accepts_the_available_combinations(platform, merged):
 @pytest.mark.parametrize(
     ("platform", "merged", "named"),
     [
-        # fp6 needs the Mjolnir kernel reader: thor + MJOLNIR only
+        # fp6 needs the Mjolnir kernel reader: thor + orin + MJOLNIR only
         (
             "spark",
             {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"},
             ("spark", "kv-cache-dtype", "fp6_e2m3"),
-        ),
-        (
-            "orin",
-            {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"},
-            ("orin", "kv-cache-dtype", "fp6_e2m3"),
         ),
         (
             "thor",
@@ -194,19 +191,15 @@ def test_validate_error_for_an_unmapped_backend_names_the_backend_value():
             "spark",
             {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"},
             "spark: kv-cache-dtype 'fp6_e2m3' cannot be served with attention-backend 'MJOLNIR'"
-            " — fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
-        ),
-        (
-            "orin",
-            {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "MJOLNIR"},
-            "orin: kv-cache-dtype 'fp6_e2m3' cannot be served with attention-backend 'MJOLNIR'"
-            " — fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
+            " — fp6 (e2m3) KV is read by the Mjolnir kernels on thor and Orin (the Orin's prefill rides"
+            " the FlashInfer fallback on an e4m3 scratch)",
         ),
         (
             "thor",
             {"kv-cache-dtype": "fp6_e2m3", "attention-backend": "FLASHINFER"},
             "thor: kv-cache-dtype 'fp6_e2m3' cannot be served with attention-backend 'FLASHINFER'"
-            " — fp6 (e2m3) KV has no fallback reader — only the Mjolnir kernel (MJOLNIR) on thor serves it",
+            " — fp6 (e2m3) KV is read by the Mjolnir kernels on thor and Orin (the Orin's prefill rides"
+            " the FlashInfer fallback on an e4m3 scratch)",
         ),
         (
             "orin",

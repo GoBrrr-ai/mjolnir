@@ -134,7 +134,7 @@ def test_orin_awq_baseline_dry_run_and_merged_overlay(tmp_path, monkeypatch):
         "max-model-len": "190K",
         "max-num-batched-tokens": "8K",
         "gpu-memory-utilization": 0.72,
-        "prefix-match-unit": 32,
+        "prefix-match-unit": 16,
     }.items():
         assert merged[k] == v, k
         assert k not in base, f"{k} is Orin-64GB tuning: the overlay's, never the base's"

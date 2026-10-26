@@ -58,17 +58,18 @@ def _add_pkg_path():
 
 _add_pkg_path()
 
-from mjolnir.arch.orin import GEMVDecodeRunner, Runner, select_impl  # noqa: E402
+from mjolnir.arch.orin import OrinDecodeRunner, Runner  # noqa: E402
 from mjolnir.arch.orin.harness import make_case, ref_decode  # noqa: E402
 
 H_Q, H_K, D, PS = 24, 4, 256, 16  # Qwen3.8-27B's attention: 24/4 heads, d 256
 SCALE = 1.0 / math.sqrt(D)
 TOL = 0.05  # the harness tolerance (fp8 KV, bf16 output)
-IMPLS = ("mma", "gemv")
+IMPLS = ("mma",)  # the GEMV retired (gemv-archive): the mma is the family's only kernel
 
 
-def _runner(impl: str, b: int, M: int, **kw) -> GEMVDecodeRunner:
-    return GEMVDecodeRunner(
+def _runner(impl: str, b: int, M: int, **kw) -> OrinDecodeRunner:
+    assert impl == "mma", f"unknown orin kernel impl {impl!r} (the mma is the only one)"
+    return OrinDecodeRunner(
         num_heads=H_Q,
         num_kv_heads=H_K,
         head_size=D,
@@ -77,7 +78,6 @@ def _runner(impl: str, b: int, M: int, **kw) -> GEMVDecodeRunner:
         max_num_seqs=b,
         max_q_len=M,
         q_mode="bf16",
-        impl=impl,
         device="cuda",
         **kw,
     )
@@ -223,22 +223,29 @@ def test_backend_runner_picks_the_kernel_and_caps_the_splits():
     saved = os.environ.pop("MJOLNIR_ATTN_ORIN_IMPL", None)
     try:
         r = backend_runner("fp8")
-        assert r.impl == "mma" and not r.fp8_q, "fp8 KV serves on the mma kernel, bf16 Q"
+        assert not r.fp8_q, "fp8 KV serves on the mma kernel, bf16 Q"
         auto = _runner("mma", 4, 4).ns_cap
         assert r.ns_cap == min(16, auto), f"MAX_SPLITS caps the auto capacity ({r.ns_cap} vs {auto})"
         assert backend_runner("fp8", max_splits=1).ns_cap == 1
         r6 = backend_runner("e2m3")
-        assert r6.impl == "gemv" and r6.fp8_q, "fp6 KV stays on the GEMV (fp8 Q)"
+        assert r6.kv_format == "e2m3" and not r6.fp8_q, "fp6 KV serves on the mma kernel (the M1/M2 path)"
+        for bad in ("bf16", "int8"):
+            try:
+                backend_runner(bad)
+                raise AssertionError(f"{bad} KV must be refused: the mma reads fp8/e2m3")
+            except ValueError:
+                pass
         os.environ["MJOLNIR_ATTN_ORIN_IMPL"] = "gemv"
-        assert backend_runner("fp8").impl == "gemv"
+        try:
+            backend_runner("fp8")
+            raise AssertionError("MJOLNIR_ATTN_ORIN_IMPL=gemv must be refused: the GEMV retired (gemv-archive)")
+        except ValueError:
+            pass
     finally:
         if saved is None:
             os.environ.pop("MJOLNIR_ATTN_ORIN_IMPL", None)
         else:
             os.environ["MJOLNIR_ATTN_ORIN_IMPL"] = saved
-    assert select_impl(head_size=128, kv_format="fp8", max_q_len=4, requested="mma")[0] == "gemv"
-    assert select_impl(head_size=256, kv_format="bf16", max_q_len=4, requested="mma")[0] == "gemv"
-    assert select_impl(head_size=256, kv_format="fp8", max_q_len=8, requested="mma")[0] == "mma"
 
 
 if __name__ == "__main__":

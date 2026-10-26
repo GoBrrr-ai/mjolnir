@@ -1,7 +1,7 @@
 # AWQ_MJOLNIR — the Orin serving config for Qwen3.8-27B: twolven's AWQ
 # (compressed-tensors int4 W4A16) checkpoint with the built-in MTP head. The
 # weights ride Marlin W4A16 (the native int4 compute path on sm_87) and the
-# fp8 KV rides the Mjolnir kernels — the GEMV and the mma.sync decode kernel
+# fp8 KV rides the Mjolnir mma.sync decode kernel
 # (both hd 256, fp8 KV, q_len <= 8); the prefill and the mixed steps ride the
 # fallback (MJOLNIR_ATTN_FALLBACK, see the .env sidecar). The AGX Orin 64GB
 # memory/batch tuning lives in platforms/orin.yaml; this file is the
@@ -32,7 +32,7 @@ tool-call-parser: qwen3_coder
 reasoning-parser: qwen3
 
 # ── Attention / linear backends ─────────────────────────────────────────────
-# The Mjolnir decode kernel (sm_87: the GEMV + mma.sync) serves decode steps;
+# The Mjolnir decode kernel (sm_87: the mma.sync) serves decode steps;
 # `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs (the
 # kernel reads head-major pages). Kernel knobs: MJOLNIR_ATTN_* env vars
 # (see src/mjolnir/README.md). fp8 KV with no scales: the checkpoint ships

@@ -177,7 +177,7 @@ _ORIN_CHECK = re.compile(
 
 
 def _orin_correctness(ctx: Ctx, timeout: float) -> dict:
-    """The Orin GEMV's correctness matrix: one container per Q dtype runs the
+    """The Orin correctness matrix: one container per Q dtype runs the
     harness sweep (page size x M x L against the fp32 reference) — bf16 Q
     and fp8 Q (the runner's dynamic pack and the pre-quantized path); the
     check lines parse into the shared case schema."""

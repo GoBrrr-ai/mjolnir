@@ -1,4 +1,4 @@
-"""The Orin (sm_87) runner: the GEMV decode kernel's plan buffers, compile
+"""The Orin (sm_87) runner: the mma decode kernel's plan buffers, compile
 cache and launch — the family sibling of :mod:`mjolnir.arch.thor.runner`,
 consuming the same shared machinery from :mod:`mjolnir.runner`.
 
@@ -42,18 +42,16 @@ from mjolnir.runner import (
     _disk_store,
     _stream,
 )
-from . import decode as gemv
 from .combine import combine_launch
-from .plan import BLOCKS_PER_SM, COMBINE_MAX_SPLITS
+from .plan import COMBINE_MAX_SPLITS
 
 _log = logging.getLogger("vllm.mjolnir")
 
 
 @dataclass(frozen=True)
-class GEMVKey:
+class KernelKey:
     """One compiled kernel variant: dtypes + the structural flags the kernel
-    bakes at trace time (M, page size, split presence, causal). The impl
-    (gemv | mma) selects the compiled kernel class."""
+    bakes at trace time (M, page size, split presence, causal)."""
 
     q_dtype: torch.dtype  # bfloat16 | float8_e4m3fn
     out_dtype: torch.dtype
@@ -64,7 +62,7 @@ class GEMVKey:
     split: bool  # False: write-through, no partials/combine
     causal: bool
     q_descale: bool  # fp8 Q with per-(seq, head) descales
-    kv_format: str = "fp8"  # fp8 | e2m3 (adds the code LUT arg) | bf16
+    kv_format: str = "fp8"  # fp8 | e2m3 (adds the code LUT arg)
     # The TVM-FFI signature bakes every tensor dim, so the shapes the launch
     # will use are part of the key: one binary per (pool size, batch, table
     # stride). vLLM has one pool + a handful of capture sizes; the disk cache
@@ -72,7 +70,6 @@ class GEMVKey:
     num_pages: int = 0
     batch: int = 0
     max_blocks: int = 0
-    impl: str = "gemv"  # gemv | mma — the compiled kernel class
     # The mma kernel's trace-time env probes (MJOLNIR_MMA16 / MJOLNIR_REGCAP /
     # MJOLNIR_REGPATH) change the generated code, so they are part of the
     # key: the disk cache must never hand one probe's binary to another.
@@ -88,7 +85,7 @@ def _mma_variant() -> str:
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
 
 
-class GEMVDecodeRunner:
+class OrinDecodeRunner:
     def __init__(
         self,
         *,
@@ -106,11 +103,9 @@ class GEMVDecodeRunner:
         tile: int = 0,  # rows-per-(ty)-thread override (0 = the kernel default)
         kv_evict_first: bool = False,  # reserved: Ampere L2 policy (not wired yet)
         kv_format: str = "fp8",
-        impl: str = "gemv",  # "gemv" | "mma" (the design: orin1/notes/mma-kernel-design.md)
         device: torch.device | str = "cuda",
         sm_count: int | None = None,
     ):
-        self.impl = impl
         # "+s1": the launch passes the stream as an explicit trailing arg
         # (the Thor convention). The pre-s1 binaries were traced with the
         # TVM-FFI env-stream marker instead -- a DIFFERENT signature (the
@@ -119,26 +114,21 @@ class GEMVDecodeRunner:
         # gathers read the pool through the view's own (dynamic) strides --
         # the pre-s2 binaries hardcoded the flat contiguous layout and read
         # garbage from vLLM's interleaved pool (orin1, the stride probe).
-        self._variant = (_mma_variant() if impl == "mma" else "") + "+s2"  # read once: _key() is per call
-        if impl == "mma":
-            from mjolnir.arch.orin import mma as mma_kernel
+        self._variant = _mma_variant() + "+s2"  # read once: _key() is per call
+        from mjolnir.arch.orin import mma as mma_kernel
 
-            assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
-                f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.HEAD_DIM} only"
-            )
-            self._kernel_mod, self._kernel_cls = mma_kernel, mma_kernel.MMADecodeKernel
-        else:
-            assert impl == "gemv", f"unknown orin kernel impl {impl!r} (gemv | mma)"
-            assert head_size == gemv.GEMVDecodeKernel.HEAD_DIM, (
-                f"the Orin GEMV kernel serves head_size {gemv.GEMVDecodeKernel.HEAD_DIM} only"
-            )
-            self._kernel_mod, self._kernel_cls = gemv, gemv.GEMVDecodeKernel
+        assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
+            f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.HEAD_DIM} only"
+        )
+        self._kernel_mod, self._kernel_cls = mma_kernel, mma_kernel.MMADecodeKernel
         assert num_heads % num_kv_heads == 0
         assert page_size in SUPPORTED_PAGE_SIZES, f"page size {page_size} unsupported"
         assert q_mode in ("bf16", "fp8")
         assert out_dtype in (torch.bfloat16, torch.float16)
-        assert max_q_len <= 8, "the GEMV kernel serves M <= 8 (the MTP verify shape)"
-        assert kv_format in ("fp8", "e2m3", "bf16"), kv_format
+        assert max_q_len <= mma_kernel.MMADecodeKernel.MAX_Q_LEN, (
+            f"the mma kernel serves M <= {mma_kernel.MMADecodeKernel.MAX_Q_LEN} (the MTP verify shape)"
+        )
+        assert kv_format in ("fp8", "e2m3"), kv_format
         self.h_q, self.h_k, self.d = num_heads, num_kv_heads, head_size
         self.h_r = num_heads // num_kv_heads
         self.page_size = page_size
@@ -150,7 +140,7 @@ class GEMVDecodeRunner:
         # bytes of one K (or V) row -- the shared backend's _kv_views splits
         # the fused cache into the K/V views with it (the thor runner carries
         # the same attribute). fp6 e2m3 packs 4 values per 3 bytes.
-        self.kv_row_bytes = self.d * 3 // 4 if kv_format == "e2m3" else self.d * {"fp8": 1, "bf16": 2}[kv_format]
+        self.kv_row_bytes = self.d * 3 // 4 if kv_format == "e2m3" else self.d  # fp8: 1 byte/value
         self.kv_evict_first = bool(kv_evict_first)
         self.device = torch.device(device)
         # e2m3: the 64-entry code -> value table (exact for every code,
@@ -168,12 +158,11 @@ class GEMVDecodeRunner:
         # one grid serves every capture size; larger batches leave the extra
         # splits empty (kv_len == 0 -> O = 0 / LSE = -inf, dropped by the
         # combine). The kernel's empty-chunk path makes the over-plan free.
-        # BLOCKS_PER_SM is the kernel's resident-CTA occupancy: the GEMV
-        # CTA (~100 regs, ~6 KiB smem) fits 4; every MMA shape is pinned
-        # at 2 (255 regs + 50-82 KiB smem both bind) — the measured
-        # optimum across L (the 4-CTA capacity over-splits the 16-SM
-        # grid and the extra partials only add combine traffic).
-        blocks_per_sm = 2 if impl == "mma" else BLOCKS_PER_SM
+        # 2 is the mma's resident-CTA occupancy (255 regs + 50-82 KiB smem
+        # both bind) — the measured optimum across L (the 4-CTA capacity
+        # over-splits the 16-SM grid and the extra partials only add
+        # combine traffic).
+        blocks_per_sm = 2
         auto = min(COMBINE_MAX_SPLITS, (blocks_per_sm * sm_count + self.h_k - 1) // self.h_k)
         if split_cap > 0:
             auto = min(auto, split_cap)
@@ -214,13 +203,13 @@ class GEMVDecodeRunner:
 
     # ------------------------------------------------------------------ plan
     def n_tiles(self, q_len: int) -> int:
-        """The t5 runner's tile count has no GEMV meaning; 1 CTA covers all
+        """The t5 runner's tile count has no meaning here; 1 CTA covers all
         M rows of a (kv_head, chunk). Kept for surface parity."""
         return 1
 
     def slots(self, q_len: int) -> int:
         """Sequences served by one wave at this q_len (the t5 invariant)."""
-        return max(1, (self.sm_count * BLOCKS_PER_SM) // (self.h_k * self.n_tiles(q_len)))
+        return max(1, (self.sm_count * 2) // (self.h_k * self.n_tiles(q_len)))  # 2 CTAs/SM, the mma pin
 
     def plan(
         self,
@@ -279,9 +268,8 @@ class GEMVDecodeRunner:
         num_pages: int = 0,
         batch: int = 0,
         max_blocks: int = 0,
-    ) -> GEMVKey:
-        return GEMVKey(
-            impl=self.impl,
+    ) -> KernelKey:
+        return KernelKey(
             variant=self._variant,
             q_dtype=torch.float8_e4m3fn if self.fp8_q else torch.bfloat16,
             out_dtype=self.out_dtype,
@@ -311,19 +299,19 @@ class GEMVDecodeRunner:
             # real pool stride order alike.
             ct = ct.mark_layout_dynamic()
         if t.dtype == torch.float8_e4m3fn:
-            ct.element_type = gemv.cutlass.Float8E4M3FN
+            ct.element_type = self._kernel_mod.cutlass.Float8E4M3FN
         return ct
 
     def _descales(self, b: int):
         qd_buf = self._qd  # local: ty narrows the Optional against the guard
         q = qd_buf[:b] if qd_buf is not None else None
-        return gemv.DescaleTensors(
+        return self._kernel_mod.DescaleTensors(
             q_descale=self._cute(q) if q is not None else None,
             k_descale=self._cute(self._kd[:b], assumed_align=4),
             v_descale=self._cute(self._vd[:b], assumed_align=4),
         )
 
-    def _compile_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table, cu=None):
+    def _compile_args(self, key: KernelKey, b: int, q, o, k_cache, v_cache, block_table, cu=None):
         """The compile-time argument tuple: cute tensors (they bind dtypes,
         shapes and the Constexpr M) + a real stream (see the tail)."""
         rows = b * key.q_len
@@ -371,7 +359,7 @@ class GEMVDecodeRunner:
             _stream(),
         )
 
-    def _torch_args(self, key: GEMVKey, b: int, q, o, k_cache, v_cache, block_table):
+    def _torch_args(self, key: KernelKey, b: int, q, o, k_cache, v_cache, block_table):
         """The launch-time tuple: RAW torch tensors (the TVM-FFI convention —
         fp8 views as uint8, the archived interface's workaround), python
         scalars, and no stream (the env stream is implicit)."""
@@ -381,7 +369,7 @@ class GEMVDecodeRunner:
         o_call = o[:rows].view(b, key.q_len, self.h_q, self.d)
         k_call, v_call = k_cache, v_cache
         qd_buf = self._qd  # local: ty narrows the Optional against the guard
-        ds = gemv.DescaleTensors(
+        ds = self._kernel_mod.DescaleTensors(
             q_descale=qd_buf[:b] if qd_buf is not None else None,
             k_descale=self._kd[:b],
             v_descale=self._vd[:b],
@@ -404,7 +392,7 @@ class GEMVDecodeRunner:
             0,  # seqlen_k (unused on the varlen-k path)
         )
 
-    def _get_compiled(self, key: GEMVKey, compile_args):
+    def _get_compiled(self, key: KernelKey, compile_args):
         import cutlass.cute as cute
 
         with _COMPILE_LOCK:
@@ -413,7 +401,7 @@ class GEMVDecodeRunner:
                 return fn
             if torch.cuda.is_current_stream_capturing():
                 raise RuntimeError(
-                    f"GEMV kernel variant {key} not compiled before CUDA-graph "
+                    f"mma kernel variant {key} not compiled before CUDA-graph "
                     "capture; call precompile() (the vLLM backend does this)"
                 )
             fn = _disk_load(key, self._kernel_mod.__file__, "orin")

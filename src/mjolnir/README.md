@@ -104,7 +104,7 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_MAX_QLEN` | `1 + num_speculative_tokens` | the largest q_len Mjolnir takes |
 | `MJOLNIR_ATTN_CTAS` | `2` | CTAs per SM (2 is fastest on Thor) |
 | `MJOLNIR_ATTN_MAX_SPLITS` | `16` | max KV chunks per sequence (1 = never split, no merge kernel). On Orin it caps the split capacity the kernel's occupancy picks (8 for the mma kernel on AGX Orin) |
-| `MJOLNIR_ATTN_ORIN_IMPL` | `mma` | Orin only: `mma` (tensor cores; fp8 KV, head_dim 256, q_len ≤ 8, bf16 Q) or `gemv` (FMA; every KV format, the fallback when the mma does not apply) |
+
 | `MJOLNIR_ATTN_KV_STAGES` | `0` | KV ring depth override (0 = the tuned default) |
 | `MJOLNIR_ATTN_PDL` | `0` | `1`: programmatic dependent launch |
 | `MJOLNIR_ATTN_L2_PREFETCH` | `0` | TMA-prefetch K/V this many tiles ahead into L2 |
@@ -166,9 +166,9 @@ registry (`mjolnir.arch.thor` re-exports the exact runner surface the backend
 consumes), and `mjolnir/platforms.py` is the torch-free leaf that maps a
 compute capability to it. Thor and Jetson Orin (`sm_87`) are implemented;
 DGX Spark (`sm_121`) is declared research — named in the matrix, no kernel
-yet. Orin ships two kernels: the FMA GEMV (any GQA, fp8/bf16/e2m3 KV) and
-the `mma.m16n8k16` decode kernel for the MTP verify shapes (M ≤ 8, fp8 KV,
-hd 256) — see `mjolnir/arch/orin/README.md`.
+yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 and
+fp6-e2m3 KV, hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
+The retired FMA GEMV lives in the `gemv-archive` git tag.
 
 `kernel_for((11, 0))` returns `mjolnir.arch.thor`; any other compute
 capability raises `PlatformNotSupported` naming the requested `sm_XX` and the
