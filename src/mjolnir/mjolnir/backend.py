@@ -386,6 +386,12 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         self._fallback_fp8_q = (
             _FALLBACK == "FLASH_ATTN" and bool(self.supports_quant_query_input) and (quantized_kv or self._fp6)
         )
+        if self._fp6:
+            # The fp6 fallback hands the base a fresh scratch tensor every
+            # step; captured graphs bake pointers at capture time and would
+            # replay against the old allocation (the IMA). Fallback steps
+            # run eager; T5 steps keep the runner's own graphs.
+            self.enable_cuda_graph = False
         self.supports_quant_query_input = False
         self._kv_layout: str | None = None
         self._t5_reason = _layer_reason(self)
