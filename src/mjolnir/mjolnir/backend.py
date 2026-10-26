@@ -430,7 +430,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         src = pages["src_pages"].clamp(0, kv_cache.shape[0] - 1)
         if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
             sp, bt = pages["src_pages"], pages["block_table"]
-            with open("/tmp/mjolnir_fp6.log", "a") as f:
+            with open("/data/cache/mjolnir_fp6.log", "a") as f:
                 f.write(
                     f"total={pages['total']} src[{int(sp.min())},{int(sp.max())}] pool={kv_cache.shape[0]} "
                     f"bt[{int(bt.min())},{int(bt.max())}] btshape={tuple(bt.shape)} "
@@ -565,7 +565,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
         if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
             torch.cuda.synchronize()  # the IMA hunt: name the kernel that faults
-            with open("/tmp/mjolnir_fp6.log", "a") as f:
+            with open("/data/cache/mjolnir_fp6.log", "a") as f:
                 f.write("write_kv ok\n")
         if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
             # per-call dump -> a FILE (the EngineCore swallows raw stdout);
@@ -599,7 +599,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             )
             if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
                 torch.cuda.synchronize()
-                with open("/tmp/mjolnir_fp6.log", "a") as f:
+                with open("/data/cache/mjolnir_fp6.log", "a") as f:
                     f.write("mma fp6 ok\n")
             return output
         runner.run(
