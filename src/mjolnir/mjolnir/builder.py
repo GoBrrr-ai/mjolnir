@@ -13,7 +13,9 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from mjolnir.runner import STATS, StepPlan, env_flag
+from mjolnir.runner import StepPlan, env_flag
+
+from .backend import STATS
 
 from .backend import (
     _FALLBACK,
