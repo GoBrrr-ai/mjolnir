@@ -444,44 +444,22 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         # the gather in-bounds (their output is unused). Real steps index the
         # pool, so this is a no-op for them.
         src = pages["src_pages"].clamp(0, kv_cache.shape[0] - 1)
-        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
-            sp, bt = pages["src_pages"], pages["block_table"]
-            with open("/data/cache/mjolnir_fp6.log", "a") as f:
-                f.write(
-                    f"total={pages['total']} src[{int(sp.min())},{int(sp.max())}] pool={kv_cache.shape[0]} "
-                    f"bt[{int(bt.min())},{int(bt.max())}] btshape={tuple(bt.shape)} "
-                    f"nreqs={getattr(attn_metadata, 'num_reqs', '?')} scratch={tuple(scratch.shape)}\n"
-                )
         kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
-        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
-            torch.cuda.synchronize()  # the IMA hunt
-            with open("/data/cache/mjolnir_fp6.log", "a") as f:
-                f.write("expand ok\n")
-        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
-            torch.cuda.synchronize()  # the IMA hunt
-            with open("/data/cache/mjolnir_fp6.log", "a") as f:
-                f.write("expand ok\n")
         # The base's build planned this step against the scratch remap (the
         # builder swapped the block table for the plan and restored the cam),
         # so the wrapper's buffers already index the scratch: no metadata
         # surgery here. The scratch is presented as the fp8 tensor the plan's
         # dtype expects.
-        try:
-            return super().forward(
-                layer,
-                query,
-                key,
-                value,
-                scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
-                attn_metadata,
-                *rest,
-                **kwargs,
-            )
-        finally:
-            if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
-                torch.cuda.synchronize()  # the IMA hunt
-                with open("/data/cache/mjolnir_fp6.log", "a") as f:
-                    f.write("fi fallback ok\n")
+        return super().forward(
+            layer,
+            query,
+            key,
+            value,
+            scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
+            attn_metadata,
+            *rest,
+            **kwargs,
+        )
 
     def _quantize_q(self, layer, query: torch.Tensor) -> torch.Tensor:
         """Static fp8 Q for the fallback, as the layer would quantize it."""
