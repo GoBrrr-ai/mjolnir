@@ -93,6 +93,10 @@ def main(argv=None) -> int:
 
     kw = engine_kwargs_from_config(args.config) if args.config else {"model": args.model, "dtype": "bfloat16"}
     kw.pop("served_model_name", None)
+    # Sample on the fp8 KV path: the ranking describes the target's outputs
+    # (quant-insensitive), and fp8 avoids depending on the fp6 serving path
+    # being proven — same precedent as calibrate.py.
+    kw["kv_cache_dtype"] = "fp8"
     kw["max_model_len"] = min(int(kw.get("max_model_len") or args.max_model_len), args.max_model_len)
     if args.download_dir:
         kw["download_dir"] = args.download_dir

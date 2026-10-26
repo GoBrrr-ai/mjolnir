@@ -162,6 +162,14 @@ def _fp6_known_to_vllm() -> bool:
         return False
 
 
+def _fallback_serves_fp8_scratch() -> bool:
+    """Can the prefill fallback read the e4m3 scratch the fp6 pages expand
+    to? FA4 (the Thor image default) or FlashInfer (the Orin — FA4 has no
+    sm_87 kernels and its probe falls back; FlashInfer serves fp8 KV there,
+    proven by the config-C serving)."""
+    return _FALLBACK in ("FLASH_ATTN", "FLASHINFER")
+
+
 def _block_size_ok(sizes, size: int) -> bool:
     """Does a backend's supported-size list (ints and MultipleOf) take ``size``?"""
     for s in sizes:
@@ -925,16 +933,16 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
 
     # -- KV cache dtypes --------------------------------------------------
     # The fallback's own list, plus fp6_e2m3 where vLLM knows the dtype (the
-    # image's thor-fp6-e2m3-kv-cache patch) and the FA4 fallback can read the
-    # fp8 scratch.
+    # image's thor-fp6-e2m3-kv-cache patch) and the fallback can read the fp8
+    # scratch (see _fallback_serves_fp8_scratch).
     supported_kv_cache_dtypes: ClassVar[list] = list(getattr(_Base, "supported_kv_cache_dtypes", [])) + (
-        list(FP6_CACHE_DTYPES) if _FALLBACK == "FLASH_ATTN" else []
+        list(FP6_CACHE_DTYPES) if _fallback_serves_fp8_scratch() else []
     )
 
     @classmethod
     def supports_kv_cache_dtype(cls, kv_cache_dtype) -> bool:
         if kv_cache_dtype in FP6_CACHE_DTYPES:
-            return _fp6_known_to_vllm() and _FALLBACK == "FLASH_ATTN" and _Base.supports_kv_cache_dtype("fp8")
+            return _fp6_known_to_vllm() and _fallback_serves_fp8_scratch() and _Base.supports_kv_cache_dtype("fp8")
         return _Base.supports_kv_cache_dtype(kv_cache_dtype)
 
     @classmethod
