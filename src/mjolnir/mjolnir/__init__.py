@@ -60,6 +60,11 @@ def has_native_member() -> bool:
 def register() -> None:
     if _disabled():
         return
+    if os.environ.get("MJOLNIR_ATTN_DEBUG", "").strip():
+        # The IMA hunt: the engine core is a child process that inherits this
+        # env before its CUDA runtime initializes, so faulting kernels are
+        # named at their launch instead of surfacing on a later sync.
+        os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
     enum, register_backend = _registry()
     if BACKEND_NAME in enum.__members__:
         register_backend(enum[BACKEND_NAME], BACKEND_PATH)
