@@ -88,11 +88,18 @@ class MMADecodeKernel:
         causal: bool = True,
         kv_format: str = "fp8",
     ):
-        assert kv_format == "fp8", f"the M1 MMA kernel takes fp8 KV only, got {kv_format!r}"
+        assert kv_format in ("fp8", "e2m3"), f"the MMA kernel takes fp8 or e2m3 KV, got {kv_format!r}"
         assert qhead_per_kvhead >= 1
         self.g = qhead_per_kvhead
         self.page_size = page_size
         self.causal = bool(causal)
+        # fp6 e2m3: the rows are d*3/4 packed bytes (4 codes per 3 bytes,
+        # LE); the values come from the 64-entry code->value LUT at the
+        # dequant. Scales stay per (batch, kv_head) at the accumulator
+        # level (scale_eff / v_descale) -- the same plumbing as fp8.
+        self.kv_format = kv_format
+        self.fp6 = kv_format == "e2m3"
+        self.row_bytes = self.HEAD_DIM * 3 // 4 if self.fp6 else self.HEAD_DIM
         # The MT=16 experimental path (the (1,4,1) N-split arrangement,
         # q_len <= 2): opt-in via the env so the default stays the proven
         # MT=64 kernel until it gates and benches.
@@ -131,18 +138,22 @@ class MMADecodeKernel:
         num_splits: Int32 = 1,
         stream: cuda.CUstream = None,
     ):
-        assert const_expr(mCodeLUT is None), "e2m3 lands in M5 (fp8 first)"
+        # e2m3: the 64-entry code -> value LUT is required (the dequant);
+        # fp8 needs none.
+        assert const_expr(mCodeLUT is not None) == self.fp6, "mCodeLUT is the e2m3 marker"
         assert const_expr(1 <= seqlen_q <= self.MAX_Q_LEN), (
             f"seqlen_q {seqlen_q} outside 1..{self.MAX_Q_LEN} (the MTP=7 verify shape)"
         )
         assert const_expr(mK.element_type.width == 8 and mV.element_type.width == 8), (
-            "the M1 MMA kernel takes fp8 KV only"
+            "the MMA kernel takes byte-sized KV only (fp8 or the packed e2m3)"
         )
         assert const_expr(mQ.element_type == cutlass.BFloat16), (
             "the fp8 Q lands with M3 (the pack is bf16-Q only for now)"
         )
         batch_size = mQ.shape[0]
-        if const_expr(self.small_tile and seqlen_q * self.g <= 32):
+        # the fp6 dequant lives in the main kernel only -- the MT=16
+        # experimental path stays fp8 (it has no LUT plumbing).
+        if const_expr(self.small_tile and not self.fp6 and seqlen_q * self.g <= 32):
             self.kernel_small(
                 mQ,
                 mK,
@@ -176,6 +187,7 @@ class MMADecodeKernel:
             mCuSeqlensQ,
             mCuSeqlensK,
             mDescale,
+            mCodeLUT,
             mO_partial,
             mLSE_partial,
             mPageTable,
@@ -242,10 +254,14 @@ class MMADecodeKernel:
             mK.element_type,
             num_bits_per_copy=128,
         )
-        for i in cutlass.range_constexpr(SR * D // NT // 16):
+        # The row's 16 B gmem chunk count: 16 for fp8 (D bytes), 12 for
+        # e2m3 (d*3/4 = 192 B) — the cp.async chunks are byte-addressed
+        # either way, and 192 % 16 == 0 keeps every chunk aligned.
+        row_ck = self.row_bytes // 16 if self.fp6 else D // 16
+        for i in cutlass.range_constexpr(SR * row_ck // NT):
             e16 = tidx + i * NT  # the 16-byte chunk index within the stage
-            r = e16 // (D // 16)
-            ck = (e16 % (D // 16)) * 16
+            r = e16 // row_ck
+            ck = (e16 % row_ck) * 16
             gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
             if const_expr(mPageTable is not None):
                 page = mPageTable[batch_idx, gk_row // self.page_size]
@@ -324,6 +340,7 @@ class MMADecodeKernel:
         mCuSeqlensQ: cute.Tensor | None,
         mCuSeqlensK: cute.Tensor | None,
         mDescale: DescaleTensors | None,
+        mCodeLUT: cute.Tensor | None,
         mO_partial: cute.Tensor | None,
         mLSE_partial: cute.Tensor | None,
         mPageTable: cute.Tensor | None,
@@ -407,19 +424,28 @@ class MMADecodeKernel:
         # stage loop), so its 32 KB host the prefetch buffers. Total stays
         # 80 KB -> 2 CTAs/SM: the ring hides the g2s DRAM latency (the #1
         # stall at locked clocks) without paying the occupancy.
-        sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
-        sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
-        # the offsets are in BF16 ELEMENTS (SR*D bytes = SR*D//2 elements):
-        # the four 8 KB buffers tile sQ's 32 KB exactly.
-        sK8b = cute.make_tensor(cute.recast_ptr(sQ.iterator, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D))
+        # The staging tiles: SR rows of row_bytes bytes (D for fp8,
+        # d*3/4 for e2m3) — the fp6's 6 KB buffers tile sQ's 32 KB alias
+        # space with 16 B-aligned offsets to spare (4 x 6 = 24 KB).
+        sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * self.row_bytes), byte_alignment=16)
+        sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * self.row_bytes), byte_alignment=16)
+        # the offsets are in BF16 ELEMENTS (the buffer i lands at the byte
+        # offset i * SR * row_bytes, i.e. i * SR * row_bytes // 2 elements):
+        # the four 8 KB fp8 buffers tile sQ's 32 KB exactly.
+        sK8b = cute.make_tensor(
+            cute.recast_ptr(sQ.iterator, dtype=mK.element_type), cute.make_layout(SR * self.row_bytes)
+        )
         sV8b = cute.make_tensor(
-            cute.recast_ptr(sQ.iterator + SR * D // 2, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+            cute.recast_ptr(sQ.iterator + SR * self.row_bytes // 2, dtype=mV.element_type),
+            cute.make_layout(SR * self.row_bytes),
         )
         sK8c = cute.make_tensor(
-            cute.recast_ptr(sQ.iterator + SR * D, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+            cute.recast_ptr(sQ.iterator + SR * self.row_bytes, dtype=mK.element_type),
+            cute.make_layout(SR * self.row_bytes),
         )
         sV8c = cute.make_tensor(
-            cute.recast_ptr(sQ.iterator + 3 * SR * D // 2, dtype=cutlass.Float8E4M3FN), cute.make_layout(SR * D)
+            cute.recast_ptr(sQ.iterator + 3 * SR * self.row_bytes // 2, dtype=mV.element_type),
+            cute.make_layout(SR * self.row_bytes),
         )
         # The u32 views of the fp8 staging tiles: the 4-wide dequant reads.
         sK8u = cute.make_tensor(cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
@@ -428,6 +454,27 @@ class MMADecodeKernel:
         sV8bu = cute.make_tensor(cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
         sK8cu = cute.make_tensor(cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
         sV8cu = cute.make_tensor(cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
+        # The byte views of the staging tiles: the e2m3 dequant's reads (the
+        # 3-byte groups are not 4-byte aligned, so the prmt trick's u32
+        # reads don't apply — byte LDS + static shifts instead).
+        sK8h = cute.make_tensor(
+            cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
+        )
+        sV8h = cute.make_tensor(
+            cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
+        )
+        sK8bh = cute.make_tensor(
+            cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
+        )
+        sV8bh = cute.make_tensor(
+            cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
+        )
+        sK8ch = cute.make_tensor(
+            cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
+        )
+        sV8ch = cute.make_tensor(
+            cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
+        )
         sK16 = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16)
         # The V staged in the plain (row, d) orientation; the transposed
         # view for the transpose=True B-atom is a composition (the
@@ -617,35 +664,68 @@ class MMADecodeKernel:
             #    old element-wise path cost ~8 ALU ops/value with
             #    byte-wide LDS and made the kernel issue-bound (the ALU
             #    pipe was ~50% of all executed instructions).
-            srcu_k = sK8u
-            srcu_v = sV8u
-            if par == 1:
-                srcu_k = sK8bu
-                srcu_v = sV8bu
-            if par == 2:
-                srcu_k = sK8cu
-                srcu_v = sV8cu
-            for i in cutlass.range_constexpr(SR * D // NT // 4):
-                e4 = (tidx + i * NT) * 4
-                r = e4 // D
-                c = e4 % D
-                qk = srcu_k[e4 // 4]
-                qp = cute.arch.prmt(qk, qk, 0x1302)
-                out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
-                out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
-                out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
-                out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                cu = c // 2
-                sK16u[r, cu] = out1.bitcast(cutlass.Uint32)
-                sK16u[r, cu + 1] = out2.bitcast(cutlass.Uint32)
-                qv = srcu_v[e4 // 4]
-                qp = cute.arch.prmt(qv, qv, 0x1302)
-                out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
-                out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
-                out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
-                out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                sV16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
-                sV16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
+            if const_expr(self.fp6):
+                # e2m3: one thread iteration owns one 4-code group = 3 packed
+                # bytes of the tight tile. The LE bit stream: code j at bit
+                # 6j of the group — (B[b] >> o) | (B[b+1] << (8-o)), static
+                # per j (the 0x3F masks absorb the over-shifted bits). The
+                # values come from the 64-entry LUT (exact: every e2m3 value
+                # is bf16-exact). Scalar bf16 stores into the swizzled tiles
+                # — the fp8 prmt trick needs the 4-byte-aligned codes.
+                srcb_k, srcb_v = sK8h, sV8h
+                if par == 1:
+                    srcb_k, srcb_v = sK8bh, sV8bh
+                if par == 2:
+                    srcb_k, srcb_v = sK8ch, sV8ch
+                for i in cutlass.range_constexpr(SR * D // NT // 4):
+                    g = tidx + i * NT  # the group index in the stage
+                    r = g // (D // 4)  # 64 groups per row
+                    gi = g % (D // 4)  # the group within the row
+                    bo = r * self.row_bytes + gi * 3
+                    b0 = srcb_k[bo + 0].to(cutlass.Uint32)
+                    b1 = srcb_k[bo + 1].to(cutlass.Uint32)
+                    b2 = srcb_k[bo + 2].to(cutlass.Uint32)
+                    sK16[r, 4 * gi + 0] = cutlass.BFloat16(mCodeLUT[(b0 >> 0) & cutlass.Uint32(0x3F)])
+                    sK16[r, 4 * gi + 1] = cutlass.BFloat16(mCodeLUT[((b0 >> 6) | (b1 << 2)) & cutlass.Uint32(0x3F)])
+                    sK16[r, 4 * gi + 2] = cutlass.BFloat16(mCodeLUT[((b1 >> 4) | (b2 << 4)) & cutlass.Uint32(0x3F)])
+                    sK16[r, 4 * gi + 3] = cutlass.BFloat16(mCodeLUT[(b2 >> 2) & cutlass.Uint32(0x3F)])
+                    v0 = srcb_v[bo + 0].to(cutlass.Uint32)
+                    v1 = srcb_v[bo + 1].to(cutlass.Uint32)
+                    v2 = srcb_v[bo + 2].to(cutlass.Uint32)
+                    sV16[r, 4 * gi + 0] = cutlass.BFloat16(mCodeLUT[(v0 >> 0) & cutlass.Uint32(0x3F)])
+                    sV16[r, 4 * gi + 1] = cutlass.BFloat16(mCodeLUT[((v0 >> 6) | (v1 << 2)) & cutlass.Uint32(0x3F)])
+                    sV16[r, 4 * gi + 2] = cutlass.BFloat16(mCodeLUT[((v1 >> 4) | (v2 << 4)) & cutlass.Uint32(0x3F)])
+                    sV16[r, 4 * gi + 3] = cutlass.BFloat16(mCodeLUT[(v2 >> 2) & cutlass.Uint32(0x3F)])
+            else:
+                srcu_k = sK8u
+                srcu_v = sV8u
+                if par == 1:
+                    srcu_k = sK8bu
+                    srcu_v = sV8bu
+                if par == 2:
+                    srcu_k = sK8cu
+                    srcu_v = sV8cu
+                for i in cutlass.range_constexpr(SR * D // NT // 4):
+                    e4 = (tidx + i * NT) * 4
+                    r = e4 // D
+                    c = e4 % D
+                    qk = srcu_k[e4 // 4]
+                    qp = cute.arch.prmt(qk, qk, 0x1302)
+                    out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                    out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                    out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                    out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                    cu = c // 2
+                    sK16u[r, cu] = out1.bitcast(cutlass.Uint32)
+                    sK16u[r, cu + 1] = out2.bitcast(cutlass.Uint32)
+                    qv = srcu_v[e4 // 4]
+                    qp = cute.arch.prmt(qv, qv, 0x1302)
+                    out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                    out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                    out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                    out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                    sV16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                    sV16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
             cute.arch.sync_threads()
 
             # 3. the QK^T: the acc_S = Q * K^T for this stage's rows (the
