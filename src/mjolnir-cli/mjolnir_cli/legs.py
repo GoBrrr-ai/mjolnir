@@ -99,7 +99,7 @@ KERNEL: dict[str, str] = {
 # speaks fp8/bf16/e2m3 only) before those stages open up.
 _KERNEL_BY_PLATFORM: dict[str, dict[str, str]] = {
     "orin": {
-        "verify.sweep": "mjolnir,mjolnir-full,fi",
+        "verify.sweep": "mjolnir,mjolnir-fp8,fi",
         "verify.hndsweep": "fi,fi-hnd,mjolnir-fp8",
     },
 }
