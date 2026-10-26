@@ -298,7 +298,6 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         q_len = self._t5_q_len(cam) if common_prefix_len == 0 and not self._force_fallback else None
         if q_len is None:
             STATS["fallback_steps"] += 1
-            md = super().build(common_prefix_len, cam, fast_build)
             if self._fp6:
                 pages = self._fp6_page_map(cam)
                 # The scratch must cover the plan's longest sequence. The
@@ -313,8 +312,21 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
                             f"build total={pages['total']} page={self._page} cam_max={cam.max_seq_len} attach={attach}\n"
                         )
                 if attach:
+                    # The base's build bakes the block table into the
+                    # wrapper's persistent plan buffers and the fallback
+                    # kernel gathers by those ids. Swap the table to the
+                    # scratch remap for the plan (restoring the cam after)
+                    # so the baked ids index the scratch -- the pool's ids
+                    # would read it out of bounds (the IMA).
+                    _orig_bt = cam.block_table_tensor
+                    cam.block_table_tensor = pages["block_table"]
+                    try:
+                        md = super().build(common_prefix_len, cam, fast_build)
+                    finally:
+                        cam.block_table_tensor = _orig_bt
                     md.mjolnir_fp6_pages = pages
-            return md
+                    return md
+            return super().build(common_prefix_len, cam, fast_build)
         STATS["t5_steps"] += 1
         t5 = self.t5
         num_seqs = cam.num_reqs
