@@ -825,54 +825,43 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         **kwargs: Any,
     ):
         if not getattr(attn_metadata, "is_t5", False):
+            if self._fp6:
+                # The fallback reads the e4m3 scratch; Q stays bf16 (FI's
+                # maybe_quant_query quantizes; FA4's fp8-Q is the branch below).
+                return self._forward_fp6_fallback(
+                    layer,
+                    query,
+                    key,
+                    value,
+                    kv_cache,
+                    attn_metadata,
+                    output,
+                    output_scale,
+                    output_block_scale,
+                    *args,
+                    **kwargs,
+                )
             if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
                 query = self._quantize_q(layer, query)
                 # The base forward passes the layer's q scale as q_descale
                 # only when it believes the layer quantized Q.
                 self.supports_quant_query_input = True
-                try:
-                    if self._fp6:
-                        return self._forward_fp6_fallback(
-                            layer,
-                            query,
-                            key,
-                            value,
-                            kv_cache,
-                            attn_metadata,
-                            output,
-                            output_scale,
-                            output_block_scale,
-                            *args,
-                            **kwargs,
-                        )
-                    return super().forward(
-                        layer,
-                        query,
-                        key,
-                        value,
-                        kv_cache,
-                        attn_metadata,
-                        output,
-                        output_scale,
-                        output_block_scale,
-                        *args,
-                        **kwargs,
-                    )
-                finally:
-                    self.supports_quant_query_input = False
-            return super().forward(
-                layer,
-                query,
-                key,
-                value,
-                kv_cache,
-                attn_metadata,
-                output,
-                output_scale,
-                output_block_scale,
-                *args,
-                **kwargs,
-            )
+            try:
+                return super().forward(
+                    layer,
+                    query,
+                    key,
+                    value,
+                    kv_cache,
+                    attn_metadata,
+                    output,
+                    output_scale,
+                    output_block_scale,
+                    *args,
+                    **kwargs,
+                )
+            finally:
+                self.supports_quant_query_input = False
         if self._t5_reason is not None:
             raise RuntimeError(f"Mjolnir got a layer it cannot run ({self._t5_reason}); set MJOLNIR_ATTN_DISABLE=1")
         assert output is not None and output_scale is None
