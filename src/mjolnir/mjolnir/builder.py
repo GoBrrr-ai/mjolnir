@@ -452,7 +452,6 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         rows = torch.tensor(req_idx, dtype=torch.long).pin_memory().to(dev)
         cols = torch.tensor(page_idx, dtype=torch.long).pin_memory().to(dev)
         src = cam.block_table_tensor[rows, cols].to(torch.int32).contiguous()
-        src = cam.block_table_tensor[rows, cols].to(torch.int32).contiguous()
         return {"src_pages": src, "block_table": remap.to(dev), "total": total}
 
     def build_for_cudagraph_capture(self, common_attn_metadata):
