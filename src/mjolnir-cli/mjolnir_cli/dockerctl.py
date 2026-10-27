@@ -601,15 +601,36 @@ def serve_down(s: Settings, dry_run: bool = False) -> None:
     cachectl.prepare_bench()
 
 
+def _log_size() -> int | None:
+    """The container's log file size on the host (a cheap boot-progress
+    probe; None when the log path cannot be stat'ed)."""
+    try:
+        p = subprocess.run(
+            [_docker(), "inspect", "-f", "{{.LogPath}}", CONTAINER_NAME], capture_output=True, text=True, timeout=10
+        )
+        path = p.stdout.strip()
+        return os.path.getsize(path) if p.returncode == 0 and path and path != "<no value>" else None
+    except Exception:  # noqa: BLE001 - progress probing degrades, never raises
+        return None
+
+
 def wait_healthy(s: Settings, timeout_s: float = 1800.0) -> None:
     """Poll the OpenAI /health endpoint until the server answers (model load
     + JIT on Thor takes minutes). A container that exits mid-wait fails
     immediately — a dead serve burns no timeout (the 1800s blind wait on a
-    crashed boot cost a full point per leg in the 10/10c sweeps)."""
+    crashed boot cost a full point per leg in the 10/10c sweeps).
+
+    A first boot also *compiles* — inductor + the CUDA graphs ran 34 minutes
+    on a cold Orin (orin2's §4) — so the wait is progress-aware: while the
+    container's log keeps advancing the deadline extends (up to 4× the
+    timeout); a boot that stops logging for ``timeout_s`` is dead and fails.
+    Pass ``--wait-timeout`` to serve up for a tighter or looser window."""
     url = f"http://127.0.0.1:{s.port}/health"
     t0 = time.time()
-    print(f"waiting for the server at {url} (up to {timeout_s:.0f}s)…")
-    while time.time() - t0 < timeout_s:
+    print(f"waiting for the server at {url} (up to {timeout_s:.0f}s; extends while the boot makes progress)…")
+    last_size = _log_size()
+    last_progress = time.time()
+    while True:
         try:
             with urllib.request.urlopen(url, timeout=5) as r:
                 if r.status == 200:
@@ -625,8 +646,18 @@ def wait_healthy(s: Settings, timeout_s: float = 1800.0) -> None:
                 f"the {CONTAINER_NAME} container exited before becoming healthy "
                 f"(after {time.time() - t0:.0f}s) — last logs:\n{hint}"
             )
+        size = _log_size()
+        if size is not None and size != last_size:
+            last_size, last_progress = size, time.time()
+        elapsed = time.time() - t0
+        idle = time.time() - last_progress
+        if elapsed >= 4 * timeout_s or (elapsed >= timeout_s and idle >= timeout_s):
+            raise TimeoutError(
+                f"server not healthy after {elapsed:.0f}s"
+                + (f" (no log progress for {idle:.0f}s)" if elapsed >= timeout_s else "")
+                + " — check: mjolnir serve logs"
+            )
         time.sleep(5)
-    raise TimeoutError(f"server not healthy after {timeout_s:.0f}s — check: mjolnir serve logs")
 
 
 def status(s: Settings) -> dict:

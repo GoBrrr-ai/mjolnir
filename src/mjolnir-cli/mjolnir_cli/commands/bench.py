@@ -185,6 +185,7 @@ def bench_ab(
         None, "--image", help="image for bare-config legs (default: $MJOLNIR_IMAGE / built-in default)"
     ),
     port: int | None = typer.Option(None, "--port"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="print the resolved legs, run nothing"),
 ):
     """Headline A/B: restart the server per leg, gated perf bench for each,
     one history row-set per leg.
@@ -205,6 +206,11 @@ def bench_ab(
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(4) from e
 
+    if dry_run:
+        for m_, img, q in legs:
+            name = q if m_ == s.model else f"{m_}/{q}"
+            typer.echo(f"   ▸ {name:<34} ({img})")
+        return
     for _m, img, q in legs:
         if q != DEFAULT_QUANT and e2e.is_mjolnir({"image": img}):
             typer.secho(
