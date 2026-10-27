@@ -68,13 +68,14 @@ static std::vector<uint8_t> slurp(const char* p) {
 }
 
 int main(int argc, char** argv) {
-  if (argc < 5) { printf("usage: %s in.bin scales.bin out.bin head\n", argv[0]); return 2; }
+  if (argc < 5) { printf("usage: %s in.bin scales.bin out.bin head [out_raw.bin]\n", argv[0]); return 2; }
   auto in = slurp(argv[1]);
   auto sc = slurp(argv[2]);
   if (in.size() != NSLOT * 16 || sc.size() != 4 * HD * sizeof(float)) {
     printf("bad input sizes: in=%zu scales=%zu\n", in.size(), sc.size()); return 2;
   }
   uint32_t head = (uint32_t)atoi(argv[4]);
+  const bool want_raw = argc > 5;
 
   flashinfer::mjolnir_fp6_e2m3_sv* d_tile;
   float* d_scales;
@@ -91,6 +92,19 @@ int main(int argc, char** argv) {
   FILE* f = fopen(argv[3], "wb");
   fwrite(out.data(), 1, out.size(), f);
   fclose(f);
+
+  // Second pass with absent scales: the expand must emit the raw e4m3 codes.
+  if (want_raw) {
+    cudaMemcpy(d_tile, in.data(), NSLOT * 16, cudaMemcpyHostToDevice);
+    expand<<<1, FakeTraits::NUM_THREADS>>>(d_tile, nullptr, head);
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) { printf("raw expand failed: %s\n", cudaGetErrorString(err)); return 3; }
+    std::vector<uint8_t> out2(NSLOT * 16);
+    cudaMemcpy(out2.data(), d_tile, NSLOT * 16, cudaMemcpyDeviceToHost);
+    f = fopen(argv[5], "wb");
+    fwrite(out2.data(), 1, out2.size(), f);
+    fclose(f);
+  }
   return 0;
 }
 """
@@ -126,10 +140,11 @@ def main() -> int:
         print("FP6 EXPAND: skipped (pre-Ampere)")
         return 0
 
-    from mjolnir.kvfp6 import e2m3_values
+    from mjolnir.kvfp6 import e2m3_to_e4m3_lut, e2m3_values
 
     global E2M3_VALUES
     E2M3_VALUES = e2m3_values(torch.device("cpu"))
+    raw_lut = e2m3_to_e4m3_lut(torch.device("cpu")).cpu()
 
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -168,7 +183,14 @@ def main() -> int:
                 print(f"FP6 EXPAND head {head}: COMPILE FAIL\n{r.stderr[-800:]}")
                 return 1
             r = subprocess.run(
-                [str(exe), str(td / "in.bin"), str(td / "scales.bin"), str(td / "out.bin"), str(head)],
+                [
+                    str(exe),
+                    str(td / "in.bin"),
+                    str(td / "scales.bin"),
+                    str(td / "out.bin"),
+                    str(head),
+                    str(td / "out_raw.bin"),
+                ],
                 capture_output=True,
                 text=True,
             )
@@ -177,6 +199,7 @@ def main() -> int:
                 return 1
 
             out_tile = (td / "out.bin").read_bytes()
+            raw_tile = (td / "out_raw.bin").read_bytes()
             bad = 0
             for row in range(CTA_TILE_KV):
                 for col in range(COLS):
@@ -190,6 +213,14 @@ def main() -> int:
                         bad += 1
                         if bad <= 3:
                             print(f"  head {head} row {row} col {col}: got {got.hex()} want {want.hex()}")
+                    # the absent-scales pass: raw e4m3 codes, per the shipped LUT
+                    raw_want = bytes(int(raw_lut[int(codes[head, row, col * 16 + k])]) for k in range(16))
+                    if raw_tile[off : off + 16] != raw_want:
+                        bad += 1
+                        if bad <= 3:
+                            print(
+                                f"  raw head {head} row {row} col {col}: {raw_tile[off : off + 16].hex()} != {raw_want.hex()}"
+                            )
             if bad:
                 print(f"FP6 EXPAND head {head}: {bad} mismatched slots")
                 return 1

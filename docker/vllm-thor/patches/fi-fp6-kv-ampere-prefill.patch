@@ -709,7 +709,7 @@
        } else {
          smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
        }
-@@ -1361,6 +1387,54 @@
+@@ -1361,6 +1387,58 @@
    }
  }
  
@@ -742,7 +742,11 @@
 +  for (uint32_t idx = thread_id; idx < NUM_B128; idx += NUM_THREADS) {
 +    uint32_t row = idx / FP6_COLS, col = idx % FP6_COLS;
 +    b128_t* slot = base + get_permuted_offset<SWIZZLE, FP6_COLS>(row, col);
-+    const float* sc = kv_scales + (size_t)kv_head_idx * HEAD_DIM + col * 16;
++    // MJOLNIR_FP6_KV: with the scales absent (the recommended arrangement --
++    // K folds into Q host-side, V posts to the output) the expand emits the
++    // raw e4m3 codes.
++    const float* sc =
++        kv_scales ? kv_scales + (size_t)kv_head_idx * HEAD_DIM + col * 16 : nullptr;
 +    const uint8_t* in = reinterpret_cast<const uint8_t*>(slot);
 +    alignas(16) uint8_t out[16];
 +#pragma unroll
@@ -753,7 +757,7 @@
 +      for (uint32_t k = 0; k < 4; ++k) {
 +        __half_raw h =
 +            __nv_cvt_fp6_to_halfraw((__nv_fp6_storage_t)((w >> (6 * k)) & 63), __NV_E2M3);
-+        float v = __half2float(h) * sc[g * 4 + k];
++        float v = __half2float(h) * (sc ? sc[g * 4 + k] : 1.0f);
 +        out[g * 4 + k] = __nv_cvt_float_to_fp8(v, __NV_SATFINITE, __NV_E4M3);
 +      }
 +    }
@@ -764,7 +768,7 @@
  template <typename KTraits, bool REPACK_BF16 = false>
  __device__ __forceinline__ void compute_qk(
      smem_t<KTraits::SWIZZLE_MODE_Q>* q_smem, uint32_t* q_smem_offset_r,
-@@ -2377,6 +2451,16 @@
+@@ -2377,6 +2455,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
        maybe_v_cache_sf = params.maybe_v_cache_sf;
      }
@@ -781,7 +785,7 @@
  
      static_assert(sizeof(DTypeQ) == 2);
      const uint32_t lane_idx = tid.x, warp_idx = get_warp_idx<KTraits>(tid.y, tid.z);
-@@ -2595,6 +2679,19 @@
+@@ -2595,6 +2683,19 @@
                smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
                                           16 * KTraits::NUM_MMA_D_QK),
                lane_idx, s_frag);
@@ -801,7 +805,7 @@
          } else {
            compute_qk<KTraits>(
                &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
-@@ -2656,6 +2753,17 @@
+@@ -2656,6 +2757,17 @@
                smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
                                           16 * KTraits::NUM_MMA_D_VO),
                lane_idx, s_frag, o_frag, d, d_base);
@@ -819,7 +823,7 @@
          } else {
            compute_sfm_v<KTraits>(
                &v_smem, &v_smem_offset_r,
-@@ -3081,6 +3189,16 @@
+@@ -3081,6 +3193,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
        maybe_v_cache_sf = params.maybe_v_cache_sf;
      }
@@ -836,7 +840,7 @@
  
      static_assert(sizeof(DTypeQ) == 2);
      const uint32_t kv_chunk_size = *(params.kv_chunk_size_ptr);
-@@ -3869,6 +3987,16 @@
+@@ -3869,6 +3991,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
        maybe_v_cache_sf = params.maybe_v_cache_sf;
      }
