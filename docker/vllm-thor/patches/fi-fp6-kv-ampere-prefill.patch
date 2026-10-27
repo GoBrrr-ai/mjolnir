@@ -898,3 +898,14 @@
          return getattr(torch, dtype)
      elif isinstance(dtype, torch.dtype):
          return dtype
+@@ -369,6 +373,10 @@
+             f"The dtype of q {q.dtype} does not match the q_data_type {dtype_q} specified in plan function."
+         )
+     if k.dtype != dtype_kv:
++        # MJOLNIR_FP6_KV: the packed-fp6 pool is uint8; the dtype string keys
++        # the module-gen, not the tensor dtype.
++        if isinstance(dtype_kv, str) and dtype_kv.startswith("mjolnir_fp6"):
++            return
+         raise ValueError(
+             f"The dtype of k {k.dtype} does not match the kv_data_type {dtype_kv} specified in plan function."
+         )
