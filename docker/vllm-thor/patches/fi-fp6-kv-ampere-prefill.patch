@@ -106,6 +106,300 @@
    template <typename T>
    __device__ __forceinline__ void store_128b(uint32_t offset, T* gptr) {
      *reinterpret_cast<b128_t*>(gptr) = *(base + offset);
+--- a/flashinfer/data/include/flashinfer/attention/prefill.cuh
++++ b/flashinfer/data/include/flashinfer/attention/prefill.cuh
+@@ -22,6 +22,7 @@
+ #include <cuda_fp8.h>
+ #if CUDA_VERSION >= 12080
+ #include <cuda_fp4.h>
++#include <cuda_fp6.h>  // MJOLNIR_FP6_KV: the e2m3 -> half conversion table
+ #endif
+ #include <cuda_runtime.h>
+ 
+@@ -50,6 +51,8 @@
+ DEFINE_HAS_MEMBER(maybe_max_item_len_ptr)
+ DEFINE_HAS_MEMBER(maybe_k_cache_sf)
+ DEFINE_HAS_MEMBER(maybe_v_cache_sf)
++DEFINE_HAS_MEMBER(maybe_k_fp6_scales)  // MJOLNIR_FP6_KV: per (kv_head, channel) float scales
++DEFINE_HAS_MEMBER(maybe_v_fp6_scales)  // MJOLNIR_FP6_KV
+ 
+ // Type trait to detect packed NVFP4 KV cache types (__nv_fp4x2_e2m1 stores 2 FP4 per byte).
+ template <typename T>
+@@ -578,6 +581,7 @@
+   // NOTE: for fp8, this function doesn't work for head_dim = 64 at the moment
+   using DTypeKV = typename KTraits::DTypeKV;
+   constexpr bool IS_FP4 = is_fp4_type_v<DTypeKV>;
++  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DTypeKV>;  // MJOLNIR_FP6_KV
+   constexpr uint32_t CTA_TILE_KV = KTraits::CTA_TILE_KV;
+   constexpr uint32_t NUM_WARPS = KTraits::NUM_WARPS;
+   constexpr uint32_t NUM_WARPS_Q = KTraits::NUM_WARPS_Q;
+@@ -596,20 +600,27 @@
+ #pragma unroll
+       for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DTypeKV)); ++j) {
+         // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
++        // MJOLNIR_FP6_KV: fp6 packs 8 codes per 6 bytes — a slot holds 16 codes
++        // in 12 bytes, read as a 12-byte partial cp.async (upper 4 bytes
++        // zero-filled); the expand pass rewrites the slot to e4m3 before the
++        // fragment loads, so downstream is the stock fp8 path.
+         if constexpr (IS_FP4) {
+           smem.template load_64b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
++        } else if constexpr (IS_FP6) {
++          smem.template load_128b_async_fp6<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
+         } else {
+           smem.template load_128b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
+         }
+         *smem_offset = smem.template advance_offset_by_column<8>(*smem_offset, j);
+-        *gptr += (IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>();
++        *gptr += (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>();
+       }
+       kv_idx += NUM_WARPS * 4;
+       *smem_offset =
+           smem.template advance_offset_by_row<NUM_WARPS * 4, UPCAST_STRIDE>(*smem_offset) -
+           sizeof(DTypeKV) * NUM_MMA_D;
+       *gptr += NUM_WARPS * 4 * stride_n -
+-               (IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>() * (NUM_MMA_D / (8 / sizeof(DTypeKV)));
++               (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>() *
++                   (NUM_MMA_D / (8 / sizeof(DTypeKV)));
+     }
+     *smem_offset -= CTA_TILE_KV * UPCAST_STRIDE;
+   } else {
+@@ -619,8 +630,11 @@
+ #pragma unroll
+     for (uint32_t i = 0; i < NUM_MMA_KV * 2 / NUM_WARPS_Q; ++i) {
+       // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
++      // MJOLNIR_FP6_KV: 16 fp6 codes per slot in 12 bytes (partial 128b load).
+       if constexpr (IS_FP4) {
+         smem.template load_64b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
++      } else if constexpr (IS_FP6) {
++        smem.template load_128b_async_fp6<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
+       } else {
+         smem.load_128b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
+       }
+@@ -658,6 +672,7 @@
+   // Use a 64b async load (cp.async with src-size=8) and advance GMEM pointer by half the normal
+   // amount, while SMEM addressing remains unchanged.
+   constexpr bool IS_FP4 = is_fp4_type_v<DType>;
++  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DType>;  // MJOLNIR_FP6_KV
+   if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
+     uint32_t kv_idx = kv_idx_base + warp_idx * 4 + lane_idx / 8;
+     // NOTE: NUM_MMA_KV * 4 / NUM_WARPS_Q = NUM_WARPS_KV * NUM_MMA_KV * 4 / num_warps
+@@ -667,15 +682,18 @@
+       DType* gptr = kv_ptr + thr_local_kv_offset[i];
+ #pragma unroll
+       for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
++        // MJOLNIR_FP6_KV: 16 codes per slot in 12 bytes (partial 128b load).
+         if constexpr (IS_FP4) {
+           // Load 64b from packed GMEM into lower 64b of 128b SMEM slot (upper 64b zeroed)
+           smem.load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
++        } else if constexpr (IS_FP6) {
++          smem.load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+         } else {
+           smem.load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+         }
+         *smem_offset = smem.template advance_offset_by_column<8>(*smem_offset, j);
+         // FP4: GMEM row is HEAD_DIM/2 bytes wide (packed), so advance by half
+-        gptr += (IS_FP4 ? 4 : 8) * upcast_size<DType>();
++        gptr += (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DType>();
+       }
+       kv_idx += NUM_WARPS * 4;
+       *smem_offset =
+@@ -692,6 +710,8 @@
+       DType* gptr = kv_ptr + thr_local_kv_offset[i];
+       if constexpr (IS_FP4) {
+         smem.load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
++      } else if constexpr (IS_FP6) {
++        smem.load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+       } else {
+         smem.load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+       }
+@@ -710,6 +730,7 @@
+     const uint32_t logical_row, const uint32_t lane_idx) {
+   using DType = typename KTraits::DTypeKV;
+   constexpr bool IS_FP4 = is_fp4_type_v<DType>;
++  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DType>;  // MJOLNIR_FP6_KV
+   constexpr uint32_t KV_THR_LAYOUT_COL = KTraits::KV_THR_LAYOUT_COL;
+   uint32_t page_iter, entry_idx;
+   paged_kv.page_size.divmod(packed_page_iter_base + logical_row, page_iter, entry_idx);
+@@ -745,6 +766,7 @@
+   constexpr uint32_t UPCAST_STRIDE =
+       produce_v ? KTraits::UPCAST_STRIDE_V : KTraits::UPCAST_STRIDE_K;
+   constexpr bool IS_FP4 = is_fp4_type_v<DType>;
++  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DType>;  // MJOLNIR_FP6_KV
+ 
+   if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
+     constexpr uint32_t ROWS_PER_ITER = 4;
+@@ -761,11 +783,13 @@
+       for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
+         if constexpr (IS_FP4) {
+           smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
++        } else if constexpr (IS_FP6) {  // MJOLNIR_FP6_KV
++          smem.template load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+         } else {
+           smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+         }
+         *smem_offset = smem.template advance_offset_by_column<8>(*smem_offset, j);
+-        gptr += (IS_FP4 ? 4 : 8) * upcast_size<DType>();
++        gptr += (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DType>();
+       }
+       kv_idx += NUM_WARPS * ROWS_PER_ITER;
+       *smem_offset = smem.template advance_offset_by_row<NUM_WARPS * ROWS_PER_ITER, UPCAST_STRIDE>(
+@@ -786,6 +810,8 @@
+                                  logical_row, lane_idx);
+       if constexpr (IS_FP4) {
+         smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
++      } else if constexpr (IS_FP6) {  // MJOLNIR_FP6_KV
++        smem.template load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+       } else {
+         smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
+       }
+@@ -1361,6 +1387,58 @@
+   }
+ }
+ 
++// MJOLNIR_FP6_KV: expand a produced fp6 tile in place. Each b128 slot of the
++// swizzled tile holds one KV row's 16 consecutive e2m3 codes packed into the
++// first 12 bytes (4 codes per 3 bytes, LSB-first — the kvfp6 row layout);
++// rewrite the slot to 16 e4m3 bytes (code * s_channel) so the tile becomes
++// byte-identical to an fp8 tile and every downstream path (the per-fragment
++// vec_cast in compute_qk/compute_sfm_v) runs unchanged. Channel scales are
++// per (kv_head, channel) floats, identical for every KV row, so this is a
++// flat thread-strided pass like repack_fp8_tile_to_bf16 — no cross-lane
++// fragment swizzle, and no function-local LUT (nvcc places those in local
++// memory — the measured FlashInfer #4746 trap); e2m3→half is the native
++// conversion table.
++template <typename KTraits, uint32_t HEAD_DIM>
++__device__ __forceinline__ void expand_fp6_tile_to_fp8(typename KTraits::DTypeKV* smem_fp6,
++                                                       const float* kv_scales,
++                                                       uint32_t kv_head_idx,
++                                                       uint32_t thread_id) {
++  using DTypeKV = typename KTraits::DTypeKV;
++  static_assert(is_mjolnir_fp6_type_v<DTypeKV>, "fp6 expand needs the Mjolnir fp6 KV type");
++  constexpr SwizzleMode SWIZZLE = KTraits::SWIZZLE_MODE_KV;
++  constexpr uint32_t NUM_THREADS = KTraits::NUM_THREADS;
++  constexpr uint32_t CTA_TILE_KV = KTraits::CTA_TILE_KV;
++  constexpr uint32_t FP6_COLS = HEAD_DIM / upcast_size<DTypeKV>();
++  constexpr uint32_t NUM_B128 = CTA_TILE_KV * FP6_COLS;
++
++  b128_t* base = (b128_t*)smem_fp6;
++#pragma unroll
++  for (uint32_t idx = thread_id; idx < NUM_B128; idx += NUM_THREADS) {
++    uint32_t row = idx / FP6_COLS, col = idx % FP6_COLS;
++    b128_t* slot = base + get_permuted_offset<SWIZZLE, FP6_COLS>(row, col);
++    // MJOLNIR_FP6_KV: with the scales absent (the recommended arrangement --
++    // K folds into Q host-side, V posts to the output) the expand emits the
++    // raw e4m3 codes.
++    const float* sc =
++        kv_scales ? kv_scales + (size_t)kv_head_idx * HEAD_DIM + col * 16 : nullptr;
++    const uint8_t* in = reinterpret_cast<const uint8_t*>(slot);
++    alignas(16) uint8_t out[16];
++#pragma unroll
++    for (uint32_t g = 0; g < 4; ++g) {
++      uint32_t w = (uint32_t)in[g * 3] | ((uint32_t)in[g * 3 + 1] << 8) |
++                   ((uint32_t)in[g * 3 + 2] << 16);
++#pragma unroll
++      for (uint32_t k = 0; k < 4; ++k) {
++        __half_raw h =
++            __nv_cvt_fp6_to_halfraw((__nv_fp6_storage_t)((w >> (6 * k)) & 63), __NV_E2M3);
++        float v = __half2float(h) * (sc ? sc[g * 4 + k] : 1.0f);
++        out[g * 4 + k] = __nv_cvt_float_to_fp8(v, __NV_SATFINITE, __NV_E4M3);
++      }
++    }
++    *slot = *reinterpret_cast<const b128_t*>(out);
++  }
++}
++
+ template <typename KTraits, bool REPACK_BF16 = false>
+ __device__ __forceinline__ void compute_qk(
+     smem_t<KTraits::SWIZZLE_MODE_Q>* q_smem, uint32_t* q_smem_offset_r,
+@@ -2377,6 +2455,16 @@
+     if constexpr (has_maybe_v_cache_sf_v<Params>) {
+       maybe_v_cache_sf = params.maybe_v_cache_sf;
+     }
++    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
++    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
++    const float* maybe_k_fp6_scales = nullptr;
++    if constexpr (has_maybe_k_fp6_scales_v<Params>) {
++      maybe_k_fp6_scales = params.maybe_k_fp6_scales;
++    }
++    const float* maybe_v_fp6_scales = nullptr;
++    if constexpr (has_maybe_v_fp6_scales_v<Params>) {
++      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
++    }
+ 
+     static_assert(sizeof(DTypeQ) == 2);
+     const uint32_t lane_idx = tid.x, warp_idx = get_warp_idx<KTraits>(tid.y, tid.z);
+@@ -2595,6 +2683,19 @@
+               smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
+                                          16 * KTraits::NUM_MMA_D_QK),
+               lane_idx, s_frag);
++        } else if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
++          // MJOLNIR_FP6_KV: the produced slots hold packed e2m3 codes; expand
++          // them to e4m3 (code * s_channel) in place, then take the stock
++          // 1-byte per-fragment path unchanged.
++          expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>(
++              smem_storage.k_smem, maybe_k_fp6_scales, kv_head_idx,
++              warp_idx * WARP_SIZE + lane_idx);
++          block.sync();
++          compute_qk<KTraits>(
++              &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
++              smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
++                                         16 * KTraits::NUM_MMA_D_QK),
++              lane_idx, s_frag);
+         } else {
+           compute_qk<KTraits>(
+               &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
+@@ -2656,6 +2757,17 @@
+               smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
+                                          16 * KTraits::NUM_MMA_D_VO),
+               lane_idx, s_frag, o_frag, d, d_base);
++        } else if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
++          // MJOLNIR_FP6_KV: expand the V tile in place before the sfm*v read.
++          expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>(
++              smem_storage.v_smem, maybe_v_fp6_scales, kv_head_idx,
++              warp_idx * WARP_SIZE + lane_idx);
++          block.sync();
++          compute_sfm_v<KTraits>(
++              &v_smem, &v_smem_offset_r,
++              smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
++                                         16 * KTraits::NUM_MMA_D_VO),
++              lane_idx, s_frag, o_frag, d, d_base);
+         } else {
+           compute_sfm_v<KTraits>(
+               &v_smem, &v_smem_offset_r,
+@@ -3081,6 +3193,16 @@
+     if constexpr (has_maybe_v_cache_sf_v<Params>) {
+       maybe_v_cache_sf = params.maybe_v_cache_sf;
+     }
++    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
++    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
++    const float* maybe_k_fp6_scales = nullptr;
++    if constexpr (has_maybe_k_fp6_scales_v<Params>) {
++      maybe_k_fp6_scales = params.maybe_k_fp6_scales;
++    }
++    const float* maybe_v_fp6_scales = nullptr;
++    if constexpr (has_maybe_v_fp6_scales_v<Params>) {
++      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
++    }
+ 
+     static_assert(sizeof(DTypeQ) == 2);
+     const uint32_t kv_chunk_size = *(params.kv_chunk_size_ptr);
+@@ -3869,6 +3991,16 @@
+     if constexpr (has_maybe_v_cache_sf_v<Params>) {
+       maybe_v_cache_sf = params.maybe_v_cache_sf;
+     }
++    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
++    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
++    const float* maybe_k_fp6_scales = nullptr;
++    if constexpr (has_maybe_k_fp6_scales_v<Params>) {
++      maybe_k_fp6_scales = params.maybe_k_fp6_scales;
++    }
++    const float* maybe_v_fp6_scales = nullptr;
++    if constexpr (has_maybe_v_fp6_scales_v<Params>) {
++      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
++    }
+     const uint32_t k_sf_stride_page = params.k_sf_stride_page;
+     const uint32_t k_sf_stride_n = params.k_sf_stride_n;
+     const uint32_t k_sf_stride_h = params.k_sf_stride_h;
 --- a/flashinfer/jit/attention/modules.py
 +++ b/flashinfer/jit/attention/modules.py
 @@ -53,26 +53,18 @@
@@ -563,297 +857,16 @@
      if dtype_map_kv[dtype] == "__nv_fp4x2_e2m1":
          return "fp4x2_e2m1"
      return filename_safe_dtype_map[dtype]
---- a/flashinfer/data/include/flashinfer/attention/prefill.cuh
-+++ b/flashinfer/data/include/flashinfer/attention/prefill.cuh
-@@ -22,6 +22,7 @@
- #include <cuda_fp8.h>
- #if CUDA_VERSION >= 12080
- #include <cuda_fp4.h>
-+#include <cuda_fp6.h>  // MJOLNIR_FP6_KV: the e2m3 -> half conversion table
- #endif
- #include <cuda_runtime.h>
+--- a/flashinfer/utils.py
++++ b/flashinfer/utils.py
+@@ -276,6 +276,10 @@
  
-@@ -50,6 +51,8 @@
- DEFINE_HAS_MEMBER(maybe_max_item_len_ptr)
- DEFINE_HAS_MEMBER(maybe_k_cache_sf)
- DEFINE_HAS_MEMBER(maybe_v_cache_sf)
-+DEFINE_HAS_MEMBER(maybe_k_fp6_scales)  // MJOLNIR_FP6_KV: per (kv_head, channel) float scales
-+DEFINE_HAS_MEMBER(maybe_v_fp6_scales)  // MJOLNIR_FP6_KV
- 
- // Type trait to detect packed NVFP4 KV cache types (__nv_fp4x2_e2m1 stores 2 FP4 per byte).
- template <typename T>
-@@ -578,6 +581,7 @@
-   // NOTE: for fp8, this function doesn't work for head_dim = 64 at the moment
-   using DTypeKV = typename KTraits::DTypeKV;
-   constexpr bool IS_FP4 = is_fp4_type_v<DTypeKV>;
-+  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DTypeKV>;  // MJOLNIR_FP6_KV
-   constexpr uint32_t CTA_TILE_KV = KTraits::CTA_TILE_KV;
-   constexpr uint32_t NUM_WARPS = KTraits::NUM_WARPS;
-   constexpr uint32_t NUM_WARPS_Q = KTraits::NUM_WARPS_Q;
-@@ -596,20 +600,27 @@
- #pragma unroll
-       for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DTypeKV)); ++j) {
-         // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
-+        // MJOLNIR_FP6_KV: fp6 packs 8 codes per 6 bytes — a slot holds 16 codes
-+        // in 12 bytes, read as a 12-byte partial cp.async (upper 4 bytes
-+        // zero-filled); the expand pass rewrites the slot to e4m3 before the
-+        // fragment loads, so downstream is the stock fp8 path.
-         if constexpr (IS_FP4) {
-           smem.template load_64b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
-+        } else if constexpr (IS_FP6) {
-+          smem.template load_128b_async_fp6<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
-         } else {
-           smem.template load_128b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
-         }
-         *smem_offset = smem.template advance_offset_by_column<8>(*smem_offset, j);
--        *gptr += (IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>();
-+        *gptr += (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>();
-       }
-       kv_idx += NUM_WARPS * 4;
-       *smem_offset =
-           smem.template advance_offset_by_row<NUM_WARPS * 4, UPCAST_STRIDE>(*smem_offset) -
-           sizeof(DTypeKV) * NUM_MMA_D;
-       *gptr += NUM_WARPS * 4 * stride_n -
--               (IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>() * (NUM_MMA_D / (8 / sizeof(DTypeKV)));
-+               (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DTypeKV>() *
-+                   (NUM_MMA_D / (8 / sizeof(DTypeKV)));
-     }
-     *smem_offset -= CTA_TILE_KV * UPCAST_STRIDE;
-   } else {
-@@ -619,8 +630,11 @@
- #pragma unroll
-     for (uint32_t i = 0; i < NUM_MMA_KV * 2 / NUM_WARPS_Q; ++i) {
-       // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
-+      // MJOLNIR_FP6_KV: 16 fp6 codes per slot in 12 bytes (partial 128b load).
-       if constexpr (IS_FP4) {
-         smem.template load_64b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
-+      } else if constexpr (IS_FP6) {
-+        smem.template load_128b_async_fp6<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
-       } else {
-         smem.load_128b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
-       }
-@@ -658,6 +672,7 @@
-   // Use a 64b async load (cp.async with src-size=8) and advance GMEM pointer by half the normal
-   // amount, while SMEM addressing remains unchanged.
-   constexpr bool IS_FP4 = is_fp4_type_v<DType>;
-+  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DType>;  // MJOLNIR_FP6_KV
-   if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
-     uint32_t kv_idx = kv_idx_base + warp_idx * 4 + lane_idx / 8;
-     // NOTE: NUM_MMA_KV * 4 / NUM_WARPS_Q = NUM_WARPS_KV * NUM_MMA_KV * 4 / num_warps
-@@ -667,15 +682,18 @@
-       DType* gptr = kv_ptr + thr_local_kv_offset[i];
- #pragma unroll
-       for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
-+        // MJOLNIR_FP6_KV: 16 codes per slot in 12 bytes (partial 128b load).
-         if constexpr (IS_FP4) {
-           // Load 64b from packed GMEM into lower 64b of 128b SMEM slot (upper 64b zeroed)
-           smem.load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-+        } else if constexpr (IS_FP6) {
-+          smem.load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-         } else {
-           smem.load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-         }
-         *smem_offset = smem.template advance_offset_by_column<8>(*smem_offset, j);
-         // FP4: GMEM row is HEAD_DIM/2 bytes wide (packed), so advance by half
--        gptr += (IS_FP4 ? 4 : 8) * upcast_size<DType>();
-+        gptr += (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DType>();
-       }
-       kv_idx += NUM_WARPS * 4;
-       *smem_offset =
-@@ -692,6 +710,8 @@
-       DType* gptr = kv_ptr + thr_local_kv_offset[i];
-       if constexpr (IS_FP4) {
-         smem.load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-+      } else if constexpr (IS_FP6) {
-+        smem.load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-       } else {
-         smem.load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-       }
-@@ -710,6 +730,7 @@
-     const uint32_t logical_row, const uint32_t lane_idx) {
-   using DType = typename KTraits::DTypeKV;
-   constexpr bool IS_FP4 = is_fp4_type_v<DType>;
-+  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DType>;  // MJOLNIR_FP6_KV
-   constexpr uint32_t KV_THR_LAYOUT_COL = KTraits::KV_THR_LAYOUT_COL;
-   uint32_t page_iter, entry_idx;
-   paged_kv.page_size.divmod(packed_page_iter_base + logical_row, page_iter, entry_idx);
-@@ -745,6 +766,7 @@
-   constexpr uint32_t UPCAST_STRIDE =
-       produce_v ? KTraits::UPCAST_STRIDE_V : KTraits::UPCAST_STRIDE_K;
-   constexpr bool IS_FP4 = is_fp4_type_v<DType>;
-+  constexpr bool IS_FP6 = is_mjolnir_fp6_type_v<DType>;  // MJOLNIR_FP6_KV
- 
-   if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
-     constexpr uint32_t ROWS_PER_ITER = 4;
-@@ -761,11 +783,13 @@
-       for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
-         if constexpr (IS_FP4) {
-           smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-+        } else if constexpr (IS_FP6) {  // MJOLNIR_FP6_KV
-+          smem.template load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-         } else {
-           smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-         }
-         *smem_offset = smem.template advance_offset_by_column<8>(*smem_offset, j);
--        gptr += (IS_FP4 ? 4 : 8) * upcast_size<DType>();
-+        gptr += (IS_FP6 ? 6 : IS_FP4 ? 4 : 8) * upcast_size<DType>();
-       }
-       kv_idx += NUM_WARPS * ROWS_PER_ITER;
-       *smem_offset = smem.template advance_offset_by_row<NUM_WARPS * ROWS_PER_ITER, UPCAST_STRIDE>(
-@@ -786,6 +810,8 @@
-                                  logical_row, lane_idx);
-       if constexpr (IS_FP4) {
-         smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-+      } else if constexpr (IS_FP6) {  // MJOLNIR_FP6_KV
-+        smem.template load_128b_async_fp6<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-       } else {
-         smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
-       }
-@@ -1361,6 +1387,58 @@
-   }
- }
- 
-+// MJOLNIR_FP6_KV: expand a produced fp6 tile in place. Each b128 slot of the
-+// swizzled tile holds one KV row's 16 consecutive e2m3 codes packed into the
-+// first 12 bytes (4 codes per 3 bytes, LSB-first — the kvfp6 row layout);
-+// rewrite the slot to 16 e4m3 bytes (code * s_channel) so the tile becomes
-+// byte-identical to an fp8 tile and every downstream path (the per-fragment
-+// vec_cast in compute_qk/compute_sfm_v) runs unchanged. Channel scales are
-+// per (kv_head, channel) floats, identical for every KV row, so this is a
-+// flat thread-strided pass like repack_fp8_tile_to_bf16 — no cross-lane
-+// fragment swizzle, and no function-local LUT (nvcc places those in local
-+// memory — the measured FlashInfer #4746 trap); e2m3→half is the native
-+// conversion table.
-+template <typename KTraits, uint32_t HEAD_DIM>
-+__device__ __forceinline__ void expand_fp6_tile_to_fp8(typename KTraits::DTypeKV* smem_fp6,
-+                                                       const float* kv_scales,
-+                                                       uint32_t kv_head_idx,
-+                                                       uint32_t thread_id) {
-+  using DTypeKV = typename KTraits::DTypeKV;
-+  static_assert(is_mjolnir_fp6_type_v<DTypeKV>, "fp6 expand needs the Mjolnir fp6 KV type");
-+  constexpr SwizzleMode SWIZZLE = KTraits::SWIZZLE_MODE_KV;
-+  constexpr uint32_t NUM_THREADS = KTraits::NUM_THREADS;
-+  constexpr uint32_t CTA_TILE_KV = KTraits::CTA_TILE_KV;
-+  constexpr uint32_t FP6_COLS = HEAD_DIM / upcast_size<DTypeKV>();
-+  constexpr uint32_t NUM_B128 = CTA_TILE_KV * FP6_COLS;
-+
-+  b128_t* base = (b128_t*)smem_fp6;
-+#pragma unroll
-+  for (uint32_t idx = thread_id; idx < NUM_B128; idx += NUM_THREADS) {
-+    uint32_t row = idx / FP6_COLS, col = idx % FP6_COLS;
-+    b128_t* slot = base + get_permuted_offset<SWIZZLE, FP6_COLS>(row, col);
-+    // MJOLNIR_FP6_KV: with the scales absent (the recommended arrangement --
-+    // K folds into Q host-side, V posts to the output) the expand emits the
-+    // raw e4m3 codes.
-+    const float* sc =
-+        kv_scales ? kv_scales + (size_t)kv_head_idx * HEAD_DIM + col * 16 : nullptr;
-+    const uint8_t* in = reinterpret_cast<const uint8_t*>(slot);
-+    alignas(16) uint8_t out[16];
-+#pragma unroll
-+    for (uint32_t g = 0; g < 4; ++g) {
-+      uint32_t w = (uint32_t)in[g * 3] | ((uint32_t)in[g * 3 + 1] << 8) |
-+                   ((uint32_t)in[g * 3 + 2] << 16);
-+#pragma unroll
-+      for (uint32_t k = 0; k < 4; ++k) {
-+        __half_raw h =
-+            __nv_cvt_fp6_to_halfraw((__nv_fp6_storage_t)((w >> (6 * k)) & 63), __NV_E2M3);
-+        float v = __half2float(h) * (sc ? sc[g * 4 + k] : 1.0f);
-+        out[g * 4 + k] = __nv_cvt_float_to_fp8(v, __NV_SATFINITE, __NV_E4M3);
-+      }
-+    }
-+    *slot = *reinterpret_cast<const b128_t*>(out);
-+  }
-+}
-+
- template <typename KTraits, bool REPACK_BF16 = false>
- __device__ __forceinline__ void compute_qk(
-     smem_t<KTraits::SWIZZLE_MODE_Q>* q_smem, uint32_t* q_smem_offset_r,
-@@ -2377,6 +2455,16 @@
-     if constexpr (has_maybe_v_cache_sf_v<Params>) {
-       maybe_v_cache_sf = params.maybe_v_cache_sf;
-     }
-+    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
-+    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
-+    const float* maybe_k_fp6_scales = nullptr;
-+    if constexpr (has_maybe_k_fp6_scales_v<Params>) {
-+      maybe_k_fp6_scales = params.maybe_k_fp6_scales;
-+    }
-+    const float* maybe_v_fp6_scales = nullptr;
-+    if constexpr (has_maybe_v_fp6_scales_v<Params>) {
-+      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
-+    }
- 
-     static_assert(sizeof(DTypeQ) == 2);
-     const uint32_t lane_idx = tid.x, warp_idx = get_warp_idx<KTraits>(tid.y, tid.z);
-@@ -2595,6 +2683,19 @@
-               smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
-                                          16 * KTraits::NUM_MMA_D_QK),
-               lane_idx, s_frag);
-+        } else if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
-+          // MJOLNIR_FP6_KV: the produced slots hold packed e2m3 codes; expand
-+          // them to e4m3 (code * s_channel) in place, then take the stock
-+          // 1-byte per-fragment path unchanged.
-+          expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>(
-+              smem_storage.k_smem, maybe_k_fp6_scales, kv_head_idx,
-+              warp_idx * WARP_SIZE + lane_idx);
-+          block.sync();
-+          compute_qk<KTraits>(
-+              &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
-+              smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
-+                                         16 * KTraits::NUM_MMA_D_QK),
-+              lane_idx, s_frag);
-         } else {
-           compute_qk<KTraits>(
-               &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
-@@ -2656,6 +2757,17 @@
-               smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
-                                          16 * KTraits::NUM_MMA_D_VO),
-               lane_idx, s_frag, o_frag, d, d_base);
-+        } else if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
-+          // MJOLNIR_FP6_KV: expand the V tile in place before the sfm*v read.
-+          expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>(
-+              smem_storage.v_smem, maybe_v_fp6_scales, kv_head_idx,
-+              warp_idx * WARP_SIZE + lane_idx);
-+          block.sync();
-+          compute_sfm_v<KTraits>(
-+              &v_smem, &v_smem_offset_r,
-+              smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
-+                                         16 * KTraits::NUM_MMA_D_VO),
-+              lane_idx, s_frag, o_frag, d, d_base);
-         } else {
-           compute_sfm_v<KTraits>(
-               &v_smem, &v_smem_offset_r,
-@@ -3081,6 +3193,16 @@
-     if constexpr (has_maybe_v_cache_sf_v<Params>) {
-       maybe_v_cache_sf = params.maybe_v_cache_sf;
-     }
-+    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
-+    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
-+    const float* maybe_k_fp6_scales = nullptr;
-+    if constexpr (has_maybe_k_fp6_scales_v<Params>) {
-+      maybe_k_fp6_scales = params.maybe_k_fp6_scales;
-+    }
-+    const float* maybe_v_fp6_scales = nullptr;
-+    if constexpr (has_maybe_v_fp6_scales_v<Params>) {
-+      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
-+    }
- 
-     static_assert(sizeof(DTypeQ) == 2);
-     const uint32_t kv_chunk_size = *(params.kv_chunk_size_ptr);
-@@ -3869,6 +3991,16 @@
-     if constexpr (has_maybe_v_cache_sf_v<Params>) {
-       maybe_v_cache_sf = params.maybe_v_cache_sf;
-     }
-+    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
-+    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
-+    const float* maybe_k_fp6_scales = nullptr;
-+    if constexpr (has_maybe_k_fp6_scales_v<Params>) {
-+      maybe_k_fp6_scales = params.maybe_k_fp6_scales;
-+    }
-+    const float* maybe_v_fp6_scales = nullptr;
-+    if constexpr (has_maybe_v_fp6_scales_v<Params>) {
-+      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
-+    }
-     const uint32_t k_sf_stride_page = params.k_sf_stride_page;
-     const uint32_t k_sf_stride_n = params.k_sf_stride_n;
-     const uint32_t k_sf_stride_h = params.k_sf_stride_h;
+ def canonicalize_torch_dtype(dtype: Union[torch.dtype, str]) -> torch.dtype:
+     if isinstance(dtype, str):
++        # MJOLNIR_FP6_KV: a packed-fp6 dtype string has no torch.dtype -- it
++        # keys dtype_map_kv directly downstream; pass it through opaquely.
++        if dtype == "mjolnir_fp6_e2m3":
++            return dtype  # type: ignore[return-value]
+         return getattr(torch, dtype)
+     elif isinstance(dtype, torch.dtype):
+         return dtype
