@@ -136,10 +136,8 @@ def test_hw_setup_passes_yes_and_dry_run_to_the_check(no_script, _record_check):
     assert _record_check == [{"assume_yes": True, "dry_run": True}]
 
 
-def test_hw_setup_unknown_skip_name_exits_4_without_running_the_check(
-    no_script, _record_check, monkeypatch, capsys
-):
-    # normalised like thor.build_cmd: case-insensitive match on the step name
+def test_hw_setup_unknown_skip_name_exits_4_without_running_the_check(no_script, _record_check, monkeypatch, capsys):
+    # exact match, like thor.build_cmd: "DOCKER" is not a step name
     r = CliRunner().invoke(cli.app, ["hw", "setup", "--skip", "DOCKER"])
     assert r.exit_code == 4, r.output
     assert _record_check == []  # no check run
