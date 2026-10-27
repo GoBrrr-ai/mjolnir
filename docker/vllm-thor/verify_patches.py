@@ -299,10 +299,22 @@ FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
             "data/include/flashinfer/vec_dtypes.cuh",
             "struct alignas(1) mjolnir_fp6_e2m3_sv",
         ),
-        # The partial-src cp.async loader (12-byte fp6 slots).
+        # The fp6 slot loader: three 4-byte cp.asyncs (the slot's gmem source
+        # is only 4B-aligned at a 12-byte stride; a cp-size=16 copy from it is
+        # undefined on sm_87 -- wrong partial lengths, skipped zero-fill).
         (
             "data/include/flashinfer/cp_async.cuh",
-            "pred_load_128b_src",
+            "pred_load_fp6_12b",
+        ),
+        # Rename guard: the old 16B-cp.async loader must be gone.
+        (
+            "data/include/flashinfer/cp_async.cuh",
+            "!pred_load_128b_src",
+        ),
+        # The "used, not just defined" loader call site in the smem wrapper.
+        (
+            "data/include/flashinfer/permuted_smem.cuh",
+            "Three 4-byte cp.asyncs are always aligned.",
         ),
         # The "used, not just defined" sentinel: the expand call site wired
         # into the K compute chain (a partial apply that lands the helper

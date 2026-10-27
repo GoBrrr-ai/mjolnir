@@ -45,67 +45,76 @@
    template <size_t vec_size>
 --- a/flashinfer/data/include/flashinfer/cp_async.cuh
 +++ b/flashinfer/data/include/flashinfer/cp_async.cuh
-@@ -140,6 +140,69 @@
+@@ -140,6 +140,78 @@
  }
  
  /*!
-+ * \brief Load 128 bits per thread from global memory into shared memory,
-+ * reading only SRC_BYTES of the 16-byte slot and zero-filling the rest
-+ * (MJOLNIR_FP6_KV: a 16-code fp6 slot packs into 12 bytes). PTX cp.async
-+ * takes the source size as an independent operand and zero-fills the
-+ * remainder, which the predicate form above already relies on.
-+ * \tparam SRC_BYTES Source bytes to read; must be <= 16.
++ * \brief MJOLNIR_FP6_KV: copy the 12 packed bytes of a 16-code fp6 slot into
++ * the first 12 bytes of a 16-byte smem slot (the upper 4 bytes are zeroed in
++ * the kFillZero mode; the expand pass rewrites the full slot before any
++ * fragment load reads it).
++ *
++ * A single 16-byte cp.async CANNOT be used: the slot's gmem source sits at a
++ * 12-byte stride within the packed row (12*lane bytes), so it is only 4-byte
++ * aligned, and cp.async with cp-size=16 from a source that is not 16B-aligned
++ * is UNDEFINED (measured on sm_87: wrong partial copy lengths -- 12/12/4/8 for
++ * src offsets 12c with c%4 in {0,1,2,3} -- and the zero-fill silently skipped
++ * for some misalignment classes). cp-size=4 requires only 4-byte alignment,
++ * which every fp6 source offset satisfies (12c and the row bases are all
++ * multiples of 4), so the 12 bytes are issued as three 4-byte copies.
++ *
++ * \tparam prefetch_mode Unused for the 4-byte copies (kept for call-site
++ *   compatibility with pred_load_128b).
++ * \tparam fill_mode Whether to fill zero to shared memory when predicate is false
 + */
-+template <size_t SRC_BYTES, PrefetchMode prefetch_mode, SharedMemFillMode fill_mode, typename T>
-+__device__ __forceinline__ void pred_load_128b_src(T* smem_ptr, const T* gmem_ptr, bool predicate) {
-+  static_assert(SRC_BYTES <= 16, "SRC_BYTES must be <= 16");
++template <PrefetchMode prefetch_mode, SharedMemFillMode fill_mode>
++__device__ __forceinline__ void pred_load_fp6_12b(uint8_t* smem_ptr, const uint8_t* gmem_ptr,
++                                                  bool predicate) {
 +#ifdef FLASHINFER_CP_ASYNC_ENABLED
 +  uint32_t smem_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
 +  if constexpr (fill_mode == SharedMemFillMode::kFillZero) {
-+    int src_in_bytes = predicate ? int(SRC_BYTES) : 0;
-+    if constexpr (prefetch_mode == PrefetchMode::kPrefetch) {
-+      asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
-+                   "l"(gmem_ptr), "n"(16), "r"(src_in_bytes));
-+    } else {
-+      asm volatile("cp.async.cg.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
-+                   "l"(gmem_ptr), "n"(16), "r"(src_in_bytes));
-+    }
++    int src_in_bytes = predicate ? 4 : 0;
++    asm volatile("cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
++                 "l"(gmem_ptr), "n"(4), "r"(src_in_bytes));
++    asm volatile("cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr + 4),
++                 "l"(gmem_ptr + 4), "n"(4), "r"(src_in_bytes));
++    asm volatile("cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr + 8),
++                 "l"(gmem_ptr + 8), "n"(4), "r"(src_in_bytes));
++    // Define the slot tail too (src-size 0 = pure zero-fill), so a produced
++    // fp6 slot is always {12 data bytes | 4 zero bytes} in the fill-zero mode.
++    asm volatile("cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr + 12),
++                 "l"(gmem_ptr + 12), "n"(4), "n"(0));
 +  } else {
-+    if constexpr (prefetch_mode == PrefetchMode::kPrefetch) {
-+      asm volatile(
-+          "{\n"
-+          " .reg .pred p;\n"
-+          " setp.ne.b32 p, %0, 0;\n"
-+          " @p cp.async.cg.shared.global.L2::128B [%1], [%2], %3, %4;\n"
-+          "}\n" ::"r"((int)predicate),
-+          "r"(smem_int_ptr),
-+          "l"(gmem_ptr),
-+          "n"(16),
-+          "n"(int(SRC_BYTES)));
-+    } else {
-+      asm volatile(
-+          "{\n"
-+          " .reg .pred p;\n"
-+          " setp.ne.b32 p, %0, 0;\n"
-+          " @p cp.async.cg.shared.global [%1], [%2], %3, %4;\n"
-+          "}\n" ::"r"((int)predicate),
-+          "r"(smem_int_ptr),
-+          "l"(gmem_ptr),
-+          "n"(16),
-+          "n"(int(SRC_BYTES)));
-+    }
++    asm volatile(
++        "{\n"
++        " .reg .pred p;\n"
++        " setp.ne.b32 p, %0, 0;\n"
++        " @p cp.async.ca.shared.global [%1], [%2], %3;\n"
++        "}\n" ::"r"((int)predicate),
++        "r"(smem_int_ptr), "l"(gmem_ptr), "n"(4));
++    asm volatile(
++        "{\n"
++        " .reg .pred p;\n"
++        " setp.ne.b32 p, %0, 0;\n"
++        " @p cp.async.ca.shared.global [%1], [%2], %3;\n"
++        "}\n" ::"r"((int)predicate),
++        "r"(smem_int_ptr + 4), "l"(gmem_ptr + 4), "n"(4));
++    asm volatile(
++        "{\n"
++        " .reg .pred p;\n"
++        " setp.ne.b32 p, %0, 0;\n"
++        " @p cp.async.ca.shared.global [%1], [%2], %3;\n"
++        "}\n" ::"r"((int)predicate),
++        "r"(smem_int_ptr + 8), "l"(gmem_ptr + 8), "n"(4));
 +  }
 +#else
 +  if (predicate) {
-+    uint4 data = make_uint4(0, 0, 0, 0);
-+    if constexpr (SRC_BYTES >= 4) *(uint32_t*)&data.x = *(const uint32_t*)gmem_ptr;
-+    if constexpr (SRC_BYTES >= 8) *(uint32_t*)&data.z = *(const uint32_t*)((const uint8_t*)gmem_ptr + 4);
-+    if constexpr (SRC_BYTES >= 12) *(uint32_t*)&data.w =
-+        *(const uint32_t*)((const uint8_t*)gmem_ptr + 8);
-+    *((uint4*)smem_ptr) = data;
++    *(uint32_t*)(smem_ptr) = *(const uint32_t*)gmem_ptr;
++    *(uint32_t*)(smem_ptr + 4) = *(const uint32_t*)(gmem_ptr + 4);
++    *(uint32_t*)(smem_ptr + 8) = *(const uint32_t*)(gmem_ptr + 8);
 +  } else {
 +    if constexpr (fill_mode == SharedMemFillMode::kFillZero) {
-+      *((uint4*)smem_ptr) = make_uint4(0, 0, 0, 0);
++      *(uint4*)smem_ptr = make_uint4(0, 0, 0, 0);
 +    }
 +  }
 +#endif
@@ -117,18 +126,21 @@
   * \tparam prefetch_mode Whether to fetch additional data from global memory to L2
 --- a/flashinfer/data/include/flashinfer/permuted_smem.cuh
 +++ b/flashinfer/data/include/flashinfer/permuted_smem.cuh
-@@ -180,6 +180,16 @@
+@@ -180,6 +180,19 @@
          smem_ptr, reinterpret_cast<const b128_t*>(gptr), predicate);
    }
  
-+  // MJOLNIR_FP6_KV: load a 16-code fp6 slot -- 12 packed bytes, the upper 4
-+  // bytes of the 16-byte slot zero-filled (see cp_async::pred_load_128b_src).
++  // MJOLNIR_FP6_KV: load a 16-code fp6 slot -- 12 packed bytes into the first
++  // 12 bytes of the 16-byte slot. The slot's gmem source sits at a 12-byte
++  // stride within the packed row, so it is only 4-byte aligned: a single
++  // cp-size=16 cp.async from it is UNDEFINED on sm_87 (wrong partial lengths,
++  // skipped zero-fill -- measured). Three 4-byte cp.asyncs are always aligned.
 +  template <cp_async::SharedMemFillMode fill_mode, typename T>
 +  __device__ __forceinline__ void load_128b_async_fp6(uint32_t offset, const T* gptr,
 +                                                      bool predicate) {
-+    b128_t* smem_ptr = base + offset;
-+    cp_async::pred_load_128b_src<12, cp_async::PrefetchMode::kPrefetch, fill_mode>(
-+        smem_ptr, reinterpret_cast<const b128_t*>(gptr), predicate);
++    cp_async::pred_load_fp6_12b<cp_async::PrefetchMode::kPrefetch, fill_mode>(
++        reinterpret_cast<uint8_t*>(base + offset), reinterpret_cast<const uint8_t*>(gptr),
++        predicate);
 +  }
 +
    template <typename T>
