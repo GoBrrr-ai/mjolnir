@@ -262,15 +262,18 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     shadow = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     d, ds = ImageDraw.Draw(over), ImageDraw.Draw(shadow)
 
-    # the white logotype, centred on the right half
-    logo_h = round(H * 0.30)
-    lw = round(logo_img.size[0] * logo_h / logo_img.size[1])
-    logo = logo_img.resize((lw, logo_h), Image.Resampling.LANCZOS)
-    ly = round(H * 0.08)
-    over.alpha_composite(logo, (round(cx * S - lw * S / 2), ly * S))
+    # the white logotype, centred on the right half: big, near the top
+    logo_h = round(H * 0.44)
+    logo_w = round(logo_img.size[0] * logo_h / logo_img.size[1])
+    if logo_w > 0.40 * W:  # a wide wordmark variant: cap by width instead
+        logo_w = round(0.40 * W)
+        logo_h = round(logo_w * logo_img.size[1] / logo_img.size[0])
+    logo = logo_img.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
+    ly = round(H * 0.04)
+    over.alpha_composite(logo, (round(cx * S - logo_w * S / 2), ly * S))
 
-    # slogan: centred line(s) under the logotype, shrunk to stay inside the
-    # dark right half (the art fills the left ~55%)
+    # slogan: centred line(s), shrunk to stay inside the dark right half
+    # (the art fills the left ~55%), stacked upward to end just above the pills
     slogan = ROOT_HERO_SLOGAN if platform is None else (PLATFORM_HERO_SLOGAN[platform],)
     max_w = 0.42 * W * S
     size = round(H * 0.040)
@@ -278,8 +281,11 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     while size > round(H * 0.024) and max(d.textlength(ln, font=slogan_font) for ln in slogan) > max_w:
         size -= 1
         slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
-    y = (ly + logo_h + H * 0.045) * S
     line_h = slogan_font.size * 1.38
+    # the pill row anchors the bottom; the slogan block sits right above it
+    pill_h = round(H * 0.060) * S
+    pills_y = round((H - 0.055 * H) * S) - pill_h
+    y = pills_y - round(H * 0.030 * S) - round(line_h * len(slogan))
     for line in slogan:
         w = d.textlength(line, font=slogan_font)
         x = cx * S - w / 2
@@ -290,7 +296,7 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     # pills: one centred row, shrunk if it would run past the dark half
     pills = ROOT_HERO_PILLS if platform is None else PLATFORM_HERO_PILLS[platform]
     labels = [(t.format(vllm=VLLM_VERSION), c0, c1) for t, c0, c1 in pills]
-    pad_x, pill_h, gap = 18 * S, round(H * 0.060) * S, 14 * S
+    pad_x, pill_h, gap = 18 * S, pill_h, 14 * S
     size = round(H * 0.030)
     pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
     row_w = lambda fs: sum(d.textlength(t, font=fs) + 2 * pad_x for t, _, _ in labels) + gap * (len(labels) - 1)  # noqa: E731
@@ -299,7 +305,7 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
         pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
     widths = [d.textlength(t, font=pill_font) + 2 * pad_x for t, _, _ in labels]
     x = cx * S - (sum(widths) + gap * (len(widths) - 1)) / 2
-    y = int(y + H * 0.030 * S)
+    y = pills_y
     for (text, c0, c1), w in zip(labels, widths, strict=True):
         box = (int(x), y, int(x + w), y + pill_h)
         ds.rounded_rectangle((box[0], box[1] + 3 * S, box[2], box[3] + 3 * S), radius=pill_h // 2, fill=(0, 0, 0, 120))
