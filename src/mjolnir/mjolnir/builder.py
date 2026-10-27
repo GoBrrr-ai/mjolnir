@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 
 from mjolnir.runner import StepPlan, env_flag
@@ -110,6 +111,16 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         self._plan_margin = int(getattr(spec, "num_speculative_tokens", 0) or 0) if spec is not None else 0
         self._kv_format = _kv_format(getattr(vllm_config.cache_config, "cache_dtype", "auto"))
         self._fp6 = self._kv_format == "e2m3"
+        # MJOLNIR_FP6_DIRECT: the scratchpad-free fp6 fallback — the patched
+        # FlashInfer Ampere prefill reads the packed pool directly (docs/
+        # stack-research/fp6-prefill-direct.md). Ampere fa2 only: the patch's
+        # produce/expand live in the sm80-family prefill kernel.
+        self._fp6_direct = (
+            self._fp6
+            and _FALLBACK == "FLASHINFER"
+            and env_flag("MJOLNIR_ATTN_FP6_DIRECT", "0") in ("1", "true", "yes")
+            and torch.cuda.get_device_capability(device)[0] == 8
+        )
         self._page = kv_cache_spec.block_size
         self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
         if self._t5_reason is None:
@@ -298,7 +309,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         q_len = self._t5_q_len(cam) if common_prefix_len == 0 and not self._force_fallback else None
         if q_len is None:
             STATS["fallback_steps"] += 1
-            if self._fp6:
+            if self._fp6 and not self._fp6_direct:
                 pages = self._fp6_page_map(cam)
                 # The scratch must cover the plan's longest sequence. The
                 # warmup/profile passes plan huge dummy seq_lens over a tiny
@@ -326,7 +337,12 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
                         cam.block_table_tensor = _orig_bt
                     md.mjolnir_fp6_pages = pages
                     return md
-            return super().build(common_prefix_len, cam, fast_build)
+            elif self._fp6_direct:
+                STATS["fp6_direct_steps"] = STATS.get("fp6_direct_steps", 0) + 1
+            md = super().build(common_prefix_len, cam, fast_build)
+            if self._fp6_direct:
+                self._plan_fp6_direct(md, cam)
+            return md
         STATS["t5_steps"] += 1
         t5 = self.t5
         num_seqs = cam.num_reqs
@@ -345,6 +361,59 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         # Never compiled inside graph capture: build() runs outside it.
         t5.ensure_compiled(q_len, plan.with_reduction, plan.causal)
         return MjolnirMetadata(plan=plan, runner=t5, cam=cam)
+
+    def _plan_fp6_direct(self, md, cam) -> None:
+        """MJOLNIR_FP6_DIRECT: re-plan the base's prefill wrapper for the
+        packed pool. The wrapper object is dtype-agnostic (the JIT module
+        binds at plan), the block table already indexes the pool (no swap on
+        this path), and ``kv_data_type`` accepts the patched dtype string —
+        so one plan call flips the same wrapper to the fp6 kernel. The base's
+        fp8 plan state is discarded; the fp8 forward never runs for these
+        steps (the Impl's fp6-direct branch handles them)."""
+        prefill = getattr(md, "prefill", None)
+        wrapper = getattr(prefill, "wrapper", None)
+        if wrapper is None or not hasattr(wrapper, "plan"):
+            return
+        num_reqs = cam.num_reqs
+        seq_lens = self._seq_lens_cpu(cam)[:num_reqs]
+        seq_lens_np = np.asarray(seq_lens, dtype=np.int64)
+        page_size = self._page
+        num_blocks_np = (seq_lens_np + page_size - 1) // page_size
+        self._compute_flashinfer_kv_metadata(
+            num_blocks_np,
+            seq_lens_np,
+            cam.block_table_tensor,
+            num_reqs,
+            page_size,
+        )
+        device = cam.block_table_tensor.device
+        spec = self.kv_cache_spec
+        model_config = self.model_config
+        qo_indptr_cpu = cam.query_start_loc.cpu().to(torch.int32)
+        d = model_config.get_head_size()
+        md.prefill.wrapper.plan(
+            qo_indptr=qo_indptr_cpu,
+            paged_kv_indptr=self.paged_kv_indptr.cpu().to(torch.int32),
+            paged_kv_indices=self.paged_kv_indices,
+            paged_kv_last_page_len=self.paged_kv_last_page_len.cpu().to(torch.int32),
+            seq_lens=torch.as_tensor(seq_lens_np, dtype=torch.int32),
+            num_qo_heads=model_config.get_num_attention_heads(),
+            num_kv_heads=spec.num_kv_heads,
+            head_dim_qk=d,
+            page_size=page_size,
+            causal=True,
+            sm_scale=d**-0.5,
+            window_left=-1,
+            logits_soft_cap=None,
+            q_data_type=model_config.dtype,
+            kv_data_type="mjolnir_fp6_e2m3",
+            o_data_type=model_config.dtype,
+            fixed_split_size=getattr(self, "prefill_fixed_split_size", -1),
+            disable_split_kv=getattr(self, "disable_split_kv", False),
+        )
+        md.mjolnir_fp6_direct = True
+        logger.info("Mjolnir: fp6-direct prefill plan (%d reqs, pool-backed)", num_reqs)
+        _ = device  # the plan pins its own copies
 
     def _fp6_page_map(self, cam):
         """For a step the fallback runs on an fp6 cache: which cache page

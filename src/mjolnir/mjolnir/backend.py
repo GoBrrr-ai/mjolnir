@@ -404,6 +404,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
             self.enable_cuda_graph = False
         self.supports_quant_query_input = False
         self._kv_layout: str | None = None
+        self._fp6_pool_layout: str | None = None  # MJOLNIR_FP6_DIRECT
         self._t5_reason = _layer_reason(self)
 
     # -- KV cache write ----------------------------------------------------
@@ -424,6 +425,29 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         st = layer._mjolnir_fp6
         kvfp6.write_kv(key, value, kv_cache, slot_mapping, st["k_ch"], st["v_ch"])
         return None
+
+    def _forward_fp6_direct(self, layer, query, kv_cache, attn_metadata, output, *rest, **kwargs):
+        """MJOLNIR_FP6_DIRECT: the scratchpad-free fp6 fallback. The patched
+        FlashInfer Ampere prefill (``fi-fp6-kv-ampere-prefill.patch``) reads
+        the packed pool directly — no per-step e4m3 scratch, no sync. K's
+        per-channel scales fold into Q and V's post-multiply the output (the
+        T5 numerics); the kernel's expand emits raw e4m3 codes."""
+        st = layer._mjolnir_fp6
+        wrapper = attn_metadata.prefill.wrapper
+        t = query.shape[0]
+        q = query.reshape(t, self.num_qo_heads, self.head_size)
+        q = q * st["k_mul"].to(q.dtype)
+        row = self.head_size * 6 // 8
+        if self._fp6_pool_layout is None:
+            self._fp6_pool_layout = detect_kv_layout(kv_cache.shape, self.num_kv_heads, self.page_size, row)
+        k_cache, v_cache = split_kv_cache(kv_cache, self._fp6_pool_layout, row)
+        out = wrapper.run(q, k_cache, v_cache)
+        out = out.reshape(t, self.num_qo_heads, self.head_size) * st["v_mul"].to(out.dtype)
+        out = out.reshape(query.shape).to(query.dtype)
+        if output is not None:
+            output.copy_(out)
+            return output
+        return out
 
     def _forward_fp6_fallback(self, layer, query, key, value, kv_cache, attn_metadata, *rest, **kwargs):
         """A fallback step on an fp6 cache: expand the pages this step reads
@@ -530,6 +554,18 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 # fallback arrives unquantized (_fallback_fp8_q is False).
                 self.supports_quant_query_input = True
             try:
+                if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_direct", False):
+                    # MJOLNIR_FP6_DIRECT: the patched Ampere prefill reads the
+                    # packed pool directly (no scratch, no per-step expand).
+                    return self._forward_fp6_direct(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        *args,
+                        **kwargs,
+                    )
                 if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_pages", None) is not None:
                     # The fallback reads the e4m3 scratch. Without the pages
                     # (the profile/dummy passes) the base forward's
