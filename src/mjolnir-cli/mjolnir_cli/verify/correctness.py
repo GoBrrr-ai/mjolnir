@@ -177,22 +177,24 @@ _ORIN_CHECK = re.compile(
 
 
 def _orin_correctness(ctx: Ctx, timeout: float) -> dict:
-    """The Orin correctness matrix: one container per Q dtype runs the
-    harness sweep (page size x M x L against the fp32 reference) — bf16 Q
-    and fp8 Q (the runner's dynamic pack and the pre-quantized path); the
-    check lines parse into the shared case schema."""
+    """The Orin correctness matrix: one container per KV format runs the
+    harness sweep (page size x M x L against the fp32 reference) — fp8 and
+    fp6 e2m3, both against the dequantized-pool reference. The mma kernel
+    takes a bf16 query only (the fp8-Q pack retired with the GEMV; the M3
+    work), so the loop axis is the KV format, not Q. The check lines parse
+    into the shared case schema."""
     cases = []
-    for q in ("bf16", "fp8"):
-        log = ctx.logdir / "correctness" / f"orin-sweep-q{q}.log"
+    for kv in ("fp8", "e2m3"):
+        log = ctx.logdir / "correctness" / f"orin-sweep-kv{kv}.log"
         t0 = time.time()
-        rc, text = ctx.runner.harness(log, q, "--sweep", timeout=timeout)
+        rc, text = ctx.runner.harness(log, "bf16", f"--kv_dtype {kv} --sweep", timeout=timeout)
         for m in _ORIN_CHECK.finditer(text):
-            b, M, L, kv, split, rel, verdict = m.groups()
+            b, M, L, kv_seen, split, rel, verdict = m.groups()
             cases.append(
                 {
-                    "label": f"b={b} M={M} L<={int(L):,} kv={kv} split={split}",
-                    "q": q,
-                    "args": ["--batches", b, "--q_len", M, "--seqlen", L, "--kv_dtype", kv],
+                    "label": f"b={b} M={M} L<={int(L):,} kv={kv_seen} split={split}",
+                    "q": "bf16",
+                    "args": ["--batches", b, "--q_len", M, "--seqlen", L, "--kv_dtype", kv_seen],
                     "passed": verdict == "OK",
                     "rc": rc,
                     "seconds": round(time.time() - t0, 1),
@@ -202,10 +204,10 @@ def _orin_correctness(ctx: Ctx, timeout: float) -> dict:
             )
     for c in cases:
         mark = "✅" if c["passed"] else "❌"
-        ctx.out(f" {mark} [{c['q']}] {c['label']:<40} {c['check']}")
+        ctx.out(f" {mark} {c['label']:<44} {c['check']}")
     if not cases and not ctx.runner.dry_run:
         ctx.out(f" ❌ no check lines parsed — {ctx.logdir / 'correctness'}")
-    return {"cases": cases, "params": {"matrix": "ps x M x L x q (orin harness --sweep)"}}
+    return {"cases": cases, "params": {"matrix": "ps x M x L x kv (orin harness --sweep)"}}
 
 
 def stage_correctness(
