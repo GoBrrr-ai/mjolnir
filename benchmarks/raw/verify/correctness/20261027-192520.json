@@ -1,0 +1,958 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "correctness",
+ "run_id": "20261027-192520",
+ "ts": "2026-10-27T19:29:29+00:00",
+ "default": true,
+ "host": "orin",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "a8dbcf6",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "matrix": "ps x M x L x q (orin harness --sweep)",
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "cases": [
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00205 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00174 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00167 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00206 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00174 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00169 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00211 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00176 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00170 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00207 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00178 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00165 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00209 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00177 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00165 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00203 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00177 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00166 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00206 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00175 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00169 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00207 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00178 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "bf16",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 124.5,
+   "check": "rel_err=0.00168 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qbf16.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00205 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00174 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00167 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00206 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00174 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00169 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00211 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00176 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00170 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00207 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00178 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00165 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00209 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00177 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00165 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00203 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00177 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00166 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00206 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00175 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "1",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00169 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "1024",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00207 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "8192",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00178 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  },
+  {
+   "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
+   "q": "fp8",
+   "args": [
+    "--batches",
+    "1",
+    "--q_len",
+    "4",
+    "--seqlen",
+    "65536",
+    "--kv_dtype",
+    "fp8"
+   ],
+   "passed": true,
+   "rc": 0,
+   "seconds": 123.4,
+   "check": "rel_err=0.00168 (tol 0.05)",
+   "log": "/home/orin/mjolnir/benchmarks/logs/verify-20261027-192520/correctness/orin-sweep-qfp8.log"
+  }
+ ],
+ "summary": {
+  "passed": 48,
+  "failed": 0
+ }
+}
