@@ -1,0 +1,80 @@
+{#- The Thor page's override: the kernel benchmark sections that used to live
+    on the repo-root README (moved here — the root page is platform-neutral).
+    Fills the shared template's blocks; `kctx` is the (thor, headline model)
+    ReadmeContext, the same context the root README's sections rendered from. -#}
+{% extends "docs/templates/pages/PLATFORM_README.md.j2" %}
+
+{% block kernel_benchmarks %}
+{% if ctx.kernel %}
+{% set kctx = ctx.kernel %}
+### Mjolnir Kernel
+
+All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
+Measured on a dedicated Thor: a same-run ratio repeats within ±{{ kctx.noise_pct }}% between runs, see [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
+
+| leg | config | what runs | KV cache |
+|---|---|---|---|
+| **Mjolnir · e2m3 KV** | `{{ kctx.default_config }}` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
+| **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
+| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm {{ kctx.vllm_version }} FlashInfer for `sm_110` | fp8 e4m3, NHD pages |
+| **FlashAttention&nbsp;4 · hd256 fp8** | `NVFP4_FA4hd256` | FA4 hd256 as our image serves it — the patched FA4: 1-CTA decode carve-out, no SplitKV (structural in vLLM {{ kctx.vllm_version }}'s vendored kernel) | fp8 e4m3 Q+KV, NHD pages |
+| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — on demand (`--legs fa2`); stock vLLM {{ kctx.vllm_version }}'s `sm_110` default | bf16 {{ color("(FA2 has no fp8 KV)") }} |
+
+{% if "sweep" in kctx.runs %}
+{{ chart("kernel-latency", "Decode latency per step vs context length") }}
+
+{{ kctx.tables.sweep }}
+
+> <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
+
+{{ how("kernel") }}
+
+{{ chart("kernel-bandwidth", "Effective KV bandwidth vs the LPDDR5X peak") }}
+{%- endif %}
+{% endif %}
+{% endblock %}
+
+{% block e2e_detail %}
+{% if ctx.kernel and ctx.kernel.vs_vllm %}
+Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
+
+{{ ctx.kernel.vs_vllm }}
+{% if ctx.kernel.vs_vllm_missing %}
+> [!NOTE]
+> Incomplete: {{ ctx.kernel.vs_vllm_missing }}.
+{% endif %}
+> <sub>official: `{{ ctx.kernel.vs_vllm_official }}` · Mjolnir: `{{ ctx.kernel.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
+{% endif %}
+{% endblock %}
+
+{% block extras %}
+## How the kernel works
+
+A decode step is one query token per sequence against the whole KV cache: at 64K tokens that is 128 MiB of K and V per layer, read once. The design goal is to keep the LPDDR5X busy and everything else out of the way.
+
+| | design choice | why on Thor |
+|---|---|---|
+| ⚙️ | **Warp-specialized `tcgen05` pipeline** — a TMA warp streams K/V pages through an SMEM ring, an MMA warp runs `S = QKᵀ` and `O += PV` on the tensor cores into TMEM, softmax warpgroups read S from TMEM and write P | the tensor cores and TMEM keep scores off the register file; the TMA engine walks the page table so the SMs never issue loads |
+| 📐 | **Occupancy-pinned split-KV** — every step fills exactly 2 CTAs × 20 SMs; long sequences split into chunks, a small reduction kernel merges them | one full wave at every L; a fixed padded grid replays under full CUDA graphs |
+| 🧊 | **fp8 everything** — Q quantized per (sequence, KV head) on the fly, fp8 KV, P stored as e4m3 | one MMA kind, no conversion warps, half the KV bytes of bf16 |
+| 🗂️ | **Head-major (HND) pages** — each KV head's page is one contiguous block | longer DRAM bursts per TMA box: [hndsweep](kernel/hndsweep.md) |
+| 🪶 | **6-bit KV (e2m3) read directly by the MMA** (`kind::f8f6f4`, TMA unpacks to byte containers) | 25% fewer bytes at near-fp8 accuracy: [kvfmt](kernel/kvfmt.md), [quant](kernel/quant.md), [capacity](kernel/kv-cache-size.md) |
+| 🚿 | **L2 evict-first on K/V loads**, a 2-stage ring for fp6 | KV is streamed once; keep L2 for the rest of the model: [ring](kernel/ring.md), [ab](kernel/ab.md) |
+
+The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the chapter index under [Kernel](#kernel) above.
+
+{% if ctx.kernel %}
+## What's in the Mjolnir image
+
+[`{{ ctx.kernel.image }}`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v{{ ctx.kernel.vllm_version }}` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md). Tags follow the upstream vLLM version.
+
+| patch | what it does |
+|---|---|
+| **`thor-mjolnir-attention-backend`** | adds `MJOLNIR` to vLLM's attention-backend enum → `--attention-backend MJOLNIR` |
+| [#50885](https://github.com/vllm-project/vllm/pull/50885) | FULL cudagraph mode for speculative decode on the FlashInfer-native backend |
+| [#49652](https://github.com/vllm-project/vllm/pull/49652) | draft-decode cudagraphs under dynamic speculative decoding |
+| [#54165](https://github.com/vllm-project/vllm/pull/54165) | Mamba/GDN `copy_kv_cache` restore under speculative decode |
+| [#55519](https://github.com/vllm-project/vllm/pull/55519) | no false-positive KV-reuse warning on the GDN hybrid |
+| Thor `sm_110` patches | GDN prefill enablement, FA4 hd256 fp8-KV + 1-CTA decode, fused draft-decode plan advance, DSpark non-causal draft cudagraph, draft-cudagraph shape gate, the `MJOLNIR` backend name + FA4 fallback default, the `fp6_e2m3` KV cache dtype |
+{% endif %}
+{% endblock %}

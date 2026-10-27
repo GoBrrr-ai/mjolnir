@@ -77,6 +77,11 @@ REF_SHORT = {"fi": "FI", "fi-hnd": "FI-HND", "fa2": "FA2", "fa4": "FA4"}
 
 
 def _short(s: dict) -> str:
+    # the `mjolnir` leg is e2m3 on the Thor but fp8 on the Orin — key the
+    # label off the series' own kv_format when it says fp8 (the Thor tables
+    # keep their committed labels)
+    if s["id"] == "mjolnir" and s.get("kv_format") == "fp8":
+        return SHORT["mjolnir-fp8"]
     return SHORT.get(s["id"], s["label"])
 
 

@@ -16,8 +16,6 @@ on each [model page](../../../configs/).
 | [`Qwen/Qwen3.8-27B`](../../../configs/Qwen/Qwen3.8-27B/README.md) | [`AWQ_FLASHINFER`](../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md) | ✅ |
 | [`nvidia/Qwen3.6-35B-A3B`](../../../configs/nvidia/Qwen3.6-35B-A3B/README.md) | — | — |
 
-
-
 ## Kernel
 
 Mjolnir on Jetson Orin, measured chapter by chapter and pinned to the
@@ -56,6 +54,73 @@ reproduces it.
 | 12 | [Flag A/B](kernel/ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261023-135215` |
 | 13 | [Accuracy](kernel/accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | ✅ run `20261017-210613` |
 
+
+
+
+### Mjolnir Kernel
+
+All kernel numbers are **cuda-event timed kernel time**, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
+Measured on the Orin: **research stage** — the restored `sm_87` kernel is slower than FlashInfer at every L; the chapters quantify the gap and where it comes from. Noise and methodology: [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
+
+| leg | what runs | KV cache |
+|---|---|---|
+| **Mjolnir GEMV** | the restored `sm_87` GEMV kernel, standalone | fp8 e4m3, HND pages |
+| **Mjolnir · serving path** | the kernel as the backend launches it (plan + buffers included) | fp8 e4m3, HND pages |
+| **FlashInfer FA2-TC** | the official vLLM 0.32.0 FlashInfer decode path for `sm_87` | fp8 e4m3, NHD pages |
+
+
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
+
+| L | Mjolnir fp8 | Mjolnir serving path | FlashInfer | fp8 vs FI | serving path vs FI |
+|---|--:|--:|--:|--:|--:|
+| **128** | 220.9&nbsp;µs | 805.9&nbsp;µs | **120.0&nbsp;µs** | $\color{#dc2626}{0.54\times}$ | $\color{#dc2626}{0.15\times}$ |
+| **4K** | 442.1&nbsp;µs | 907.2&nbsp;µs | **281.7&nbsp;µs** | $\color{#dc2626}{0.64\times}$ | $\color{#dc2626}{0.31\times}$ |
+| **8K** | 881.3&nbsp;µs | 1.23&nbsp;ms | **344.2&nbsp;µs** | $\color{#dc2626}{0.39\times}$ | $\color{#dc2626}{0.28\times}$ |
+| **16K** | 1.65&nbsp;ms | 2.84&nbsp;ms | **364.9&nbsp;µs** | $\color{#dc2626}{0.22\times}$ | $\color{#dc2626}{0.13\times}$ |
+| **32K** | 3.15&nbsp;ms | 4.37&nbsp;ms | **431.6&nbsp;µs** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.10\times}$ |
+| **64K** | 6.16&nbsp;ms | 6.86&nbsp;ms | **834.9&nbsp;µs** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.12\times}$ |
+| **128K** | 12.17&nbsp;ms | 12.91&nbsp;ms | **1.64&nbsp;ms** | $\color{#dc2626}{0.13\times}$ | $\color{#dc2626}{0.13\times}$ |
+| **256K** | 24.19&nbsp;ms | 24.93&nbsp;ms | **3.34&nbsp;ms** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.13\times}$ |
+| geomean |  |  |  | $\color{#dc2626}{0.24\times}$ | $\color{#dc2626}{0.16\times}$ |
+
+> <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (the Orin kernel is behind everywhere today).</sub>
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 4 hd256) is measured the same way, at the same L, in the same run.
+- **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
+- **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
+- **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.
+
+</details><br />
+
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
+
+
+## End to end
+
+The official vLLM image vs Mjolnir on Jetson Orin — the headline model's
+own history (`latest_pair`), decode tokens/s per request at 1 request.
+
+| official | Mjolnir | official t/s | Mjolnir t/s | change | at |
+|---|---|--:|--:|--:|---|
+| `AWQ_FLASHINFER` | `AWQ_MJOLNIR_E2M3_VT64K` | 16.6 | 19.8 | +18.8% | 32K |
+
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
+
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
+
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
+- **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
+- **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
+- **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
+
+</details><br />
 
 
 Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform=orin).

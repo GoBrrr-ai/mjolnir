@@ -17,6 +17,4 @@ on each [model page](../../../configs/).
 | [`nvidia/Qwen3.6-35B-A3B`](../../../configs/nvidia/Qwen3.6-35B-A3B/README.md) | — | — |
 
 
-
-
 Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform=spark).

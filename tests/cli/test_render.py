@@ -107,8 +107,11 @@ def test_full_render_from_fixture_data(repo):
     thor_page = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
     assert "**Where it stands:** 1.26× FlashInfer" in thor_page
     assert not (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").exists()
-    assert '<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in text
-    assert "<picture>" not in text and "srcset" not in text and "prefers-color-scheme" not in text
+    # the kernel benchmark charts moved off the root README to the Thor page
+    # (the root keeps only the hero + the static assets)
+    assert '<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in thor_page
+    assert "assets/benchmarks/thor" not in text
+    assert "<picture>" not in thor_page and "srcset" not in thor_page and "prefers-color-scheme" not in thor_page
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
     assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" in page  # relative to the page
     assert "Fastest variant at the most context lengths" in page
