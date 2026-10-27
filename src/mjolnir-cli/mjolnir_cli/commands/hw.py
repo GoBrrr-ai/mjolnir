@@ -64,7 +64,11 @@ def hw_setup(
     names = [s.strip() for s in skip.split(",") if s.strip()]
     bad = sorted(set(names) - set(thor.STEPS))
     if bad:
-        typer.secho(f"unknown --skip step(s): {', '.join(bad)} (valid: {', '.join(thor.STEPS)})", fg=typer.colors.RED)
+        typer.secho(
+            f"unknown --skip step(s): {', '.join(bad)} (valid: {', '.join(thor.STEPS)})",
+            fg=typer.colors.RED,
+            err=True,
+        )
         raise typer.Exit(4) from None
     if "docker" not in names:
         docker_version.ensure_docker_version(assume_yes=yes, dry_run=dry_run)

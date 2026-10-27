@@ -101,7 +101,7 @@ def test_upgrade_packages_match_the_setup_script(monkeypatch):
     from mjolnir_cli.config import resource_path
 
     text = resource_path("scripts/hw/setup-jetson-steps.sh").read_text()
-    line = next(l for l in text.splitlines() if "apt install -y docker-ce" in l)
+    line = next(ln for ln in text.splitlines() if "apt install -y docker-ce" in ln)
     pkgs = [t for t in line.split()[3:] if not t.startswith("-")]  # after `sudo apt install -y`
     monkeypatch.setattr(docker_version.os.path, "exists", lambda _p: True)
     installs = [c for c in docker_version.upgrade_commands() if len(c) > 4 and c[1:4] == ["apt-get", "install", "-y"]]
@@ -330,17 +330,14 @@ def test_docker_helper_calls_the_check_once_with_the_notice(monkeypatch, capsys)
     monkeypatch.delenv("MJOLNIR_SKIP_DOCKER_CHECK", raising=False)
     monkeypatch.setattr(dockerctl.shutil, "which", lambda _n: "/usr/bin/docker")
     monkeypatch.setattr(docker_version, "installed_docker_version", lambda: BELOW)
-    monkeypatch.setattr(
-        docker_version, "ensure_docker_version", lambda **kw: seen.append(kw) or None
-    )
-    dockerctl._docker()
+    monkeypatch.setattr(docker_version, "ensure_docker_version", lambda **kw: seen.append(kw) or None)
     dockerctl._docker()
     assert seen == [{"offer": False}]  # called once, notice path
-    out, err = capsys.readouterr().out, capsys.readouterr().err
-    assert out == "" and err == ""
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
 
 
-def test_serve_status_on_a_below_pin_host_neither_confirms_nor_upgrades(monkeypatch, capsys):
+def test_serve_status_on_a_below_pin_host_neither_confirms_nor_upgrades(monkeypatch):
     # V1: read-only paths get the notice only — no confirm, no upgrade command
     runner = CliRunner()
     monkeypatch.delenv("MJOLNIR_SKIP_DOCKER_CHECK", raising=False)
@@ -348,17 +345,16 @@ def test_serve_status_on_a_below_pin_host_neither_confirms_nor_upgrades(monkeypa
     monkeypatch.setattr(dockerctl.shutil, "which", lambda _n: "/usr/bin/docker")
     confirmed = []
     monkeypatch.setattr(typer, "confirm", lambda *a, **kw: confirmed.append(a) or True)
-    dockerctl._run_quiet = lambda args, ok_codes=(0, 1): (1, "")  # no container: quiet failure
+    monkeypatch.setattr(dockerctl, "_run_quiet", lambda args, ok_codes=(0, 1): (1, ""))  # no container: quiet failure
     r = runner.invoke(cli.app, ["serve", "status"])
     assert r.exit_code == 0, r.output
     assert confirmed == []  # no confirm
     upgrades = [c for c in probe.calls if c[:1] != ["docker"]]
     assert upgrades == []  # no upgrade command ran
-    err = capsys.readouterr().err
-    assert f"Docker {BELOW} is below mjolnir's pinned 29.9.2 —" in err
+    assert f"Docker {BELOW} is below mjolnir's pinned 29.9.2 —" in r.stderr  # the notice on stderr
 
 
-def test_serve_up_dry_run_on_a_below_pin_host_neither_confirms_nor_upgrades(monkeypatch, capsys):
+def test_serve_up_dry_run_on_a_below_pin_host_neither_confirms_nor_upgrades(monkeypatch):
     # V1: --dry-run is a read-only path too — the notice, never the offer
     runner = CliRunner()
     monkeypatch.delenv("MJOLNIR_SKIP_DOCKER_CHECK", raising=False)
@@ -366,15 +362,14 @@ def test_serve_up_dry_run_on_a_below_pin_host_neither_confirms_nor_upgrades(monk
     monkeypatch.setattr(dockerctl.shutil, "which", lambda _n: "/usr/bin/docker")
     confirmed = []
     monkeypatch.setattr(typer, "confirm", lambda *a, **kw: confirmed.append(a) or True)
-    dockerctl._run_quiet = lambda args, ok_codes=(0, 1): (1, "")  # no container: quiet failure
+    monkeypatch.setattr(dockerctl, "_run_quiet", lambda args, ok_codes=(0, 1): (1, ""))  # no container: quiet failure
     r = runner.invoke(cli.app, ["serve", "up", "--dry-run"])
     assert r.exit_code == 0, r.output
     assert "docker run" in r.output  # the dry-run plan was printed
     assert confirmed == []
     upgrades = [c for c in probe.calls if c[:1] != ["docker"]]
     assert upgrades == []  # no upgrade command ran
-    err = capsys.readouterr().err
-    assert f"Docker {BELOW} is below mjolnir's pinned 29.9.2 —" in err
+    assert f"Docker {BELOW} is below mjolnir's pinned 29.9.2 —" in r.stderr  # the notice on stderr
 
 
 def test_image_build_dry_run_offers_with_dry_run(monkeypatch, capsys):
