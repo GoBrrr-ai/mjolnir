@@ -36,7 +36,7 @@ from mjolnir.runner import (
     _stream,
     env_flag,
 )
-from . import qpack
+from mjolnir import qpack
 from . import decode as t5
 from . import plan as t5p
 
