@@ -31,6 +31,12 @@
  ],
  "e2e-decode": [
   {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "e2e"
+  },
+  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
@@ -38,6 +44,12 @@
   }
  ],
  "e2e-prefill": [
+  {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "e2e"
+  },
   {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.png",
    "model": "Qwen/Qwen3.8-27B",
@@ -122,6 +134,12 @@
   }
  ],
  "kv-cache-capacity": [
+  {
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kv-cache-capacity.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "kv-cache-size"
+  },
   {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.png",
    "model": "Qwen/Qwen3.8-27B",

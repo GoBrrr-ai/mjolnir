@@ -1,6 +1,6 @@
 # KV cache capacity
 
-> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · **no run yet**
+> tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context · `mjolnir verify kv-cache-size` · run `20261026-203434`
 
 ## The question
 
@@ -20,8 +20,30 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 
 ## Result
 
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kv-cache-capacity.png" alt="KV cache capacity per config" width="100%">
 
-> Pending — run `mjolnir verify kv-cache-size` on a Jetson Orin (it restarts the vLLM server per leg), then `mjolnir plot --readme`.
+- **Mjolnir · fp6 e2m3 KV** holds **795,466 tokens**, +38% vs Mjolnir · fp8 KV (575,866).
+- **Mjolnir · fp6 e2m3 KV** holds **795,466 tokens**, +3% vs Mjolnir · fp6 e2m3 KV + 64K draft vocab (769,120).
+- Mjolnir · fp8 KV: 3.0 requests at the full 190K context (vLLM's own estimate).
+- Mjolnir · fp6 e2m3 KV: 4.1 requests at the full 190K context (vLLM's own estimate).
+- Mjolnir · fp6 e2m3 KV + 64K draft vocab: 4.0 requests at the full 190K context (vLLM's own estimate).
+
+| config | serving | KV memory | KV tokens | vs first | max concurrency | fits @ 4K | fits @ 8K | fits @ 16K | fits @ 32K | fits @ 64K | fits @ 128K | model load $\color{grey}\scriptstyle\text{GiB}$ |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `AWQ_MJOLNIR` | Mjolnir · fp8 KV | 19.9 GiB | 575,866 | 1.00× | 3.0× @ 190K | 91 | 55 | 31 | 16 | 8 | 4 | 17.6 |
+| `AWQ_MJOLNIR_E2M3` | Mjolnir · fp6 e2m3 KV | 21.1 GiB | 795,466 | 1.38× | 4.1× @ 190K | 126 | 76 | 42 | 22 | 11 | 5 | 17.6 |
+| `AWQ_MJOLNIR_E2M3_VT64K` | Mjolnir · fp6 e2m3 KV + 64K draft vocab | 20.4 GiB | 769,120 | 1.34× | 4.0× @ 190K | 122 | 74 | 41 | 22 | 11 | 5 | 17.6 |
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **KV tokens** and KV memory come from vLLM's own startup log ("GPU KV cache size", "Available KV cache memory") for the same model and memory budget.
+- **vs first** = this row's KV tokens ÷ the first row's (`1.33×` = 33% more tokens).
+- **fits @ L** = ⌊KV tokens ÷ (L + 2,048 prompt + 128 generated)⌋ — whole requests of the e2e bench's shape that fit at once (`max-num-seqs` ignored).
+
+</details><br />
+
+<sub>Rendered from [`benchmarks/raw/verify/kv-cache-size/20261026-203434.json`](../../../../benchmarks/raw/verify/kv-cache-size/20261026-203434.json). "fits @ L": whole requests of L + 2,176 tokens in the KV cache; the server still caps running requests at `max-num-seqs`.</sub>
 
 ## How to read it
 
