@@ -124,7 +124,9 @@ def test_image_gates_runs_the_arch_legs(monkeypatch):
 
     monkeypatch.setattr(tasks, "run_task", fake_run_task)
     r = runner.invoke(cli.app, ["image", "gates", "--image", "mine:v9", "--arch", "orin", "--dry-run"])
-    assert r.exit_code == 0 and seen == ["orin-gates", "functional"], seen
+    # fp6-expand is arch-agnostic (the patched-flashinfer expand canary) and
+    # rides every board's legs.
+    assert r.exit_code == 0 and seen == ["orin-gates", "fp6-expand", "functional"], seen
     seen.clear()
     r = runner.invoke(cli.app, ["image", "gates", "--image", "mine:v9", "--task", "fi-update", "--dry-run"])
     assert r.exit_code == 0 and seen == ["fi-update"], seen
