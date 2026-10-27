@@ -321,6 +321,18 @@ FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
             "jit/attention/modules.py",
             '"maybe_k_fp6_scales"',
         ),
+        # The dtype-string pass-through in canonicalize_torch_dtype (no
+        # torch dtype exists for 6-bit float; the string keys the map).
+        (
+            "utils.py",
+            'if dtype == "mjolnir_fp6_e2m3":',
+        ),
+        # The NVFP4-heuristic exemption in the paged prefill run: the
+        # packed-fp6 cache is uint8 too, without scale factors.
+        (
+            "prefill.py",
+            'and self._cached_kv_data_type.startswith("mjolnir_fp6")',
+        ),
     ],
 }
 
