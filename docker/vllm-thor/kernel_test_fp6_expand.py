@@ -136,6 +136,7 @@ def main() -> int:
         # deterministic codes covering all 64 values across heads/rows/cols
         codes = torch.randint(0, 64, (H_K, CTA_TILE_KV, COLS * 16), generator=torch.Generator().manual_seed(7))
         scales = (torch.rand(H_K, D, generator=torch.Generator().manual_seed(3)) * 0.5 + 0.05).float()
+        scales.numpy().tofile(td / "scales.bin")  # the full [H_K, D] table
         for head in range(H_K):
             in_tile = bytearray(NSLOT * 16)
             for row in range(CTA_TILE_KV):
@@ -143,7 +144,6 @@ def main() -> int:
                     off = _swizzled_slot_offset(row, col) * 16
                     in_tile[off : off + 16] = _pack_slot(codes[head, row, col * 16 : (col + 1) * 16].tolist())
             (td / "in.bin").write_bytes(bytes(in_tile))
-            scales[head].numpy().tofile(td / "scales.bin")
 
             cu = td / "fp6_expand_test.cu"
             cu.write_text(CU)
