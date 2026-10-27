@@ -312,6 +312,7 @@ re-render at the end.
 | `--model` | the model (`vendor/Model`; default: the active one, `mjolnir model`) |  |
 | `--image` | image for bare-config legs (default: $MJOLNIR_IMAGE / built-in default) |  |
 | `--port` | the server port (default: the active one) |  |
+| `--dry-run` | print the resolved legs, run nothing | off |
 
 
 <a id="mjolnir-bench-accuracy"></a>
@@ -953,8 +954,9 @@ Launch the loop: an OpenCode session with the `autoresearch` agent.
 | option | description | default |
 |---|---|---|
 | `--tag` | start a new run first (init &lt;tag&gt;) |  |
+| `--base` | branch to start from (default: main; the Orin's kernel lives on feat/orin) |  |
 | `--model` | OpenCode model (provider/model) for the orchestrator |  |
-| `--prompt` |  | `Read research/program.md and run the loop: setup is done when the ledger has a baseline row. Never stop to ask; record every experiment with `mjolnir autoresearch evaluate`.` |
+| `--prompt` | the orchestrator's brief (default: read this platform's program and run the loop) |  |
 
 
 <a id="mjolnir-autoresearch-export"></a>

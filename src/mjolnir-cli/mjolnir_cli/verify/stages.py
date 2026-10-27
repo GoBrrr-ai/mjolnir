@@ -270,25 +270,19 @@ def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
     under the sweep stage with the platform tag, so every reader -- charts,
     README context, tables -- consumes them unchanged."""
     want = set(legs.split(",")) if legs else {"mjolnir", "mjolnir-full", "fi"}
-    # The MMA decode kernel is opt-in (--legs mjolnir-mma,...): the M4 gate
-    # compares it same-run against FI across L; the GEMV stays the default
-    # until the MMA wins the geomean (it does not: it loses 16K+, run
-    # orin1 notes). Gated + timed only when requested.
-    want_mma = "mjolnir-mma" in want
     # Correctness gate first: the exact configs the timing runs, plus the
     # ragged short-sequence case that exercises the masked-split paths.
     for args in (
         f"--seqlen 4096 --q_len {q_len}",
         "--seqlen 4096 --q_len 8 --batches 8",
         "--seqlen 64 --q_len 8 --batches 8",
-        *(("--seqlen 4096 --q_len 1 --impl mma", "--seqlen 4096 --q_len 8 --batches 8 --impl mma") if want_mma else ()),
     ):
         clog = ctx.logdir / "sweep" / f"check-{args.replace(' ', '_').replace('--', '')}.log"
         rc, _ = ctx.runner.harness(clog, "bf16", args)
         if rc != 0:
             ctx.out(f"   ❌ correctness gate failed ({args}) — {clog}")
             return {"error": f"correctness gate failed ({args}), see {clog}"}
-    pts: dict[str, list] = {"mjolnir": [], "mjolnir-full": [], "fi": [], "mjolnir-mma": []}
+    pts: dict[str, list] = {"mjolnir": [], "mjolnir-full": [], "fi": []}
     for L in ctx.ls:
         ctx.wait_clean()
         log = ctx.logdir / "sweep" / f"mjolnir-L{L}.log"
@@ -305,14 +299,6 @@ def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
             ctx.iters,
             env_extra=(("FI_LAYOUT", "NHD"), ("BENCH_PAGE", "16"), ("BENCH_QLEN", str(q_len)), ("BENCH_WARMUP", "20")),
         )
-        mma_us = None
-        if want_mma:
-            mlog = ctx.logdir / "sweep" / f"mjolnir-mma-L{L}.log"
-            margs = f"--seqlen {L} --q_len {q_len} --skip_ref_check --warmup_iterations 20 --iterations {ctx.iters} --impl mma"
-            _, mtext = ctx.runner.harness(mlog, "bf16", margs)
-            mma_us, mma_gbps = _median(mtext)
-            if mma_us is not None:
-                pts["mjolnir-mma"].append({"L": L, "total_us": mma_us, "gbps": mma_gbps})
         ok = rc == 0 and us is not None and frc == 0 and fi_us is not None
         if us is not None:
             pts["mjolnir"].append({"L": L, "total_us": us, "gbps": gbps})
@@ -320,9 +306,8 @@ def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
         if fi_us is not None:
             pts["fi"].append({"L": L, "total_us": fi_us})
         if ok:
-            mma_tail = f"  mma {mma_us:>9.1f} µs  ({fi_us / mma_us:>5.2f}x)" if mma_us is not None else ""
             ctx.out(
-                f"   L={L:>7,}  kernel {us:>9.1f} µs  full {full_us or 0:>9.1f} µs  FI {fi_us:>9.1f} µs  ({fi_us / us:>5.2f}x){mma_tail}"
+                f"   L={L:>7,}  kernel {us:>9.1f} µs  full {full_us or 0:>9.1f} µs  FI {fi_us:>9.1f} µs  ({fi_us / us:>5.2f}x)"
             )
         else:
             ctx.out(f"   L={L:>7,}  incomplete (mjolnir rc={rc}, fi rc={frc}) — {ctx.logdir / 'sweep'}")
@@ -340,10 +325,9 @@ def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
         }
 
     all_series = [
-        series("mjolnir", "Mjolnir GEMV (fp8 KV, HND)", "t5", "ours", "hnd", pts["mjolnir"]),
+        series("mjolnir", "Mjolnir MMA (fp8 KV, HND)", "t5", "ours", "hnd", pts["mjolnir"]),
         series("mjolnir-full", "Mjolnir serving path", "t5", "ours", "hnd", pts["mjolnir-full"]),
         series("fi", "FlashInfer FA2-TC (fp8 KV, NHD)", "fi", "baseline", "nhd", pts["fi"]),
-        series("mjolnir-mma", "Mjolnir MMA (fp8 KV, HND)", "t5", "ours", "hnd", pts["mjolnir-mma"]),
     ]
     return {"series": [s for s in all_series if s["id"] in want], "params": {}}
 
@@ -386,7 +370,13 @@ def stage_quant(ctx: Ctx, formats: str = "", batches: int = 2) -> dict:
         for L in ctx.ls:
             log = ctx.logdir / "quant" / f"{f}-L{L}.log"
             extra = "--kv_format fp8 --kv_from_float" if f == "fp8" else f"--kv_format {f}"
-            rc, text = ctx.runner.harness(log, "fp8", f"--batches {batches} --seqlen {L} {extra}", timeout=900)
+            # The fp6 reference dequantizes the whole pool on the host on top
+            # of the same per-page gather fp8's reference runs — the 900s
+            # default ran out at L≥65K on the Orin (the e2m3 rows came back
+            # "—" in orin2's §6.3) — scale the window with L.
+            rc, text = ctx.runner.harness(
+                log, "fp8", f"--batches {batches} --seqlen {L} {extra}", timeout=900 if L <= 32768 else 2400
+            )
             m = re.search(r"rel_l2=([0-9.eE+-]+)", text)
             mx = re.search(r"unquantized\| max=([0-9.eE+-]+)", text)
             rel = float(m.group(1)) if m else None
@@ -616,7 +606,8 @@ STAGES: dict[str, Stage] = {
             "sweep",
             "Headline L-sweep",
             "ncu",
-            "Mjolnir vs FlashInfer vs FlashAttention 4 hd256 (fp8 Q+KV, on the Mjolnir image), ncu kernel time at every L",
+            "Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, "
+            "events-timed where there is no ncu",
             stage_sweep,
         ),
         Stage(
@@ -682,7 +673,11 @@ STAGES: dict[str, Stage] = {
             requires_ncu=True,
         ),
         Stage(
-            "timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing
+            "timing",
+            "Harness timing",
+            "harness",
+            "harness-timed medians per Q dtype; 1 vs 2 CTAs/SM where the family has that axis",
+            stage_timing,
         ),
         Stage(
             "kv-cache-size",
