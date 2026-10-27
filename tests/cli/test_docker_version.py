@@ -101,6 +101,26 @@ def test_upgrade_commands_are_the_apt_steps():
     assert any(f.startswith("sudo systemctl restart docker") for f in flat)
 
 
+def test_repo_setup_writes_a_resolved_docker_list(monkeypatch):
+    # no keyring yet -> the repo is added; the line must be fully resolved
+    # (argv has no shell, so a literal $(...) would be written verbatim)
+    monkeypatch.setattr(docker_version.os.path, "exists", lambda _p: False)
+    monkeypatch.setattr(docker_version, "_ubuntu_codename", lambda *_a: "noble")
+    monkeypatch.setattr(docker_version, "_dpkg_arch", lambda: "arm64")
+    tee = next(c for c in docker_version.upgrade_commands() if c[1] == "tee")
+    line = tee[3]
+    assert "$(" not in line
+    assert line == (
+        "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable"
+    )
+
+
+def test_ubuntu_codename_prefers_ubuntu_codename(tmp_path):
+    f = tmp_path / "os-release"
+    f.write_text('UBUNTU_CODENAME="noble"\nVERSION_CODENAME="bionic"\n')
+    assert docker_version._ubuntu_codename(str(f)) == "noble"
+
+
 # --- ensure_docker_version behaviour ----------------------------------------
 # Each test sets MJOLNIR_SKIP_DOCKER_CHECK explicitly so it overrides the
 # conftest autouse fixture (which only sets it when unset).
