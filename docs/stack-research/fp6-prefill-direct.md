@@ -157,6 +157,24 @@ The DIRECT path (all behind `MJOLNIR_ATTN_FP6_DIRECT=1` + fp6 + `_FALLBACK ==
    (currently set for ALL fp6) once the direct path is validated: scope it to
    the scratch path only.
 
+## Refinement (2026-10-27, post-canary): no scale plumbing at all
+
+The wrapper-op plumbing for the scale tensors turns out to be unnecessary —
+the scales never need to reach the kernel:
+
+- **K folds into Q** (exact, host-side, per step): `S = Σ_c (q_c·s_c)·code_c`.
+  The T5 kernel already does exactly this fold.
+- **V applies to the output** (exact, post-kernel): `o_d = s_d·Σ_t P·V[t,d]` —
+  a per-channel broadcast multiply on the returned `o` in our impl.
+
+So the expand produces **raw `e4m3(code)`** — the kernel needs only a
+null-scale guard (`sc ? sc[...] : 1.0f`), the two params stay optional/null,
+and no prefill.py wrapper-op hunk is required. The impl owns the two folds
+(both are the validated T5 numerics). The wrapper-level dtype dispatch (the
+paged_run op's fp4/fp8/plain branches keyed on cache/q dtypes) is the one
+remaining read: for an fp6 module instance the call must land in the plain
+fa2 branch — verified when the impl lands.
+
 ## Status
 
 - [x] Research (this doc)
@@ -168,9 +186,15 @@ The DIRECT path (all behind `MJOLNIR_ATTN_FP6_DIRECT=1` + fp6 + `_FALLBACK ==
 - [x] Compile-validated CPU-side: the patch applies to a pristine tree, and
       the fp6 expand instantiates clean for sm_87 (`nvcc -c`, exit 0) —
       `/tmp/opencode/fi-test/`
-- [ ] Image build of the side tag `v0.32.0-fp6direct` (in flight) + the
-      unpack canary in `image gates`
-- [ ] vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`), probe-gated
+- [x] Image build of the side tag `v0.32.0-fp6direct` + `image gates`:
+      **orin-gates ALL OK + the fp6-expand canary bit-exact on device**
+      (1024 slots × 4 heads; fixed the change-notice comment style for
+      C/C++ headers and the canary's scales-file bug along the way)
+- [ ] The kernel's null-scale guard (the expand skips the multiply when the
+      scales are absent) + re-canary
+- [ ] vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`) per the design + the
+      refinement: builder skips the scratch; the impl folds K→Q, posts V→o,
+      runs the lazy fp6 wrapper on the packed pool
 - [ ] Runtime: greedy parity vs fp8, then the same-run A/B
       (fp6-direct vs fp8-scratch vs fp8) across L
 - [ ] Default flip decision per the bench discipline (a default flips only
