@@ -228,7 +228,10 @@ def _white_logo(layout: RepoLayout):
 
     arr = np.array(logo)
     arr[..., :3] = np.where(arr[..., 3:] > 0, np.array([232, 238, 248]), arr[..., :3])
-    return Image.fromarray(arr, "RGBA")
+    logo = Image.fromarray(arr, "RGBA")
+    # trim the transparent margins: the caller's height fraction applies to
+    # the visible mark, not the canvas it ships on
+    return logo.crop(logo.getchannel("A").getbbox())
 
 
 def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
@@ -262,50 +265,58 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     shadow = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     d, ds = ImageDraw.Draw(over), ImageDraw.Draw(shadow)
 
-    # the white logotype, centred on the right half: big, near the top
-    logo_h = round(H * 0.44)
-    logo_w = round(logo_img.size[0] * logo_h / logo_img.size[1])
-    if logo_w > 0.40 * W:  # a wide wordmark variant: cap by width instead
-        logo_w = round(0.40 * W)
-        logo_h = round(logo_w * logo_img.size[1] / logo_img.size[0])
-    logo = logo_img.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
-    ly = round(H * 0.04)
-    over.alpha_composite(logo, (round(cx * S - logo_w * S / 2), ly * S))
+    # ── vertical layout (all S-scaled px): the logo → slogan → pills stack
+    # centred as a group on the image's Y axis, never closer to the top edge
+    # than twice the old top padding ────────────────────────────────────────
+    logo_hS = round(H * 0.44) * S
+    logo_wS = round(logo_img.size[0] * logo_hS / logo_img.size[1])
+    if logo_wS > 0.40 * W * S:  # a wide wordmark variant: cap by width instead
+        logo_wS = round(0.40 * W * S)
+        logo_hS = round(logo_wS * logo_img.size[1] / logo_img.size[0])
+    pill_hS = round(H * 0.060) * S
+    gap_logo_slogan = round(H * 0.05) * S
+    gap_slogan_pills = round(H * 0.030) * S
 
-    # slogan: centred line(s), shrunk to stay inside the dark right half
-    # (the art fills the left ~55%), stacked upward to end just above the pills
+    # ── slogan: centred line(s), shrunk to stay inside the padded span
+    # (2× the old padding from the image centre line and the right edge) ────
     slogan = ROOT_HERO_SLOGAN if platform is None else (PLATFORM_HERO_SLOGAN[platform],)
-    max_w = 0.42 * W * S
+    max_wS = 0.34 * W * S
     size = round(H * 0.040)
     slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
-    while size > round(H * 0.024) and max(d.textlength(ln, font=slogan_font) for ln in slogan) > max_w:
+    while size > round(H * 0.024) and max(d.textlength(ln, font=slogan_font) for ln in slogan) > max_wS:
         size -= 1
         slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
-    line_h = slogan_font.size * 1.38
-    # the pill row anchors the bottom; the slogan block sits right above it
-    pill_h = round(H * 0.060) * S
-    pills_y = round((H - 0.055 * H) * S) - pill_h
-    y = pills_y - round(H * 0.030 * S) - round(line_h * len(slogan))
+    line_hS = round(slogan_font.size * 1.38)
+
+    stack_hS = logo_hS + gap_logo_slogan + line_hS * len(slogan) + gap_slogan_pills + pill_hS
+    topS = max(round(H * 0.08) * S, (H * S - stack_hS) // 2)
+
+    # the white logotype, centred on the stack axis
+    logo = logo_img.resize((logo_wS, logo_hS), Image.Resampling.LANCZOS)
+    over.alpha_composite(logo, (round(cx * S - logo_wS / 2), topS))
+
+    # slogan lines under the logotype
+    y = topS + logo_hS + gap_logo_slogan
     for line in slogan:
         w = d.textlength(line, font=slogan_font)
         x = cx * S - w / 2
         ds.text((x, y + 2 * S), line, font=slogan_font, fill=(0, 0, 0, 170))
         d.text((x, y), line, font=slogan_font, fill=(232, 238, 248, 255))
-        y += line_h
+        y += line_hS
 
-    # pills: one centred row, shrunk if it would run past the dark half
+    # pills: one centred row, shrunk if it would run past the padded span
     pills = ROOT_HERO_PILLS if platform is None else PLATFORM_HERO_PILLS[platform]
     labels = [(t.format(vllm=VLLM_VERSION), c0, c1) for t, c0, c1 in pills]
-    pad_x, pill_h, gap = 18 * S, pill_h, 14 * S
+    pad_x, pill_h, gap = 18 * S, pill_hS, 14 * S
     size = round(H * 0.030)
     pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
     row_w = lambda fs: sum(d.textlength(t, font=fs) + 2 * pad_x for t, _, _ in labels) + gap * (len(labels) - 1)  # noqa: E731
-    while size > round(H * 0.020) and row_w(pill_font) > max_w:
+    while size > round(H * 0.020) and row_w(pill_font) > max_wS:
         size -= 1
         pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
     widths = [d.textlength(t, font=pill_font) + 2 * pad_x for t, _, _ in labels]
     x = cx * S - (sum(widths) + gap * (len(widths) - 1)) / 2
-    y = pills_y
+    y = topS + logo_hS + gap_logo_slogan + line_hS * len(slogan) + gap_slogan_pills
     for (text, c0, c1), w in zip(labels, widths, strict=True):
         box = (int(x), y, int(x + w), y + pill_h)
         ds.rounded_rectangle((box[0], box[1] + 3 * S, box[2], box[3] + 3 * S), radius=pill_h // 2, fill=(0, 0, 0, 120))
