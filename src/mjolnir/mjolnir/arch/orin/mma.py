@@ -118,21 +118,25 @@ class MMADecodeKernel:
         self.kv_format = kv_format
         self.fp6 = kv_format == "e2m3"
         self.row_bytes = self.HEAD_DIM * 3 // 4 if self.fp6 else self.HEAD_DIM
-        # The MT=16 experimental path (the (1,4,1) N-split arrangement,
-        # q_len <= 2): opt-in via the env so the default stays the proven
-        # MT=64 kernel until it gates and benches.
+        # The M-tile dispatch: MT=16 (the (1,4,1) N-split arrangement) for
+        # q_len <= 2 and MT=32 for q_len <= 5. The 64-row tile made the
+        # P/softmax/HMMA work per KV byte 4x FlashInfer's at M=1 (the
+        # instruction-mix profile, mma-kernel-design-2.md); the small tiles
+        # cut the 16K+ gap by a third and gated 42/42 + 24/24 (sessions 4-5).
+        # Default ON since the oct28 run; MJOLNIR_MMA16=0 opts out (A/B).
         import os
 
-        self.small_tile = os.environ.get("MJOLNIR_MMA16", "") == "1"
+        self.small_tile = os.environ.get("MJOLNIR_MMA16", "1") != "0"
         # The 3-CTA occupancy probe: nvvm.minctasm (= __launch_bounds__
         # min-blocks) makes ptxas cap the registers to <=170/thread.
         # Probe only — the smem still binds at 2 CTAs until the register
         # paths land, so this measures the cap's spill/ILP cost alone.
         self.regcap = os.environ.get("MJOLNIR_REGCAP", "") == "1"
-        # The full 3-CTA package: the K register path (no sK16), the sV16
-        # aliased over the dead-after-hoist sQ + a pad, the 2-pair ring,
-        # and nvvm.minctasm=3. MT=16 only.
-        self.regpath = os.environ.get("MJOLNIR_REGPATH", "") == "1"
+        # The MT=16 register-K package: the K dequant in the fragments (no
+        # sK16; the swizzled (SR, D/2) u16 view + the even/odd 2-pass gemm),
+        # the sV16 alias over the dead sQ, the 2-pair ring. The M=1-2
+        # configuration of the dispatch above. MJOLNIR_REGPATH=0 opts out.
+        self.regpath = os.environ.get("MJOLNIR_REGPATH", "1") != "0"
 
     # ------------------------------------------------------------------
     @cute.jit

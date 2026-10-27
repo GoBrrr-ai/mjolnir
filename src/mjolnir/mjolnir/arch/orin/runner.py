@@ -114,7 +114,10 @@ class OrinDecodeRunner:
         # gathers read the pool through the view's own (dynamic) strides --
         # the pre-s2 binaries hardcoded the flat contiguous layout and read
         # garbage from vLLM's interleaved pool (orin1, the stride probe).
-        self._variant = _mma_variant() + "+s2"  # read once: _key() is per call
+        # s3: the M-tile dispatch defaults ON (mma.py reads MJOLNIR_MMA16 /
+        # MJOLNIR_REGPATH as opt-OUT now) -- same env string, different
+        # code, so the pre-s3 binaries are orphaned too.
+        self._variant = _mma_variant() + "+s3"  # read once: _key() is per call
         from mjolnir.arch.orin import mma as mma_kernel
 
         assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
