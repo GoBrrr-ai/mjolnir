@@ -418,6 +418,8 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         )
         md.mjolnir_fp6_direct = True
         md.mjolnir_fp6_page = page_size
+        md.mjolnir_fp6_indices = paged_kv_indices
+        md.mjolnir_fp6_seq_lens = seq_lens_np
         logger.info("Mjolnir: fp6-direct prefill plan (%d reqs, pool-backed)", num_reqs)
 
     def _fp6_page_map(self, cam):
