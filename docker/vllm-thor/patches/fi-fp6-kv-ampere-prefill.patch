@@ -153,7 +153,20 @@
  
  // Type trait to detect packed NVFP4 KV cache types (__nv_fp4x2_e2m1 stores 2 FP4 per byte).
  template <typename T>
-@@ -578,6 +581,7 @@
+@@ -204,8 +207,10 @@
+ // the policy it has always had.
+ template <typename DTypeKV, uint32_t CTA_TILE_Q, uint32_t HEAD_DIM_QK, uint32_t HEAD_DIM_VO>
+ constexpr bool use_kv_repack(bool enable_fp4_repack) {
+-  return (sizeof(DTypeKV) == 1) && (HEAD_DIM_VO != 64) && (HEAD_DIM_VO <= 256) &&
+-         (CTA_TILE_Q > 16) &&
++  // MJOLNIR_FP6_KV: the packed e2m3 cache expands in place to e4m3 before
++  // every read (expand_fp6_tile_to_fp8), at any CTA_TILE_Q -- never repack.
++  return (sizeof(DTypeKV) == 1) && !is_mjolnir_fp6_type_v<DTypeKV> &&
++         (HEAD_DIM_VO != 64) && (HEAD_DIM_VO <= 256) && (CTA_TILE_Q > 16) &&
+          (!is_fp4_type_v<DTypeKV> || (HEAD_DIM_QK <= 256 && enable_fp4_repack));
+ }
+ 
+@@ -578,6 +583,7 @@
    // NOTE: for fp8, this function doesn't work for head_dim = 64 at the moment
    using DTypeKV = typename KTraits::DTypeKV;
    constexpr bool IS_FP4 = is_fp4_type_v<DTypeKV>;
@@ -161,7 +174,7 @@
    constexpr uint32_t CTA_TILE_KV = KTraits::CTA_TILE_KV;
    constexpr uint32_t NUM_WARPS = KTraits::NUM_WARPS;
    constexpr uint32_t NUM_WARPS_Q = KTraits::NUM_WARPS_Q;
-@@ -596,20 +600,27 @@
+@@ -596,20 +602,27 @@
  #pragma unroll
        for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DTypeKV)); ++j) {
          // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
@@ -191,7 +204,7 @@
      }
      *smem_offset -= CTA_TILE_KV * UPCAST_STRIDE;
    } else {
-@@ -619,8 +630,11 @@
+@@ -619,8 +632,11 @@
  #pragma unroll
      for (uint32_t i = 0; i < NUM_MMA_KV * 2 / NUM_WARPS_Q; ++i) {
        // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
@@ -203,7 +216,7 @@
        } else {
          smem.load_128b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
        }
-@@ -658,6 +672,7 @@
+@@ -658,6 +674,7 @@
    // Use a 64b async load (cp.async with src-size=8) and advance GMEM pointer by half the normal
    // amount, while SMEM addressing remains unchanged.
    constexpr bool IS_FP4 = is_fp4_type_v<DType>;
@@ -211,7 +224,7 @@
    if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
      uint32_t kv_idx = kv_idx_base + warp_idx * 4 + lane_idx / 8;
      // NOTE: NUM_MMA_KV * 4 / NUM_WARPS_Q = NUM_WARPS_KV * NUM_MMA_KV * 4 / num_warps
-@@ -667,15 +682,18 @@
+@@ -667,15 +684,18 @@
        DType* gptr = kv_ptr + thr_local_kv_offset[i];
  #pragma unroll
        for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
@@ -231,7 +244,7 @@
        }
        kv_idx += NUM_WARPS * 4;
        *smem_offset =
-@@ -692,6 +710,8 @@
+@@ -692,6 +712,8 @@
        DType* gptr = kv_ptr + thr_local_kv_offset[i];
        if constexpr (IS_FP4) {
          smem.load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
@@ -240,7 +253,7 @@
        } else {
          smem.load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
        }
-@@ -710,6 +730,7 @@
+@@ -710,11 +732,14 @@
      const uint32_t logical_row, const uint32_t lane_idx) {
    using DType = typename KTraits::DTypeKV;
    constexpr bool IS_FP4 = is_fp4_type_v<DType>;
@@ -248,7 +261,16 @@
    constexpr uint32_t KV_THR_LAYOUT_COL = KTraits::KV_THR_LAYOUT_COL;
    uint32_t page_iter, entry_idx;
    paged_kv.page_size.divmod(packed_page_iter_base + logical_row, page_iter, entry_idx);
-@@ -745,6 +766,7 @@
+-  const uint32_t feat_idx =
+-      (lane_idx % KV_THR_LAYOUT_COL) * upcast_size<DType>() / (IS_FP4 ? 2 : 1);
++  // MJOLNIR_FP6_KV: 16 codes pack into 12 gmem bytes (3/4 of the fp8 byte
++  // density), so the per-slot-column byte offset scales by 3/4.
++  const uint32_t feat_idx = (lane_idx % KV_THR_LAYOUT_COL) * upcast_size<DType>() *
++                            (IS_FP6 ? 3 : 4) / 4 / (IS_FP4 ? 2 : 1);
+   // The K and V pools may carry different strides (e.g. NVFP4 VO-split caches
+   // where head_dim_qk != head_dim_vo), so route V rows through the V strides.
+   if constexpr (produce_v) {
+@@ -745,6 +770,7 @@
    constexpr uint32_t UPCAST_STRIDE =
        produce_v ? KTraits::UPCAST_STRIDE_V : KTraits::UPCAST_STRIDE_K;
    constexpr bool IS_FP4 = is_fp4_type_v<DType>;
@@ -256,7 +278,7 @@
  
    if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
      constexpr uint32_t ROWS_PER_ITER = 4;
-@@ -761,11 +783,13 @@
+@@ -761,11 +787,13 @@
        for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
          if constexpr (IS_FP4) {
            smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
@@ -271,7 +293,7 @@
        }
        kv_idx += NUM_WARPS * ROWS_PER_ITER;
        *smem_offset = smem.template advance_offset_by_row<NUM_WARPS * ROWS_PER_ITER, UPCAST_STRIDE>(
-@@ -786,6 +810,8 @@
+@@ -786,6 +814,8 @@
                                   logical_row, lane_idx);
        if constexpr (IS_FP4) {
          smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
@@ -280,7 +302,7 @@
        } else {
          smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
        }
-@@ -1361,6 +1387,58 @@
+@@ -1361,6 +1391,58 @@
    }
  }
  
@@ -339,7 +361,7 @@
  template <typename KTraits, bool REPACK_BF16 = false>
  __device__ __forceinline__ void compute_qk(
      smem_t<KTraits::SWIZZLE_MODE_Q>* q_smem, uint32_t* q_smem_offset_r,
-@@ -2377,6 +2455,16 @@
+@@ -2377,6 +2459,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
        maybe_v_cache_sf = params.maybe_v_cache_sf;
      }
@@ -356,7 +378,7 @@
  
      static_assert(sizeof(DTypeQ) == 2);
      const uint32_t lane_idx = tid.x, warp_idx = get_warp_idx<KTraits>(tid.y, tid.z);
-@@ -2595,6 +2683,19 @@
+@@ -2595,6 +2687,19 @@
                smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
                                           16 * KTraits::NUM_MMA_D_QK),
                lane_idx, s_frag);
@@ -376,7 +398,7 @@
          } else {
            compute_qk<KTraits>(
                &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
-@@ -2656,6 +2757,17 @@
+@@ -2656,6 +2761,17 @@
                smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
                                           16 * KTraits::NUM_MMA_D_VO),
                lane_idx, s_frag, o_frag, d, d_base);
@@ -394,7 +416,7 @@
          } else {
            compute_sfm_v<KTraits>(
                &v_smem, &v_smem_offset_r,
-@@ -3081,6 +3193,16 @@
+@@ -3081,6 +3197,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
        maybe_v_cache_sf = params.maybe_v_cache_sf;
      }
@@ -411,7 +433,7 @@
  
      static_assert(sizeof(DTypeQ) == 2);
      const uint32_t kv_chunk_size = *(params.kv_chunk_size_ptr);
-@@ -3869,6 +3991,16 @@
+@@ -3869,6 +3995,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
        maybe_v_cache_sf = params.maybe_v_cache_sf;
      }
@@ -428,6 +450,65 @@
      const uint32_t k_sf_stride_page = params.k_sf_stride_page;
      const uint32_t k_sf_stride_n = params.k_sf_stride_n;
      const uint32_t k_sf_stride_h = params.k_sf_stride_h;
+@@ -4067,8 +4203,11 @@
+                                     page_iter, entry_idx);
+           // FP4: GMEM is packed (2 FP4/byte), so the column byte offset is halved relative to fp8
+           constexpr uint32_t fp4_pack_factor = is_fp4_type_v<DTypeKV> ? 2 : 1;
+-          const uint32_t feat_idx =
+-              (lane_idx % KV_THR_LAYOUT_COL) * upcast_size<DTypeKV>() / fp4_pack_factor;
++          // MJOLNIR_FP6_KV: 16 codes pack into 12 gmem bytes (3/4 of the fp8
++          // byte density), so the per-slot-column byte offset scales by 3/4.
++          const uint32_t feat_idx = (lane_idx % KV_THR_LAYOUT_COL) * upcast_size<DTypeKV>() *
++                                    (is_mjolnir_fp6_type_v<DTypeKV> ? 3 : 4) / 4 /
++                                    fp4_pack_factor;
+           thr_local_kv_offset_k[i] = paged_kv.protective_get_k_offset(
+               page_iter, kv_head_idx, entry_idx, feat_idx, last_indptr);
+           if constexpr (!SAME_KV_STRIDES) {
+@@ -4181,8 +4320,12 @@
+                                       page_iter, entry_idx);
+             // FP4: GMEM is packed (2 FP4/byte), so the column byte offset is halved relative to fp8
+             constexpr uint32_t fp4_pack_factor = is_fp4_type_v<DTypeKV> ? 2 : 1;
+-            const uint32_t feat_idx =
+-                (lane_idx % KV_THR_LAYOUT_COL) * upcast_size<DTypeKV>() / fp4_pack_factor;
++            // MJOLNIR_FP6_KV: 16 codes pack into 12 gmem bytes (3/4 of the fp8
++            // byte density), so the per-slot-column byte offset scales by 3/4.
++            const uint32_t feat_idx = (lane_idx % KV_THR_LAYOUT_COL) *
++                                      upcast_size<DTypeKV>() *
++                                      (is_mjolnir_fp6_type_v<DTypeKV> ? 3 : 4) / 4 /
++                                      fp4_pack_factor;
+             thr_local_kv_offset_k[i] = paged_kv.protective_get_k_offset(
+                 page_iter, kv_head_idx, entry_idx, feat_idx, last_indptr);
+             if constexpr (!SAME_KV_STRIDES) {
+@@ -4235,6 +4378,15 @@
+                                          16 * KTraits::NUM_MMA_D_QK),
+               lane_idx, s_frag);
+         } else {
++          if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
++            // MJOLNIR_FP6_KV: the produced slots hold packed e2m3 codes;
++            // expand them to e4m3 (code * s_channel) in place before the
++            // stock 1-byte per-fragment path reads them.
++            expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>(
++                smem_storage.k_smem, maybe_k_fp6_scales, kv_head_idx,
++                warp_idx * WARP_SIZE + lane_idx);
++            block.sync();
++          }
+           compute_qk<KTraits>(
+               &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
+               smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
+@@ -4325,6 +4477,13 @@
+                                          16 * KTraits::NUM_MMA_D_VO),
+               lane_idx, s_frag, o_frag, d, d_base);
+         } else {
++          if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
++            // MJOLNIR_FP6_KV: expand the packed V tile in place before compute_sfm_v reads it.
++            expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>(
++                smem_storage.v_smem, maybe_v_fp6_scales, kv_head_idx,
++                warp_idx * WARP_SIZE + lane_idx);
++            block.sync();
++          }
+           compute_sfm_v<KTraits>(
+               &v_smem, &v_smem_offset_r,
+               smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
 --- a/flashinfer/jit/attention/modules.py
 +++ b/flashinfer/jit/attention/modules.py
 @@ -53,26 +53,18 @@
