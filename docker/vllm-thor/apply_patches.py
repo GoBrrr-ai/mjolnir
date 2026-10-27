@@ -177,6 +177,12 @@ def patched_files(patch_file: Path) -> list[str]:
     return out
 
 
+def _comment_prefix(rel: str) -> str:
+    """``#`` for python/shell, ``//`` for C/C++ — a ``#`` line in a header is
+    an invalid preprocessing directive, not a comment."""
+    return "//" if Path(rel).suffix in {".cuh", ".cu", ".c", ".cc", ".cpp", ".h", ".hpp"} else "#"
+
+
 def mark_changed_files(root: Path, patches_dir: Path, names: list[str]) -> None:
     """Apache-2.0 section 4(b): every modified file carries a prominent notice
     that it was changed. One trailing comment per file (appended, so no line
@@ -192,9 +198,10 @@ def mark_changed_files(root: Path, patches_dir: Path, names: list[str]) -> None:
         text = path.read_text()
         if CHANGE_NOTICE in text:
             continue
+        c = _comment_prefix(rel)
         sep = "" if text.endswith("\n") else "\n"
         path.write_text(
-            text + f"{sep}\n{CHANGE_NOTICE}\n# {', '.join(pnames)} (see /usr/share/doc/mjolnir/patches/).\n"
+            text + f"{sep}\n{c} {CHANGE_NOTICE}\n{c} {', '.join(pnames)} (see /usr/share/doc/mjolnir/patches/).\n"
         )
 
 
