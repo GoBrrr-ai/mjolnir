@@ -434,7 +434,12 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         T5 numerics); the kernel's expand emits raw e4m3 codes."""
         st = layer._mjolnir_fp6
         wrapper = attn_metadata.prefill.wrapper
-        t = query.shape[0]
+        # Inputs are padded for CUDA graphs; the plan covers the actual
+        # tokens only (the spec-draft rows ride past num_actual_tokens).
+        num_actual_tokens = attn_metadata.num_actual_tokens
+        query = query[:num_actual_tokens]
+        output = output[:num_actual_tokens] if output is not None else None
+        t = num_actual_tokens
         page_size = getattr(attn_metadata, "mjolnir_fp6_page", 16)
         q = query.reshape(t, self.num_heads, self.head_size)
         q = q * st["k_mul"].to(q.dtype)
@@ -444,11 +449,63 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         k_cache, v_cache = split_kv_cache(kv_cache, self._fp6_pool_layout, row)
         out = wrapper.run(q, (k_cache, v_cache))
         out = out.reshape(t, self.num_heads, self.head_size) * st["v_mul"].to(out.dtype)
+        if os.environ.get("MJOLNIR_ATTN_FP6_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            self._fp6_debug_dump(layer, query, kv_cache, attn_metadata, out, st, wrapper, q)
         out = out.reshape(query.shape).to(query.dtype)
         if output is not None:
             output.copy_(out)
             return output
         return out
+
+    def _fp6_debug_dump(self, layer, query, kv_cache, attn_metadata, got, st, wrapper, q_folded):
+        """One-shot numerics dump for the direct path: rebuild the step's
+        attention with dense SDPA over the scratch expansion (the exact math
+        the scratch path runs) and diff it against the wrapper's output."""
+        import mjolnir.kvfp6 as kvfp6
+
+        dev = kv_cache.device
+        t = query.shape[0]
+        npages = (t + 15) // 16
+        indices = attn_metadata.mjolnir_fp6_indices
+        src = indices[:npages].long().clamp(0, kv_cache.shape[0] - 1)
+        scratch = _fp6_scratch(npages, self.num_kv_heads, 16, 2 * self.head_size, dev)
+        kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
+        Kt = scratch[..., : self.head_size].float().transpose(1, 2).reshape(-1, self.num_kv_heads, self.head_size)[:t]
+        Vt = scratch[..., self.head_size :].float().transpose(1, 2).reshape(-1, self.num_kv_heads, self.head_size)[:t]
+        q = query.float().reshape(t, self.num_heads, self.head_size)
+        reps = self.num_heads // self.num_kv_heads
+        scores = torch.einsum("thd,shd->hts", q, Kt.repeat_interleave(reps, dim=1)) * self.scale
+        scores.masked_fill_(torch.triu(torch.ones(t, t, dtype=torch.bool, device=dev), 1), float("-inf"))
+        ref = torch.einsum("hts,shd->thd", scores.softmax(-1), Vt.repeat_interleave(reps, dim=1))
+        gotf = got.reshape(t, self.num_heads, self.head_size).float()
+        d = (ref - gotf).abs()
+        # Discriminator 1: the same wrapper on a CONTIGUOUS copy of the same
+        # pages (identical codes, no K|V interleaving) — isolates stride
+        # walking from the expand/module itself.
+        packed_row = self.head_size * 6 // 8
+        kc = src.new_zeros((npages, 16, self.num_kv_heads, packed_row), dtype=torch.uint8)
+        vc = src.new_zeros((npages, 16, self.num_kv_heads, packed_row), dtype=torch.uint8)
+        pool = kv_cache
+        for j in range(npages):
+            page = pool[src[j]]
+            kc[j] = page[..., :packed_row].transpose(0, 1)
+            vc[j] = page[..., packed_row:].transpose(0, 1)
+        out_c = wrapper.run(q_folded, (kc, vc)).reshape(t, self.num_heads, self.head_size).float()
+        dc = (ref - out_c).abs()
+        # Discriminator 2: per-head nearest-ref match (a GQA-grouping bug
+        # would show as a clean permutation).
+        best = (gotf.unsqueeze(1) - ref.unsqueeze(0)).abs().amax(dim=(2, 3)).argmin(dim=0)
+        with open("/data/cache/fp6_dbg.log", "a") as f:
+            f.write(
+                f"layer={getattr(layer, 'layer_name', '?')} t={t} npages={npages} "
+                f"max={d.max().item():.4g} mean={d.mean().item():.4g} "
+                f"contig_max={dc.max().item():.4g} contig_mean={dc.mean().item():.4g} "
+                f"ref_absmax={ref.abs().max().item():.4g} got_absmax={gotf.abs().max().item():.4g} "
+                f"scratch_max={scratch.float().abs().max().item():.4g} "
+                f"kmul=[{st['k_mul'].min().item():.3g},{st['k_mul'].max().item():.3g}] "
+                f"vmul=[{st['v_mul'].min().item():.3g},{st['v_mul'].max().item():.3g}] "
+                f"perm={best.tolist()}\n"
+            )
 
     def _forward_fp6_fallback(self, layer, query, key, value, kv_cache, attn_metadata, *rest, **kwargs):
         """A fallback step on an fp6 cache: expand the pages this step reads
