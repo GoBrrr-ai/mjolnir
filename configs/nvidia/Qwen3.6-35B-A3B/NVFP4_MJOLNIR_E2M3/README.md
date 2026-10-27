@@ -39,6 +39,8 @@ Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjo
 | TTFT (ms) | 80,052 | 34,676 | −56.7% |
 | ITL (ms) | 14.3 | 9.8 | −31.8% |
 
+<img src="../../../../assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
+
 <details>
 <summary>How the % and × here are calculated</summary>
 

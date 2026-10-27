@@ -41,6 +41,7 @@ from pathlib import Path
 import yaml
 
 from mjolnir_cli.config import DEFAULT_MODEL
+from mjolnir_cli.platforms import REGISTRY
 from mjolnir_cli.verify import results, stages
 
 import verify_fixtures
@@ -332,6 +333,10 @@ def _seed_charts(root: Path) -> None:
         manifest[name] = {"stage": stage, "platform": "thor", "model": M38, "dark": dark}
     (root / "assets" / "benchmarks" / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     (root / "assets" / "hero.png").write_bytes(b"\x89PNG fixture")
+    # the platform header banners are render products (render_hero) — the
+    # fixture only needs the files the rendered pages link to
+    for p in REGISTRY:
+        (root / "assets" / f"hero-{p}.png").write_bytes(b"\x89PNG fixture")
 
 
 def _copy_templates(root: Path) -> None:

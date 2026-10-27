@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../../../assets/hero-orin.png" alt="Mjolnir on Jetson Orin" width="100%">
+</p>
+
 # Jetson Orin
 
 > **research** platform · `sm_87` · host requirements: JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) · [all platforms](../README.md)
@@ -99,6 +103,8 @@ Measured on the Orin: **research stage** — the restored `sm_87` kernel is slow
 
 
 ## End to end
+
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.png" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 The official vLLM image vs Mjolnir on Jetson Orin — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.

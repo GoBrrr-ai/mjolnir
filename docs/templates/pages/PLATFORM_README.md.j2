@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="{{ root }}assets/hero-{{ ctx.key }}.png" alt="Mjolnir on {{ ctx.name }}" width="100%">
+</p>
+
 # {{ ctx.name }}
 
 > **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
@@ -37,6 +41,8 @@ reproduces it.
 {%- block e2e -%}
 {% if ctx.e2e %}
 ## End to end
+
+{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
 
 The official vLLM image vs Mjolnir on {{ ctx.name }} — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.

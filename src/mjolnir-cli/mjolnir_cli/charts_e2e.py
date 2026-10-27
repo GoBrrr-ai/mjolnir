@@ -12,16 +12,18 @@ from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import Mode
 
 from mjolnir_cli.charts_base import (
-    HERO,
-    HERO_BACKGROUND,
-    HERO_PILLS,
-    HERO_SLOGAN,
-    INFOGRAPHIC,
+    HERO_BG_PLATFORM,
+    HERO_BG_ROOT,
+    HERO_LOGO,
     L_label,
+    PLATFORM_HERO_PILLS,
+    PLATFORM_HERO_SLOGAN,
+    ROOT_HERO_PILLS,
+    ROOT_HERO_SLOGAN,
     _display_family,
     _font_file,
-    _logotype_box,
     _plt,
+    hero_platform_out,
     multiple,
 )
 
@@ -163,6 +165,7 @@ def _e2e_chart(
         mode,
         f"mjolnir bench e2e · {mj.get('model', '')} · {e2e.spec_short(off, mj)} · "
         f"{off.get('image', '')} vs {mj.get('image', '')} · llama-benchy",
+        right=theme.board_line(platform),
     )
     return fig
 
@@ -209,48 +212,94 @@ def big_value(key: str, v: float) -> str:
     return f"{v:.1f} ms"
 
 
-def render_hero(layout: RepoLayout) -> Path | None:
-    """``assets/hero.png`` — the README header: ``assets/hero-background.png``
-    with the slogan (two lines, centred under the MJOLNIR logotype) and a row
-    of gradient pills (Jetson AGX Thor · CLI · vLLM <version>) under it."""
+def _white_logo(layout: RepoLayout):
+    """``assets/mjolnir_logo.png`` recolored white (the glyph is black on
+    transparency; the alpha channel carries the shape, so the RGB channels
+    simply go to the soft white the text uses)."""
+    from PIL import Image
+
+    if layout.repo_root is None:
+        return None
+    src = layout.repo_root / "assets" / HERO_LOGO
+    if not src.exists():
+        return None
+    logo = Image.open(src).convert("RGBA")
+    import numpy as np
+
+    arr = np.array(logo)
+    arr[..., :3] = np.where(arr[..., 3:] > 0, np.array([232, 238, 248]), arr[..., :3])
+    return Image.fromarray(arr, "RGBA")
+
+
+def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
+    """The README header banner: the platform's ``mjolnir_<p>_bg.jpeg`` (the
+    root: ``mjolnir_hero_bg.jpeg``, the three hammers), the white Mjölnir
+    logotype pasted over the dark right half, a one-line slogan under it and
+    a row of gradient pills — the root carries one pill per shipped platform,
+    a platform banner its name + kernel-type pills. Rendered at 2x and
+    downsampled for smooth edges."""
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
     from mjolnir_cli.config import VLLM_VERSION
 
     if layout.repo_root is None:
         return None
-    src = layout.repo_root / "assets" / HERO_BACKGROUND
+    bg_name = HERO_BG_ROOT if platform is None else HERO_BG_PLATFORM.format(platform=platform)
+    src = layout.repo_root / "assets" / bg_name
     if not src.exists():
+        return None
+    logo_img = _white_logo(layout)
+    if logo_img is None:
         return None
     bg = Image.open(src).convert("RGBA")
     W, H = bg.size
-    left, _top, right, bottom = _logotype_box(bg)
-    cx = (left + right) / 2
+    # the hammer art fills the left; the stack centres on the dark right half
+    cx = W * 0.76
     S = 2  # draw at 2x, downsample: smooth pill edges and text
     fam = _display_family()
-    slogan_font = ImageFont.truetype(_font_file(fam, "medium"), round(H * 0.040) * S)
-    pill_font = ImageFont.truetype(_font_file(fam, "semibold"), round(H * 0.030) * S)
 
     over = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     shadow = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 0))
     d, ds = ImageDraw.Draw(over), ImageDraw.Draw(shadow)
 
-    # slogan: two centred lines under the logotype
-    y = (bottom + H * 0.055) * S
+    # the white logotype, centred on the right half
+    logo_h = round(H * 0.30)
+    lw = round(logo_img.size[0] * logo_h / logo_img.size[1])
+    logo = logo_img.resize((lw, logo_h), Image.Resampling.LANCZOS)
+    ly = round(H * 0.08)
+    over.alpha_composite(logo, (round(cx * S - lw * S / 2), ly * S))
+
+    # slogan: centred line(s) under the logotype, shrunk to stay inside the
+    # dark right half (the art fills the left ~55%)
+    slogan = ROOT_HERO_SLOGAN if platform is None else (PLATFORM_HERO_SLOGAN[platform],)
+    max_w = 0.42 * W * S
+    size = round(H * 0.040)
+    slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
+    while size > round(H * 0.024) and max(d.textlength(ln, font=slogan_font) for ln in slogan) > max_w:
+        size -= 1
+        slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
+    y = (ly + logo_h + H * 0.045) * S
     line_h = slogan_font.size * 1.38
-    for line in HERO_SLOGAN:
+    for line in slogan:
         w = d.textlength(line, font=slogan_font)
         x = cx * S - w / 2
         ds.text((x, y + 2 * S), line, font=slogan_font, fill=(0, 0, 0, 170))
         d.text((x, y), line, font=slogan_font, fill=(232, 238, 248, 255))
         y += line_h
 
-    # pills: one centred row
-    labels = [(t.format(vllm=VLLM_VERSION), c0, c1) for t, c0, c1 in HERO_PILLS]
+    # pills: one centred row, shrunk if it would run past the dark half
+    pills = ROOT_HERO_PILLS if platform is None else PLATFORM_HERO_PILLS[platform]
+    labels = [(t.format(vllm=VLLM_VERSION), c0, c1) for t, c0, c1 in pills]
     pad_x, pill_h, gap = 18 * S, round(H * 0.060) * S, 14 * S
+    size = round(H * 0.030)
+    pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
+    row_w = lambda fs: sum(d.textlength(t, font=fs) + 2 * pad_x for t, _, _ in labels) + gap * (len(labels) - 1)  # noqa: E731
+    while size > round(H * 0.020) and row_w(pill_font) > max_w:
+        size -= 1
+        pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
     widths = [d.textlength(t, font=pill_font) + 2 * pad_x for t, _, _ in labels]
     x = cx * S - (sum(widths) + gap * (len(widths) - 1)) / 2
-    y = int(y + H * 0.035 * S)
+    y = int(y + H * 0.030 * S)
     for (text, c0, c1), w in zip(labels, widths, strict=True):
         box = (int(x), y, int(x + w), y + pill_h)
         ds.rounded_rectangle((box[0], box[1] + 3 * S, box[2], box[3] + 3 * S), radius=pill_h // 2, fill=(0, 0, 0, 120))
@@ -278,46 +327,59 @@ def render_hero(layout: RepoLayout) -> Path | None:
 
     shadow = shadow.filter(ImageFilter.GaussianBlur(4 * S))
     layer = Image.alpha_composite(shadow, over).resize((W, H), Image.Resampling.LANCZOS)
-    out = layout.repo_root / "assets" / HERO
+    out = layout.repo_root / "assets" / hero_platform_out(platform)
     Image.alpha_composite(bg, layer).convert("RGB").save(out, optimize=True)
     return out
 
 
-def render_infographic(layout: RepoLayout) -> Path | None:
-    """``assets/opening-infographic.png`` — the README hero.
+def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL) -> Path | None:
+    """``assets/benchmarks/<platform>/<model-short>/opening-<platform>-infographic.png``
+    — one per (platform, model) pair with an e2e history, over that
+    platform's ``mjolnir_<p>_bg.jpeg`` canvas.
 
-    ``assets/background.jpeg`` (the Thor-as-Mjolnir art on the left) stays
-    untouched. Four stat blocks fill the dark right half — decode, prefill,
-    time to first token, inter-token latency — each with the Mjolnir-side
+    Four stat blocks fill the dark right half — decode, prefill, time to
+    first token, inter-token latency — each with the Mjolnir-side
     absolute value as the big number and the change + direction as the
     subtitle, over the two measured values as bars; the claim, the model +
     platform, the scenario and the provenance sit bottom-left, under the
     hammer (a bottom scrim keeps them readable over the handle). Every number
-    comes from the latest history pair (:func:`mjolnir_cli.e2e.latest_pair`)
+    comes from the pair's latest history row (:func:`mjolnir_cli.e2e.latest_pair`)
     — one request at the smallest context both sides measured
     (:func:`mjolnir_cli.e2e.infographic_row`) — native FlashInfer on the
     official vLLM image vs the Mjolnir backend on the Mjolnir image.
 
-    Thor-only today. When Orin/DGX Spark pairs exist, render one chart per
-    platform (``opening-infographic-<platform>.png``; a platform suffix on a
-    per-platform chart is a data dimension, not the banned theme suffix) and
-    let the root template pick by the page's platform.
+    The root README pins the default pair (thor); each platform page embeds
+    its own pair's chart (a platform suffix on a per-platform chart is a
+    data dimension, not the banned theme suffix).
     """
     import numpy as np
     from matplotlib.patches import FancyBboxPatch
 
     from mjolnir_cli import e2e
+    from mjolnir_cli.config import model_short
 
     if layout.repo_root is None:
         return None
-    off, mj = e2e.latest_pair(layout.history_file)
+    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
     if not off or not mj:
         return None
     h = e2e.infographic_row(off, mj)
-    bg_path = layout.repo_root / "assets" / "background.jpeg"
+    bg_path = layout.repo_root / "assets" / HERO_BG_PLATFORM.format(platform=platform)
     if not h or not bg_path.exists():
-        print("[mjolnir] no official-vLLM / Mjolnir e2e pair in history — infographic skipped (run: mjolnir bench e2e)")
+        print(
+            f"[mjolnir] no official-vLLM / Mjolnir e2e pair for ({platform}, {model}) in history —"
+            " infographic skipped (run: mjolnir bench e2e)"
+        )
         return None
+    out = (
+        layout.repo_root
+        / "assets"
+        / "benchmarks"
+        / platform
+        / model_short({"model": model})
+        / f"opening-{platform}-infographic.png"
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     plt = _plt()
     bg = plt.imread(str(bg_path))
@@ -356,7 +418,8 @@ def render_infographic(layout: RepoLayout) -> Path | None:
 
     # ── bottom-left: claim, model + platform, scenario, provenance ─────────
     BL, BY = 0.035, 0.05  # left margin; lift of the whole block off the bottom edge
-    T(BL, BY + 0.275, "JETSON AGX THOR   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
+    plat_rec = REGISTRY[platform]
+    T(BL, BY + 0.275, f"{plat_rec.name.upper()}   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
     title = T(BL, BY + 0.185, "Mjolnir", 34, white, "bold", path_effects=halo)
     x_after = title.get_window_extent(renderer=fig.canvas.get_renderer()).x1
     ax.text(
@@ -447,7 +510,6 @@ def render_infographic(layout: RepoLayout) -> Path | None:
                     )
                 )
 
-    out = layout.repo_root / "assets" / INFOGRAPHIC
     fig.savefig(out, dpi=100)
     plt.close(fig)
     print(f"[mjolnir] wrote {out}")

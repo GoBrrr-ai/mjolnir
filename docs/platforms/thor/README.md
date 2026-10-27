@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../../../assets/hero-thor.png" alt="Mjolnir on Jetson AGX Thor" width="100%">
+</p>
+
 # Jetson AGX Thor
 
 > **supported** platform · `sm_110` · host requirements: JetPack 7.x · [all platforms](../README.md)
@@ -101,6 +105,8 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 
 ## End to end
+
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.png" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 The official vLLM image vs Mjolnir on Jetson AGX Thor — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.

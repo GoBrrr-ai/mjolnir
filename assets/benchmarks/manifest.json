@@ -15,17 +15,29 @@
  ],
  "accuracy-categories": [
   {
-   "dark": "assets/benchmarks/accuracy-categories.png",
-   "model": null,
-   "platform": null,
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-categories.png",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "platform": "thor",
+   "stage": "accuracy"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-categories.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "thor",
    "stage": "accuracy"
   }
  ],
  "accuracy-suites": [
   {
-   "dark": "assets/benchmarks/accuracy-suites.png",
-   "model": null,
-   "platform": null,
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-suites.png",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "platform": "thor",
+   "stage": "accuracy"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-suites.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "thor",
    "stage": "accuracy"
   }
  ],
@@ -34,6 +46,12 @@
    "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
+   "stage": "e2e"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-decode.png",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "platform": "thor",
    "stage": "e2e"
   },
   {
@@ -48,6 +66,12 @@
    "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
+   "stage": "e2e"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-prefill.png",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "platform": "thor",
    "stage": "e2e"
   },
   {
@@ -177,7 +201,21 @@
  ],
  "opening-infographic": [
   {
-   "dark": "assets/opening-infographic.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "orin",
+   "stage": "e2e"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/opening-thor-infographic.png",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "platform": "thor",
+   "stage": "e2e"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.png",
+   "model": "Qwen/Qwen3.8-27B",
+   "platform": "thor",
    "stage": "e2e"
   }
  ],

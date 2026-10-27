@@ -220,16 +220,22 @@ def title(ax, mode: Mode, text: str, subtitle: str | None = None, fontsize: int 
         )
 
 
-def _board_line() -> str:
-    """The right-footer line for the board this render runs on (the platform
-    record's name + sm family). Falls back to the Thor line off a checkout."""
+def board_line(platform: str | None = None) -> str:
+    """The right-footer line naming a board: the platform record's name + sm
+    family. ``None`` names the board this render runs on (the old behavior —
+    pair-scoped charts pass their data's platform instead)."""
     try:
         from mjolnir_cli.platforms import REGISTRY, UnknownPlatform, resolve_platform
 
-        p = REGISTRY[resolve_platform(None)]
+        p = REGISTRY[platform] if platform else REGISTRY[resolve_platform(None)]
         return f"MJOLNIR · {p.name} · {p.sm_family}"
     except (ImportError, KeyError, UnknownPlatform):
         return "MJOLNIR · Jetson AGX Thor · sm_110"
+
+
+def _board_line() -> str:
+    """The right-footer line for the board this render runs on."""
+    return board_line()
 
 
 def footer(fig, mode: Mode, text: str, below_in: float | None = None, right: str | None = None) -> None:
