@@ -9,6 +9,15 @@ import subprocess
 from mjolnir_cli import autoresearch as ar
 
 
+def test_the_kernel_family_and_program_follow_the_platform(monkeypatch):
+    monkeypatch.setenv("MJOLNIR_PLATFORM", "thor")
+    assert "arch/thor" in str(ar.kernel_files()[0]) and ar.program_file() == ar.PROGRAM["thor"]
+    monkeypatch.setenv("MJOLNIR_PLATFORM", "orin")
+    assert "arch/orin" in str(ar.kernel_files()[0]) and ar.program_file() == ar.PROGRAM["orin"]
+    # the orin family is the mma set, not the thor one
+    assert {p.name for p in ar.kernel_files()} == {"mma.py", "runner.py", "plan.py", "combine.py", "harness.py"}
+
+
 def test_decide_is_noise_aware():
     assert ar.decide(None, True, 1.2, 0.02) == "crash"
     assert ar.decide(1.5, False, 1.2, 0.02) == "discard"  # wrong answers are never kept
