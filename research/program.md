@@ -6,7 +6,7 @@ You are the orchestrator of an autonomous research team improving the **Mjolnir 
 
 | | |
 |---|---|
-| **the files you change** | the kernel family `src/mjolnir/mjolnir/t5_*.py` — the traced CuTe-DSL kernel (`t5_decode.py`) plus its builder, constants, plan and harness (`t5_call/t5_const/t5_plan/t5_harness.py`). The emulator (`emulate_decode`, in `t5_harness.py`) is the correctness reference: never change what it computes. |
+| **the files you change** | the kernel family `src/mjolnir/mjolnir/arch/thor/` — the traced CuTe-DSL kernel (`decode.py`) plus its host builder, constants, plan and harness (`call.py`/`const.py`/`plan.py`/`harness.py`). The emulator (`emulate_decode`, in `harness.py`) is the correctness reference: never change what it computes. |
 | **the harness (fixed)** | `mjolnir autoresearch evaluate -m "<hypothesis>" --agent <who> --sources "<url>,<arxiv id>"` — quick correctness (13 cases × fp8/bf16 Q vs the bit-faithful emulator, incl. a non-causal drafter block) + an ncu sweep of FlashInfer vs Mjolnir at L = 128, 4K, 8K, 16K, 32K, 64K, 128K, 256K. |
 | **the metric** | per L, *FlashInfer time ÷ Mjolnir time*, both measured in the same run (drift on the shared GPU cancels out); the **score** is their geomean over L. Higher is better. |
 | **the decision (fixed)** | made by the harness, never by you, **per L against the best kept row** (not on the geomean alone — one L can fake a geomean gain): **keep** needs correctness, a geomean gain > 2% (`--min-gain`), a gain that survives dropping its best L (> 1%), and at most one L slower than the ±3% noise band (16K is bimodal). An L where the *FlashInfer* time jumped > 15% vs the best row's run is set aside (the reference does not change between experiments — a jump there is measurement noise; run 1's "1.3342" was exactly that, a 4660 µs FlashInfer outlier at 256K). **noisy** = the reference jumped at > 2 L: nothing was decided, evaluate the same commit again. **parked** = a structured sub-bar gain (geomean over half the bar, leave-one-out over a quarter of it, ≤ 1 L slower than noise): the commit is tagged `ar/parked/<sha>` and reset away — material for batches, never the reference by itself. **discard** otherwise, with the reason printed; **crash** if no score was produced. |
@@ -23,7 +23,7 @@ Read before starting: `README.md`, `docs/platforms/thor/README.md#kernel` (the `
 
 ## Constraints
 
-- **Change only the kernel family `src/mjolnir/mjolnir/t5_*.py`.** Not the emulator's math (`emulate_decode`), not the harness flags' meaning, not `mjolnir_cli`, not `runner.py`/`backend.py` (the vLLM side follows a kept win in a human PR).
+- **Change only the kernel family `src/mjolnir/mjolnir/arch/thor/`.** Not the emulator's math (`emulate_decode`), not the harness flags' meaning, not `mjolnir_cli`, not `runner.py`/`backend.py` (the vLLM side follows a kept win in a human PR).
 - **No new dependencies.** CuTe DSL, torch and the CUDA toolkit in the image are what you have.
 - **The GPU is shared with a live vLLM server.** Never stop, restart or kill it, or any container you did not start. The harness waits for a clean window by itself; if `evaluate` waits, let it wait.
 - **Defaults must stay safe.** A new code path goes behind a harness flag first; flip the default only when that experiment keeps.
@@ -40,7 +40,7 @@ Repeat until stopped:
    - `@web-researcher` — CUTLASS / CuTe DSL docs and examples, FlashInfer / FlashAttention source, NVIDIA forums, PTX ISA for `sm_110`.
    Each returns a short brief with **sources**; pass those sources to the ledger.
 3. **Implement.** Delegate to `@python-engineer` with the hypothesis, the exact place in the kernel, and the flag name for the new path. Review the diff yourself: one idea per commit.
-4. **Commit.** `git add src/mjolnir/mjolnir/t5_*.py && git commit -m "<hypothesis>"`. The ledger records commits; uncommitted changes are refused.
+4. **Commit.** `git add src/mjolnir/mjolnir/arch/thor/ && git commit -m "<hypothesis>"`. The ledger records commits; uncommitted changes are refused.
 5. **Evaluate.** `mjolnir autoresearch evaluate -m "<hypothesis>" --agent <who implemented it> --sources "<...>"`. It takes 10–20 minutes. Don't tail its output; read the decision, its reason and the per-L line ("vs best, per L: 128 +0.4% 4K −8.1% …") — the per-L line is the result; the geomean is a summary of it.
 6. **Act on the decision.**
    - **keep** → stay on the commit; it is the new best.
@@ -69,7 +69,7 @@ evaluation's noise floor. Bricks clear the bar **in batches**: gains multiply
    A conflict means the bricks overlap: pick a non-overlapping mix or drop
    one — never hand-merge beyond the trivial.
 
-2. **Commit the batch as one experiment**: `git add src/mjolnir/mjolnir/t5_*.py && git commit -m "batch: #12 + #15 (<one line on the mix>)"`.
+2. **Commit the batch as one experiment**: `git add src/mjolnir/mjolnir/arch/thor/ && git commit -m "batch: #12 + #15 (<one line on the mix>)"`.
    One batch = one commit = one ledger row; the hypothesis names the mix so the
    ledger stays auditable.
 
