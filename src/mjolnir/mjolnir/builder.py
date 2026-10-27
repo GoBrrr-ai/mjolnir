@@ -417,6 +417,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             disable_split_kv=getattr(self, "disable_split_kv", False),
         )
         md.mjolnir_fp6_direct = True
+        md.mjolnir_fp6_page = page_size
         logger.info("Mjolnir: fp6-direct prefill plan (%d reqs, pool-backed)", num_reqs)
 
     def _fp6_page_map(self, cam):
