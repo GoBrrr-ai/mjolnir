@@ -316,6 +316,31 @@ FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
             "data/include/flashinfer/attention/prefill.cuh",
             "expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>",
         ),
+        # The paged/ragged kernels' K-side branch (the expand used to exist
+        # only in the single-request kernel — a partial apply that lands the
+        # single-kernel call but not the batched ones would compile and
+        # silently read packed bytes as fp8).
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "stock 1-byte per-fragment path reads them.",
+        ),
+        # The paged/ragged kernels' V-side branch.
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "expand the packed V tile in place before compute_sfm_v reads it.",
+        ),
+        # use_kv_repack must exclude fp6: the repack path would otherwise
+        # hijack CTA_TILE_Q>16 fp6 tiles and interpret packed bytes as fp8.
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "at any CTA_TILE_Q -- never repack.",
+        ),
+        # The gmem byte-density fix: a slot holds 16 codes in 12 bytes, so
+        # the per-thread column offset scales by 3/4 (all three sites).
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "3/4 of the fp8",
+        ),
         # The scale params threading through the JIT signature.
         (
             "jit/attention/modules.py",
