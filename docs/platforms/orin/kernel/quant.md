@@ -1,6 +1,6 @@
 # KV format accuracy
 
-> relative L2 error of each KV format vs unquantized KV, at every L · `mjolnir verify quant` · run `20261023-134300`
+> relative L2 error of each KV format vs unquantized KV, at every L · `mjolnir verify quant` · run `20261027-193313`
 
 ## The question
 
@@ -14,15 +14,15 @@ The harness generates float K/V, quantizes them to each format (per-KV-head desc
 
 <img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.png" alt="KV format accuracy" width="100%">
 
-- `fp8`: mean relative L2 error **0.015** (1.0× fp8's 0.015).
-- `e2m3`: mean relative L2 error **0.020** (1.3× fp8's 0.015).
+- `fp8`: mean relative L2 error **0.013** (1.0× fp8's 0.013).
+- `e2m3`: mean relative L2 error **0.022** (1.7× fp8's 0.013).
 
-| format | bits | 4K | mean |
-|---|--:|--:|--:|
-| `fp8` | 8 | 0.0147 | **0.0147** |
-| `e2m3` | 6 | 0.0196 | **0.0196** |
+| format | bits | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K | mean |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| `fp8` | 8 | 0.0297 | 0.0148 | 0.0149 | 0.0085 | 0.0256 | 0.0058 | 0.0047 | 0.0031 | **0.0134** |
+| `e2m3` | 6 | 0.0310 | 0.0196 | 0.0202 | 0.0118 | 0.0297 | — | — | — | **0.0225** |
 
-<sub>Rendered from [`benchmarks/raw/verify/quant/20261023-134300.json`](../../../../benchmarks/raw/verify/quant/20261023-134300.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/quant/20261027-193313.json`](../../../../benchmarks/raw/verify/quant/20261027-193313.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

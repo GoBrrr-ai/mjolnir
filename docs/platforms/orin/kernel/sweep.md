@@ -1,6 +1,6 @@
 # Headline L-sweep
 
-> GEMV kernel vs the full serving path vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image · `mjolnir verify sweep` · run `20261023-095858`
+> GEMV kernel vs the full serving path vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image · `mjolnir verify sweep` · run `20261027-211140`
 
 ## The question
 
@@ -23,19 +23,19 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 <img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth" width="100%">
 
-- **Mjolnir GEMV (fp8 KV, HND)** vs FlashInfer FA2-TC (fp8 KV, NHD): geomean **0.24×**, from 0.13× (L=128K) to 0.64× (L=4K); faster beyond the ±3% noise band at 0 of 8 context lengths.
+- **Mjolnir GEMV (fp8 KV, HND)** vs FlashInfer FA2-TC (fp8 KV, NHD): geomean **0.86×**, from 0.69× (L=128K) to 1.89× (L=128); faster beyond the ±3% noise band at 2 of 8 context lengths.
 
-| L | Mjolnir e2m3 | Mjolnir serving path | FlashInfer | e2m3 vs FI | serving path vs FI |
-|---|--:|--:|--:|--:|--:|
-| **128** | 220.9&nbsp;µs | 805.9&nbsp;µs | **120.0&nbsp;µs** | $\color{#dc2626}{0.54\times}$ | $\color{#dc2626}{0.15\times}$ |
-| **4K** | 442.1&nbsp;µs | 907.2&nbsp;µs | **281.7&nbsp;µs** | $\color{#dc2626}{0.64\times}$ | $\color{#dc2626}{0.31\times}$ |
-| **8K** | 881.3&nbsp;µs | 1.23&nbsp;ms | **344.2&nbsp;µs** | $\color{#dc2626}{0.39\times}$ | $\color{#dc2626}{0.28\times}$ |
-| **16K** | 1.65&nbsp;ms | 2.84&nbsp;ms | **364.9&nbsp;µs** | $\color{#dc2626}{0.22\times}$ | $\color{#dc2626}{0.13\times}$ |
-| **32K** | 3.15&nbsp;ms | 4.37&nbsp;ms | **431.6&nbsp;µs** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.10\times}$ |
-| **64K** | 6.16&nbsp;ms | 6.86&nbsp;ms | **834.9&nbsp;µs** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.12\times}$ |
-| **128K** | 12.17&nbsp;ms | 12.91&nbsp;ms | **1.64&nbsp;ms** | $\color{#dc2626}{0.13\times}$ | $\color{#dc2626}{0.13\times}$ |
-| **256K** | 24.19&nbsp;ms | 24.93&nbsp;ms | **3.34&nbsp;ms** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.13\times}$ |
-| geomean |  |  |  | $\color{#dc2626}{0.24\times}$ | $\color{#dc2626}{0.16\times}$ |
+| L | Mjolnir e2m3 | FlashInfer | e2m3 vs FI |
+|---|--:|--:|--:|
+| **128** | **71.4&nbsp;µs** | 135.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.89\times}}$ |
+| **4K** | **110.2&nbsp;µs** | 132.6&nbsp;µs | $\color{#16a34a}{\mathbf{1.20\times}}$ |
+| **8K** | 180.9&nbsp;µs | **131.2&nbsp;µs** | $\color{#dc2626}{0.73\times}$ |
+| **16K** | 321.8&nbsp;µs | **228.3&nbsp;µs** | $\color{#dc2626}{0.71\times}$ |
+| **32K** | 600.3&nbsp;µs | **428.1&nbsp;µs** | $\color{#dc2626}{0.71\times}$ |
+| **64K** | 1.16&nbsp;ms | **821.2&nbsp;µs** | $\color{#dc2626}{0.71\times}$ |
+| **128K** | 2.28&nbsp;ms | **1.57&nbsp;ms** | $\color{#dc2626}{0.69\times}$ |
+| **256K** | 4.53&nbsp;ms | **3.20&nbsp;ms** | $\color{#dc2626}{0.71\times}$ |
+| geomean |  |  | $\color{#dc2626}{0.86\times}$ |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -47,7 +47,7 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/sweep/20261023-095858.json`](../../../../benchmarks/raw/verify/sweep/20261023-095858.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/sweep/20261027-211140.json`](../../../../benchmarks/raw/verify/sweep/20261027-211140.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

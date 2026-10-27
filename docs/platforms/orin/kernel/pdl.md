@@ -1,6 +1,6 @@
 # Programmatic dependent launch
 
-> PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) · `mjolnir verify pdl` · **no run yet**
+> PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) · `mjolnir verify pdl` · run `20261027-211031`
 
 ## The question
 
@@ -13,7 +13,20 @@ Wall clock (harness median of 200 iterations, cold L2) with and without `--pdl`,
 ## Result
 
 
-> Pending — run `mjolnir verify pdl` on a Jetson Orin, then `mjolnir plot --readme`.
+
+
+| Q | batch |
+|---|--:|
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **%** = (time with PDL − time without PDL) ÷ time without PDL × 100, harness median per L, both measured back to back in the same run. Negative = PDL saves time.
+- Green ≤ −3%, red ≥ +3%, grey within ±3% (`NOISE_PCT`).
+
+</details><br />
+
+<sub>Rendered from [`benchmarks/raw/verify/pdl/20261027-211031.json`](../../../../benchmarks/raw/verify/pdl/20261027-211031.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
