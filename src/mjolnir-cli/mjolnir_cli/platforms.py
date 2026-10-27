@@ -115,6 +115,10 @@ REGISTRY: dict[str, Platform] = {
         ncu=True,  # JP7 ships Nsight Compute (nsight-compute-2026.1.1 in the r39.2 repo)
         host_requirements="JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
         short="Orin",
+        # measured on the Orin (the sweep, kv-cache-size and the e2e pair are
+        # all this model): the pair its kernel index and `## End to end`
+        # section render for
+        headline_model="Qwen/Qwen3.8-27B",
     ),
 }
 

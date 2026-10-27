@@ -391,7 +391,13 @@ class Platform:
     def outputs(self, root: Path, layout: RepoLayout) -> list[tuple[Path, Path, Any]]:
         ctx = self.build_context(layout)
         pages = root / "docs" / "templates" / "pages"
-        out = [(pages / "PLATFORM_README.md.j2", root / "docs" / "platforms" / self.key / "README.md", ctx)]
+        # a platform may override the shared page template with its own
+        # (``pages/<key>/PLATFORM_README.md.j2``) — e.g. the Thor's kernel
+        # benchmark sections, the Orin's — via {% block %} inheritance.
+        tpl = pages / self.key / "PLATFORM_README.md.j2"
+        if not tpl.is_file():
+            tpl = pages / "PLATFORM_README.md.j2"
+        out = [(tpl, root / "docs" / "platforms" / self.key / "README.md", ctx)]
         if ctx.kernel is None:
             return out
         tpls = root / "docs" / "templates" / "kernel"

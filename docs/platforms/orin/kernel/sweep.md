@@ -25,7 +25,7 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 - **Mjolnir GEMV (fp8 KV, HND)** vs FlashInfer FA2-TC (fp8 KV, NHD): geomean **0.24×**, from 0.13× (L=128K) to 0.64× (L=4K); faster beyond the ±3% noise band at 0 of 8 context lengths.
 
-| L | Mjolnir e2m3 | Mjolnir serving path | FlashInfer | e2m3 vs FI | serving path vs FI |
+| L | Mjolnir fp8 | Mjolnir serving path | FlashInfer | fp8 vs FI | serving path vs FI |
 |---|--:|--:|--:|--:|--:|
 | **128** | 220.9&nbsp;µs | 805.9&nbsp;µs | **120.0&nbsp;µs** | $\color{#dc2626}{0.54\times}$ | $\color{#dc2626}{0.15\times}$ |
 | **4K** | 442.1&nbsp;µs | 907.2&nbsp;µs | **281.7&nbsp;µs** | $\color{#dc2626}{0.64\times}$ | $\color{#dc2626}{0.31\times}$ |
