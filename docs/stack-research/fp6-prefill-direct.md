@@ -190,11 +190,27 @@ fa2 branch — verified when the impl lands.
       **orin-gates ALL OK + the fp6-expand canary bit-exact on device**
       (1024 slots × 4 heads; fixed the change-notice comment style for
       C/C++ headers and the canary's scales-file bug along the way)
-- [ ] The kernel's null-scale guard (the expand skips the multiply when the
+- [x] The kernel's null-scale guard (the expand skips the multiply when the
       scales are absent) + re-canary
-- [ ] vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`) per the design + the
+- [x] vLLM-side wiring (`MJOLNIR_ATTN_FP6_DIRECT`) per the design + the
       refinement: builder skips the scratch; the impl folds K→Q, posts V→o,
-      runs the lazy fp6 wrapper on the packed pool
+      runs the lazy fp6 wrapper on the packed pool — boots end to end
+- [x] **Numerics debug (2026-10-27): the produce's smem slots held wrong
+      bytes.** Three staged fixes (the fp6 expand branches were missing from
+      the paged kernel entirely — they existed only in the single-request
+      kernel; `use_kv_repack` hijacked CTA_TILE_Q=64 one-byte tiles; the
+      per-thread gmem column offset assumed fp8 byte density) and then the
+      root cause: the produce's `cp.async.cg … 16, 12` read each 16-code
+      slot from a gmem source only 4-byte aligned (the packed row's 12-byte
+      slot stride), and a cp-size=16 cp.async from a misaligned source is
+      **undefined on sm_87** — partial copy lengths vary by `src mod 16`
+      (the observed 12/12/4/8 slot dumps). Fix: three 4-byte `cp.async.ca`
+      copies. Full trace: `task/debug/fp6-prefill-produce-slot-addressing.md`;
+      commits `721a213` + `bd27f14`. Offline probe (`/tmp/opencode/fp6_probe.py`):
+      E (constant-code coherence) exact 1.0 everywhere, zero_frac=0; A2 0.016;
+      D 0.010; A 1.381 — the A residual is the probe reference's own
+      double-applied V scale (the kernel matches the fully-fp32 fold model
+      to 0.010). `image gates` ALL OK on the rebuilt side tag.
 - [ ] Runtime: greedy parity vs fp8, then the same-run A/B
       (fp6-direct vs fp8-scratch vs fp8) across L
 - [ ] Default flip decision per the bench discipline (a default flips only
