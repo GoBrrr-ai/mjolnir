@@ -1,0 +1,152 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "sweep",
+ "run_id": "20261027-211140",
+ "ts": "2026-10-27T21:14:30+00:00",
+ "default": true,
+ "host": "orin",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "beb8082",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "series": [
+  {
+   "id": "mjolnir",
+   "label": "Mjolnir GEMV (fp8 KV, HND)",
+   "kind": "t5",
+   "role": "ours",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 71.36,
+     "gbps": 3.67
+    },
+    {
+     "L": 4096,
+     "total_us": 110.21,
+     "gbps": 76.1
+    },
+    {
+     "L": 8192,
+     "total_us": 180.9,
+     "gbps": 92.7
+    },
+    {
+     "L": 16384,
+     "total_us": 321.82,
+     "gbps": 104.0
+    },
+    {
+     "L": 32768,
+     "total_us": 600.26,
+     "gbps": 112.0
+    },
+    {
+     "L": 65536,
+     "total_us": 1161.66,
+     "gbps": 116.0
+    },
+    {
+     "L": 131072,
+     "total_us": 2282.94,
+     "gbps": 118.0
+    },
+    {
+     "L": 262144,
+     "total_us": 4527.94,
+     "gbps": 119.0
+    }
+   ]
+  },
+  {
+   "id": "fi",
+   "label": "FlashInfer FA2-TC (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 135.0
+    },
+    {
+     "L": 4096,
+     "total_us": 132.6
+    },
+    {
+     "L": 8192,
+     "total_us": 131.2
+    },
+    {
+     "L": 16384,
+     "total_us": 228.3
+    },
+    {
+     "L": 32768,
+     "total_us": 428.1
+    },
+    {
+     "L": 65536,
+     "total_us": 821.2
+    },
+    {
+     "L": 131072,
+     "total_us": 1566.7
+    },
+    {
+     "L": 262144,
+     "total_us": 3201.8
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "vs_fi": {
+   "geomean": 0.8553,
+   "min": 0.6863,
+   "max": 1.8918,
+   "per_L": {
+    "128": 1.8918,
+    "4096": 1.2032,
+    "8192": 0.7253,
+    "16384": 0.7094,
+    "32768": 0.7132,
+    "65536": 0.7069,
+    "131072": 0.6863,
+    "262144": 0.7071
+   }
+  }
+ }
+}
