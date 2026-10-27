@@ -102,7 +102,7 @@ class DockerError(RuntimeError):
 def _docker() -> str:
     if shutil.which("docker") is None:
         raise DockerError("docker not found on PATH")
-    docker_version.ensure_docker_version()  # once per process; no-op at/above the pin
+    docker_version.ensure_docker_version(offer=False)  # one notice per process; no prompt, nothing run
     return "docker"
 
 

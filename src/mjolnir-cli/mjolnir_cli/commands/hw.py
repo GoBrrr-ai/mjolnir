@@ -61,7 +61,12 @@ def hw_setup(
 
     On Orin the fan-profile step is skipped automatically (the profiles
     are Thor-tuned; Orin gets dedicated ones later)."""
-    if "docker" not in [s.strip() for s in skip.split(",") if s.strip()]:
+    names = [s.strip() for s in skip.split(",") if s.strip()]
+    bad = sorted(set(names) - set(thor.STEPS))
+    if bad:
+        typer.secho(f"unknown --skip step(s): {', '.join(bad)} (valid: {', '.join(thor.STEPS)})", fg=typer.colors.RED)
+        raise typer.Exit(4) from None
+    if "docker" not in names:
         docker_version.ensure_docker_version(assume_yes=yes, dry_run=dry_run)
     try:
         rc = thor.dispatch(

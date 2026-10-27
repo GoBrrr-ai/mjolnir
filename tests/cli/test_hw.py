@@ -108,3 +108,40 @@ def test_hw_setup_surfaces_the_script_failure(monkeypatch):
     monkeypatch.setattr("mjolnir_cli.thor.dispatch", boom)
     r = CliRunner().invoke(cli.app, ["hw", "setup"])
     assert r.exit_code == 4 and "bad --fan-profile" in r.output
+
+
+# --- the Docker pin offer (V8) ---------------------------------------------
+# The check is recorded, not run: below-pin behaviour lives in
+# test_docker_version.py; here only the wiring (kwargs, skip handling).
+
+
+@pytest.fixture
+def _record_check(monkeypatch):
+    seen: list[dict] = []
+    monkeypatch.delenv("MJOLNIR_SKIP_DOCKER_CHECK", raising=False)
+    monkeypatch.setattr("mjolnir_cli.docker_version.ensure_docker_version", lambda **kw: seen.append(kw))
+    return seen
+
+
+def test_hw_setup_skips_the_check_when_the_docker_step_is_skipped(no_script, _record_check):
+    r = CliRunner().invoke(cli.app, ["hw", "setup", "--skip", "docker"])
+    assert r.exit_code == 0, r.output
+    assert _record_check == []  # not called with --skip docker
+    assert no_script[0]["skip"] == "docker"
+
+
+def test_hw_setup_passes_yes_and_dry_run_to_the_check(no_script, _record_check):
+    r = CliRunner().invoke(cli.app, ["hw", "setup", "--dry-run", "--yes"])
+    assert r.exit_code == 0, r.output
+    assert _record_check == [{"assume_yes": True, "dry_run": True}]
+
+
+def test_hw_setup_unknown_skip_name_exits_4_without_running_the_check(
+    no_script, _record_check, monkeypatch, capsys
+):
+    # normalised like thor.build_cmd: case-insensitive match on the step name
+    r = CliRunner().invoke(cli.app, ["hw", "setup", "--skip", "DOCKER"])
+    assert r.exit_code == 4, r.output
+    assert _record_check == []  # no check run
+    assert no_script == []  # the script never runs either
+    assert "unknown --skip step(s)" in r.output

@@ -7,7 +7,7 @@ import sys
 
 import typer
 
-from mjolnir_cli import picker, tasks
+from mjolnir_cli import docker_version, picker, tasks
 from mjolnir_cli.commands._common import HELP_CTX, load_state, picker_group, save_state, settings, state_file
 from mjolnir_cli.config import DEFAULT_IMAGE, load_layout
 
@@ -101,6 +101,7 @@ def image_build(
 
     The default tag is always the canonical one (IMAGE_REPO:v<vLLM version>),
     never the remembered active image — that may be an older build."""
+    docker_version.ensure_docker_version(dry_run=dry_run)  # the offer: a mutating entry point
     tag = tag or DEFAULT_IMAGE
     try:
         root = load_layout().require_repo("image build")

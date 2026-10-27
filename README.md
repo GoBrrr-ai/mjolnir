@@ -132,7 +132,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 uv tool install mjolnir-cli
 
 # one-time: Thor host setup for stable numbers (clocks, power mode, fans, swap)
-mjolnir hw setup   # pins Docker >= 29.9.2; offers a [Y/n] update when older (restarts the daemon)
+mjolnir hw setup   # pins Docker >= 29.9.2; --yes accepts the update without asking, otherwise a [Y/n] offer (non-interactive runs only print the steps)
 
 # serve: Qwen3.8-27B NVFP4 on the Mjolnir image, --attention-backend MJOLNIR, port 6001
 mjolnir serve up

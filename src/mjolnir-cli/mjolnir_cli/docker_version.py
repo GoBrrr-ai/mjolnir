@@ -3,10 +3,20 @@
 mjolnir's container glue (the serve image, the verify stages, the one-shot
 calibrate/gate containers) is written against modern Docker CLI/daemon
 behaviour; a distro ``docker.io`` from an old base breaks it. The pin is one
-constant here — the single source of truth. ``ensure_docker_version`` runs at
-most once per process: below the pin it offers to upgrade (a TTY gets a
-``[Y/n]`` prompt, everything else never blocks), mirroring the apt steps in
-``scripts/hw/setup-jetson-steps.sh``.
+constant here — the single source of truth. Below the pin:
+
+* the **offer** (a TTY gets a ``[Y/n]`` prompt, default yes; non-interactive
+  runs print the steps; ``--yes`` accepts without asking) runs only from the
+  explicit mutating entry points — ``mjolnir hw setup`` and
+  ``mjolnir image build`` — mirroring the apt steps in
+  ``scripts/hw/setup-jetson-steps.sh``;
+* the **notice** (one stderr line, no prompt, nothing run) comes from every
+  dockerctl-backed command (via ``_docker()``) and the ``mjolnir verify``
+  stages' preflight.
+
+Both are skipped entirely when ``MJOLNIR_SKIP_DOCKER_CHECK=1`` and each runs
+at most once per process (separately, so a notice never suppresses a later
+offer).
 """
 
 from __future__ import annotations
@@ -23,8 +33,10 @@ PINNED_DOCKER_VERSION = "29.9.2"
 
 _SKIP_ENV = "MJOLNIR_SKIP_DOCKER_CHECK"
 
-# Set True after the first check so later calls in the same process no-op.
-_checked = False
+# Set True after the first offer / notice so later calls in the same process
+# no-op — tracked separately, so a notice never suppresses a later offer.
+_offered = False
+_noticed = False
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:
@@ -57,14 +69,19 @@ def _dpkg_arch() -> str:
     return {"aarch64": "arm64", "x86_64": "amd64"}.get(machine, machine)
 
 
-def _ubuntu_codename(os_release: str = "/etc/os-release") -> str:
-    fields = {}
-    with open(os_release) as f:
-        for line in f:
-            key, sep, value = line.strip().partition("=")
-            if sep:
-                fields[key] = value.strip('"')
-    return fields.get("UBUNTU_CODENAME") or fields["VERSION_CODENAME"]
+def _ubuntu_codename(os_release: str = "/etc/os-release") -> str | None:
+    """Ubuntu's codename from os-release; None when the file is missing or
+    carries neither UBUNTU_CODENAME nor VERSION_CODENAME (never raises)."""
+    fields: dict[str, str] = {}
+    try:
+        with open(os_release) as f:
+            for line in f:
+                key, sep, value = line.strip().partition("=")
+                if sep:
+                    fields[key] = value.strip('"')
+    except OSError:
+        return None
+    return fields.get("UBUNTU_CODENAME") or fields.get("VERSION_CODENAME") or None
 
 
 def _docker_repo_line(keyring: str) -> str:
@@ -81,10 +98,11 @@ def _docker_repo_line(keyring: str) -> str:
 def upgrade_commands() -> list[list[str]]:
     """The apt upgrade steps, mirroring ensure_docker_repo + install_docker in
     scripts/hw/setup-jetson-steps.sh (install, not --only-upgrade, so a distro
-    docker.io is replaced too)."""
+    docker.io is replaced too). The repo block needs the codename; on a box
+    that cannot resolve it the caller handles the manual-update path."""
     keyring = "/etc/apt/keyrings/docker.asc"
     cmds: list[list[str]] = []
-    if not os.path.exists(keyring):
+    if not os.path.exists(keyring) and _ubuntu_codename() is not None:
         cmds += [
             ["sudo", "apt-get", "update"],
             ["sudo", "apt-get", "install", "-y", "ca-certificates", "curl"],
@@ -111,6 +129,7 @@ def upgrade_commands() -> list[list[str]]:
             "docker-ce-cli",
             "containerd.io",
             "docker-buildx-plugin",
+            "nvidia-container-toolkit",
             "docker-compose-plugin",
         ],
         ["sudo", "systemctl", "restart", "docker"],
@@ -127,25 +146,50 @@ def _run_upgrade(commands: list[list[str]]) -> None:
             raise typer.Exit(4)
 
 
-def ensure_docker_version(*, assume_yes: bool = False, dry_run: bool = False) -> None:
-    """Offer to bring an old Docker up to the pin. At most once per process;
-    skipped entirely when ``MJOLNIR_SKIP_DOCKER_CHECK=1``. Never blocks on a
-    non-TTY stdin."""
-    global _checked
-    if _checked:
+def ensure_docker_version(*, offer: bool = True, assume_yes: bool = False, dry_run: bool = False) -> None:
+    """Bring an old Docker up to the pin — or point at what can. At most once
+    per process per path (offer / notice); skipped entirely when
+    ``MJOLNIR_SKIP_DOCKER_CHECK=1``. Never blocks on a non-TTY stdin, and
+    never raises below the pin.
+
+    ``offer=True`` (the mutating entry points: ``hw setup``, ``image build``)
+    offers the upgrade: a TTY gets a ``[Y/n]`` prompt (default yes),
+    ``assume_yes`` accepts without asking, ``dry_run`` prints the steps, and
+    a non-interactive run prints them too. ``offer=False`` (every
+    dockerctl-backed command, the verify preflights) prints one stderr
+    notice and returns."""
+    global _offered, _noticed
+    guard = _offered if offer else _noticed
+    if guard:
         return
-    _checked = True
     if os.environ.get(_SKIP_ENV) == "1":
         return
     installed = installed_docker_version()
     if installed is None or not is_below_pin(installed):
         return
-    print(f"Docker {installed} is below mjolnir's pinned {PINNED_DOCKER_VERSION}.")
+    if not offer:
+        _noticed = True
+        typer.secho(
+            f"Docker {installed} is below mjolnir's pinned {PINNED_DOCKER_VERSION} — "
+            "run `mjolnir hw setup` or `mjolnir image build` to update.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        return
+    _offered = True
+    typer.secho(f"Docker {installed} is below mjolnir's pinned {PINNED_DOCKER_VERSION}.", fg=typer.colors.YELLOW)
     typer.secho(
         "Warning: the upgrade restarts the Docker daemon, which restarts every running container on this box.",
         fg=typer.colors.YELLOW,
         err=True,
     )
+    if _ubuntu_codename() is None:
+        typer.secho(
+            f"automatic Docker update supports Ubuntu (apt) only — update Docker manually to >= {PINNED_DOCKER_VERSION}",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        return
     commands = upgrade_commands()
     if dry_run:
         for cmd in commands:
@@ -170,6 +214,7 @@ def ensure_docker_version(*, assume_yes: bool = False, dry_run: bool = False) ->
 
 
 def reset_check_for_tests() -> None:
-    """Clear the once-per-process guard (test hook only)."""
-    global _checked
-    _checked = False
+    """Clear the once-per-process guards (test hook only)."""
+    global _offered, _noticed
+    _offered = False
+    _noticed = False

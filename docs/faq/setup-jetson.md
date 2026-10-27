@@ -49,10 +49,13 @@ mjolnir hw setup --reboot              # reboot at the end if one is required
 covers both the profile install and the default selection).
 
 Before dispatching the script, `hw setup` checks the installed Docker against
-mjolnir's pinned minimum (29.9.2): below it, a TTY gets a `[Y/n]` offer to
-upgrade (the daemon restarts, taking every running container with it);
-non-interactive runs print the steps and continue, and `MJOLNIR_SKIP_DOCKER_CHECK=1`
-disables the check.
+mjolnir's pinned minimum (29.9.2) and offers to upgrade — the only two
+mutating entry points that do are `hw setup` and `image build`; every other
+command prints a one-line notice instead. Below the pin: `--yes` accepts the
+update without asking; an interactive run without `--yes` gets a `[Y/n]`
+offer (default yes — the daemon restarts, taking every running container
+with it); non-interactive runs without `--yes` only print the steps and
+continue. `MJOLNIR_SKIP_DOCKER_CHECK=1` disables the check.
 
 The stock `cool`/`quiet` profiles ship with L4T; `recommended` (balanced)
 and `max` (sustained bench cooling) are the tuned ones this step installs.
