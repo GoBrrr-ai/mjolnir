@@ -161,7 +161,7 @@ def retire(root: Path) -> list[str]:
     end = text.find("\n[", start) + 1 or len(text)
     body = text[start:end]
     for p in done:
-        body = re.sub(rf'^"{re.escape(p)}"[ \t]*=[ \t]*{limit}[ \t]*(#.*)?\n', "", body, count=1, flags=re.M)
+        body = re.sub(rf'^"{re.escape(p)}"[ \t]*=[ \t]*{limit}[ \t]*(#.*)?\n', "", body, count=1, flags=re.MULTILINE)
     new = text[:start] + body + text[end:]
     expected = {**table, "grandfathered": {p: c for p, c in grand.items() if p not in done}}
     if parse_table(new, "the fixed work tree") != expected:
@@ -201,9 +201,9 @@ def check_history(root: Path, ref: str) -> tuple[list[str], str | None]:
     if now["limit"] > base["limit"]:
         problems.append(f"pyproject.toml: limit raised from {base['limit']} in {ref} to {now['limit']}; {tighten}")
     for pat in sorted(set(now["exempt"]) - set(base["exempt"])):
-        problems.append(f"pyproject.toml: exempt pattern {pat!r} added (not in {ref}); {tighten}")
+        problems.append(f"pyproject.toml: exempt pattern {pat!r} added (not in {ref}); {tighten}")  # noqa: PERF401
     for pat in sorted(set(base["include"]) - set(now["include"])):
-        problems.append(f"pyproject.toml: include pattern {pat!r} removed (it is in {ref}); {tighten}")
+        problems.append(f"pyproject.toml: include pattern {pat!r} removed (it is in {ref}); {tighten}")  # noqa: PERF401
     was = base["grandfathered"]
     for path, ceiling in sorted(now["grandfathered"].items()):
         if path not in was:

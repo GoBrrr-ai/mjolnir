@@ -101,7 +101,7 @@ def last_tag(repo: Path, prefix: str) -> tuple[str, tuple[int, int, int]] | None
 
 
 def file_version(repo: Path, init: str) -> tuple[int, int, int]:
-    m = re.search(r'^__version__\s*=\s*"([^"]+)"', (repo / init).read_text(), re.M)
+    m = re.search(r'^__version__\s*=\s*"([^"]+)"', (repo / init).read_text(), re.MULTILINE)
     v = parse(m.group(1)) if m else None
     if v is None:
         raise SystemExit(f"{init}: no X.Y.Z __version__")
@@ -114,10 +114,10 @@ def changed_since(repo: Path, tag: str, paths: list[str]) -> bool:
 
 def vllm_version(repo: Path) -> str:
     cfg = re.search(
-        r'^VLLM_VERSION\s*=\s*"([^"]+)"', (repo / "src/mjolnir-cli/mjolnir_cli/config.py").read_text(), re.M
+        r'^VLLM_VERSION\s*=\s*"([^"]+)"', (repo / "src/mjolnir-cli/mjolnir_cli/config.py").read_text(), re.MULTILINE
     )
     dock = re.search(
-        r"^ARG BASE_IMAGE=vllm/vllm-openai:v([0-9.]+)", (repo / "docker/vllm-thor/Dockerfile").read_text(), re.M
+        r"^ARG BASE_IMAGE=vllm/vllm-openai:v([0-9.]+)", (repo / "docker/vllm-thor/Dockerfile").read_text(), re.MULTILINE
     )
     if not cfg or not dock:
         raise SystemExit("cannot read VLLM_VERSION (config.py) or BASE_IMAGE (Dockerfile)")
@@ -172,10 +172,7 @@ def plan(repo: Path, level: str, packages: str, today: dt.date | None = None, im
             selected, why = False, f"unchanged since {prev[0]}"
         else:
             selected, why = True, "first release" if prev is None else f"changed since {prev[0]}"
-        if prev is None:
-            nxt = have
-        else:
-            nxt = max(bump(prev[1], level), have)
+        nxt = have if prev is None else max(bump(prev[1], level), have)
         out["packages"][key] = {
             "dist": p["dist"],
             "release": selected,
@@ -184,7 +181,9 @@ def plan(repo: Path, level: str, packages: str, today: dt.date | None = None, im
             "version": fmt(nxt) if selected else None,
             "tag": f"{p['prefix']}{fmt(nxt)}" if selected else None,
         }
-    out["umbrella"] = umbrella_tag(repo, today or dt.date.today())
+    # The release happens in the operator's local day; an aware local date
+    # (not the naive UTC date) names the umbrella tag.
+    out["umbrella"] = umbrella_tag(repo, today or dt.datetime.now().astimezone().date())
     out["title"] = title(out["umbrella"][len(UMBRELLA) :], out["packages"], out["vllm"], image)
     return out
 
