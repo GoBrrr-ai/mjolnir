@@ -442,7 +442,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         if self._fp6_pool_layout is None:
             self._fp6_pool_layout = detect_kv_layout(kv_cache.shape, self.num_kv_heads, page_size, row)
         k_cache, v_cache = split_kv_cache(kv_cache, self._fp6_pool_layout, row)
-        out = wrapper.run(q, k_cache, v_cache)
+        out = wrapper.run(q, (k_cache, v_cache))
         out = out.reshape(t, self.num_heads, self.head_size) * st["v_mul"].to(out.dtype)
         out = out.reshape(query.shape).to(query.dtype)
         if output is not None:
