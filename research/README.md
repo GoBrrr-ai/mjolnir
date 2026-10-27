@@ -36,7 +36,7 @@ and the next ideas are in [`program.md`](program.md)).
 | | |
 |---|---|
 | [`program.md`](program.md) | the loop the orchestrator follows — the human-editable "research org" |
-| `src/mjolnir/mjolnir/t5_*.py` | the kernel family — the only files experiments change (traced decode kernel + its builder, constants, plan, harness) |
+| `src/mjolnir/mjolnir/arch/<family>/` | the kernel family — the only files experiments change (traced decode kernel + its builder, constants, plan, harness); `arch/thor/` on Thor, `arch/orin/` on an Orin |
 | `mjolnir autoresearch evaluate` | the fixed harness: quick correctness (13 cases × fp8/bf16 Q vs the emulator, incl. a non-causal drafter block), then an ncu sweep of FlashInfer vs Mjolnir at the 8 headline L |
 | score | per L, FlashInfer time ÷ Mjolnir time from the same run; the score is their geomean |
 | decision | per L against the best kept row, computed by the harness, never by an agent: **keep** if correct, the geomean gains > 2%, the gain survives dropping its best L (> 1%) and at most one L is slower than the ±3% noise; an L where the FlashInfer reference jumped > 15% is set aside; **noisy** (re-evaluate) if that happens at > 2 L; **parked** if a structured sub-bar gain (over half the bar, same shape) — tagged `ar/parked/<sha>`, stackable into batches, never the reference; else **discard** with the reason; **crash** if no score |
@@ -57,8 +57,8 @@ already allow them. Missing ones are fine: the orchestrator does that step itsel
 | `explore` | built into OpenCode: fast read-only code / docs search | read |
 | `arxiv-researcher` | ideas from papers, ranked by fit | read arXiv; returns arXiv ids for `--sources` |
 | `web-researcher` | engineering facts: CuTe DSL, CUTLASS, FlashInfer, PTX | read the web; returns URLs |
-| `python-engineer` | implements one hypothesis behind a flag | edit the kernel family (`t5_*.py`) only, py_compile, ruff |
-| `debugger` | crash / correctness triage from the harness logs | read logs, edit `t5_decode.py`, quick correctness |
+| `python-engineer` | implements one hypothesis behind a flag | edit the kernel family only, py_compile, ruff |
+| `debugger` | crash / correctness triage from the harness logs | read logs, edit the kernel, quick correctness |
 
 ## A ledger row
 
