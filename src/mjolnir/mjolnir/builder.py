@@ -402,7 +402,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             paged_kv_indices=paged_kv_indices,
             paged_kv_last_page_len=torch.from_numpy(self.paged_kv_last_page_len.np[:num_reqs].astype(np.int32)),
             seq_lens=torch.as_tensor(seq_lens_np, dtype=torch.int32),
-            num_qo_heads=model_config.get_num_attention_heads(),
+            num_qo_heads=getattr(model_config.hf_config, "num_attention_heads", spec.num_kv_heads),
             num_kv_heads=spec.num_kv_heads,
             head_dim_qk=d,
             page_size=page_size,
