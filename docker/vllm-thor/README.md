@@ -1,4 +1,4 @@
-![Mjolnir — vLLM for Jetson AGX Thor](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.png)
+![Mjolnir — vLLM for Jetson AGX Thor](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.jpg)
 
 [![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
 [![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)
@@ -11,7 +11,7 @@
 
 [GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
 
-![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/opening-infographic.png)
+![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg)
 
 ## ⚡ What's inside this image
 

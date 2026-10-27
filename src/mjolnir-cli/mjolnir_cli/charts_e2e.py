@@ -274,21 +274,19 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
         logo_wS = round(0.40 * W * S)
         logo_hS = round(logo_wS * logo_img.size[1] / logo_img.size[0])
     pill_hS = round(H * 0.060) * S
-    gap_logo_slogan = round(H * 0.05) * S
+    gap_logo_slogan = round(H * 0.09) * S
     gap_slogan_pills = round(H * 0.030) * S
 
-    # ── slogan: centred line(s), shrunk to stay inside the padded span
-    # (2× the old padding from the image centre line and the right edge) ────
-    slogan = ROOT_HERO_SLOGAN if platform is None else (PLATFORM_HERO_SLOGAN[platform],)
-    max_wS = 0.34 * W * S
+    # ── slogan: the authored lines at a fixed size — one tuple entry per
+    # line, a `\n` inside an entry breaks too; the renderer never re-wraps
+    # or re-sizes (keep lines short enough when authoring) ─────────────────
+    slogan = ROOT_HERO_SLOGAN if platform is None else PLATFORM_HERO_SLOGAN[platform]
+    lines = [ln for entry in slogan for ln in entry.split("\n")]
     size = round(H * 0.040)
     slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
-    while size > round(H * 0.024) and max(d.textlength(ln, font=slogan_font) for ln in slogan) > max_wS:
-        size -= 1
-        slogan_font = ImageFont.truetype(_font_file(fam, "medium"), size * S)
     line_hS = round(slogan_font.size * 1.38)
 
-    stack_hS = logo_hS + gap_logo_slogan + line_hS * len(slogan) + gap_slogan_pills + pill_hS
+    stack_hS = logo_hS + gap_logo_slogan + line_hS * len(lines) + gap_slogan_pills + pill_hS
     topS = max(round(H * 0.08) * S, (H * S - stack_hS) // 2)
 
     # the white logotype, centred on the stack axis
@@ -297,23 +295,18 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
 
     # slogan lines under the logotype
     y = topS + logo_hS + gap_logo_slogan
-    for line in slogan:
+    for line in lines:
         w = d.textlength(line, font=slogan_font)
         x = cx * S - w / 2
         ds.text((x, y + 2 * S), line, font=slogan_font, fill=(0, 0, 0, 170))
         d.text((x, y), line, font=slogan_font, fill=(232, 238, 248, 255))
         y += line_hS
 
-    # pills: one centred row, shrunk if it would run past the padded span
+    # pills: one centred row at a fixed size
     pills = ROOT_HERO_PILLS if platform is None else PLATFORM_HERO_PILLS[platform]
     labels = [(t.format(vllm=VLLM_VERSION), c0, c1) for t, c0, c1 in pills]
     pad_x, pill_h, gap = 18 * S, pill_hS, 14 * S
-    size = round(H * 0.030)
-    pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
-    row_w = lambda fs: sum(d.textlength(t, font=fs) + 2 * pad_x for t, _, _ in labels) + gap * (len(labels) - 1)  # noqa: E731
-    while size > round(H * 0.020) and row_w(pill_font) > max_wS:
-        size -= 1
-        pill_font = ImageFont.truetype(_font_file(fam, "semibold"), size * S)
+    pill_font = ImageFont.truetype(_font_file(fam, "semibold"), round(H * 0.030) * S)
     widths = [d.textlength(t, font=pill_font) + 2 * pad_x for t, _, _ in labels]
     x = cx * S - (sum(widths) + gap * (len(widths) - 1)) / 2
     y = topS + logo_hS + gap_logo_slogan + line_hS * len(slogan) + gap_slogan_pills
@@ -345,7 +338,7 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     shadow = shadow.filter(ImageFilter.GaussianBlur(4 * S))
     layer = Image.alpha_composite(shadow, over).resize((W, H), Image.Resampling.LANCZOS)
     out = layout.repo_root / "assets" / hero_platform_out(platform)
-    Image.alpha_composite(bg, layer).convert("RGB").save(out, optimize=True)
+    Image.alpha_composite(bg, layer).convert("RGB").save(out, quality=88, optimize=True)
     return out
 
 
@@ -394,7 +387,7 @@ def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, mod
         / "benchmarks"
         / platform
         / model_short({"model": model})
-        / f"opening-{platform}-infographic.png"
+        / f"opening-{platform}-infographic.jpg"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -527,7 +520,7 @@ def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, mod
                     )
                 )
 
-    fig.savefig(out, dpi=100)
+    fig.savefig(out, dpi=100, pil_kwargs={"quality": 90})
     plt.close(fig)
     print(f"[mjolnir] wrote {out}")
     return out
