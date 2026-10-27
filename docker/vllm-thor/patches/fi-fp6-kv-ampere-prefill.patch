@@ -45,7 +45,7 @@
    template <size_t vec_size>
 --- a/flashinfer/data/include/flashinfer/cp_async.cuh
 +++ b/flashinfer/data/include/flashinfer/cp_async.cuh
-@@ -140,6 +140,41 @@
+@@ -140,6 +140,69 @@
  }
  
  /*!
@@ -56,18 +56,44 @@
 + * remainder, which the predicate form above already relies on.
 + * \tparam SRC_BYTES Source bytes to read; must be <= 16.
 + */
-+template <size_t SRC_BYTES, PrefetchMode prefetch_mode, typename T>
++template <size_t SRC_BYTES, PrefetchMode prefetch_mode, SharedMemFillMode fill_mode, typename T>
 +__device__ __forceinline__ void pred_load_128b_src(T* smem_ptr, const T* gmem_ptr, bool predicate) {
 +  static_assert(SRC_BYTES <= 16, "SRC_BYTES must be <= 16");
 +#ifdef FLASHINFER_CP_ASYNC_ENABLED
 +  uint32_t smem_int_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
-+  int src_in_bytes = predicate ? int(SRC_BYTES) : 0;
-+  if constexpr (prefetch_mode == PrefetchMode::kPrefetch) {
-+    asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
-+                 "l"(gmem_ptr), "n"(16), "r"(src_in_bytes));
++  if constexpr (fill_mode == SharedMemFillMode::kFillZero) {
++    int src_in_bytes = predicate ? int(SRC_BYTES) : 0;
++    if constexpr (prefetch_mode == PrefetchMode::kPrefetch) {
++      asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
++                   "l"(gmem_ptr), "n"(16), "r"(src_in_bytes));
++    } else {
++      asm volatile("cp.async.cg.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
++                   "l"(gmem_ptr), "n"(16), "r"(src_in_bytes));
++    }
 +  } else {
-+    asm volatile("cp.async.cg.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
-+                 "l"(gmem_ptr), "n"(16), "r"(src_in_bytes));
++    if constexpr (prefetch_mode == PrefetchMode::kPrefetch) {
++      asm volatile(
++          "{\n"
++          " .reg .pred p;\n"
++          " setp.ne.b32 p, %0, 0;\n"
++          " @p cp.async.cg.shared.global.L2::128B [%1], [%2], %3, %4;\n"
++          "}\n" ::"r"((int)predicate),
++          "r"(smem_int_ptr),
++          "l"(gmem_ptr),
++          "n"(16),
++          "n"(int(SRC_BYTES)));
++    } else {
++      asm volatile(
++          "{\n"
++          " .reg .pred p;\n"
++          " setp.ne.b32 p, %0, 0;\n"
++          " @p cp.async.cg.shared.global [%1], [%2], %3, %4;\n"
++          "}\n" ::"r"((int)predicate),
++          "r"(smem_int_ptr),
++          "l"(gmem_ptr),
++          "n"(16),
++          "n"(int(SRC_BYTES)));
++    }
 +  }
 +#else
 +  if (predicate) {
@@ -78,7 +104,9 @@
 +        *(const uint32_t*)((const uint8_t*)gmem_ptr + 8);
 +    *((uint4*)smem_ptr) = data;
 +  } else {
-+    *((uint4*)smem_ptr) = make_uint4(0, 0, 0, 0);
++    if constexpr (fill_mode == SharedMemFillMode::kFillZero) {
++      *((uint4*)smem_ptr) = make_uint4(0, 0, 0, 0);
++    }
 +  }
 +#endif
 +}
