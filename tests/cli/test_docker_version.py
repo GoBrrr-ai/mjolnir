@@ -189,7 +189,9 @@ def test_below_the_pin_tty_no_runs_nothing(monkeypatch, capsys):
     docker_version.ensure_docker_version()
     assert len(probe.calls) == 1
     assert upgrades == []  # nothing ran
-    assert "Continuing with the installed Docker" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Continuing with the installed Docker" in out
+    assert "`mjolnir hw setup --yes` updates it." in out  # the hint must point at the path that has --yes
 
 
 def test_below_the_pin_non_tty_never_prompts_and_runs_nothing(monkeypatch, capsys):

@@ -202,7 +202,9 @@ def ensure_docker_version(*, offer: bool = True, assume_yes: bool = False, dry_r
         if typer.confirm("Update Docker now?", default=True):
             _run_upgrade(commands)
         else:
-            typer.secho("Continuing with the installed Docker — re-run with --yes to update.", fg=typer.colors.YELLOW)
+            typer.secho(
+                "Continuing with the installed Docker — `mjolnir hw setup --yes` updates it.", fg=typer.colors.YELLOW
+            )
     else:
         typer.secho(
             "Non-interactive session: not updating. To update manually:",
