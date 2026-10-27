@@ -385,23 +385,22 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         seq_lens_np = np.asarray(seq_lens, dtype=np.int64)
         page_size = self._page
         num_blocks_np = (seq_lens_np + page_size - 1) // page_size
-        self._compute_flashinfer_kv_metadata(
+        paged_kv_indices = self._compute_flashinfer_kv_metadata(
             num_blocks_np,
             seq_lens_np,
             cam.block_table_tensor,
             num_reqs,
             page_size,
         )
-        device = cam.block_table_tensor.device
         spec = self.kv_cache_spec
         model_config = self.model_config
         qo_indptr_cpu = cam.query_start_loc.cpu().to(torch.int32)
         d = model_config.get_head_size()
         md.prefill.wrapper.plan(
             qo_indptr=qo_indptr_cpu,
-            paged_kv_indptr=self.paged_kv_indptr.cpu().to(torch.int32),
-            paged_kv_indices=self.paged_kv_indices,
-            paged_kv_last_page_len=self.paged_kv_last_page_len.cpu().to(torch.int32),
+            paged_kv_indptr=torch.from_numpy(self.paged_kv_indptr.np[: num_reqs + 1].astype(np.int32)),
+            paged_kv_indices=paged_kv_indices,
+            paged_kv_last_page_len=torch.from_numpy(self.paged_kv_last_page_len.np[:num_reqs].astype(np.int32)),
             seq_lens=torch.as_tensor(seq_lens_np, dtype=torch.int32),
             num_qo_heads=model_config.get_num_attention_heads(),
             num_kv_heads=spec.num_kv_heads,
@@ -419,7 +418,6 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         )
         md.mjolnir_fp6_direct = True
         logger.info("Mjolnir: fp6-direct prefill plan (%d reqs, pool-backed)", num_reqs)
-        _ = device  # the plan pins its own copies
 
     def _fp6_page_map(self, cam):
         """For a step the fallback runs on an fp6 cache: which cache page
