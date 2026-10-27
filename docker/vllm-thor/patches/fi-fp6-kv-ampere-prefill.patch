@@ -909,3 +909,21 @@
          raise ValueError(
              f"The dtype of k {k.dtype} does not match the kv_data_type {dtype_kv} specified in plan function."
          )
+--- a/flashinfer/prefill.py
++++ b/flashinfer/prefill.py
+@@ -3189,7 +3189,14 @@
+         if (
+             k_cache.dtype == torch.uint8 or v_cache.dtype == torch.uint8
+         ) and kv_cache_sf is None:
+-            raise ValueError("kv_cache_sf must be provided for NVFP4 KV cache.")
++            # MJOLNIR_FP6_KV: a packed-fp6 cache is uint8 too, with its scales
++            # folded into Q/output -- not an NVFP4 cache requiring scale
++            # factors.
++            if not (
++                isinstance(self._cached_kv_data_type, str)
++                and self._cached_kv_data_type.startswith("mjolnir_fp6")
++            ):
++                raise ValueError("kv_cache_sf must be provided for NVFP4 KV cache.")
+         key_block_scales, value_block_scales = (
+             _unpack_paged_kv_cache(kv_cache_sf, self._kv_layout)
+             if kv_cache_sf is not None
