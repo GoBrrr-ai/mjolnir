@@ -19,6 +19,7 @@ import json
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from mjolnir_cli import charts, interactive, readme
@@ -223,7 +224,7 @@ def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
         for e in es:
             assert "light" not in e, name
             assert (repo / e["dark"]).is_file(), name
-            if name in ("hero", "opening-infographic"):  # the root-page one-offs stay flat
+            if name == "hero":  # the root-page one-off stays flat
                 continue
             assert "platform" in e and "model" in e, name
     # pairs without data render no charts (the multi-pair manifest carries
@@ -254,10 +255,12 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
     from PIL import Image
 
     from mjolnir_cli.config import RepoLayout, find_repo_root
+    from mjolnir_cli.charts_base import HERO_BG_ROOT, HERO_LOGO
 
     root = find_repo_root()
     (tmp_path / "assets").mkdir()
-    shutil.copy(root / "assets" / charts.HERO_BACKGROUND, tmp_path / "assets" / charts.HERO_BACKGROUND)
+    for name in (HERO_BG_ROOT, HERO_LOGO):
+        shutil.copy(root / "assets" / name, tmp_path / "assets" / name)
     layout = RepoLayout(
         repo_root=tmp_path,
         data_dir=tmp_path,
@@ -267,17 +270,43 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
     )
     out = charts.render_hero(layout)
     assert out is not None
-    bg = Image.open(tmp_path / "assets" / charts.HERO_BACKGROUND)
+    bg = Image.open(tmp_path / "assets" / HERO_BG_ROOT)
     hero = Image.open(out)
     assert out.name == "hero.png" and hero.size == bg.size
-    left, top, right, bottom = charts._logotype_box(bg)
-    assert left > bg.size[0] * 0.6 and bottom < bg.size[1] * 0.8  # the MJOLNIR logotype, right side
-    # the logotype is untouched; the area under it now carries the slogan and pills
-    assert (
-        hero.crop((left, top, right, bottom)).tobytes() == bg.convert("RGB").crop((left, top, right, bottom)).tobytes()
+    # the white logotype + slogan + pills land on the dark right half; the
+    # hammer art on the left stays untouched (the 2x downsample + shadow blur
+    # ring a couple of LSBs past the stack's edge, hence the tolerance)
+    left = int(bg.size[0] * 0.40)
+    a = np.asarray(hero.convert("RGB").crop((0, 0, left, bg.size[1])), dtype=int)
+    b = np.asarray(bg.convert("RGB").crop((0, 0, left, bg.size[1])), dtype=int)
+    assert int(np.abs(a - b).max()) <= 2
+    right = hero.crop((left, 0, bg.size[0], bg.size[1]))
+    assert right.tobytes() != bg.convert("RGB").crop((left, 0, bg.size[0], bg.size[1])).tobytes()
+
+
+def test_hero_platform_banners(tmp_path):
+    from PIL import Image
+
+    from mjolnir_cli.config import RepoLayout, find_repo_root
+    from mjolnir_cli.charts_base import HERO_LOGO
+
+    root = find_repo_root()
+    (tmp_path / "assets").mkdir()
+    for name in ("mjolnir_thor_bg.jpeg", HERO_LOGO):
+        shutil.copy(root / "assets" / name, tmp_path / "assets" / name)
+    layout = RepoLayout(
+        repo_root=tmp_path,
+        data_dir=tmp_path,
+        state_file=tmp_path / "s.json",
+        benchmarks_dir=tmp_path / "benchmarks",
+        history_file=tmp_path / "h.jsonl",
     )
-    under = (left, bottom + 20, right, min(bg.size[1], bottom + 200))
-    assert hero.crop(under).tobytes() != bg.convert("RGB").crop(under).tobytes()
+    out = charts.render_hero(layout, platform="thor")
+    assert out is not None and out.name == "hero-thor.png"
+    bg = Image.open(tmp_path / "assets" / "mjolnir_thor_bg.jpeg")
+    assert Image.open(out).size == bg.size
+    # a platform without its canvas renders nothing
+    assert charts.render_hero(layout, platform="orin") is None
 
 
 def test_readme_uses_the_hero():

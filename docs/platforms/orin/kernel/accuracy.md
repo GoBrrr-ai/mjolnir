@@ -20,7 +20,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 ## Result
 
-<img src="../../../../assets/benchmarks/accuracy-suites.png" alt="Score per suite and serving config" width="100%">
+
 
 - **Qwen3.8-27B · Mjolnir · fp8 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls -1.4, Hard Mode -3.6 points (4 scenarios scored lower, 2 higher of 97).
 - **Qwen3.8-27B · Mjolnir · fp6 e2m3 KV** vs Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV: Tool calls +1.5, Hard Mode +1.8 points (0 scenarios scored lower, 3 higher of 97).
@@ -51,7 +51,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 ### By tool-call category
 
-<img src="../../../../assets/benchmarks/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
+
 
 | category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab |
 |---|--:|--:|--:|--:|--:|--:|--:|

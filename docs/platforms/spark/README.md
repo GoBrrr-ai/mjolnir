@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../../../assets/hero-spark.png" alt="Mjolnir on DGX Spark" width="100%">
+</p>
+
 # DGX Spark
 
 > **research** platform · `sm_121` · host requirements: DGX OS + CUDA 13 · [all platforms](../README.md)

@@ -10,11 +10,12 @@ from collections.abc import Callable
 
 from mjolnir_cli import charts_base, charts_e2e, charts_serving
 from mjolnir_cli import theme
+from mjolnir_cli.charts_e2e import E2E_CHARTS
+from mjolnir_cli.charts_serving import ACCURACY_CHARTS, accuracy_rows_for
 from mjolnir_cli.config import RepoLayout, model_short
 from mjolnir_cli.e2e import latest_pair as e2e_latest_pair
+from mjolnir_cli.platforms import REGISTRY
 from mjolnir_cli.theme import Mode
-from mjolnir_cli.charts_e2e import E2E_CHARTS
-from mjolnir_cli.charts_serving import ACCURACY_CHARTS
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import NOISE_PCT
 
@@ -478,21 +479,6 @@ load_verify = charts_base.load_verify
 _save = charts_base._save
 _logotype_box = charts_base._logotype_box
 multiple = charts_base.multiple
-HERO_BACKGROUND = charts_base.HERO_BACKGROUND
-INFOGRAPHIC = charts_base.INFOGRAPHIC
-e2e_rows = charts_e2e.e2e_rows
-render_hero = charts_e2e.render_hero
-render_infographic = charts_e2e.render_infographic
-
-# re-exports: consumers import everything from mjolnir_cli.charts
-chart_kvcache = charts_serving.chart_kvcache
-chart_spec = charts_serving.chart_spec
-chart_autoresearch = charts_serving.chart_autoresearch
-load_verify = charts_base.load_verify
-_save = charts_base._save
-_logotype_box = charts_base._logotype_box
-multiple = charts_base.multiple
-HERO_BACKGROUND = charts_base.HERO_BACKGROUND
 INFOGRAPHIC = charts_base.INFOGRAPHIC
 e2e_rows = charts_e2e.e2e_rows
 render_hero = charts_e2e.render_hero
@@ -509,12 +495,12 @@ def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
     that pair's history. The default pair renders last and owns the flat
     chart id (the root README and the thor case study quote it); a second
     pair's PNGs are written for the site but its entry yields the flat id.
-    The accuracy charts span every measured model at once, so they stay flat
-    with a null identity; ``hero``/``opening-infographic`` are root-page
-    one-offs. Charts render ``theme.DARK`` (``chart()`` emits a plain
-    ``<img>``) and entries carry a single ``dark`` path. Readers
-    (``readme._env``'s ``chart()``) resolve an identity entry only for the
-    matching pair and keep resolving legacy flat paths. Returns
+    The accuracy charts and the opening infographics are per-pair too (one
+    row set / one canvas each); ``hero`` stays a root-page one-off.
+    Charts render ``theme.DARK`` (``chart()`` emits a plain ``<img>``) and
+    entries carry a single ``dark`` path. Readers (``readme._env``'s
+    ``chart()``) resolve an identity entry only for the matching pair and
+    keep resolving legacy flat paths. Returns
     ``{chart: {"stage", "platform", "model", "dark"}}``."""
     plt = _plt()
     from mjolnir_cli import readme_targets
@@ -532,28 +518,45 @@ def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
         return True
 
     for platform, model in readme_targets.measured_pairs(layout):
-        docs = readme_targets.pair_docs(layout, platform, model)
-        if not docs:
-            continue
         pair_dir = out_dir / platform / model_short({"model": model})
-        for name, (stage, build) in KERNEL_CHARTS.items():
-            if stage not in docs:
-                continue
-            entry: dict = {"name": name, "stage": stage, "platform": platform, "model": model}
-            if save(entry, partial(build, docs), pair_dir):
-                manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
+        # the accuracy charts are per (platform, model): one row set each,
+        # no verify docs needed
+        if accuracy_rows_for(layout, platform, model):
+            for name, build in ACCURACY_CHARTS.items():
+                entry = {"name": name, "stage": "accuracy", "platform": platform, "model": model}
+                if save(entry, partial(build, layout, platform=platform, model=model), pair_dir):
+                    manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
+        # the pair's e2e charts and its opening infographic (history only)
         off, mj = e2e_latest_pair(layout.history_file, model=model, platform=platform)
         if off and mj:
             for name, build in E2E_CHARTS.items():
                 entry = {"name": name, "stage": "e2e", "platform": platform, "model": model}
                 if save(entry, partial(build, layout, platform=platform, model=model), pair_dir):
                     manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
-    for name, build in ACCURACY_CHARTS.items():
-        entry = {"name": name, "stage": "accuracy", "platform": None, "model": None}
-        if save(entry, partial(build, layout), out_dir):
-            manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
-    info = render_infographic(layout)
+            info = render_infographic(layout, platform=platform, model=model)
+            if info is not None and layout.repo_root:
+                manifest.setdefault("opening-infographic", []).append(
+                    {
+                        "stage": "e2e",
+                        "platform": platform,
+                        "model": model,
+                        "dark": str(info.relative_to(layout.repo_root)),
+                    }
+                )
+        # the kernel charts need the pair's verify docs
+        docs = readme_targets.pair_docs(layout, platform, model)
+        if not docs:
+            continue
+        for name, (stage, build) in KERNEL_CHARTS.items():
+            if stage not in docs:
+                continue
+            entry: dict = {"name": name, "stage": stage, "platform": platform, "model": model}
+            if save(entry, partial(build, docs), pair_dir):
+                manifest.setdefault(name, []).append({k: v for k, v in entry.items() if k != "name"})
+    # the hero banners: the root's (three hammers) + one per platform
     hero = render_hero(layout)
+    for p in REGISTRY:
+        render_hero(layout, platform=p)
     # stale renders (data no longer qualifies) must not linger next to the manifest
     keep = {
         (layout.repo_root / e["dark"]).resolve() if layout.repo_root else Path(e["dark"])
@@ -564,19 +567,13 @@ def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
     for png in out_dir.rglob("*.png"):
         if png.resolve() not in keep:
             png.unlink()
-    if info is None and layout.repo_root is not None:
-        (layout.repo_root / "assets" / INFOGRAPHIC).unlink(missing_ok=True)
     if hero is not None:
-        manifest["hero"] = [{
-            "stage": "readme",
-            "dark": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
-        }
+        manifest["hero"] = [
+            {
+                "stage": "readme",
+                "dark": str(hero.relative_to(layout.repo_root) if layout.repo_root else hero),
+            }
         ]
-    if info is not None:
-        manifest["opening-infographic"] = [{
-            "stage": "e2e",
-            "dark": str(info.relative_to(layout.repo_root) if layout.repo_root else info),
-        }]
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     print(f"[mjolnir] {len(manifest)} charts -> {out_dir}")
