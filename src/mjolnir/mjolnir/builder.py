@@ -375,6 +375,12 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         if wrapper is None or not hasattr(wrapper, "plan"):
             return
         num_reqs = cam.num_reqs
+        # The warmup/profile passes plan huge dummy seq_lens over a tiny block
+        # table (the scratch path's `attach` guard skips them for the same
+        # reason): planning the fp6 kernel against that geometry would read
+        # past the pool. Their output is unused — leave the base's plan.
+        if cam.block_table_tensor.shape[1] * self._page < cam.max_seq_len:
+            return
         seq_lens = self._seq_lens_cpu(cam)[:num_reqs]
         seq_lens_np = np.asarray(seq_lens, dtype=np.int64)
         page_size = self._page
