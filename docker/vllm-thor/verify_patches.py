@@ -333,6 +333,12 @@ FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
             "prefill.py",
             'and self._cached_kv_data_type.startswith("mjolnir_fp6")',
         ),
+        # The output-width heuristic keys the kernel's head_dim_vo: fp6
+        # packs 8 values per 6 bytes (4/3 of the packed width).
+        (
+            "prefill.py",
+            "# MJOLNIR_FP6_KV: 8 fp6 values per 6 packed bytes.",
+        ),
     ],
 }
 

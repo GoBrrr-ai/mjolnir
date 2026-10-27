@@ -927,3 +927,25 @@
          key_block_scales, value_block_scales = (
              _unpack_paged_kv_cache(kv_cache_sf, self._kv_layout)
              if kv_cache_sf is not None
+@@ -3246,11 +3253,16 @@
+         # Using q.shape[-1] here assumed head_dim_vo == head_dim_qk and made
+         # the kernel (which writes head_dim_vo-wide rows) garble a too-wide
+         # output buffer whenever VO < QK.
+-        out_head_dim = (
+-            v_cache.shape[-1] * 2
+-            if kv_cache_sf is not None and v_cache.dtype == torch.uint8
+-            else v_cache.shape[-1]
+-        )
++        if kv_cache_sf is not None and v_cache.dtype == torch.uint8:
++            # NVFP4: 2 values per byte.
++            out_head_dim = v_cache.shape[-1] * 2
++        elif isinstance(self._cached_kv_data_type, str) and self._cached_kv_data_type.startswith(
++            "mjolnir_fp6"
++        ):
++            # MJOLNIR_FP6_KV: 8 fp6 values per 6 packed bytes.
++            out_head_dim = v_cache.shape[-1] * 4 // 3
++        else:
++            out_head_dim = v_cache.shape[-1]
+         if out is None:
+             # Use cached output data type if available (for FP8 attention with FP16 output)
+             out_dtype = getattr(self, "_cached_o_data_type", None) or q.dtype
