@@ -291,7 +291,7 @@ def _display_family() -> str:
     return "DejaVu Sans"
 
 
-HERO = "hero.png"
+HERO = "hero.jpg"
 
 
 # the hero canvases: one per platform plus the root's (three hammers). The
@@ -302,10 +302,14 @@ HERO_BG_PLATFORM = "mjolnir_{platform}_bg.jpeg"
 HERO_LOGO = "mjolnir_logo.png"
 
 
-# the root hero: platform-neutral slogan, one pill per shipped platform
+# the root hero: platform-neutral slogan, one pill per shipped platform.
+# Slogan lines are authored explicitly — one tuple entry per rendered line
+# (a `\n` inside an entry breaks too) — the renderer never re-wraps or
+# re-sizes them.
 ROOT_HERO_SLOGAN = (
     "Faster, bigger-context LLM serving at the edge",
-    "a dedicated decode kernel, a tuned vLLM image, one CLI",
+    "with a dedicated decode kernel,",
+    "and a tuned vLLM image, one CLI",
 )
 
 
@@ -316,12 +320,13 @@ ROOT_HERO_PILLS = (
 )
 
 
-# per-platform heroes: a one-line value-prop slogan + two status-aware pills
-# (the platform name and the kernel type, per the registry's maturity)
+# per-platform heroes: an authored slogan (one entry per line) + two
+# status-aware pills (the platform name and the kernel type, per the
+# registry's maturity)
 PLATFORM_HERO_SLOGAN = {
-    "thor": "Faster, bigger-context LLM serving on Jetson AGX Thor",
-    "orin": "Faster, bigger-context LLM serving on Jetson Orin",
-    "spark": "Faster, bigger-context LLM serving on DGX Spark",
+    "thor": ("Faster, bigger-context LLM serving", "on Jetson AGX Thor"),
+    "orin": ("Faster, bigger-context LLM serving", "on Jetson Orin"),
+    "spark": ("Faster, bigger-context LLM serving", "on DGX Spark"),
 }
 
 PLATFORM_HERO_PILLS = {
@@ -332,9 +337,10 @@ PLATFORM_HERO_PILLS = {
 
 
 def hero_platform_out(platform: str | None) -> str:
-    """The rendered hero's filename: ``hero.png`` for the root, one per
-    platform for the platform pages' header banners."""
-    return HERO if platform is None else f"hero-{platform}.png"
+    """The rendered hero's filename: ``hero.jpg`` for the root, one per
+    platform for the platform pages' header banners — JPEG: the banners are
+    photographic composites, and the PNGs weighed >1 MB each."""
+    return HERO if platform is None else f"hero-{platform}.jpg"
 
 
 FONT_DIR = Path(__file__).parent / "fonts"  # Inter Display (SIL OFL 1.1, fonts/OFL.txt)

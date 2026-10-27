@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../../assets/hero-spark.png" alt="Mjolnir on DGX Spark" width="100%">
+  <img src="../../../assets/hero-spark.jpg" alt="Mjolnir on DGX Spark" width="100%">
 </p>
 
 # DGX Spark

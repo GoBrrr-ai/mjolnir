@@ -97,7 +97,7 @@
  ],
  "hero": [
   {
-   "dark": "assets/hero.png",
+   "dark": "assets/hero.jpg",
    "stage": "readme"
   }
  ],
@@ -201,19 +201,19 @@
  ],
  "opening-infographic": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.jpg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/opening-thor-infographic.png",
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/opening-thor-infographic.jpg",
    "model": "nvidia/Qwen3.6-35B-A3B",
    "platform": "thor",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "e2e"

@@ -564,9 +564,10 @@ def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
         for e in entries
         if e.get("dark")
     }
-    for png in out_dir.rglob("*.png"):
-        if png.resolve() not in keep:
-            png.unlink()
+    for pattern in ("*.png", "*.jpg"):
+        for png in out_dir.rglob(pattern):
+            if png.resolve() not in keep:
+                png.unlink()
     if hero is not None:
         manifest["hero"] = [
             {
