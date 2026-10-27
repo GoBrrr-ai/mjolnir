@@ -4,15 +4,21 @@
 recorded — and find the good ones in the morning."
 
 The loop follows [karpathy/autoresearch](https://github.com/karpathy/autoresearch):
-agents change the Thor kernel family (`src/mjolnir/mjolnir/arch/thor/`), a fixed harness
-scores it (geomean speedup over FlashInfer at the eight headline L, after a quick
-correctness check), and the change is kept only if it beats the best score by
-more than 2%. The full design is in [`research/README.md`](../../research/README.md);
-the agents' instructions are [`research/program.md`](../../research/program.md).
+agents change the active board's kernel family (`src/mjolnir/mjolnir/arch/thor/`
+on Thor, `arch/orin/` on an Orin), a fixed harness scores it (geomean speedup
+over FlashInfer at the eight headline L, after a quick correctness check), and
+the change is kept only if it beats the best score by more than 2%. The full
+design is in [`research/README.md`](../../research/README.md); the agents'
+instructions are the platform's program — [`research/program.md`](../../research/program.md)
+on Thor, [`research/program-orin.md`](../../research/program-orin.md) on an Orin
+(resolved from the active platform; `mjolnir autoresearch run` points the agent
+at the right one and bases the run branch on the branch that carries the kernel
+— `feat/orin` on an Orin).
 
 ## Prerequisites
 
-- a Thor with the image pulled (`mjolnir image`), and a checkout of this repo;
+- a board with a Mjolnir kernel (Thor; Orin research) with the image pulled
+  (`mjolnir image`), and a checkout of this repo;
 - [OpenCode](https://opencode.ai) (`npm i -g opencode-ai`) with a model provider
   configured — the orchestrator lives in [`.opencode/agent/autoresearch.md`](../../.opencode/agent/autoresearch.md);
   the helpers it delegates to (`arxiv-researcher`, `web-researcher`,
@@ -23,6 +29,7 @@ the agents' instructions are [`research/program.md`](../../research/program.md).
 
 ```bash
 mjolnir autoresearch init oct10     # branch autoresearch/oct10, scores the baseline
+mjolnir autoresearch init nov2 --base feat/orin   # on an Orin: the kernel lives on feat/orin
 mjolnir autoresearch run            # opencode run --agent autoresearch …
 mjolnir autoresearch run --model anthropic/claude-opus-5-5   # pick the orchestrator's model
 ```
