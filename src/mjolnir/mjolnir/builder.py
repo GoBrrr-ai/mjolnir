@@ -49,13 +49,13 @@ if TYPE_CHECKING:
 # Metadata
 # --------------------------------------------------------------------------
 class MjolnirMetadata:
-    """Decode-only step metadata for T5 (one per KV-cache group).
+    """Decode-only kernel-step metadata (one per KV-cache group).
 
     Carries the attributes generic vLLM code reads from attention metadata
     (num_actual_tokens, slot_mapping, ...); FlashInfer-specific fields are
     absent because the base impl never sees this object."""
 
-    is_t5 = True
+    kernel_step = True
 
     def __init__(self, *, plan: StepPlan, runner: T5DecodeRunner, cam):
         self.plan = plan
@@ -155,7 +155,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         if self._fp6:
             _check_fp6(self._t5_reason, layer_names)
             _install_fp6_scales(vllm_config, layer_names, kv_cache_spec.num_kv_heads, kv_cache_spec.head_size)
-        self.t5: T5DecodeRunner | None = None
+        self.runner: T5DecodeRunner | None = None
         if self._t5_reason is not None:
             logger.warning(
                 "Mjolnir decode disabled for %s: %s -> %s for all steps",
@@ -178,7 +178,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         q_mode = {"bf16": "bf16", "bfloat16": "bf16", "fp8": "fp8", "e4m3": "fp8"}[q_mode]
         if self._fp6 and q_mode != "fp8":
             raise ValueError("fp6_e2m3 KV runs on the fp8-Q path only: unset MJOLNIR_ATTN_Q_DTYPE")
-        self.t5 = load_kernel(detect()).Runner(
+        self.runner = load_kernel(detect()).Runner(
             num_heads=num_heads,
             num_kv_heads=kv_cache_spec.num_kv_heads,
             head_size=kv_cache_spec.head_size,
@@ -210,13 +210,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
             before = dict(_runner.CACHE_STATS)
             t0 = time.perf_counter()
-            self.t5.precompile()
+            self.runner.precompile()
             loaded = _runner.CACHE_STATS["loaded"] - before["loaded"]
             compiled = _runner.CACHE_STATS["compiled"] - before["compiled"]
             if loaded or compiled:
                 logger.info(
                     "Mjolnir: decode kernels (q_len 1..%d, %s Q) ready in %.1f s: %d compiled, %d from %s",
-                    self.t5.max_q_len,
+                    self.runner.max_q_len,
                     q_mode,
                     time.perf_counter() - t0,
                     compiled,
@@ -231,13 +231,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             kv_cache_spec.num_kv_heads,
             kv_cache_spec.head_size,
             kv_cache_spec.block_size,
-            self.t5.max_q_len,
+            self.runner.max_q_len,
             q_mode,
-            self.t5.ctas_per_sm,
-            self.t5.slots(1),
-            self.t5.pdl,
-            self.t5.l2_prefetch,
-            self.t5.kv_evict_first,
+            self.runner.ctas_per_sm,
+            self.runner.slots(1),
+            self.runner.pdl,
+            self.runner.l2_prefetch,
+            self.runner.kv_evict_first,
             self._kv_format,
             _fallback_name(),
         )
@@ -259,16 +259,16 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         return None  # T5 graphs replay uniform-q_len batches only
 
     # -- build ---------------------------------------------------------------
-    def _t5_q_len(self, cam) -> int | None:
-        """q_len if this step is a uniform decode batch T5 can take: causal
-        (decode, speculative verification), or non-causal (a parallel drafter's
-        block — DSpark / DFlash — where every query token sees every key; off
-        with MJOLNIR_ATTN_NONCAUSAL=0)."""
-        t5 = self.t5
-        if t5 is None:
+    def _kernel_step_q_len(self, cam) -> int | None:
+        """q_len if this step is a uniform decode batch the kernel step can
+        take: causal (decode, speculative verification), or non-causal (a
+        parallel drafter's block — DSpark / DFlash — where every query token
+        sees every key; off with MJOLNIR_ATTN_NONCAUSAL=0)."""
+        runner = self.runner
+        if runner is None:
             return None
         q_len = int(cam.max_query_len)
-        if not 1 <= q_len <= t5.max_q_len or cam.num_reqs > t5.max_num_seqs:
+        if not 1 <= q_len <= runner.max_q_len or cam.num_reqs > runner.max_num_seqs:
             return None
         causal = getattr(cam, "causal", True)
         if causal is not True and not (causal is False and _NONCAUSAL):
@@ -306,7 +306,7 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     def build(self, common_prefix_len: int, common_attn_metadata, fast_build: bool = False):
         cam = common_attn_metadata
-        q_len = self._t5_q_len(cam) if common_prefix_len == 0 and not self._force_fallback else None
+        q_len = self._kernel_step_q_len(cam) if common_prefix_len == 0 and not self._force_fallback else None
         if q_len is None:
             STATS["fallback_steps"] += 1
             if self._fp6 and not self._fp6_direct:
@@ -344,12 +344,12 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
                 self._plan_fp6_direct(md, cam)
             return md
         STATS["t5_steps"] += 1
-        t5 = self.t5
+        runner = self.runner
         num_seqs = cam.num_reqs
         causal = getattr(cam, "causal", True) is not False
         if not causal:
             STATS["t5_noncausal_steps"] += 1
-        plan = t5.plan(
+        plan = runner.plan(
             self._seq_lens_cpu(cam),
             num_seqs,
             q_len,
@@ -359,8 +359,8 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             causal=causal,
         )
         # Never compiled inside graph capture: build() runs outside it.
-        t5.ensure_compiled(q_len, plan.with_reduction, plan.causal)
-        return MjolnirMetadata(plan=plan, runner=t5, cam=cam)
+        runner.ensure_compiled(q_len, plan.with_reduction, plan.causal)
+        return MjolnirMetadata(plan=plan, runner=runner, cam=cam)
 
     def _plan_fp6_direct(self, md, cam) -> None:
         """MJOLNIR_FP6_DIRECT: re-plan the base's prefill wrapper for the
@@ -460,9 +460,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
 
     def update_draft_decode_metadata(self, metadata) -> None:
         """Fused draft decode: advance the metadata to the next draft step,
-        capture-safe. A T5 plan already covers it (see __init__); other steps
-        were built by the base builder, which updates its own metadata."""
-        if getattr(metadata, "is_t5", False):
+        capture-safe. A kernel-step plan already covers it (see __init__);
+        other steps were built by the base builder, which updates its own
+        metadata."""
+        if getattr(metadata, "kernel_step", False):
             return
         super().update_draft_decode_metadata(metadata)
 

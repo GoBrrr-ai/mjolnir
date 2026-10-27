@@ -602,7 +602,7 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         *args: Any,
         **kwargs: Any,
     ):
-        if not getattr(attn_metadata, "is_t5", False):
+        if not getattr(attn_metadata, "kernel_step", False):
             if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
                 query = self._quantize_q(layer, query)
                 # The base forward passes the layer's q scale as q_descale
