@@ -48,6 +48,12 @@ mjolnir hw setup --reboot              # reboot at the end if one is required
 (in run order; `docker` covers install + group + runtime + service; `fan`
 covers both the profile install and the default selection).
 
+Before dispatching the script, `hw setup` checks the installed Docker against
+mjolnir's pinned minimum (29.9.2): below it, a TTY gets a `[Y/n]` offer to
+upgrade (the daemon restarts, taking every running container with it);
+non-interactive runs print the steps and continue, and `MJOLNIR_SKIP_DOCKER_CHECK=1`
+disables the check.
+
 The stock `cool`/`quiet` profiles ship with L4T; `recommended` (balanced)
 and `max` (sustained bench cooling) are the tuned ones this step installs.
 For benchmarks, `--fan-profile max`; for daily serving, leave the default

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from mjolnir_cli import thor
+from mjolnir_cli import docker_version, thor
 from mjolnir_cli.commands._common import HELP_CTX
 from mjolnir_cli.platforms import UnknownPlatform, resolve_platform
 
@@ -61,6 +61,8 @@ def hw_setup(
 
     On Orin the fan-profile step is skipped automatically (the profiles
     are Thor-tuned; Orin gets dedicated ones later)."""
+    if "docker" not in [s.strip() for s in skip.split(",") if s.strip()]:
+        docker_version.ensure_docker_version(assume_yes=yes, dry_run=dry_run)
     try:
         rc = thor.dispatch(
             resolve_platform(None),
