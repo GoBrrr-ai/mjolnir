@@ -1,0 +1,300 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "timing",
+ "run_id": "20261028-011621",
+ "ts": "2026-10-28T01:20:09+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "ca20f71",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "offline"
+ },
+ "params": {
+  "dtypes": "fp8 bf16",
+  "ctas": "1 2",
+  "iters": 50,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "thor",
+ "gpu": "NVIDIA Thor",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "rows": [
+  {
+   "q": "fp8",
+   "L": 128,
+   "ctas_per_sm": 1,
+   "median_us": 12.22,
+   "gbps": 23.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 128,
+   "ctas_per_sm": 2,
+   "median_us": 12.16,
+   "gbps": 23.1,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 4096,
+   "ctas_per_sm": 1,
+   "median_us": 76.64,
+   "gbps": 110.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 4096,
+   "ctas_per_sm": 2,
+   "median_us": 81.7,
+   "gbps": 103.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 8192,
+   "ctas_per_sm": 1,
+   "median_us": 127.62,
+   "gbps": 132.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 8192,
+   "ctas_per_sm": 2,
+   "median_us": 107.33,
+   "gbps": 156.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 16384,
+   "ctas_per_sm": 1,
+   "median_us": 180.1,
+   "gbps": 186.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 16384,
+   "ctas_per_sm": 2,
+   "median_us": 167.78,
+   "gbps": 200.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 32768,
+   "ctas_per_sm": 1,
+   "median_us": 310.08,
+   "gbps": 216.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 32768,
+   "ctas_per_sm": 2,
+   "median_us": 285.5,
+   "gbps": 235.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 65536,
+   "ctas_per_sm": 1,
+   "median_us": 587.74,
+   "gbps": 228.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 65536,
+   "ctas_per_sm": 2,
+   "median_us": 524.1,
+   "gbps": 256.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 131072,
+   "ctas_per_sm": 1,
+   "median_us": 1129.34,
+   "gbps": 238.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 131072,
+   "ctas_per_sm": 2,
+   "median_us": 1014.59,
+   "gbps": 265.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 262144,
+   "ctas_per_sm": 1,
+   "median_us": 2312.0,
+   "gbps": 232.0,
+   "ok": true
+  },
+  {
+   "q": "fp8",
+   "L": 262144,
+   "ctas_per_sm": 2,
+   "median_us": 1975.87,
+   "gbps": 272.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 128,
+   "ctas_per_sm": 1,
+   "median_us": 12.13,
+   "gbps": 23.6,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 128,
+   "ctas_per_sm": 2,
+   "median_us": 12.13,
+   "gbps": 23.6,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 4096,
+   "ctas_per_sm": 1,
+   "median_us": 85.82,
+   "gbps": 98.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 4096,
+   "ctas_per_sm": 2,
+   "median_us": 86.08,
+   "gbps": 97.7,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 8192,
+   "ctas_per_sm": 1,
+   "median_us": 127.46,
+   "gbps": 132.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 8192,
+   "ctas_per_sm": 2,
+   "median_us": 120.86,
+   "gbps": 139.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 16384,
+   "ctas_per_sm": 1,
+   "median_us": 207.71,
+   "gbps": 162.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 16384,
+   "ctas_per_sm": 2,
+   "median_us": 198.46,
+   "gbps": 169.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 32768,
+   "ctas_per_sm": 1,
+   "median_us": 359.81,
+   "gbps": 187.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 32768,
+   "ctas_per_sm": 2,
+   "median_us": 338.56,
+   "gbps": 198.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 65536,
+   "ctas_per_sm": 1,
+   "median_us": 684.9,
+   "gbps": 196.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 65536,
+   "ctas_per_sm": 2,
+   "median_us": 620.32,
+   "gbps": 216.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 131072,
+   "ctas_per_sm": 1,
+   "median_us": 1341.28,
+   "gbps": 200.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 131072,
+   "ctas_per_sm": 2,
+   "median_us": 1208.1,
+   "gbps": 222.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 262144,
+   "ctas_per_sm": 1,
+   "median_us": 2655.07,
+   "gbps": 202.0,
+   "ok": true
+  },
+  {
+   "q": "bf16",
+   "L": 262144,
+   "ctas_per_sm": 2,
+   "median_us": 2357.73,
+   "gbps": 228.0,
+   "ok": true
+  }
+ ],
+ "summary": {}
+}
