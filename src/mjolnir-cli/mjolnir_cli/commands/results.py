@@ -39,6 +39,13 @@ def make_plot(app: typer.Typer):
         site: Path | None = typer.Option(
             None, "--site", help="also build the interactive benchmark site (index.html) into this directory"
         ),
+        prune: bool = typer.Option(
+            False,
+            "--prune",
+            help="git rm the committed verify raws the render never reads "
+            "(superseded defaults, non-default A/B runs, uncharted stages); "
+            "the untracked ones are reported, not deleted",
+        ),
     ):
         """Render every chart (PNGs in assets/benchmarks/, from the
         latest default `mjolnir verify` run of each stage + the e2e history).
@@ -46,6 +53,12 @@ def make_plot(app: typer.Typer):
         templates; --site builds the interactive GitHub Pages site. Everything is
         computed from the committed raw data."""
         layout = load_layout()
+        if prune:
+            try:
+                _prune_raws(layout)
+            except FileNotFoundError as e:
+                typer.secho(str(e), fg=typer.colors.RED, err=True)
+                raise typer.Exit(1) from e
         try:
             charts.render_all(layout)
         except RuntimeError as e:
@@ -71,6 +84,24 @@ def make_plot(app: typer.Typer):
             interactive.build(layout, site)
 
     return plot
+
+
+def _prune_raws(layout) -> None:
+    """``--prune``: git rm the dead raws, print the ledger."""
+    from mjolnir_cli import rawprune
+
+    rep = rawprune.prune(layout)
+    console.print(
+        f"[mjolnir] raw prune: {len(rep.used)} render-read, "
+        f"{len(rep.removed)} removed, {len(rep.untracked)} untracked-dead, "
+        f"{len(rep.missing)} used-but-uncommitted"
+    )
+    for p in rep.removed:
+        console.print(f"  [red]git rm[/red] {p}")
+    for p in rep.untracked:
+        console.print(f"  [yellow]untracked dead (left on disk)[/yellow] {p}")
+    for p in rep.missing:
+        console.print(f"  [yellow]used but not committed — a fresh clone's render drifts[/yellow] {p}")
 
 
 def _ctx_label(ctx: int | None) -> str:

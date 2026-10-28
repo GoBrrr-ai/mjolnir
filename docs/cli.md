@@ -158,6 +158,7 @@ computed from the committed raw data.
 | `--readme-template` | template override (default: &lt;repo&gt;/README.md.j2) |  |
 | `--readme-out` | output override (default: &lt;repo&gt;/README.md) |  |
 | `--site` | also build the interactive benchmark site (index.html) into this directory |  |
+| `--prune` | git rm the committed verify raws the render never reads (superseded defaults, non-default A/B runs, uncharted stages); the untracked ones are reported, not deleted | off |
 
 
 <a id="mjolnir-history"></a>
