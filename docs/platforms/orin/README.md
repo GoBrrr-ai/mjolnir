@@ -28,7 +28,7 @@ from raw results in [`benchmarks/raw/verify/`](../../../benchmarks/raw/verify/)
 by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
-**Where it stands:** 0.24× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261023-095858`.
+**Where it stands:** 1.14× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261028-001502`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -44,8 +44,8 @@ reproduces it.
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261023-160119` |
-| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, events-timed where there is no ncu | ✅ run `20261023-095858` |
+| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261028-001015` |
+| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, events-timed where there is no ncu | ✅ run `20261028-001502` |
 | 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261023-131353` |
 | 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261023-135008` |
 | 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261023-134300` |
@@ -75,17 +75,17 @@ Measured on the Orin: **research stage** — the restored `sm_87` kernel is slow
 
 <img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
 
-| L | Mjolnir fp8 | Mjolnir serving path | FlashInfer | fp8 vs FI | serving path vs FI |
-|---|--:|--:|--:|--:|--:|
-| **128** | 220.9&nbsp;µs | 805.9&nbsp;µs | **120.0&nbsp;µs** | $\color{#dc2626}{0.54\times}$ | $\color{#dc2626}{0.15\times}$ |
-| **4K** | 442.1&nbsp;µs | 907.2&nbsp;µs | **281.7&nbsp;µs** | $\color{#dc2626}{0.64\times}$ | $\color{#dc2626}{0.31\times}$ |
-| **8K** | 881.3&nbsp;µs | 1.23&nbsp;ms | **344.2&nbsp;µs** | $\color{#dc2626}{0.39\times}$ | $\color{#dc2626}{0.28\times}$ |
-| **16K** | 1.65&nbsp;ms | 2.84&nbsp;ms | **364.9&nbsp;µs** | $\color{#dc2626}{0.22\times}$ | $\color{#dc2626}{0.13\times}$ |
-| **32K** | 3.15&nbsp;ms | 4.37&nbsp;ms | **431.6&nbsp;µs** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.10\times}$ |
-| **64K** | 6.16&nbsp;ms | 6.86&nbsp;ms | **834.9&nbsp;µs** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.12\times}$ |
-| **128K** | 12.17&nbsp;ms | 12.91&nbsp;ms | **1.64&nbsp;ms** | $\color{#dc2626}{0.13\times}$ | $\color{#dc2626}{0.13\times}$ |
-| **256K** | 24.19&nbsp;ms | 24.93&nbsp;ms | **3.34&nbsp;ms** | $\color{#dc2626}{0.14\times}$ | $\color{#dc2626}{0.13\times}$ |
-| geomean |  |  |  | $\color{#dc2626}{0.24\times}$ | $\color{#dc2626}{0.16\times}$ |
+| L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
+|---|--:|--:|--:|
+| **128** | **72.4&nbsp;µs** | 114.5&nbsp;µs | $\color{#16a34a}{\mathbf{1.58\times}}$ |
+| **4K** | **86.4&nbsp;µs** | 129.6&nbsp;µs | $\color{#16a34a}{\mathbf{1.50\times}}$ |
+| **8K** | 135.6&nbsp;µs | **135.0&nbsp;µs** | $\color{grey}{1.00\times}$ |
+| **16K** | **230.1&nbsp;µs** | 230.2&nbsp;µs | $\color{grey}{1.00\times}$ |
+| **32K** | **418.2&nbsp;µs** | 429.2&nbsp;µs | $\color{grey}{1.03\times}$ |
+| **64K** | **793.2&nbsp;µs** | 830.1&nbsp;µs | $\color{#16a34a}{\mathbf{1.05\times}}$ |
+| **128K** | **1.54&nbsp;ms** | 1.62&nbsp;ms | $\color{#16a34a}{\mathbf{1.05\times}}$ |
+| **256K** | **3.04&nbsp;ms** | 3.23&nbsp;ms | $\color{#16a34a}{\mathbf{1.06\times}}$ |
+| geomean |  |  | $\color{#16a34a}{\mathbf{1.14\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (the Orin kernel is behind everywhere today).</sub>
 
