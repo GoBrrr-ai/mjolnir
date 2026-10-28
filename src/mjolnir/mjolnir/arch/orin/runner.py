@@ -152,7 +152,13 @@ class OrinDecodeRunner:
         if kv_format == "e2m3":
             from mjolnir.kvfp6 import e2m3_values
 
-            self._lut = e2m3_values(self.device)
+            # uint16 bit patterns: every e2m3 value is exact in bf16
+            # (subnormals included), so the table stores the bf16 BITS —
+            # the kernels' per-code load zero-extends into the prmt
+            # store-pack with no cvt in sight. (A 2-per-u32 pair table was
+            # tried and is WRONG: the 4 codes of a group are arbitrary —
+            # {c0, c1} is not a {2j, 2j+1} table pair.)
+            self._lut = e2m3_values(self.device).to(torch.bfloat16).view(torch.uint16)
         if sm_count is None:
             sm_count = torch.cuda.get_device_properties(self.device).multi_processor_count
         self.sm_count = sm_count

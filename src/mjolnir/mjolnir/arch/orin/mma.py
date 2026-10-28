@@ -481,27 +481,30 @@ class MMADecodeKernel:
         sV8bu = cute.make_tensor(cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
         sK8cu = cute.make_tensor(cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
         sV8cu = cute.make_tensor(cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * D // 4))
-        # The byte views of the staging tiles: the e2m3 dequant's reads (the
-        # 3-byte groups are not 4-byte aligned, so the prmt trick's u32
-        # reads don't apply — byte LDS + static shifts instead).
-        sK8h = cute.make_tensor(
-            cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-        )
-        sV8h = cute.make_tensor(
-            cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-        )
-        sK8bh = cute.make_tensor(
-            cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-        )
-        sV8bh = cute.make_tensor(
-            cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-        )
-        sK8ch = cute.make_tensor(
-            cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-        )
-        sV8ch = cute.make_tensor(
-            cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-        )
+        if const_expr(self.fp6):
+            # The fp6 word views (the D2 pair-LUT recipe): the group's 3
+            # packed bytes sit inside one (bo & ~3)-aligned word pair — one
+            # word-pair PRMT per group. Sized to the fp6 rows (SR *
+            # row_bytes // 4 words); the row-last group's second word is
+            # clamped at the read site.
+            sK8w = cute.make_tensor(
+                cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes // 4)
+            )
+            sV8w = cute.make_tensor(
+                cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes // 4)
+            )
+            sK8bw = cute.make_tensor(
+                cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes // 4)
+            )
+            sV8bw = cute.make_tensor(
+                cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes // 4)
+            )
+            sK8cw = cute.make_tensor(
+                cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes // 4)
+            )
+            sV8cw = cute.make_tensor(
+                cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes // 4)
+            )
         sK16 = smem.allocate_tensor(cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16)
         # The V staged in the plain (row, d) orientation; the transposed
         # view for the transpose=True B-atom is a composition (the
@@ -653,6 +656,12 @@ class MMADecodeKernel:
                 1,
             )
             cute.arch.cp_async_commit_group()
+        if const_expr(self.fp6):
+            # D2: the group's byte-lane phase is STATIC per thread (gi = g
+            # mod 64, NT ≡ 0 mod 64) — the PRMT selector hoists out of the
+            # stage loop (0x210 + phase * 0x111; the verified phase map).
+            phase = ((tidx % 64) * 3) % 4
+            sel = 0x210 + phase * 0x111
         for stage in cutlass.range(n_stages):
             par = stage % 3
             row0 = stage * SR
@@ -692,37 +701,40 @@ class MMADecodeKernel:
             #    byte-wide LDS and made the kernel issue-bound (the ALU
             #    pipe was ~50% of all executed instructions).
             if const_expr(self.fp6):
-                # e2m3: one thread iteration owns one 4-code group = 3 packed
-                # bytes of the tight tile. The LE bit stream: code j at bit
-                # 6j of the group — (B[b] >> o) | (B[b+1] << (8-o)), static
-                # per j (the 0x3F masks absorb the over-shifted bits). The
-                # values come from the 64-entry LUT (exact: every e2m3 value
-                # is bf16-exact). Scalar bf16 stores into the swizzled tiles
-                # — the fp8 prmt trick needs the 4-byte-aligned codes.
-                srcb_k, srcb_v = sK8h, sV8h
+                # e2m3, the D1+D2 recipe (the small kernel's, verbatim): the
+                # group's 3 packed bytes ride one word pair — a single PRMT
+                # with the per-thread-constant selector — the 4 values come
+                # from the bf16 LUT (no per-code cvt), and the prmt
+                # store-pack writes 2 conflict-free STS.32 instead of 4
+                # half-width stores.
+                srcw_k, srcw_v = sK8w, sV8w
                 if par == 1:
-                    srcb_k, srcb_v = sK8bh, sV8bh
+                    srcw_k, srcw_v = sK8bw, sV8bw
                 if par == 2:
-                    srcb_k, srcb_v = sK8ch, sV8ch
+                    srcw_k, srcw_v = sK8cw, sV8cw
                 for i in cutlass.range_constexpr(SR * D // NT // 4):
                     g = tidx + i * NT  # the group index in the stage
                     r = g // (D // 4)  # 64 groups per row
                     gi = g % (D // 4)  # the group within the row
                     bo = r * self.row_bytes + gi * 3
-                    b0 = srcb_k[bo + 0].to(cutlass.Uint32)
-                    b1 = srcb_k[bo + 1].to(cutlass.Uint32)
-                    b2 = srcb_k[bo + 2].to(cutlass.Uint32)
-                    sK16[r, 4 * gi + 0] = cutlass.BFloat16(mCodeLUT[(b0 >> 0) & cutlass.Uint32(0x3F)])
-                    sK16[r, 4 * gi + 1] = cutlass.BFloat16(mCodeLUT[((b0 >> 6) | (b1 << 2)) & cutlass.Uint32(0x3F)])
-                    sK16[r, 4 * gi + 2] = cutlass.BFloat16(mCodeLUT[((b1 >> 4) | (b2 << 4)) & cutlass.Uint32(0x3F)])
-                    sK16[r, 4 * gi + 3] = cutlass.BFloat16(mCodeLUT[(b2 >> 2) & cutlass.Uint32(0x3F)])
-                    v0 = srcb_v[bo + 0].to(cutlass.Uint32)
-                    v1 = srcb_v[bo + 1].to(cutlass.Uint32)
-                    v2 = srcb_v[bo + 2].to(cutlass.Uint32)
-                    sV16[r, 4 * gi + 0] = cutlass.BFloat16(mCodeLUT[(v0 >> 0) & cutlass.Uint32(0x3F)])
-                    sV16[r, 4 * gi + 1] = cutlass.BFloat16(mCodeLUT[((v0 >> 6) | (v1 << 2)) & cutlass.Uint32(0x3F)])
-                    sV16[r, 4 * gi + 2] = cutlass.BFloat16(mCodeLUT[((v1 >> 4) | (v2 << 4)) & cutlass.Uint32(0x3F)])
-                    sV16[r, 4 * gi + 3] = cutlass.BFloat16(mCodeLUT[(v2 >> 2) & cutlass.Uint32(0x3F)])
+                    # the row-last group (gi=63, phase 1) would read one
+                    # word past the fp6 rows — clamped; the phase-1
+                    # selector never uses the second word's bytes anyway.
+                    w1i = cutlass.min((bo >> 2) + 1, SR * self.row_bytes // 4 - 1)
+                    xk = cute.arch.prmt(srcw_k[bo >> 2], srcw_k[w1i], sel)
+                    k0 = mCodeLUT[xk & 0x3F].to(cutlass.Int32)
+                    k1 = mCodeLUT[(xk >> 6) & 0x3F].to(cutlass.Int32)
+                    k2 = mCodeLUT[(xk >> 12) & 0x3F].to(cutlass.Int32)
+                    k3 = mCodeLUT[(xk >> 18) & 0x3F].to(cutlass.Int32)
+                    sK16u[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(k0, k1, 0x5410))
+                    sK16u[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(k2, k3, 0x5410))
+                    xv = cute.arch.prmt(srcw_v[bo >> 2], srcw_v[w1i], sel)
+                    v0 = mCodeLUT[xv & 0x3F].to(cutlass.Int32)
+                    v1 = mCodeLUT[(xv >> 6) & 0x3F].to(cutlass.Int32)
+                    v2 = mCodeLUT[(xv >> 12) & 0x3F].to(cutlass.Int32)
+                    v3 = mCodeLUT[(xv >> 18) & 0x3F].to(cutlass.Int32)
+                    sV16u[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(v0, v1, 0x5410))
+                    sV16u[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(v2, v3, 0x5410))
             else:
                 srcu_k = sK8u
                 srcu_v = sV8u
@@ -1016,26 +1028,36 @@ class MMADecodeKernel:
             # reads complete before the stats-merge barrier, the P writes
             # follow it, and the next dequant waits behind the post-PV barrier.
             sP = cute.make_tensor(sK16.iterator, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)))
-            # the packed-byte views for the fp6 LUT dequant (the same recipe
-            # as the big kernel; SR * row_bytes <= SR * D so the aliases hold)
-            sK8h = cute.make_tensor(
-                cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-            )
-            sV8h = cute.make_tensor(
-                cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-            )
-            sK8bh = cute.make_tensor(
-                cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-            )
-            sV8bh = cute.make_tensor(
-                cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-            )
-            sK8ch = cute.make_tensor(
-                cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-            )
-            sV8ch = cute.make_tensor(
-                cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint8), cute.make_layout(SR * self.row_bytes)
-            )
+            if const_expr(self.fp6):
+                # the D1 word views: the group's 3 packed bytes always sit
+                # inside one (bo & ~3)-aligned word pair, so ONE word-pair
+                # PRMT replaces the 3 byte loads + cvts per group. Sized to
+                # the fp6 rows (SR * row_bytes // 4 words); the row-last
+                # group's second word is clamped at the read site.
+                sK8w = cute.make_tensor(
+                    cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(SR * self.row_bytes // 4),
+                )
+                sV8w = cute.make_tensor(
+                    cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(SR * self.row_bytes // 4),
+                )
+                sK8bw = cute.make_tensor(
+                    cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(SR * self.row_bytes // 4),
+                )
+                sV8bw = cute.make_tensor(
+                    cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(SR * self.row_bytes // 4),
+                )
+                sK8cw = cute.make_tensor(
+                    cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(SR * self.row_bytes // 4),
+                )
+                sV8cw = cute.make_tensor(
+                    cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(SR * self.row_bytes // 4),
+                )
         sVt = cute.composition(sV16, cute.make_layout((D, SR), stride=(SR, 1)))
         # the neutral slab: the warps of the other m-bands leave -inf/0 —
         # the merge may read all 4 entries without decoding the arrangement.
@@ -1194,6 +1216,16 @@ class MMADecodeKernel:
                 sK8v if const_expr(rp) else None,
             )
             cute.arch.cp_async_commit_group()
+        if const_expr(self.fp6):
+            # D1: the group's byte-lane phase is STATIC per thread — gi = g
+            # mod 64 and g = tidx + i*NT with NT ≡ 0 (mod 64), so the packed
+            # group's byte offset mod 4 never depends on the stage iteration.
+            # The PRMT selector hoists out of the stage loop (the verified
+            # phase -> selector map: 0->0x210, 1->0x321, 2->0x432, 3->0x543;
+            # each selects the group's 3 bytes from the {w0, w1} pool, the
+            # high nibble is a don't-care the extraction masks away).
+            phase = ((tidx % 64) * 3) % 4
+            sel = 0x210 + phase * 0x111
         for stage in cutlass.range(n_stages):
             row0 = stage * SR
             if const_expr(rp):
@@ -1241,37 +1273,47 @@ class MMADecodeKernel:
                 srcu_k = sK8cu
                 srcu_v = sV8cu
             if const_expr(self.fp6):
-                # e2m3: the big kernel's LUT recipe, unchanged — one thread
-                # iteration owns one 4-code group (3 packed bytes of the
-                # tight tile), the LE bit-stream shifts are static per j,
-                # the values come from the 64-entry LUT (every e2m3 value
-                # is bf16-exact), scalar bf16 stores into the swizzled
-                # tiles. Per byte the cost is identical in both tile
-                # shapes; only the M-overhead differs.
-                srcb_k, srcb_v = sK8h, sV8h
+                # e2m3, the D1 diet: the group's 3 packed bytes ride ONE
+                # word pair — a single PRMT with the per-thread-constant
+                # selector (hoisted before the stage loop) replaces the 3
+                # byte loads + 3 cvts, the 4 codes come off the aligned
+                # 24-bit field with shift+mask (no over-shift ORs), and
+                # the values come from the bf16 LUT (no per-code cvt —
+                # the old fp32 LUT needed one). Scalar bf16 stores into
+                # the swizzled tiles; the PRMT store-pack stays D2.
+                srcw_k, srcw_v = sK8w, sV8w
                 if par == 1:
-                    srcb_k, srcb_v = sK8bh, sV8bh
+                    srcw_k, srcw_v = sK8bw, sV8bw
                 if par == 2:
-                    srcb_k, srcb_v = sK8ch, sV8ch
+                    srcw_k, srcw_v = sK8cw, sV8cw
                 for i in cutlass.range_constexpr(SR * D // NT // 4):
                     g = tidx + i * NT  # the group index in the stage
                     r = g // (D // 4)  # 64 groups per row
                     gi = g % (D // 4)  # the group within the row
                     bo = r * self.row_bytes + gi * 3
-                    b0 = srcb_k[bo + 0].to(cutlass.Uint32)
-                    b1 = srcb_k[bo + 1].to(cutlass.Uint32)
-                    b2 = srcb_k[bo + 2].to(cutlass.Uint32)
-                    sK16[r, 4 * gi + 0] = cutlass.BFloat16(mCodeLUT[(b0 >> 0) & cutlass.Uint32(0x3F)])
-                    sK16[r, 4 * gi + 1] = cutlass.BFloat16(mCodeLUT[((b0 >> 6) | (b1 << 2)) & cutlass.Uint32(0x3F)])
-                    sK16[r, 4 * gi + 2] = cutlass.BFloat16(mCodeLUT[((b1 >> 4) | (b2 << 4)) & cutlass.Uint32(0x3F)])
-                    sK16[r, 4 * gi + 3] = cutlass.BFloat16(mCodeLUT[(b2 >> 2) & cutlass.Uint32(0x3F)])
-                    v0 = srcb_v[bo + 0].to(cutlass.Uint32)
-                    v1 = srcb_v[bo + 1].to(cutlass.Uint32)
-                    v2 = srcb_v[bo + 2].to(cutlass.Uint32)
-                    sV16[r, 4 * gi + 0] = cutlass.BFloat16(mCodeLUT[(v0 >> 0) & cutlass.Uint32(0x3F)])
-                    sV16[r, 4 * gi + 1] = cutlass.BFloat16(mCodeLUT[((v0 >> 6) | (v1 << 2)) & cutlass.Uint32(0x3F)])
-                    sV16[r, 4 * gi + 2] = cutlass.BFloat16(mCodeLUT[((v1 >> 4) | (v2 << 4)) & cutlass.Uint32(0x3F)])
-                    sV16[r, 4 * gi + 3] = cutlass.BFloat16(mCodeLUT[(v2 >> 2) & cutlass.Uint32(0x3F)])
+                    # the row-last group (gi=63, phase 1) would read one
+                    # word past the fp6 rows — clamped; the phase-1
+                    # selector never uses the second word's bytes anyway.
+                    w1i = cutlass.min((bo >> 2) + 1, SR * self.row_bytes // 4 - 1)
+                    xk = cute.arch.prmt(srcw_k[bo >> 2], srcw_k[w1i], sel)
+                    # the D2 store-pack: the bf16 LUT values bit-cast to
+                    # u16 ride one prmt per pair into a u32 — two
+                    # conflict-free STS.32 into the swizzled tile replace
+                    # four ~4-way-conflicted STS.16 (the Session-5 fp8
+                    # lesson, now on the fp6 side).
+                    k0 = mCodeLUT[xk & 0x3F].to(cutlass.Int32)
+                    k1 = mCodeLUT[(xk >> 6) & 0x3F].to(cutlass.Int32)
+                    k2 = mCodeLUT[(xk >> 12) & 0x3F].to(cutlass.Int32)
+                    k3 = mCodeLUT[(xk >> 18) & 0x3F].to(cutlass.Int32)
+                    sK16u[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(k0, k1, 0x5410))
+                    sK16u[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(k2, k3, 0x5410))
+                    xv = cute.arch.prmt(srcw_v[bo >> 2], srcw_v[w1i], sel)
+                    v0 = mCodeLUT[xv & 0x3F].to(cutlass.Int32)
+                    v1 = mCodeLUT[(xv >> 6) & 0x3F].to(cutlass.Int32)
+                    v2 = mCodeLUT[(xv >> 12) & 0x3F].to(cutlass.Int32)
+                    v3 = mCodeLUT[(xv >> 18) & 0x3F].to(cutlass.Int32)
+                    sV16u[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(v0, v1, 0x5410))
+                    sV16u[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(v2, v3, 0x5410))
             else:
                 for i in cutlass.range_constexpr(SR * D // NT // 4):
                     e4 = (tidx + i * NT) * 4
