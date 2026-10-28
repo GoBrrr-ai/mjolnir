@@ -115,16 +115,21 @@ def test_image_build_outside_a_repo_names_the_pull(monkeypatch):
     assert r.exit_code == 4 and "docker pull" in r.output
 
 
-def test_image_gates_runs_the_canary_task(monkeypatch):
-    seen = {}
+def test_image_gates_runs_the_arch_legs(monkeypatch):
+    seen = []
 
     def fake_run_task(s, name, args, dry_run=False):
-        seen.update(name=name, args=args, dry_run=dry_run, image=s.image)
+        seen.append(name)
         return 0
 
     monkeypatch.setattr(tasks, "run_task", fake_run_task)
-    r = runner.invoke(cli.app, ["image", "gates", "--image", "mine:v9", "--dry-run"])
-    assert r.exit_code == 0 and seen == {"name": "gates", "args": [], "dry_run": True, "image": "mine:v9"}
+    r = runner.invoke(cli.app, ["image", "gates", "--image", "mine:v9", "--arch", "orin", "--dry-run"])
+    # fp6-expand is arch-agnostic (the patched-flashinfer expand canary) and
+    # rides every board's legs.
+    assert r.exit_code == 0 and seen == ["orin-gates", "fp6-expand", "functional"], seen
+    seen.clear()
+    r = runner.invoke(cli.app, ["image", "gates", "--image", "mine:v9", "--task", "fi-update", "--dry-run"])
+    assert r.exit_code == 0 and seen == ["fi-update"], seen
 
 
 def test_image_use_with_no_local_images_at_all(monkeypatch):

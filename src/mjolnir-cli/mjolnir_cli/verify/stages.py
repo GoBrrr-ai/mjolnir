@@ -14,7 +14,6 @@ from __future__ import annotations
 import re
 import shlex
 import sys
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +37,7 @@ DEFAULT_ITERS = 50
 NOISE_PCT = 3.0
 
 _MEDIAN = re.compile(r"^median ([0-9.]+) us(?:, ([0-9.e+]+) GB/s)?", re.MULTILINE)
+_FULL_MEDIAN = re.compile(r"^full median ([0-9.]+) us", re.MULTILINE)
 
 
 @dataclass
@@ -81,6 +81,10 @@ class Stage:
     kind: str  # "correctness" | "ncu" | "harness" | "profile" | "tests" | "serving"
     summary: str  # one line (help text, docs index)
     fn: Callable[..., dict] | None = None
+    # True = the stage cannot run without Nsight Compute on any platform; the
+    # sweep is False (dual: the ncu legs on thor, the events-timed branch on
+    # the no-ncu platforms). The kernel-tree chapters filter on it.
+    requires_ncu: bool = False
 
 
 def _median(text: str) -> tuple[float | None, float | None]:
@@ -93,7 +97,7 @@ def _median(text: str) -> tuple[float | None, float | None]:
 # ── ncu sweeps (sweep / hndsweep / ring / prefetch / ab / kvfmt) ────────────
 
 
-def run_series(ctx: Ctx, legs: list[L_.Leg], stage: str, cache: str = "all", clock: str = "base") -> list[dict]:
+def run_series(ctx: Ctx, legs: list[L_.Leg], stage: str, cache: str = "all", clock: str = "none") -> list[dict]:
     """Profile every leg at every L; one series dict per leg."""
     series = []
     for leg in legs:
@@ -143,10 +147,6 @@ def _wall_rows(ctx: Ctx, legs: list[L_.Leg], stage: str, iters: int, ls: tuple[i
     return rows
 
 
-def _slug(s: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.=-]+", "_", s).strip("_")
-
-
 SWEEP_LEGS = KERNEL["verify.sweep"]  # mjolnir_cli.legs
 
 
@@ -154,6 +154,10 @@ def stage_sweep(ctx: Ctx, legs: str = SWEEP_LEGS, page: int | None = None, batch
     """Every leg at every L. ``batch`` sequences of L tokens with ``q_len``
     query tokens each (default one decode token of one sequence; serving with
     MTP=3 verifies 4 tokens per sequence: ``batch=4, q_len=4``)."""
+    if ctx.runner.platform == "orin":
+        # No ncu on L4T: the events-timed same-run comparison IS this
+        # platform's headline sweep (the legs are its series ids).
+        return _orin_sweep(ctx, legs, q_len)
     sel = L_.legs_from_ids(legs)
     single_token = {"fa2", "fa4"}
     if (batch, q_len) != (1, 1) and any(x.kind in single_token for x in sel):
@@ -172,6 +176,9 @@ def stage_sweep(ctx: Ctx, legs: str = SWEEP_LEGS, page: int | None = None, batch
 def stage_hndsweep(ctx: Ctx, legs: str = KERNEL["verify.hndsweep"]) -> dict:
     sel = L_.legs_from_ids(legs)
     return {"series": run_series(ctx, sel, "hndsweep"), "params": {"legs": [x.id for x in sel]}}
+
+
+_slug = L_.slug  # the shared leg-id slug (the correctness module imports it too)
 
 
 def _variant_stage(
@@ -193,6 +200,10 @@ RING_DEFAULT = "2 3 4 5 6"
 
 def stage_ring(ctx: Ctx, stages: str = RING_DEFAULT, base: str = "", refs: str = "fi") -> dict:
     """KV ring depth (``--kv_stages``) at the harness default."""
+    if ctx.runner.platform == "orin":
+        # The GEMV is single-pass: no KV ring to size.
+        ctx.out("   (N/A on Orin: the GEMV has no KV ring — nothing to measure)")
+        return {"error": "the Orin GEMV has no KV ring — nothing to measure"}
     variants = [L_.t5_variant(f"stages={s}", f"{base} --kv_stages {s}".strip()) for s in stages.split()]
     variants.insert(0, L_.t5_variant("default", base))
     return _variant_stage(ctx, "ring", variants, refs)
@@ -202,32 +213,23 @@ def stage_prefetch(ctx: Ctx, distances: str = "0 1 2 4", base: str = "--kv_forma
     """L2 prefetch distance (``--l2_prefetch``, in 128-row tiles ahead).
     Runs on fp8 KV: the prefetch path is not wired for nvfp4 and the fp6
     ring is already tuned without it."""
+    if ctx.runner.platform == "orin":
+        # The GEMV issues no L2 prefetch: no distance axis.
+        ctx.out("   (N/A on Orin: the GEMV has no L2-prefetch knob — nothing to measure)")
+        return {"error": "the Orin GEMV has no L2-prefetch knob — nothing to measure"}
     variants = [L_.t5_variant(f"prefetch={k}", f"{base} --l2_prefetch {k}".strip()) for k in distances.split()]
     return _variant_stage(ctx, "prefetch", variants, refs)
 
 
-AB_DEFAULT = (
-    "base:--kv_evict_first 0|evict:--kv_evict_first 1|pdl:--kv_evict_first 0 --pdl|both:--kv_evict_first 1 --pdl"
-)
-
-
-def stage_ab(ctx: Ctx, variants: str = AB_DEFAULT, refs: str = "fi", wall_iters: int = 200) -> dict:
+def stage_ab(ctx: Ctx, variants: str = "", refs: str = "fi", wall_iters: int = 200) -> dict:
     """Free-form A/B of harness flag sets (``name:flags|name:flags``)."""
+    variants = variants or L_.stage_variants(L_.AB_VARIANTS, ctx.runner.platform)
     return _variant_stage(ctx, "ab", L_.parse_variants(variants), refs, wall_iters)
 
 
-KVFMT_DEFAULT = (
-    "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-interleaved:--kv_format fp8 --kv_layout interleaved|"
-    "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
-    "e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|"
-    "nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd"
-)
-
-
-def stage_kvfmt(
-    ctx: Ctx, variants: str = KVFMT_DEFAULT, refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200
-) -> dict:
+def stage_kvfmt(ctx: Ctx, variants: str = "", refs: str = KERNEL["verify.kvfmt.refs"], wall_iters: int = 200) -> dict:
     """KV cache layouts × formats (fp8 / fp6 / fp4 / nvfp4; NHD / interleaved / HND)."""
+    variants = variants or L_.stage_variants(L_.KVFMT_VARIANTS, ctx.runner.platform)
     return _variant_stage(ctx, "kvfmt", L_.parse_variants(variants), refs, wall_iters)
 
 
@@ -235,14 +237,21 @@ def stage_kvfmt(
 
 
 def stage_timing(ctx: Ctx, dtypes: str = "fp8 bf16", ctas: str = "1 2", iters: int = 50) -> dict:
-    """Harness-timed medians at every L, 1 vs 2 CTAs/SM, per Q dtype."""
+    """Harness-timed medians at every L, 1 vs 2 CTAs/SM, per Q dtype.
+
+    The Orin GEMV has no CTAs/SM axis: one config per (dtype, L) — bf16 Q
+    and fp8 Q (the runner's dynamic qpack) on fp8 KV."""
+    orin = ctx.runner.platform == "orin"
+    ctas_vals = ["1"] if orin else ctas.split()
     rows = []
     for dt in dtypes.split():
         for L in ctx.ls:
-            for c in ctas.split():
+            for c in ctas_vals:
                 ctx.wait_clean()
                 log = ctx.logdir / "timing" / f"{dt}-L{L}-ctas{c}.log"
-                args = f"--seqlen {L} --skip_ref_check --warmup_iterations 5 --iterations {iters} --ctas_per_sm {c}"
+                args = f"--seqlen {L} --skip_ref_check --warmup_iterations 5 --iterations {iters}"
+                if not orin:
+                    args += f" --ctas_per_sm {c}"
                 rc, text = ctx.runner.harness(log, dt, args)
                 us, gbps = _median(text)
                 rows.append({"q": dt, "L": L, "ctas_per_sm": int(c), "median_us": us, "gbps": gbps, "ok": rc == 0})
@@ -251,9 +260,85 @@ def stage_timing(ctx: Ctx, dtypes: str = "fp8 bf16", ctas: str = "1 2", iters: i
     return {"rows": rows, "params": {"dtypes": dtypes, "ctas": ctas, "iters": iters}}
 
 
+def _orin_sweep(ctx: Ctx, legs: str, q_len: int) -> dict:
+    """The sweep's Orin branch: the same-run comparison at every L with
+    prebuilt launches (the kernel number), the full serving path
+    (runner.run: arg packing + the LSE combine) and the FlashInfer FA2-TC
+    reference -- all on this host, same conditions, on the stock image.
+    No ncu exists on L4T, so this branch IS the platform's headline sweep;
+    the series carry the sweep schema (id/label/kind/role/points) and save
+    under the sweep stage with the platform tag, so every reader -- charts,
+    README context, tables -- consumes them unchanged."""
+    want = set(legs.split(",")) if legs else {"mjolnir", "mjolnir-full", "fi"}
+    # Correctness gate first: the exact configs the timing runs, plus the
+    # ragged short-sequence case that exercises the masked-split paths.
+    for args in (
+        f"--seqlen 4096 --q_len {q_len}",
+        "--seqlen 4096 --q_len 8 --batches 8",
+        "--seqlen 64 --q_len 8 --batches 8",
+    ):
+        clog = ctx.logdir / "sweep" / f"check-{args.replace(' ', '_').replace('--', '')}.log"
+        rc, _ = ctx.runner.harness(clog, "bf16", args)
+        if rc != 0:
+            ctx.out(f"   ❌ correctness gate failed ({args}) — {clog}")
+            return {"error": f"correctness gate failed ({args}), see {clog}"}
+    pts: dict[str, list] = {"mjolnir": [], "mjolnir-full": [], "fi": []}
+    for L in ctx.ls:
+        ctx.wait_clean()
+        log = ctx.logdir / "sweep" / f"mjolnir-L{L}.log"
+        args = f"--seqlen {L} --q_len {q_len} --skip_ref_check --warmup_iterations 20 --iterations {ctx.iters}"
+        rc, text = ctx.runner.harness(log, "bf16", args)
+        us, gbps = _median(text)
+        full_m = _FULL_MEDIAN.search(text or "")
+        full_us = float(full_m.group(1)) if full_m else None
+        flog = ctx.logdir / "sweep" / f"fi-L{L}.log"
+        frc, fi_us = ctx.runner.driver_wall(
+            flog,
+            "fi_driver.py",
+            L,
+            ctx.iters,
+            env_extra=(("FI_LAYOUT", "NHD"), ("BENCH_PAGE", "16"), ("BENCH_QLEN", str(q_len)), ("BENCH_WARMUP", "20")),
+        )
+        ok = rc == 0 and us is not None and frc == 0 and fi_us is not None
+        if us is not None:
+            pts["mjolnir"].append({"L": L, "total_us": us, "gbps": gbps})
+            pts["mjolnir-full"].append({"L": L, "total_us": full_us})
+        if fi_us is not None:
+            pts["fi"].append({"L": L, "total_us": fi_us})
+        if ok:
+            ctx.out(
+                f"   L={L:>7,}  kernel {us:>9.1f} µs  full {full_us or 0:>9.1f} µs  FI {fi_us:>9.1f} µs  ({fi_us / us:>5.2f}x)"
+            )
+        else:
+            ctx.out(f"   L={L:>7,}  incomplete (mjolnir rc={rc}, fi rc={frc}) — {ctx.logdir / 'sweep'}")
+
+    def series(sid, label, kind, role, kv_layout, points):
+        return {
+            "id": sid,
+            "label": label,
+            "kind": kind,
+            "role": role,
+            "kv_format": "fp8",
+            "kv_layout": kv_layout,
+            "kv_bits": 8.0,
+            "points": points,
+        }
+
+    all_series = [
+        series("mjolnir", "Mjolnir MMA (fp8 KV, HND)", "t5", "ours", "hnd", pts["mjolnir"]),
+        series("mjolnir-full", "Mjolnir serving path", "t5", "ours", "hnd", pts["mjolnir-full"]),
+        series("fi", "FlashInfer FA2-TC (fp8 KV, NHD)", "fi", "baseline", "nhd", pts["fi"]),
+    ]
+    return {"series": [s for s in all_series if s["id"] in want], "params": {}}
+
+
 def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 200) -> dict:
     """Programmatic dependent launch on/off (wall clock — ncu serializes
     kernels, so it cannot see PDL)."""
+    if ctx.runner.platform == "orin":
+        # PDL needs sm_90+; the GEMV family has no launch-overlap lever.
+        ctx.out("   (N/A on Orin: PDL does not exist below sm_90 — nothing to measure)")
+        return {"error": "PDL does not exist below sm_90 — nothing to measure on Orin"}
     rows = []
     for dt in dtypes.split():
         for b in batches.split():
@@ -276,10 +361,8 @@ def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 
     return {"rows": rows, "params": {"batches": batches, "dtypes": dtypes, "iters": iters}}
 
 
-QUANT_FORMATS = "fp8 e2m3 e3m2 e2m1 nvfp4"
-
-
-def stage_quant(ctx: Ctx, formats: str = QUANT_FORMATS, batches: int = 2) -> dict:
+def stage_quant(ctx: Ctx, formats: str = "", batches: int = 2) -> dict:
+    formats = formats or L_.stage_variants(L_.QUANT_FORMATS, ctx.runner.platform)
     """Accuracy of each KV format: kernel output vs attention over the
     unquantized float KV (same queries), relative L2 error."""
     rows = []
@@ -287,7 +370,13 @@ def stage_quant(ctx: Ctx, formats: str = QUANT_FORMATS, batches: int = 2) -> dic
         for L in ctx.ls:
             log = ctx.logdir / "quant" / f"{f}-L{L}.log"
             extra = "--kv_format fp8 --kv_from_float" if f == "fp8" else f"--kv_format {f}"
-            rc, text = ctx.runner.harness(log, "fp8", f"--batches {batches} --seqlen {L} {extra}", timeout=900)
+            # The fp6 reference dequantizes the whole pool on the host on top
+            # of the same per-page gather fp8's reference runs — the 900s
+            # default ran out at L≥65K on the Orin (the e2m3 rows came back
+            # "—" in orin2's §6.3) — scale the window with L.
+            rc, text = ctx.runner.harness(
+                log, "fp8", f"--batches {batches} --seqlen {L} {extra}", timeout=900 if L <= 32768 else 2400
+            )
             m = re.search(r"rel_l2=([0-9.eE+-]+)", text)
             mx = re.search(r"unquantized\| max=([0-9.eE+-]+)", text)
             rel = float(m.group(1)) if m else None
@@ -309,10 +398,6 @@ def stage_quant(ctx: Ctx, formats: str = QUANT_FORMATS, batches: int = 2) -> dic
 
 # ── fp6prof (full ncu profiles) ─────────────────────────────────────────────
 
-PROF_DEFAULT = (
-    "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
-    "e2m1-hnd:--kv_format e2m1 --kv_layout hnd"
-)
 # The metrics kept per profile (the full set is ~1000 metrics x launches —
 # the .ncu-rep files keep everything; the JSON keeps what the charts read).
 PROF_METRICS = (
@@ -334,7 +419,8 @@ PROF_METRICS = (
 )
 
 
-def stage_fp6prof(ctx: Ctx, variants: str = PROF_DEFAULT, count: int = 3, section_set: str = "full") -> dict:
+def stage_fp6prof(ctx: Ctx, variants: str = "", count: int = 3, section_set: str = "full") -> dict:
+    variants = variants or L_.stage_variants(L_.PROF_VARIANTS, ctx.runner.platform)
     """Full ncu profiles of the decode kernel per KV format: bytes moved vs
     time, L2 request granularity, warp stalls — why fp6 saves fewer µs than
     bytes. ``.ncu-rep`` files land in the run's log dir (open in Nsight Compute)."""
@@ -377,212 +463,6 @@ def stage_fp6prof(ctx: Ctx, variants: str = PROF_DEFAULT, count: int = 3, sectio
                 }
             )
     return {"profiles": profiles, "params": {"variants": variants, "count": count, "set": section_set}}
-
-
-# ── correctness ─────────────────────────────────────────────────────────────
-
-# (label, args, q dtypes). Cases pin the vLLM production config (fp8 KV, NHD)
-# unless they pass their own --kv_format / --kv_layout (later flags win);
-# "default:" cases run the bare harness default (e2m3 on HND for fp8 Q).
-_PIN = "--kv_format fp8 --kv_layout nhd"
-BOTH = ("fp8", "bf16")
-FP8 = ("fp8",)
-CASES: list[tuple[str, str, tuple[str, ...]]] = [
-    ("L=8192", "--seqlen 8192", BOTH),
-    ("L=128 (1 chunk, direct out)", "--seqlen 128", BOTH),
-    ("L=1000 (partial tile mask)", "--seqlen 1000", BOTH),
-    ("L=1 (minimal)", "--seqlen 1", BOTH),
-    ("L=65536 (ring wraps)", "--seqlen 65536", BOTH),
-    ("varlen 6x<=20000", "--batches 6 --seqlen 20000 --varlen", BOTH),
-    ("varlen 32x<=2048 (>1 wave)", "--batches 32 --seqlen 2048 --varlen", BOTH),
-    ("spec q_len=2 varlen 4x<=3000", "--batches 4 --seqlen 3000 --varlen --q_len 2", BOTH),
-    ("spec q_len=4 2x777", "--batches 2 --seqlen 777 --q_len 4", BOTH),
-    ("page 16 varlen", "--batches 4 --seqlen 1000 --varlen --page_size 16", BOTH),
-    ("page 64 varlen", "--batches 4 --seqlen 1000 --varlen --page_size 64", BOTH),
-    ("contiguous pages", "--seqlen 8192 --contiguous_pages", BOTH),
-    ("2 CTAs/SM (40-CTA plan)", "--seqlen 8192 --ctas_per_sm 2", BOTH),
-    ("forced 7 chunks", "--seqlen 8192 --kv_splits 7", BOTH),
-    ("padded work list (40)", "--batches 3 --seqlen 5000 --varlen --pad_work_to 40", BOTH),
-    ("max_splits=1 (no reduction)", "--seqlen 8192 --max_splits 1", BOTH),
-    ("headdim 128", "--seqlen 8192 --headdim 128", BOTH),
-    ("KV interleaved (B,H,N,2D)", "--batches 4 --seqlen 3000 --varlen --page_size 16 --kv_layout interleaved", BOTH),
-    ("KV flashinfer (B,2,N,H,D)", "--batches 4 --seqlen 3000 --varlen --page_size 32 --kv_layout flashinfer", BOTH),
-    ("strided Q/O (fused QKV view)", "--batches 4 --seqlen 3000 --varlen --strided_qo", BOTH),
-    ("per-tensor descales", "--batches 4 --seqlen 3000 --varlen --descale per_tensor", BOTH),
-    ("per-head descales", "--batches 4 --seqlen 3000 --varlen --descale per_head", BOTH),
-    (
-        "vLLM-like: interl+strided+tensor p16",
-        "--batches 8 --seqlen 6000 --varlen --page_size 16 --kv_layout interleaved --strided_qo --descale per_tensor",
-        BOTH,
-    ),
-    ("PDL (decode + reduction)", "--batches 4 --seqlen 20000 --varlen --pdl", BOTH),
-    ("L2 prefetch 2, page 128", "--batches 2 --seqlen 30000 --varlen --l2_prefetch 2", BOTH),
-    ("L2 prefetch 4, page 16", "--batches 4 --seqlen 9000 --varlen --page_size 16 --l2_prefetch 4", BOTH),
-    ("PDL + L2 prefetch 1, q_len=2", "--batches 3 --seqlen 5000 --varlen --q_len 2 --pdl --l2_prefetch 1", BOTH),
-    ("HND layout p128", "--seqlen 8192 --kv_layout hnd", BOTH),
-    ("HND layout p16 varlen", "--batches 4 --seqlen 3000 --varlen --page_size 16 --kv_layout hnd", BOTH),
-    ("fp8 from float (accuracy ref)", "--batches 2 --seqlen 5000 --varlen --kv_from_float", FP8),
-    ("e3m2 KV p128", "--seqlen 8192 --kv_format e3m2", FP8),
-    ("e2m3 KV p16 varlen", "--batches 4 --seqlen 3000 --varlen --page_size 16 --kv_format e2m3", FP8),
-    (
-        "e2m3 KV vLLM layout (interl p128 q_len=4)",
-        "--batches 4 --seqlen 5000 --varlen --page_size 128 --q_len 4 --kv_format e2m3 --kv_layout interleaved "
-        "--strided_qo",
-        FP8,
-    ),
-    ("e2m1 KV p128", "--seqlen 8192 --kv_format e2m1", FP8),
-    (
-        "e2m1 KV HND p16 q_len=2",
-        "--batches 3 --seqlen 2500 --varlen --page_size 16 --q_len 2 --kv_layout hnd --kv_format e2m1",
-        FP8,
-    ),
-    ("nvfp4 KV p128", "--seqlen 8192 --kv_format nvfp4", FP8),
-    ("nvfp4 KV p16 varlen", "--batches 4 --seqlen 3000 --varlen --page_size 16 --kv_format nvfp4", FP8),
-    (
-        "nvfp4 KV HND q_len=2 pad",
-        "--batches 3 --seqlen 2500 --varlen --q_len 2 --kv_layout hnd --kv_format nvfp4 --pad_work_to 40",
-        FP8,
-    ),
-    ("default: e2m3 HND L=8192", "@default --seqlen 8192", BOTH),
-    ("default: L=65536 (ring wraps)", "@default --seqlen 65536", BOTH),
-    ("default: varlen 6x<=20000", "@default --batches 6 --seqlen 20000 --varlen", BOTH),
-    (
-        "default: q_len=3 p16 pad",
-        "@default --batches 4 --seqlen 2000 --varlen --q_len 3 --page_size 16 --pad_work_to 40",
-        BOTH,
-    ),
-    ("default: headdim 128 + PDL", "@default --batches 2 --seqlen 9000 --varlen --headdim 128 --pdl", BOTH),
-    # parallel drafters (DSpark / DFlash): a non-causal block of 1 + 7 queries,
-    # the DSpark drafter's heads (40 query / 8 KV, d = 128)
-    (
-        "non-causal q_len=8 (drafter block)",
-        "@default --batches 4 --seqlen 5000 --varlen --q_len 8 --heads_q 40 --heads_k 8 --headdim 128 --non_causal",
-        BOTH,
-    ),
-    (
-        "non-causal q_len=8 fp8 p16 pad",
-        "--batches 3 --seqlen 2500 --varlen --q_len 8 --heads_q 40 --heads_k 8 --headdim 128 --page_size 16 "
-        "--non_causal --pad_work_to 40",
-        BOTH,
-    ),
-    ("ring depth 2, fp8 (ring wraps)", "--seqlen 65536 --kv_layout hnd --kv_stages 2", BOTH),
-    ("ring depth 2, e2m3 varlen p16", "@default --batches 4 --seqlen 9000 --varlen --page_size 16 --kv_stages 2", FP8),
-    ("kv evict_first", "--batches 4 --seqlen 20000 --varlen --kv_evict_first", BOTH),
-    ("evict + PDL L=8192", "--seqlen 8192 --kv_evict_first --pdl", BOTH),
-    (
-        "evict + PDL q_len=3 + pad",
-        "--batches 4 --seqlen 2000 --varlen --q_len 3 --kv_evict_first --pdl --pad_work_to 40",
-        BOTH,
-    ),
-    (
-        "evict + PDL, interl p16",
-        "--batches 4 --seqlen 9000 --varlen --page_size 16 --kv_layout interleaved --kv_evict_first --pdl",
-        BOTH,
-    ),
-    (
-        "vLLM-like spec q_len=3 p16",
-        "--batches 4 --seqlen 2000 --varlen --q_len 3 --page_size 16 --kv_layout interleaved --strided_qo "
-        "--descale per_tensor --pad_work_to 40",
-        BOTH,
-    ),
-    # E1 fused last-CTA merge (counter self-reset covered by the replay case)
-    ("fused merge e2m3 HND varlen", "@default --batches 2 --seqlen 16384 --varlen --fused_merge", FP8),
-    ("fused merge L=65536, replay x8", "@default --seqlen 65536 --fused_merge --iterations 8", FP8),
-    ("fused merge q_len=2 fp8 HND", "--batches 3 --seqlen 9000 --varlen --q_len 2 --kv_layout hnd --fused_merge", FP8),
-]
-
-
-# One representative case per group: the fast pre-check autoresearch runs on
-# every experiment (~10 containers) before the full matrix is worth paying for.
-QUICK_CASES = (
-    "L=8192",
-    "L=1000 (partial tile mask)",
-    "L=65536 (ring wraps)",
-    "varlen 6x<=20000",
-    "spec q_len=2 varlen 4x<=3000",
-    "page 16 varlen",
-    "KV interleaved (B,H,N,2D)",
-    "HND layout p16 varlen",
-    "e2m3 KV p16 varlen",
-    "default: e2m3 HND L=8192",
-    "default: varlen 6x<=20000",
-    "evict + PDL q_len=3 + pad",
-    "non-causal q_len=8 (drafter block)",
-    "fused merge e2m3 HND varlen",
-)
-
-
-def case_args(args: str) -> str:
-    if args.startswith("@default"):
-        return args[len("@default") :].strip()
-    return f"{_PIN} {args}"
-
-
-LABEL_W = max(len(label) for label, _, _ in CASES)
-
-
-def _short_check(check: str | None) -> str:
-    """'|kern-emu| max=0.03051 mean=0.0007534' -> 'max 3.05e-02  mean 7.53e-04'
-    (fixed width, so the live correctness table never wraps)."""
-    if not check:
-        return ""
-    m = re.search(r"max=([0-9.eE+-]+)\s+mean=([0-9.eE+-]+)", check)
-    if not m:
-        return check[:26]
-    try:
-        return f"max {float(m.group(1)):.2e}  mean {float(m.group(2)):.2e}"
-    except ValueError:
-        return check[:26]
-
-
-def stage_correctness(
-    ctx: Ctx,
-    dtypes: str = "fp8 bf16",
-    match: str = "",
-    fail_fast: bool = False,
-    timeout: float = 180.0,
-    quick: bool = False,
-) -> dict:
-    """Kernel vs the bit-faithful emulator: output + LSE + poisoned-page NaN
-    check, for every case x Q dtype."""
-    want = set(dtypes.split())
-    cases = []
-    for label, args, dts in CASES:
-        if match and match.lower() not in label.lower():
-            continue
-        if quick and label not in QUICK_CASES:
-            continue
-        for dt in dts:
-            if dt not in want:
-                continue
-            log = ctx.logdir / "correctness" / f"{len(cases) + 1:02d}-{dt}-{_slug(label)}.log"
-            t0 = time.time()
-            rc, text = ctx.runner.harness(log, dt, case_args(args), timeout=timeout)
-            ok = rc == 0 and bool(re.search(r"^PASS$", text, re.MULTILINE))
-            check = re.search(r"^check: (.*?)(;|$)", text, re.MULTILINE)
-            plan = re.search(r"plan: SplitPlan\((.*)\)", text)
-            c = {
-                "label": label,
-                "q": dt,
-                "args": case_args(args),
-                "passed": ok or ctx.runner.dry_run,
-                "rc": rc,
-                "seconds": round(time.time() - t0, 1),
-                "check": check.group(1) if check else None,
-                "plan": plan.group(1) if plan else None,
-                "log": str(log),
-            }
-            cases.append(c)
-            mark = "✅" if c["passed"] else "❌"
-            ctx.out(f" {mark} {dt:<5} {label:<{LABEL_W}} {_short_check(c['check']):<26} {c['seconds']:>4.0f}s")
-            if not c["passed"]:
-                for line in [
-                    ln for ln in text.splitlines() if re.search(r"Error|Traceback|Assertion|NaN|Mismatch", ln)
-                ][:3]:
-                    ctx.out(f"      │ {line}")
-                if fail_fast:
-                    return {"cases": cases, "params": {"dtypes": dtypes, "match": match, "quick": quick}}
-    return {"cases": cases, "params": {"dtypes": dtypes, "match": match, "quick": quick}}
 
 
 # ── vllm (runner tests + end-to-end smoke) ──────────────────────────────────
@@ -636,8 +516,16 @@ def stage_vllm(
     near-tie divergences (see ``tests/kernel/smoke_vllm.py``)."""
     hf = hf_home or Path.home() / ".cache" / "huggingface"
     cases = []
+    orin = ctx.runner.platform == "orin"
     log = ctx.logdir / "vllm" / "test_runner.log"
-    rc = ctx.runner.tests(log, repo, "python3 tests/test_runner.py", timeout, hf)
+    # Each family's runner suite (no vLLM): tests/test_runner.py drives the
+    # Thor runner against its bit-faithful emulator; tests/test_orin_runner.py
+    # drives the Orin runner (mma + GEMV) against the fp32 reference on the
+    # vLLM 0.32 serving contract -- live device seq_lens, FULL-graph replay
+    # without a metadata rebuild, the fused draft advance, padding rows,
+    # the non-causal drafter block.
+    suite = "tests/test_orin_runner.py" if orin else "tests/test_runner.py"
+    rc = ctx.runner.tests(log, repo, f"python3 {suite}", timeout, hf)
     text = log.read_text(errors="replace") if log.exists() else ""
     for line in text.splitlines():
         m = re.search(r"(✅|❌) (test_\S+)", line)
@@ -646,6 +534,16 @@ def stage_vllm(
             ctx.out("   " + line.strip())
     if rc != 0 and not any(not c["passed"] for c in cases):
         cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
+    if orin:
+        # The plugin smoke needs a head_size-256 model on this platform (both
+        # Orin kernels serve hd256; the default smoke model is hd128 and would
+        # run entirely on the fallback). The served end-to-end check is the
+        # spec stage against the AWQ_MJOLNIR config.
+        ctx.out("   (smoke: N/A on Orin -- the Orin kernels serve head_size 256, the smoke model is hd128)")
+        return {"cases": cases, "params": {"smoke_modes": "", "model": model, "tokens": tokens}}
+    # The smoke modes: e2m3 needs the vLLM fp6 cache-write patch (the
+    # Mjolnir image), lmh8 needs fp8 tensor cores (sm_100+), spec needs a
+    # served drafter.
     for mode in smoke_modes.split():
         args = f"--model {model} --max_tokens {tokens}"
         if mode == "eager":
@@ -689,6 +587,10 @@ def _kvcache_stage(ctx: Ctx, **kw) -> dict:
 
 
 # ── registry ────────────────────────────────────────────────────────────────
+from mjolnir_cli.verify.correctness import CASES as CASES  # noqa: E402 — the re-export (the tests/docs read stages.CASES); correctness.py owns the definition
+from mjolnir_cli.verify.correctness import QUICK_CASES as QUICK_CASES  # noqa: E402 — the re-export, same surface
+from mjolnir_cli.verify.correctness import case_args as case_args  # noqa: E402 — the re-export, same surface
+from mjolnir_cli.verify.correctness import stage_correctness  # noqa: E402 (below the shared helpers it reuses)
 
 STAGES: dict[str, Stage] = {
     s.name: s
@@ -704,7 +606,8 @@ STAGES: dict[str, Stage] = {
             "sweep",
             "Headline L-sweep",
             "ncu",
-            "Mjolnir vs FlashInfer vs FlashAttention 4 hd256 (fp8 Q+KV, on the Mjolnir image), ncu kernel time at every L",
+            "Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, "
+            "events-timed where there is no ncu",
             stage_sweep,
         ),
         Stage(
@@ -713,6 +616,7 @@ STAGES: dict[str, Stage] = {
             "ncu",
             "FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win?",
             stage_hndsweep,
+            requires_ncu=True,
         ),
         Stage(
             "kvfmt",
@@ -720,6 +624,7 @@ STAGES: dict[str, Stage] = {
             "ncu",
             "fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock)",
             stage_kvfmt,
+            requires_ncu=True,
         ),
         Stage(
             "quant",
@@ -728,8 +633,22 @@ STAGES: dict[str, Stage] = {
             "relative L2 error of each KV format vs unquantized KV, at every L",
             stage_quant,
         ),
-        Stage("ring", "KV ring depth", "ncu", "TMA→MMA ring depth (--kv_stages) sweep at every L", stage_ring),
-        Stage("prefetch", "L2 prefetch", "ncu", "TMA L2 prefetch distance (--l2_prefetch) sweep", stage_prefetch),
+        Stage(
+            "ring",
+            "KV ring depth",
+            "ncu",
+            "TMA→MMA ring depth (--kv_stages) sweep at every L",
+            stage_ring,
+            requires_ncu=True,
+        ),
+        Stage(
+            "prefetch",
+            "L2 prefetch",
+            "ncu",
+            "TMA L2 prefetch distance (--l2_prefetch) sweep",
+            stage_prefetch,
+            requires_ncu=True,
+        ),
         Stage(
             "pdl",
             "Programmatic dependent launch",
@@ -738,7 +657,12 @@ STAGES: dict[str, Stage] = {
             stage_pdl,
         ),
         Stage(
-            "ab", "Flag A/B", "ncu", "any harness flag sets, ncu + wall clock (default: evict-first x PDL)", stage_ab
+            "ab",
+            "Flag A/B",
+            "ncu",
+            "any harness flag sets, ncu + wall clock (default: evict-first x PDL)",
+            stage_ab,
+            requires_ncu=True,
         ),
         Stage(
             "fp6prof",
@@ -746,9 +670,14 @@ STAGES: dict[str, Stage] = {
             "profile",
             "full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format",
             stage_fp6prof,
+            requires_ncu=True,
         ),
         Stage(
-            "timing", "Harness timing", "harness", "harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q", stage_timing
+            "timing",
+            "Harness timing",
+            "harness",
+            "harness-timed medians per Q dtype; 1 vs 2 CTAs/SM where the family has that axis",
+            stage_timing,
         ),
         Stage(
             "kv-cache-size",

@@ -1,0 +1,121 @@
+Datasheet
+
+
+
+
+NVIDIA Jetson
+Orin NX Series
+Orin performance. Nano size.
+
+
+
+
+The Most Advanced AI Computer for Smaller, Lower-Power
+Autonomous Machines                                                                   Key Features
+NVIDIA® Jetson Orin™ NX series modules deliver up to 100 TOPS of AI performance       Jetson Orin NX 8GB
+in the smallest Jetson form-factor, with power configurable between 10W and
+                                                                                      > 1024-core NVIDIA Ampere
+25W. This gives you 3X the performance of NVIDIA Jetson AGX Xavier™ and 5X the          architecture GPU with 32
+performance of Jetson Xavier™ NX, making it ideal for small form-factor, low-power      tensor cores
+products like drones and handheld devices.                                            > 1x NVDLA v2.0
+These system-on-modules support multiple concurrent AI application pipelines          > 6-core Arm® Cortex®-A78AE
+with an NVIDIA Ampere architecture GPU, next-generation deep learning and vision        v8.2 64-bit CPU
+accelerators, high-speed IO, and fast memory bandwidth. Now, you can develop          > 8GB 128-bit LPDDR5
+solutions using your largest and most complex AI models to solve problems such as     > PVA v2.0
+natural language understanding, 3D perception, and multi-sensor fusion.
+                                                                                      Power
+Jetson runs the NVIDIA AI software stack and takes advantage of use case-specific
+                                                                                      > Voltage input 5V-20V
+application frameworks, including NVIDIA Isaac™ for robotics, DeepStream for vision
+AI, and Riva for conversational AI. You can also save significant time with NVIDIA    > Module Power: 10W-20W
+Omniverse™ Replicator for synthetic data generation (SDG), and with NVIDIA TAO
+Toolkit for fine-tuning pretrained AI models from the NGC™ catalog.
+                                                                                      Jetson Orin NX 16GB
+Jetson ecosystem partners offer additional AI and system software, developer
+tools, and custom software development. They can also help with cameras and           > 1024-core NVIDIA Ampere
+                                                                                        architecture GPU with 32
+other sensors, as well as carrier boards and design services for your product.
+                                                                                        tensor cores
+Jetson Orin modules are unmatched in performance and efficiency for robots and        > 2x NVDLA v2.0
+other autonomous machines, giving you the flexibility to create the next generation
+                                                                                      > 8-core Arm® Cortex®-A78AE
+of AI solutions with the latest NVIDIA GPU technology. Together with the world-         v8.2 64-bit CPU
+standard NVIDIA AI software stack and an ecosystem of services and products, your
+                                                                                      > 16GB 128-bit LPDDR5
+road to market has never been faster.
+                                                                                      > PVA v2.0
+
+                                                                                      Power
+                                                                                      > Voltage input 5V-20V
+                                                                                      > Module Power: 10W-25W
+NVIDIA Jetson Orin NX Series Modules
+
+  Technical Specifications
+
+                                                                   Jetson Orin NX 8GB                                          Jetson Orin NX 16GB
+
+  AI Performance                                                       70 TOPS (INT8)                                             100 TOPS (INT8)
+
+  GPU                                                      NVIDIA Ampere architecture with 1024 NVIDIA CUDA® cores and 32 tensor cores
+
+  GPU Max Frequency                                                         765MHz                                                    918GHz
+
+  CPU                                             6-core Arm® Cortex®-A78AE v8.2 64-bit CPU                          8-core Arm® Cortex®-A78AE v8.2 64-bit CPU
+                                                              1.5MB L2 + 4MB L3                                                  2MB L2 + 4MB L3
+
+  CPU Max Frequency                                                                                              2GHz
+
+  Deep Learning
+                                                                        1x NVDLA v2.0                                             2x NVDLA v2.0
+  Accelerator (DLA)
+
+  DLA Max Frequency                                                                                             614MHz
+
+  Vision Accelerator                                                                                            PVA v2.0
+
+  Memory                                                           8GB 128-bit LPDDR5                                          16GB 128-bit LPDDR5
+                                                                        102.4GB/s                                                   102.4GB/s
+
+  Storage                                                                                          Supports external NVMe
+
+  CSI Camera                                                                            Up to 4 cameras (8 via virtual channels*)
+                                                                                                  8 MIPI CSI-2 lanes
+                                                                                                  D-PHY 1.2 (20Gbps)
+
+  Video Encode                                                               1x 4K60 | 3x 4K30 | 6x 1080p60 | 12x 1080p30 (H.265)
+                                                                                                  H.264, AV1
+
+  Video Decode                                                       1x 8K30 | 2x 4K60 | 4x 4K30 | 9x 1080p60 | 18x 1080p30 (H.265)
+                                                                                             H.264, VP9, AV1
+
+  UPHY                                                                                                3 x1 + 1 x4 PCIe Gen 4
+                                                                                                         3x USB 3.2 Gen2
+
+  Networking                                                                                                     1x GbE
+
+  Display                                                                     1x 8K30 multi-mode DP 1.4a (+MST)/eDP 1.4a/HDMI 2.1
+
+  Other I/O                                                                                     3x USB 2.0
+                                                                 3x UART | 2x SPI | 4x I2C | 1x CAN |DMIC | DSPK | 2x I2S | 15x GPIOs
+
+  Power                                                                    10W-20W                                                   10W-25W
+
+  Mechanical                                                                                         69.6mm x 45mm
+                                                                                                260-pin SO-DIMM connector
+* Virtual channel-related camera information for Jetson Orin NX is not final and subject to change.
+  Refer to the Software Features section of the latest NVIDIA Jetson Linux Developer Guide for a list of supported features.
+
+
+Ready to Get Started?
+To learn more about the Jetson Orin, visit:
+www.nvidia.com/Jetson-Orin
+© 2023 NVIDIA Corporation. All rights reserved. NVIDIA, the NVIDIA logo, CUDA, Jetson AGX Xavier, NGC, NVIDIA
+Isaac, NVIDIA Jetson, and NVIDIA Orin are trademarks and/or registered trademarks of NVIDIA Corporation in
+the U.S. and other countries. ARM, AMBA and ARM Powered are registered trademarks of ARM Limited. Cortex,
+MPCore and Mali are trademarks of ARM Limited. All other brands or product names are the property of their
+respective holders. “ARM” is used to represent ARM Holdings plc; its operating company ARM Limited; and
+the regional subsidiaries ARM Inc.; ARM KK; ARM Korea Limited.; ARM Taiwan Limited; ARM France SAS; ARM
+Consulting (Shanghai) Co. Ltd.; ARM Germany GmbH; ARM Embedded Technologies Pvt. Ltd.; ARM Norway, AS
+and ARM Sweden AB. Other company and product names may be trademarks of the respective companies with
+which they are associated. 2605318. Jan23
+

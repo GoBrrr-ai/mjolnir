@@ -4,6 +4,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env
+# the configs' env sidecars are plain mjolnir knobs (calibration paths, feature
+# flags) and ride with the configs; real secrets stay out
+!configs/**/.env
 # coverage artifacts (the CI test stage writes these; they regenerate)
 .coverage
 .coverage.*
@@ -32,3 +35,6 @@ research/ledger.jsonl
 research/ledger.tsv
 # …and the exported runs ARE committed (the generic runs/ rule above would hide them)
 !research/runs/
+/cutlass/
+/fa2/
+/llamacpp/

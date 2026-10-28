@@ -18,6 +18,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+import yaml
+
 from mjolnir_cli import cachectl, overlays
 from mjolnir_cli.config import (
     CONTAINER_NAME,
@@ -330,6 +332,29 @@ def _container_path(s: Settings, host: Path) -> str:
         return f"{LOCAL_CONFIGS_MOUNT}/{s.model}/{rel}"
 
 
+def serving_config(s: Settings) -> tuple[Path, str] | None:
+    """(host file, container path) of the config the server actually receives:
+    the platform overlay deep-merged over ``config.yaml`` and written under
+    the data dir when the config carries one for this platform, else ``None``
+    (the plain config passes through). The overlay must reach vLLM, not only
+    the validate gate — ``validate_serving`` checks the merge but the merge
+    itself was silently dropped before this existed (the Orin tuning —
+    utilization, max-num-seqs, max-model-len — never applied to a serve)."""
+    if s.platform is None:
+        return None
+    overlay = overlays.load_overlay(Path(s.config_path).parent, s.platform)
+    if not overlay:
+        # no overlay, or an empty marker one (a platforms/ file that only
+        # lists the platform): the plain config passes through unchanged
+        return None
+    base = yaml.safe_load(Path(s.config_path).read_text())
+    merged = overlays.merge_config(base or {}, overlay)
+    out = s.data_dir / "serve" / f"{s.model.replace('/', '--')}--{s.quant}--{s.platform}.yaml"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.safe_dump(merged, sort_keys=False))
+    return Path(out), "/data/serve-config.yaml"
+
+
 def build_run_args(
     s: Settings,
     image: str | None = None,
@@ -386,6 +411,29 @@ def build_run_args(
 
     for k in _CONTAINER_ENV:
         cmd += ["-e", k]
+    # One arm64 image serves every shipped Tegra platform (Thor and Orin are
+    # both aarch64; the kernel family resolves at runtime via mjolnir.platforms).
+    # The arch-sensitive JIT envs follow the platform -- the Thor pins in
+    # _CONTAINER_ENV are the build default, these override them (docker's
+    # last -e wins). An explicit extra_env entry still wins over these.
+    if getattr(s, "platform", None) == "orin":
+        cmd += [
+            "-e",
+            "TORCH_CUDA_ARCH_LIST=8.7",
+            "-e",
+            "FLASHINFER_CUDA_ARCH_LIST=8.7",
+            "-e",
+            "CUTE_DSL_ARCH=sm_87",
+            # torch 2.13's expandable segments query NVML fabric info when
+            # creating a segment; the Orin's NVML has no fabric info and the
+            # query hard-fails at the first allocation ("Expected
+            # NVML_SUCCESS == ...nvmlDeviceGetGpuFabricInfoV_"). The Thor's
+            # NVML implements it, so _CONTAINER_ENV's expandable_segments:True
+            # stays there; the plain caching allocator loses nothing that
+            # matters on the unified-memory board.
+            "-e",
+            "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False",
+        ]
     for kv in backend_env(s):
         cmd += ["-e", kv]
     for kv in extra_env:
@@ -397,6 +445,7 @@ def build_run_args(
         cmd += ["-e", f"HF_HUB_CACHE={HF_DOWNLOAD_DIR}"]
 
     d = s.data_dir
+    serving = serving_config(s)
     mounts = [
         (str(d / "models"), "/data/models"),
         (str(d / "cache"), "/data/cache"),
@@ -423,6 +472,8 @@ def build_run_args(
     # under /configs.
     if is_local_config(s):
         mounts.append((str(user_configs_dir() / s.model), f"{config_model_dir(s)}:ro"))
+    if serving is not None:
+        mounts.append((str(serving[0]), serving[1]))
     mounts += list(extra_mounts)
     for host, container in mounts:
         if host.startswith("/data") is False and not Path(host).exists() and not host.startswith(("/dev/shm", "/etc/")):
@@ -434,7 +485,7 @@ def build_run_args(
 
     serve = (
         "vllm serve "
-        f"--config {config_model_dir(s)}/{s.quant}/config.yaml "
+        f"--config {(serving[1] if serving else f'{config_model_dir(s)}/{s.quant}/config.yaml')} "
         "--host 0.0.0.0 "
         "--cpu-offload-gb 0 "
         "--pipeline-parallel-size 1 "
@@ -500,8 +551,9 @@ def serve_up(
     wait_timeout_s: float = 1800.0,
     dry_run: bool = False,
     serve_args: tuple[str, ...] = (),
+    extra_env: tuple[str, ...] = (),
 ) -> None:
-    cmd = build_run_args(s, serve_args=serve_args)
+    cmd = build_run_args(s, serve_args=serve_args, extra_env=extra_env)
     if dry_run:
         print(" ".join(cmd))
         return
@@ -549,21 +601,63 @@ def serve_down(s: Settings, dry_run: bool = False) -> None:
     cachectl.prepare_bench()
 
 
+def _log_size() -> int | None:
+    """The container's log file size on the host (a cheap boot-progress
+    probe; None when the log path cannot be stat'ed)."""
+    try:
+        p = subprocess.run(
+            [_docker(), "inspect", "-f", "{{.LogPath}}", CONTAINER_NAME], capture_output=True, text=True, timeout=10
+        )
+        path = p.stdout.strip()
+        return os.path.getsize(path) if p.returncode == 0 and path and path != "<no value>" else None
+    except Exception:  # noqa: BLE001 - progress probing degrades, never raises
+        return None
+
+
 def wait_healthy(s: Settings, timeout_s: float = 1800.0) -> None:
     """Poll the OpenAI /health endpoint until the server answers (model load
-    + JIT on Thor takes minutes)."""
+    + JIT on Thor takes minutes). A container that exits mid-wait fails
+    immediately — a dead serve burns no timeout (the 1800s blind wait on a
+    crashed boot cost a full point per leg in the 10/10c sweeps).
+
+    A first boot also *compiles* — inductor + the CUDA graphs ran 34 minutes
+    on a cold Orin (orin2's §4) — so the wait is progress-aware: while the
+    container's log keeps advancing the deadline extends (up to 4× the
+    timeout); a boot that stops logging for ``timeout_s`` is dead and fails.
+    Pass ``--wait-timeout`` to serve up for a tighter or looser window."""
     url = f"http://127.0.0.1:{s.port}/health"
     t0 = time.time()
-    print(f"waiting for the server at {url} (up to {timeout_s:.0f}s)…")
-    while time.time() - t0 < timeout_s:
+    print(f"waiting for the server at {url} (up to {timeout_s:.0f}s; extends while the boot makes progress)…")
+    last_size = _log_size()
+    last_progress = time.time()
+    while True:
         try:
             with urllib.request.urlopen(url, timeout=5) as r:
                 if r.status == 200:
                     print(f"healthy after {time.time() - t0:.0f}s")
                     return
         except Exception:  # noqa: BLE001
-            time.sleep(5)
-    raise TimeoutError(f"server not healthy after {timeout_s:.0f}s — check: mjolnir serve logs")
+            pass
+        if container_exists() and not container_running():
+            logs = subprocess.run([_docker(), "logs", "--tail", "12", CONTAINER_NAME], capture_output=True, text=True)
+            tail = (logs.stdout + logs.stderr).strip().splitlines()
+            hint = "\n".join(f"  {ln}" for ln in tail[-6:])
+            raise RuntimeError(
+                f"the {CONTAINER_NAME} container exited before becoming healthy "
+                f"(after {time.time() - t0:.0f}s) — last logs:\n{hint}"
+            )
+        size = _log_size()
+        if size is not None and size != last_size:
+            last_size, last_progress = size, time.time()
+        elapsed = time.time() - t0
+        idle = time.time() - last_progress
+        if elapsed >= 4 * timeout_s or (elapsed >= timeout_s and idle >= timeout_s):
+            raise TimeoutError(
+                f"server not healthy after {elapsed:.0f}s"
+                + (f" (no log progress for {idle:.0f}s)" if elapsed >= timeout_s else "")
+                + " — check: mjolnir serve logs"
+            )
+        time.sleep(5)
 
 
 def status(s: Settings) -> dict:

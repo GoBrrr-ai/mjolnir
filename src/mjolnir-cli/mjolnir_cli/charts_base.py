@@ -116,7 +116,12 @@ def _footer_run(fig, mode: Mode, doc: dict, extra: str = "") -> None:
     ver = f"kernel {k.get('version', '?')}" + (f" ({k['git']})" if k.get("git") else "")
     p = doc.get("params", {})
     shape = f"h_q={p.get('hq', 24)} h_k={p.get('hk', 4)} d={p.get('d', 256)} page={p.get('page', 128)}"
-    theme.footer(fig, mode, f"mjolnir verify {doc['stage']} · run {doc['run_id']} · {ver} · {shape}{extra}")
+    theme.footer(
+        fig,
+        mode,
+        f"mjolnir verify {doc['stage']} · run {doc['run_id']} · {ver} · {shape}{extra}",
+        right=theme.board_line(doc.get("platform")),
+    )
 
 
 def _log_y_ticks(ax) -> None:
@@ -286,20 +291,56 @@ def _display_family() -> str:
     return "DejaVu Sans"
 
 
-HERO = "hero.png"
+HERO = "hero.jpg"
 
 
-HERO_BACKGROUND = "hero-background.png"
+# the hero canvases: one per platform plus the root's (three hammers). The
+# logotype is NOT baked into these — ``render_hero`` pastes the white
+# mjolnir_logo.png itself, so the same canvas serves every render.
+HERO_BG_ROOT = "mjolnir_hero_bg.jpeg"
+HERO_BG_PLATFORM = "mjolnir_{platform}_bg.jpeg"
+HERO_LOGO = "mjolnir_logo.png"
 
 
-HERO_SLOGAN = ("Jetson AGX Thor vLLM serving CLI", "with dedicated paged fp8 decode-attention kernel")
-
-
-HERO_PILLS = (
-    ("Jetson AGX Thor", "#8cc63f", "#3f8a12"),
-    ("CLI", "#f2925a", "#d4501f"),
-    ("vLLM {vllm}", "#5aa6ff", "#2a5fd6"),
+# the root hero: platform-neutral slogan, one pill per shipped platform.
+# Slogan lines are authored explicitly — one tuple entry per rendered line
+# (a `\n` inside an entry breaks too) — the renderer never re-wraps or
+# re-sizes them.
+ROOT_HERO_SLOGAN = (
+    "Faster, bigger-context LLM serving at the edge",
+    "with a dedicated decode kernel,",
+    "and a tuned vLLM image, one CLI",
 )
+
+
+ROOT_HERO_PILLS = (
+    ("Jetson Thor", "#8cc63f", "#3f8a12"),
+    ("Jetson Orin", "#5aa6ff", "#2a5fd6"),
+    ("DGX Spark", "#f2925a", "#d4501f"),
+)
+
+
+# per-platform heroes: an authored slogan (one entry per line) + two
+# status-aware pills (the platform name and the kernel type, per the
+# registry's maturity)
+PLATFORM_HERO_SLOGAN = {
+    "thor": ("Faster, bigger-context LLM serving", "on Jetson AGX Thor"),
+    "orin": ("Faster, bigger-context LLM serving", "on Jetson Orin"),
+    "spark": ("Faster, bigger-context LLM serving", "on DGX Spark"),
+}
+
+PLATFORM_HERO_PILLS = {
+    "thor": (("Jetson AGX Thor", "#8cc63f", "#3f8a12"), ("Mjolnir · tcgen05 decode kernel", "#f2925a", "#d4501f")),
+    "orin": (("Jetson Orin", "#8cc63f", "#3f8a12"), ("Mjolnir GEMV · research", "#f2925a", "#d4501f")),
+    "spark": (("DGX Spark", "#8cc63f", "#3f8a12"), ("research — baselines only", "#f2925a", "#d4501f")),
+}
+
+
+def hero_platform_out(platform: str | None) -> str:
+    """The rendered hero's filename: ``hero.jpg`` for the root, one per
+    platform for the platform pages' header banners — JPEG: the banners are
+    photographic composites, and the PNGs weighed >1 MB each."""
+    return HERO if platform is None else f"hero-{platform}.jpg"
 
 
 FONT_DIR = Path(__file__).parent / "fonts"  # Inter Display (SIL OFL 1.1, fonts/OFL.txt)

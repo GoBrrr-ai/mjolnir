@@ -174,7 +174,7 @@ def test_sweep_batch_and_q_len_reach_both_drivers(tmp_path):
 
 def test_sweep_rejects_fa2_for_batched_shapes(tmp_path):
     # the duck-typed stub stage_sweep raises on before it touches anything but .runner
-    ctx = cast(stages.Ctx, SimpleNamespace(runner=SimpleNamespace(batch=1, q_len=1)))
+    ctx = cast(stages.Ctx, SimpleNamespace(runner=SimpleNamespace(batch=1, q_len=1, platform="thor")))
     with pytest.raises(ValueError, match="fa2"):
         stages.stage_sweep(ctx, legs="fi,fa2", batch=4, q_len=4)
 

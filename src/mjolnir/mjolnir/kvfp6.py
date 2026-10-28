@@ -1,6 +1,6 @@
 """Packed fp6 (e2m3) KV cache for the vLLM path: write, and expand for the fallback.
 
-Format (the Mjolnir kernel's, see ``t5_decode.pack_subbyte``): one e2m3 code
+Format (the Mjolnir kernel's, see ``mjolnir.quant.pack_subbyte``): one e2m3 code
 per element (sign | 2-bit exponent | 3-bit mantissa, bias 1, no inf/nan,
 values 0 .. ±7.5), packed little-endian, 4 codes in 3 bytes. A K (or V) row
 of d elements is ``d * 3 / 4`` bytes; vLLM's page cell is ``K row | V row``
@@ -72,7 +72,7 @@ if triton is not None:
     def _e2m3_codes(x):
         """fp32 (already divided by the scale) -> e2m3 codes (int32 0..63):
         round to nearest, saturating at 7.5, ties to the smaller magnitude
-        (as t5_decode.minifloat_quantize)."""
+        (as ``mjolnir.quant.minifloat_quantize``)."""
         ax = tl.minimum(tl.abs(x), 7.5)
         # quantum: 0.125 below 2 (subnormals and [1, 2)), 0.25 in [2, 4), 0.5 in [4, 7.5]
         q = tl.where(ax < 2.0, 0.125, tl.where(ax < 4.0, 0.25, 0.5))
@@ -274,6 +274,12 @@ def expand_pages_to_fp8(
     assert 2 * row_bytes(d) == C and out.shape[1:] == (H, N, 2 * d) and out.stride(3) == 1
     if P == 0:
         return out[:0]
+    has_ratio = k_ratio is not None or v_ratio is not None
+    mixed = (k_ratio is None) != (v_ratio is None)
+    # Triton's fp8e4nv needs sm_89+; sm_87 has no e4m3 cvt, so the continuous
+    # requant falls back to torch there. sm_89+ keeps the fused RATIO kernel.
+    if has_ratio and (mixed or torch.cuda.get_device_capability(kv_cache.device) < (8, 9)):
+        return _expand_ratio_torch(kv_cache, src_blocks, out, d, k_ratio, v_ratio)
     _expand_kernel[(P, H, N)](
         kv_cache,
         src_blocks,
@@ -288,11 +294,44 @@ def expand_pages_to_fp8(
         k_ratio if k_ratio is not None else out,
         v_ratio if v_ratio is not None else out,
         e2m3_values(kv_cache.device),
-        RATIO=k_ratio is not None,
+        RATIO=has_ratio,
         D=d,
         G_BLOCK=triton.next_power_of_2(d // 4),
         num_warps=1,
     )
+    return out[:P]
+
+
+def _expand_ratio_torch(
+    kv_cache: torch.Tensor,  # (B, h_k, N, 2 * row_bytes) uint8 e2m3 layer view
+    src_blocks: torch.Tensor,  # (P,) int32
+    out: torch.Tensor,  # (>= P, h_k, N, 2 * d) uint8 (e4m3 bytes), unit last stride
+    d: int,
+    k_ratio: torch.Tensor | None,  # (h_k, d) fp32
+    v_ratio: torch.Tensor | None,
+) -> torch.Tensor:
+    """The ratio (per-channel M2) expansion in torch: Triton's ``fp8e4nv``
+    needs sm_89+ and sm_87 has no e4m3 cvt, so the continuous requant runs
+    on torch's software cast. The no-ratio path (the pure LUT bytes) stays
+    in the Triton kernel."""
+    P = src_blocks.shape[0]
+    H = kv_cache.shape[1]
+    rb = row_bytes(d)
+    dev = kv_cache.device
+    pages = kv_cache[src_blocks.to(torch.int64)]  # (P, H, N, 2*rb) uint8
+    idx = torch.arange(d, device=dev)
+    bb, oo = (idx * 6) // 8, (idx * 6) % 8
+    hi = (bb + 1).clamp(max=rb - 1)
+    lut = e2m3_values(dev)
+    halves = []
+    for side, ratio in enumerate((k_ratio, v_ratio)):
+        half = pages[..., side * rb : (side + 1) * rb]
+        codes = ((half[..., bb].int() >> oo) | (half[..., hi].int() << (8 - oo))) & 0x3F
+        vals = lut[codes.reshape(-1)].reshape(*codes.shape)  # (P, H, N, d) fp32
+        if ratio is not None:
+            vals = vals * ratio.view(1, H, 1, d).to(torch.float32)
+        halves.append(vals.to(torch.float8_e4m3fn).view(torch.uint8))
+    out[:P] = torch.cat(halves, dim=-1)
     return out[:P]
 
 

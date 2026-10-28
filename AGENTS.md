@@ -62,6 +62,23 @@ it is removed — gated on a
 rule; `mjolnir drop-caches` clears on demand). Without the grant the clear is
 skipped with a hint — nothing blocks on a password.
 
+### The Thor (sm_110) path is load-bearing — never break it
+
+`src/mjolnir/mjolnir/backend.py` + `builder.py` orchestration is shared by every
+arch family. Any change there must keep **both** fallbacks working:
+
+- **FA4 (Thor) vs FlashInfer (Orin)**: gate every dtype/Q/layout assumption on
+  `_FALLBACK`; never assume one. Thor's fp6 fallback needs the fp8-Q quantize
+  before the dispatch; FlashInfer's wants bf16 (`_fallback_fp8_q` is False).
+- **Metadata shapes differ**: FA4 is flat (`block_table`); FlashInfer nests
+  (`.prefill`/`.decode.block_tables`). Retarget every shape a base may read.
+- **No arch-blind choices**: capability-gate Triton/torch paths (Triton's
+  fp8e4nv needs sm_89+), probe-gate anything sm_110-only, and re-run the
+  affected family's canary (`mjolnir image gates`) on kernel-adjacent edits.
+- **Merge gate**: a branch merges to main only after a Thor e2e verify
+  (`mjolnir verify` + a serve smoke; `bench e2e` when perf-relevant). A green
+  Orin run does not clear the Thor.
+
 ### Keep hand-written files under the length limit
 
 **Keep every hand-written file within the `limit` in `[tool.mjolnir.file-length]`
@@ -72,7 +89,8 @@ skipped with a hint — nothing blocks on a password.
 - A grandfathered file keeps its ceiling equal to its line count, so the
   ceiling moves down as the file shrinks. Once the file is within the limit,
   set its ceiling to the limit; the pre-commit hook retires the entry.
-- The traced kernel family (`src/mjolnir/mjolnir/t5_*.py`) and the generated doc
+- The traced kernel family (`src/mjolnir/mjolnir/arch/thor/{decode,call}.py`, the
+  Orin kernel `src/mjolnir/mjolnir/arch/orin/decode.py`) and the generated doc
   surfaces (`docs/platforms/**/*.md`, `configs/**/README.md`) are **excluded from
   the ratchet entirely** (`exclude`: no ceiling, no floor — the DSL's tracing
   constraints own the kernel's size, generation owns the docs';
@@ -151,33 +169,47 @@ skipped with a hint — nothing blocks on a password.
   (T≥128 tiles) and the brick+coarsening batch discarded (+1.1% geomean
   resting on 8K: +0.2% without it). Ceiling under the rules ≈1–2%
   (`research/runs/oct21/`).
-- **Retired**: the FA4 GEMV decode kernel and its tooling were removed; the
-  last snapshot is in git history at
-  [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
+- **Retired → restored as the Orin family**: the FA4 GEMV decode kernel and
+  its tooling were removed from `main` (snapshot:
+  [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv))
+  and are being restored, re-targeted at sm_87 only, under
+  `src/mjolnir/mjolnir/arch/orin/` (see that directory's README).
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
   `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
   independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
-  `mjolnir hw setup` provisions a fresh Thor (`scripts/hw/setup-thor.sh`).
+  `mjolnir hw setup` provisions a fresh Jetson Thor/Orin (`scripts/hw/setup-jetson.sh`).
 
 ## Repo layout
 
-- `src/mjolnir/` — **the kernel package** (`mjolnir-kernel`, import `mjolnir`):
-  - `mjolnir/t5_decode.py` — the kernel class (`__init__` + the traced
-    `decode`/`reduction` kernels) and the host helpers a vLLM backend calls;
-    the single source of truth for the kernel; `mjolnir verify` mounts the
-    package over the image's copy. The traced kernel body cannot be split
+- `src/mjolnir/` — **the kernel package** (`mjolnir-kernel`, import `mjolnir`).
+  One subpackage per implemented architecture under `mjolnir/arch/` — the
+  shared machinery (`runner.py`: compile cache keyed by the family's kernel
+  module, KV views, `StepPlan`, env knobs; `platforms.py`: the cc → family
+  resolution; `backend.py`; the model/serving utils) stays at the package
+  root:
+  - `mjolnir/arch/thor/decode.py` — the Thor kernel class (`__init__` + the
+    traced `decode`/`reduction` kernels) and the host helpers a vLLM backend
+    calls; the single source of truth for the kernel; `mjolnir verify` mounts
+    the package over the image's copy. The traced kernel body cannot be split
     further: extracting the warp-role `elif` arms into methods hits a CuTe-DSL
     internal compiler error (2026-10-18) — revisit on a DSL bump.
-  - `mjolnir/t5_call.py` — `_CallMixin`: the host-side builder (`__call__`,
-    `_kv_types`, `can_implement`), traced at compile time.
-  - `mjolnir/t5_const.py` — shared kernel constants + the math helpers
+  - `mjolnir/arch/thor/call.py` — `_CallMixin`: the host-side builder
+    (`__call__`, `_kv_types`, `can_implement`), traced at compile time.
+  - `mjolnir/arch/thor/const.py` — shared kernel constants + the math helpers
     (`exp2`, `fadd2`, `smem_fmax`, …); the leaf module (no intra-package deps).
-  - `mjolnir/t5_plan.py` — `plan_split_kv` / `SplitPlan` / `kernel_strides`
-    (what a vLLM backend calls for planning).
-  - `mjolnir/t5_harness.py` — the standalone harness (`emulate_decode`, the
-    benchmark driver, CLI; `python -m mjolnir.t5_decode --help` still works via
-    a shim) and `emulate_decode`, the bit-faithful correctness reference.
-  - `mjolnir/runner.py` — plan buffers, compile cache, launch, KV views (no vLLM).
+  - `mjolnir/arch/thor/plan.py` — `plan_split_kv` / `SplitPlan` /
+    `kernel_strides` (what a vLLM backend calls for planning).
+  - `mjolnir/arch/thor/runner.py` — `T5DecodeRunner`: plan buffers, launch,
+    fp8-Q packing (the Thor half of the old `mjolnir.runner`).
+  - `mjolnir/arch/thor/harness.py` — the standalone harness (`emulate_decode`,
+    the benchmark driver, CLI; `python -m mjolnir.arch.thor.harness --help`;
+    refuses non-sm_100/sm_110 devices with a pointer to the Orin family).
+  - `mjolnir/arch/orin/` — the Orin (`sm_87`) family: `decode.py` (the
+    restored GEMV FMA kernel, re-targeted at sm_87 only) + `plan.py`
+    (FlashInfer-Alg.1 auto-split, board-agnostic) + `README.md`; the runner
+    and the `_SHIPPED` flip are pending.
+  - `mjolnir/runner.py` — the family-independent runner machinery (compile
+    cache, KV views, env knobs, `StepPlan`).
   - `mjolnir/backend.py` — the vLLM backend / builder / impl / metadata.
   - `mjolnir/__init__.py` — `register()` (the plugin entry point), `BACKEND_NAME`.
 - `src/mjolnir-cli/` — **the CLI** (`mjolnir-cli`, import `mjolnir_cli`, command
@@ -297,7 +329,7 @@ mjolnir autoresearch init <tag>   # branch autoresearch/<tag> + baseline row
 mjolnir autoresearch run          # OpenCode orchestrator; never stops by itself
 mjolnir autoresearch ledger | status | chart | export
 ```
-Agents may change the kernel family `src/mjolnir/mjolnir/t5_*.py` (fp6 e2m3 HND
+Agents may change the kernel family `src/mjolnir/mjolnir/arch/thor/` (fp6 e2m3 HND
 path only); the judge (`autoresearch.judge`, per L against the best kept row)
 **keeps** a > 2% geomean gain that survives dropping its best L with at most one
 L slower than noise (FlashInfer outliers set aside; correctness required) and
@@ -472,7 +504,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   mount (the checkout) is handed back with `build_run_args(..., chown=...)` /
   `dockerctl.owner_suffix` — root-owned files break the pre-commit hooks.
 - **Licensing:** Apache-2.0 (root `LICENSE`, no per-file headers in our files).
-  `src/mjolnir/mjolnir/t5_decode.py` is NVIDIA-CUTLASS-derived and stays
+  `src/mjolnir/mjolnir/arch/thor/decode.py` is NVIDIA-CUTLASS-derived and stays
   BSD-3-Clause — never remove NVIDIA's header. New third-party code → `NOTICE`.
   `LICENSE`/`NOTICE` are copied into both packages (`tests/cli/test_license.py`
   checks they match). The image marks every file a patch changes

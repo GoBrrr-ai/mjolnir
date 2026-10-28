@@ -3,7 +3,7 @@
 
 The spec (plan §0.6, detection injected so tests never touch real probes):
 
-* thor detected -> the existing ``scripts/hw/setup-thor.sh`` path runs
+* thor detected -> the existing ``scripts/hw/setup-jetson.sh`` path runs
   (unchanged behaviour, now behind the detection);
 * orin detected -> the same script runs, with an explicit "untested on
   this platform" note first;
@@ -46,11 +46,12 @@ def test_hw_setup_on_a_detected_spark_refuses_and_names_what_exists(no_script):
     assert "thor" in r.output  # the message lists what does exist
 
 
-def test_hw_setup_on_a_detected_orin_runs_with_an_untested_note(no_script):
+def test_hw_setup_on_a_detected_orin_runs_like_thor(no_script):
+    # the setup is the Jetson family path: it detects the box (the banner
+    # reports SoM/Memory/Model from the device-tree) and runs the same script
     r = CliRunner().invoke(cli.app, ["hw", "setup", "--dry-run"], env={"MJOLNIR_PLATFORM": "orin"})
     assert r.exit_code == 0, r.output
     assert len(no_script) == 1  # still runnable: the thor script is the jetson path
-    assert "untested" in r.output.lower()
 
 
 def test_hw_setup_on_an_unknown_host_fails_with_the_probe_instructions(no_script, monkeypatch):

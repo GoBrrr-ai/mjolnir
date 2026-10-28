@@ -1,6 +1,6 @@
 # {{ stages["sweep"].title }}
 
-> {{ stages["sweep"].summary }} · `mjolnir verify sweep` · {% if has("sweep") %}run `{{ ctx.runs["sweep"] }}`{% else %}**no run yet**{% endif %}
+>{% if ctx.platform and ctx.platform.sm_family == "sm_87" %} GEMV kernel vs the full serving path vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image{% else %} {{ stages["sweep"].summary }}{% endif %} · `mjolnir verify sweep` · {% if has("sweep") %}run `{{ ctx.runs["sweep"] }}`{% else %}**no run yet**{% endif %}
 
 ## The question
 
@@ -9,9 +9,15 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 ## How it is measured
 
 - one sequence, 24 query / 4 KV heads, head dim 256, 128-token pages in random order — the hd256 attention shape of {{ model_short }};
+{% if ctx.platform and ctx.platform.sm_family == "sm_87" %}
+- **CUDA-event wall clock** (no ncu exists on L4T): the kernel number replays the compiled launch with prebuilt arguments; the serving-path number times the full `runner.run()` call (argument packing + the split-KV LSE combine, python included); the FlashInfer reference runs in its own container on the same stock image, warmed up the same way, in the same run;
+- legs: **Mjolnir GEMV fp8** (prebuilt launches), **Mjolnir serving path** (the full per-call cost), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, 16-token pages);
+- bandwidth = each leg's *own* KV bytes ÷ time (fp8 = 8 bit);
+{% else %}
 - **ncu kernel time** of the decode kernel(s) + the split-KV merge, averaged over 50 launches, `--cache-control all` (cold L2: every launch reads KV from DRAM) and `--clock-control base`;
 - legs: **Mjolnir e2m3** (the kernel's fastest config), **Mjolnir fp8** (the `NVFP4_MJOLNIR` config; the default serves e2m3), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, NHD pages), **FlashAttention 4 hd256** via `vllm_flash_attn` (`fa_version=4`, fp8 Q+KV) — as the `NVFP4_FA4hd256` config serves it on the Mjolnir image, which carries the patched FA4;
-- bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit).
+- bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit);
+{% endif %}
 
 ## Result
 

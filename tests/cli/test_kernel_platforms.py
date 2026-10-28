@@ -64,7 +64,7 @@ def test_kernel_for_resolves_thor_and_load_kernel_exposes_the_t5_surface():
         assert hasattr(mod, name), name
 
 
-@pytest.mark.parametrize("cc", [(8, 7), (12, 1)])
+@pytest.mark.parametrize("cc", [(12, 1), (9, 0)])  # spark: research; sm_90: unshipped
 def test_kernel_for_unsupported_arch_names_the_sm_and_the_shipped_platforms(cc):
     with pytest.raises(kp.PlatformNotSupported) as ei:
         kp.kernel_for(cc)
@@ -85,9 +85,12 @@ def test_detect_without_torch_fails_with_a_clean_message(monkeypatch):
         kp.detect()
 
 
-def test_unsupported_reason_is_none_for_thor_and_names_the_fallback_otherwise():
-    assert kp.unsupported_reason((11, 0)) is None
-    for cc in ((8, 7), (12, 1)):
+def test_unsupported_reason_is_none_for_shipped_and_names_the_fallback_otherwise():
+    # Implemented: thor (11.0) and orin (8.7) — the kernels exist. Research:
+    # spark (12.1) has no kernel yet, nor does any unshipped cc.
+    for cc in ((11, 0), (8, 7)):
+        assert kp.unsupported_reason(cc) is None, cc
+    for cc in ((12, 1), (9, 0)):
         reason = kp.unsupported_reason(cc)
         assert reason, cc
         assert f"sm_{cc[0]}{cc[1]}" in reason
@@ -108,10 +111,9 @@ def test_arch_thor_exposes_the_uniform_runner_name_the_backend_resolves():
     backend.py resolves its runner class through it (load_kernel(cc).Runner),
     so landing a family edits nothing but platforms._SHIPPED."""
     pytest.importorskip("cutlass")
-    from mjolnir import runner
     from mjolnir.arch import thor
 
-    assert thor.Runner is runner.T5DecodeRunner
+    assert thor.Runner is thor.T5DecodeRunner
 
 
 # ── the kernel↔CLI registry mirror (review IMPROVEMENT #2) ─────────────────

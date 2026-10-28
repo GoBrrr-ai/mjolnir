@@ -7,7 +7,8 @@ from collections.abc import Callable
 from itertools import groupby
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout
+from mjolnir_cli.platforms import platform_of
 from mjolnir_cli.theme import Mode
 
 from mjolnir_cli.charts_base import (
@@ -94,7 +95,12 @@ def chart_kvcache(data: dict, mode: Mode):
         "vLLM's own KV sizing at startup, same model and memory budget · request capacity ignores max-num-seqs",
     )
     models = ", ".join(dict.fromkeys(str(r.get("model", "")) for r in rows))
-    theme.footer(fig, mode, f"mjolnir verify kv-cache-size · run {doc['run_id']} · {models}")
+    theme.footer(
+        fig,
+        mode,
+        f"mjolnir verify kv-cache-size · run {doc['run_id']} · {models}",
+        right=theme.board_line(platform_of(doc)),
+    )
     return fig
 
 
@@ -174,7 +180,12 @@ def chart_spec(data: dict, mode: Mode):
         "÷ time to the last",
     )
     models = ", ".join(dict.fromkeys(str(r.get("image", "")) for r in rows))
-    theme.footer(fig, mode, f"mjolnir verify spec · run {doc['run_id']} · {models}")
+    theme.footer(
+        fig,
+        mode,
+        f"mjolnir verify spec · run {doc['run_id']} · {models}",
+        right=theme.board_line(platform_of(doc)),
+    )
     return fig
 
 
@@ -192,31 +203,50 @@ def _accuracy_series(r: dict) -> str:
     return "NVFP4_MJOLNIR_E2M3"
 
 
-def _accuracy_rows(layout: RepoLayout) -> tuple[list[dict], list[dict | None], list[str]]:
+def accuracy_rows_for(layout: RepoLayout, platform: str, model: str) -> list[dict]:
+    """One (platform, model) pair's accuracy rows: latest_legs stamped each
+    row with its run's platform, so the pair's charts draw only its own
+    model's legs — no cumulative multi-model charts."""
+    from mjolnir_cli import accuracy
+    from mjolnir_cli.config import model_of
+
+    return [
+        r
+        for r in accuracy.latest_legs(accuracy.load_runs(layout))
+        if r.get("platform") == platform and model_of(r) == model
+    ]
+
+
+def _accuracy_rows(layout: RepoLayout, platform: str, model: str) -> tuple[list[dict], list[dict | None], list[str]]:
     from mjolnir_cli import accuracy
 
-    rows = accuracy.latest_legs(accuracy.load_runs(layout))
+    rows = accuracy_rows_for(layout, platform, model)
     return rows, accuracy.baselines(rows), accuracy.suites_in(rows)
 
 
 def _accuracy_footer(fig, mode: Mode, rows: list[dict]) -> None:
     from mjolnir_cli import accuracy
+    from mjolnir_cli.theme import board_line
 
     runs = sorted({v["run_id"] for r in rows for v in r["runs"].values()})
+    # the rows are one (platform, model) pair's — the footer names that
+    # platform, not the board this render happens to run on
     theme.footer(
         fig,
         mode,
         f"mjolnir bench accuracy · tool-eval-bench {accuracy.TOOL_COMMIT[:7]} · run{'s' if len(runs) > 1 else ''} "
         f"{', '.join(runs)}",
+        right=board_line(rows[0].get("platform")),
     )
 
 
-def chart_accuracy_suites(layout: RepoLayout, mode: Mode):
+def chart_accuracy_suites(layout: RepoLayout, mode: Mode, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL):
     """One panel per suite: each config's score as a dot, the baseline as a
-    dashed line, the difference printed next to the dot."""
+    dashed line, the difference printed next to the dot — one chart per
+    (platform, model) pair."""
     from mjolnir_cli import accuracy
 
-    rows, bases, names = _accuracy_rows(layout)
+    rows, bases, names = _accuracy_rows(layout, platform, model)
     if not rows:
         return None
     plt = _plt()
@@ -294,13 +324,16 @@ ACC_PAR_POINTS = 5.0
 ACC_RED_POINTS = 30.0
 
 
-def chart_accuracy_categories(layout: RepoLayout, mode: Mode):
+def chart_accuracy_categories(
+    layout: RepoLayout, mode: Mode, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL
+):
     """Tool-call categories × configs: the share of points per cell, colored
     by how far the config falls behind the baseline — green on par (or
-    better), then orange, then red the more points it loses."""
+    better), then orange, then red the more points it loses. One chart per
+    (platform, model) pair."""
     from mjolnir_cli import accuracy
 
-    rows, bases, names = _accuracy_rows(layout)
+    rows, bases, names = _accuracy_rows(layout, platform, model)
     pairs = [(r, b) for r, b in zip(rows, bases, strict=True) if r.get("categories")]
     if not pairs:
         return None

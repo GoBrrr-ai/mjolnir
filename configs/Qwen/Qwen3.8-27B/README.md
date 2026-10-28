@@ -1,6 +1,6 @@
 # Qwen3.8-27B
 
-`Qwen/Qwen3.8-27B` — served as `Qwen/Qwen3.8-27B` — with 11
+`Qwen/Qwen3.8-27B` — served as `Qwen/Qwen3.8-27B` — with 14
 serving configs in `configs/Qwen/Qwen3.8-27B/`. Everything on this page is
 derived from the config tree and the raw results; there is no hand-written
 model prose (decision 7).
@@ -15,6 +15,9 @@ format) on each platform.
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
 | [`AWQ_FLASHINFER`](AWQ_FLASHINFER/README.md) | AWQ int4 + FlashInfer | — | — | ✅ |
+| [`AWQ_MJOLNIR`](AWQ_MJOLNIR/README.md) | AWQ_MJOLNIR | — | — | ✅ |
+| [`AWQ_MJOLNIR_E2M3`](AWQ_MJOLNIR_E2M3/README.md) | AWQ_MJOLNIR_E2M3 | — | — | ✅ |
+| [`AWQ_MJOLNIR_E2M3_VT64K`](AWQ_MJOLNIR_E2M3_VT64K/README.md) | AWQ_MJOLNIR_E2M3_VT64K | — | — | ✅ |
 | [`NVFP4`](NVFP4/README.md) | FlashInfer | ✅ | ✅ | ✅ |
 | [`NVFP4_DFLASH2`](NVFP4_DFLASH2/README.md) | FlashInfer + DFlash2 | ✅ | — | — |
 | [`NVFP4_DSPARK`](NVFP4_DSPARK/README.md) | FlashInfer + DSpark | ✅ | — | — |
@@ -28,13 +31,16 @@ format) on each platform.
 
 
 - `AWQ_FLASHINFER` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
+- `AWQ_MJOLNIR` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
+- `AWQ_MJOLNIR_E2M3` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
+- `AWQ_MJOLNIR_E2M3_VT64K` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 - `NVFP4` on thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4` on spark: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4` on orin: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4_DFLASH2` on thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4_DSPARK` on thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 - `NVFP4_FA2` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
-- `NVFP4_FA4hd256` on thor: ❌ fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only
+- `NVFP4_FA4hd256` on thor: ❌ fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)
 - `NVFP4_MJOLNIR` on thor: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 - `NVFP4_MJOLNIR_E2M3` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_DFLASH2` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
@@ -63,6 +69,7 @@ longest shared context.
 | platform | official | Mjolnir | official t/s | Mjolnir t/s | change | at |
 |---|---|---|--:|--:|--:|---|
 | Jetson AGX Thor | `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 24.8 | 32.2 | +29.9% | 32K |
+| Jetson Orin | `AWQ_FLASHINFER` | `AWQ_MJOLNIR_E2M3_VT64K` | 16.6 | 19.8 | +18.8% | 32K |
 
 
 <details>

@@ -33,17 +33,18 @@ the enum member) or `--attention-backend CUSTOM` (stock vLLM); the
 
 from __future__ import annotations
 
-import copy
 import logging
+import os
 from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from .builder import MjolnirMetadata
 
 import torch
 
-from . import banner
-from .platforms import detect, load_kernel, unsupported_reason
+from .platforms import unsupported_reason
 from .runner import (
     SUPPORTED_PAGE_SIZES,
-    StepPlan,
     detect_kv_layout,
     env_flag,
     split_kv_cache,
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
     # the same surface and arrives through its own arch subpackage. At runtime
     # the class is resolved via platforms.load_kernel — never by importing a
     # family module here (see mjolnir.arch).
-    from .runner import T5DecodeRunner
+    from .arch.thor import T5DecodeRunner
 
 logger = logging.getLogger("vllm.mjolnir")  # under vLLM's handler
 
@@ -65,11 +66,6 @@ try:
     from vllm.v1.attention.backends.registry import AttentionBackendEnum
 except ImportError:  # older layout
     from vllm.attention.backends.registry import AttentionBackendEnum
-
-try:
-    from vllm.v1.attention.backend import AttentionCGSupport
-except ImportError:
-    from vllm.v1.attention.backends.utils import AttentionCGSupport
 
 FP8_CACHE_DTYPES = ("fp8", "fp8_e4m3")
 FP6_CACHE_DTYPES = ("fp6_e2m3",)
@@ -114,7 +110,13 @@ def _fa4_serves_fp8_kv() -> bool | None:
     if cfg is None or cfg.model_config is None:
         return None
     cache_dtype = str(getattr(cfg.cache_config, "cache_dtype", "auto"))
-    if cache_dtype not in FP8_CACHE_DTYPES:
+    if cache_dtype in FP6_CACHE_DTYPES:
+        # fp6: the prefill fallback reads the e4m3 scratch the pages expand
+        # to, so gate the fallback on fp8 -- not on the config's own dtype
+        # (an fp6 config must flip to FlashInfer on sm_87 exactly like an
+        # fp8 one, or _Base binds to FA4 and the fp6 gate rejects).
+        cache_dtype = "fp8"
+    elif cache_dtype not in FP8_CACHE_DTYPES:
         return True  # nothing to gate: FA reads bf16/fp16 KV on any version
     head = cfg.model_config.get_head_size()
     return bool(flash_attn_supports_kv_cache_dtype(cache_dtype, head_size=head, supports_fa4_hd256=True))
@@ -159,6 +161,14 @@ def _fp6_known_to_vllm() -> bool:
         return get_kv_quant_mode("fp6_e2m3") == getattr(KVQuantMode, "FP6_E2M3", None)
     except ImportError:
         return False
+
+
+def _fallback_serves_fp8_scratch() -> bool:
+    """Can the prefill fallback read the e4m3 scratch the fp6 pages expand
+    to? FA4 (the Thor image default) or FlashInfer (the Orin — FA4 has no
+    sm_87 kernels and its probe falls back; FlashInfer serves fp8 KV there,
+    proven by the config-C serving)."""
+    return _FALLBACK in ("FLASH_ATTN", "FLASHINFER")
 
 
 def _block_size_ok(sizes, size: int) -> bool:
@@ -256,16 +266,18 @@ def _unsupported_arch_reason(device) -> str | None:
 # fp6 (e2m3) KV: preconditions and per-channel scales
 # --------------------------------------------------------------------------
 def _check_fp6(t5_reason, layer_names) -> None:
-    """fp6 caches have exactly two readers: T5 and the fallback's fp8 scratch."""
+    """fp6 caches have exactly two readers: the mma/T5 decode kernel and the
+    fallback's fp8 scratch (any fallback that serves fp8 KV: FA4 on thor,
+    FlashInfer on orin)."""
     if t5_reason is not None:
         raise ValueError(
             f"kv cache dtype fp6_e2m3 needs the Mjolnir decode kernel, but it is off for "
             f"{layer_names[:1]}: {t5_reason}. Serve fp8 KV for this model."
         )
-    if _FALLBACK != "FLASH_ATTN":
+    if not _fallback_serves_fp8_scratch():
         raise ValueError(
-            f"kv cache dtype fp6_e2m3 needs the FLASH_ATTN fallback (prefill reads an fp8 "
-            f"scratch through it); MJOLNIR_ATTN_FALLBACK is {_FALLBACK}"
+            f"kv cache dtype fp6_e2m3 needs a fallback that reads the fp8 scratch (FLASH_ATTN "
+            f"or FLASHINFER); MJOLNIR_ATTN_FALLBACK is {_FALLBACK}"
         )
     from . import kvscales
 
@@ -336,10 +348,21 @@ def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
         state = {}
         for side, rows in (("k", ks), ("v", vs)):
             ch = torch.tensor(rows, dtype=torch.float32, device=dev).contiguous()  # (h_k, d)
-            head = ch.amax(dim=1) * (kvscales.E2M3_MAX / 448.0)  # (h_k,) fallback descale
-            state[f"{side}_ch"] = ch
-            state[f"{side}_head"] = head
-            state[f"{side}_ratio"] = (ch / head[:, None]).contiguous()
+            if _FALLBACK == "FLASH_ATTN":
+                # FA4 reads one fp8 dtype with a per-head descale: the scratch
+                # holds e4m3(code * s_c / S) and S (per head) rides
+                # layer._k_scale / _v_scale.
+                head = ch.amax(dim=1) * (kvscales.E2M3_MAX / 448.0)  # (h_k,) fallback descale
+                state[f"{side}_ch"] = ch
+                state[f"{side}_head"] = head
+                state[f"{side}_ratio"] = (ch / head[:, None]).contiguous()
+            else:
+                # FlashInfer's native paged kernels take no KV descale: the
+                # scratch holds the true code * s_c (<= the calibrated amax,
+                # which must fit e4m3's 448) and the layer's scales stay 1.
+                state[f"{side}_ch"] = ch
+                state[f"{side}_head"] = torch.ones_like(ch[:, 0])
+                state[f"{side}_ratio"] = ch.contiguous()
             state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()  # (h_q, d)
         state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
         layer._mjolnir_fp6 = state
@@ -351,303 +374,6 @@ def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
         len(layers),
         path,
     )
-
-
-# --------------------------------------------------------------------------
-# Metadata
-# --------------------------------------------------------------------------
-class MjolnirMetadata:
-    """Decode-only step metadata for T5 (one per KV-cache group).
-
-    Carries the attributes generic vLLM code reads from attention metadata
-    (num_actual_tokens, slot_mapping, ...); FlashInfer-specific fields are
-    absent because the base impl never sees this object."""
-
-    is_t5 = True
-
-    def __init__(self, *, plan: StepPlan, runner: T5DecodeRunner, cam):
-        self.plan = plan
-        self.runner = runner
-        self.num_actual_tokens = cam.num_actual_tokens
-        self.num_reqs = cam.num_reqs
-        self.max_query_len = cam.max_query_len
-        self.max_seq_len = cam.max_seq_len
-        self.query_start_loc = cam.query_start_loc
-        self.seq_lens = cam.seq_lens
-        self.block_table = cam.block_table_tensor
-        self.slot_mapping = cam.slot_mapping
-        self.num_decodes = cam.num_reqs
-        self.num_decode_tokens = cam.num_actual_tokens
-        self.num_prefills = 0
-        self.num_prefill_tokens = 0
-        self.use_cascade = False
-        self.causal = True
-
-
-# --------------------------------------------------------------------------
-# Builder
-# --------------------------------------------------------------------------
-class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
-    # Shared-metadata shortcut across groups would bypass our plan.
-    supports_update_block_table: bool = False
-
-    def __init__(self, kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs):
-        super().__init__(kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs)
-        if env_flag("MJOLNIR_ATTN_BANNER", "1").lower() not in ("0", "false", "no"):
-            banner.emit()  # the hammer, once, into this log
-        # Fused multi-step draft decode (MTP / EAGLE): the speculator builds the
-        # draft metadata once and runs every draft step on it, advancing the
-        # device seq_lens in place. A T5 plan stays valid across those steps if
-        # it is made for the longest of them — the kernel masks with the live
-        # seq_lens, so tiles past a sequence's end are empty — hence every plan
-        # gets num_speculative_tokens of headroom, and update_draft_decode_metadata
-        # has nothing to do for T5 steps (fallback steps defer to the base
-        # builder). The capability is whatever the base builder grants.
-        spec = getattr(vllm_config, "speculative_config", None)
-        self._plan_margin = int(getattr(spec, "num_speculative_tokens", 0) or 0) if spec is not None else 0
-        self._kv_format = _kv_format(getattr(vllm_config.cache_config, "cache_dtype", "auto"))
-        self._fp6 = self._kv_format == "e2m3"
-        self._page = kv_cache_spec.block_size
-        self._t5_reason = ineligible_reason(kv_cache_spec, layer_names, vllm_config)
-        if self._t5_reason is None:
-            # platform guard (surgical): a GPU without a Mjolnir kernel
-            # degrades exactly like any other ineligible config
-            self._t5_reason = _unsupported_arch_reason(device)
-        # Diagnosis knobs for the draft path (MTP / EAGLE drafter layers):
-        # MJOLNIR_ATTN_DRAFT_T5=0 runs every drafter step on the fallback;
-        # MJOLNIR_ATTN_FUSED_DRAFT=0 makes vLLM rebuild the draft metadata
-        # between draft steps instead of fusing them into one graph.
-        self._is_draft = any("mtp" in n or "draft" in n for n in layer_names)
-        self._force_fallback = self._is_draft and env_flag("MJOLNIR_ATTN_DRAFT_T5", "1") in ("0", "false", "no")
-        if env_flag("MJOLNIR_ATTN_FUSED_DRAFT", "1") in ("0", "false", "no"):
-            self.supports_draft_decode_metadata_update = False
-        if self._force_fallback and self._fp6:
-            # the drafter's steps replay as FULL CUDA graphs, and an fp6 fallback
-            # step (page expansion from a per-step page map) cannot be captured
-            raise ValueError(
-                "MJOLNIR_ATTN_DRAFT_T5=0 needs fp8 KV (e.g. NVFP4_MJOLNIR): on fp6 the drafter's "
-                "fallback steps would be captured into CUDA graphs with a stale page map"
-            )
-        if self._force_fallback:
-            logger.info("Mjolnir: drafter layers %s on the fallback (MJOLNIR_ATTN_DRAFT_T5=0)", layer_names[:1])
-        if self._fp6:
-            _check_fp6(self._t5_reason, layer_names)
-            _install_fp6_scales(vllm_config, layer_names, kv_cache_spec.num_kv_heads, kv_cache_spec.head_size)
-        self.t5: T5DecodeRunner | None = None
-        if self._t5_reason is not None:
-            logger.warning(
-                "Mjolnir decode disabled for %s: %s -> %s for all steps",
-                layer_names[:1],
-                self._t5_reason,
-                _fallback_name(),
-            )
-            return
-        mc, pc = vllm_config.model_config, vllm_config.parallel_config
-        num_heads = None
-        try:
-            from vllm.v1.attention.backends.utils import get_num_attention_heads_from_layers
-
-            num_heads = get_num_attention_heads_from_layers(vllm_config, layer_names)
-        except Exception:  # noqa: BLE001
-            pass
-        if num_heads is None:
-            num_heads = mc.get_num_attention_heads(pc)
-        q_mode = env_flag("MJOLNIR_ATTN_Q_DTYPE", "fp8").lower()
-        q_mode = {"bf16": "bf16", "bfloat16": "bf16", "fp8": "fp8", "e4m3": "fp8"}[q_mode]
-        if self._fp6 and q_mode != "fp8":
-            raise ValueError("fp6_e2m3 KV runs on the fp8-Q path only: unset MJOLNIR_ATTN_Q_DTYPE")
-        self.t5 = load_kernel(detect()).Runner(
-            num_heads=num_heads,
-            num_kv_heads=kv_cache_spec.num_kv_heads,
-            head_size=kv_cache_spec.head_size,
-            page_size=kv_cache_spec.block_size,
-            out_dtype=mc.dtype,
-            max_num_seqs=vllm_config.scheduler_config.max_num_seqs,
-            max_q_len=_max_q_len(vllm_config),
-            q_mode=q_mode,
-            ctas_per_sm=int(env_flag("MJOLNIR_ATTN_CTAS", "2")),
-            max_splits=int(env_flag("MJOLNIR_ATTN_MAX_SPLITS", "16")),
-            kv_stages=int(env_flag("MJOLNIR_ATTN_KV_STAGES", "0")),
-            # EVICT_FIRST: default ON for the fully-fp8 path — the one change
-            # that won in every Thor A/B (b=1 wall clock -8..-29% at 4K-16K,
-            # ncu neutral at 64K-256K); bf16-Q long-L was mixed -> opt-in.
-            # PDL: opt-in — its A/Bs flipped sign between runs (-17% .. +5%)
-            # on a busy box; re-measure on an idle one before defaulting it.
-            pdl=env_flag("MJOLNIR_ATTN_PDL", "0").lower() in ("1", "true", "yes"),
-            l2_prefetch=int(env_flag("MJOLNIR_ATTN_L2_PREFETCH", "0")),
-            kv_evict_first=env_flag("MJOLNIR_ATTN_KV_EVICT_FIRST", "1" if q_mode == "fp8" else "0").lower()
-            in ("1", "true", "yes"),
-            kv_format=self._kv_format,
-            device=device,
-        )
-        pre = env_flag("MJOLNIR_ATTN_PRECOMPILE", "all").lower()
-        if pre in ("all", "1", "true", "yes"):
-            import time
-
-            from . import runner as _runner
-
-            before = dict(_runner.CACHE_STATS)
-            t0 = time.perf_counter()
-            self.t5.precompile()
-            loaded = _runner.CACHE_STATS["loaded"] - before["loaded"]
-            compiled = _runner.CACHE_STATS["compiled"] - before["compiled"]
-            if loaded or compiled:
-                logger.info(
-                    "Mjolnir: decode kernels (q_len 1..%d, %s Q) ready in %.1f s: %d compiled, %d from %s",
-                    self.t5.max_q_len,
-                    q_mode,
-                    time.perf_counter() - t0,
-                    compiled,
-                    loaded,
-                    _runner.kernel_cache_dir() or "cache (off)",
-                )
-        logger.info(
-            "Mjolnir decode enabled: h_q=%d h_k=%d d=%d page=%d q_len<=%d Q=%s "
-            "ctas/SM=%d slots(q1)=%d pdl=%s l2_prefetch=%d "
-            "kv_evict_first=%s kv=%s fallback=%s",
-            num_heads,
-            kv_cache_spec.num_kv_heads,
-            kv_cache_spec.head_size,
-            kv_cache_spec.block_size,
-            self.t5.max_q_len,
-            q_mode,
-            self.t5.ctas_per_sm,
-            self.t5.slots(1),
-            self.t5.pdl,
-            self.t5.l2_prefetch,
-            self.t5.kv_evict_first,
-            self._kv_format,
-            _fallback_name(),
-        )
-
-    # -- CUDA graph support ------------------------------------------------
-    @classmethod
-    def get_cudagraph_support(cls, vllm_config, kv_cache_spec):
-        base = super().get_cudagraph_support(vllm_config, kv_cache_spec)
-        # Mixed batches always go to the base backend, so never promise more
-        # than it does for those; uniform decode is T5's and graph-safe.
-        if base == AttentionCGSupport.ALWAYS:
-            return base
-        if _max_q_len(vllm_config) > 1:
-            return max(base, AttentionCGSupport.UNIFORM_BATCH, key=lambda e: e.value)
-        return max(base, AttentionCGSupport.UNIFORM_SINGLE_TOKEN_DECODE, key=lambda e: e.value)
-
-    @classmethod
-    def get_varlen_cudagraph_max_query_len(cls, vllm_config, kv_cache_spec):
-        return None  # T5 graphs replay uniform-q_len batches only
-
-    # -- build ---------------------------------------------------------------
-    def _t5_q_len(self, cam) -> int | None:
-        """q_len if this step is a uniform decode batch T5 can take: causal
-        (decode, speculative verification), or non-causal (a parallel drafter's
-        block — DSpark / DFlash — where every query token sees every key; off
-        with MJOLNIR_ATTN_NONCAUSAL=0)."""
-        t5 = self.t5
-        if t5 is None:
-            return None
-        q_len = int(cam.max_query_len)
-        if not 1 <= q_len <= t5.max_q_len or cam.num_reqs > t5.max_num_seqs:
-            return None
-        causal = getattr(cam, "causal", True)
-        if causal is not True and not (causal is False and _NONCAUSAL):
-            return None
-        if getattr(cam, "dcp_local_seq_lens", None) is not None:
-            return None
-        if q_len == 1 and cam.num_actual_tokens <= cam.num_reqs:
-            return 1
-        # Uniform: every request has q_len tokens, except trailing CUDA-graph
-        # padding requests with 0.
-        qsl = cam.query_start_loc_cpu[: cam.num_reqs + 1]
-        lens = (qsl[1:] - qsl[:-1]).tolist()
-        n_real = 0
-        while n_real < len(lens) and lens[n_real] == q_len:
-            n_real += 1
-        if any(x != 0 for x in lens[n_real:]):
-            return None
-        return q_len
-
-    def _seq_lens_cpu(self, cam):
-        ub = getattr(cam, "seq_lens_cpu_upper_bound", None)
-        if ub is not None:
-            # An upper bound is fine for planning: the kernel masks with the
-            # exact device seq_lens, extra tiles are empty.
-            return ub
-        legacy = getattr(cam, "seq_lens_cpu", None)
-        if legacy is not None:
-            return legacy
-        with _gpu_sync_allowed():
-            return cam.seq_lens.cpu()
-
-    def build(self, common_prefix_len: int, common_attn_metadata, fast_build: bool = False):
-        cam = common_attn_metadata
-        q_len = self._t5_q_len(cam) if common_prefix_len == 0 and not self._force_fallback else None
-        if q_len is None:
-            STATS["fallback_steps"] += 1
-            md = super().build(common_prefix_len, cam, fast_build)
-            if self._fp6:
-                md.mjolnir_fp6_pages = self._fp6_page_map(cam)
-            return md
-        STATS["t5_steps"] += 1
-        t5 = self.t5
-        num_seqs = cam.num_reqs
-        causal = getattr(cam, "causal", True) is not False
-        if not causal:
-            STATS["t5_noncausal_steps"] += 1
-        plan = t5.plan(
-            self._seq_lens_cpu(cam),
-            num_seqs,
-            q_len,
-            cam.block_table_tensor,
-            cam.seq_lens,
-            margin=self._plan_margin,
-            causal=causal,
-        )
-        # Never compiled inside graph capture: build() runs outside it.
-        t5.ensure_compiled(q_len, plan.with_reduction, plan.causal)
-        return MjolnirMetadata(plan=plan, runner=t5, cam=cam)
-
-    def _fp6_page_map(self, cam):
-        """For a step the fallback runs on an fp6 cache: which cache page
-        becomes which scratch page, and the block table over the scratch.
-        Scratch page offset_r + j holds request r's page j (no deduplication:
-        a shared prefix page is expanded once per request that uses it)."""
-        num_reqs = cam.num_reqs
-        lens = [int(x) for x in self._seq_lens_cpu(cam)[:num_reqs]]
-        n_pages = [max(1, -(-L // self._page)) if L > 0 else 0 for L in lens]
-        total = sum(n_pages)
-        width = cam.block_table_tensor.shape[1]
-        remap = torch.zeros(cam.block_table_tensor.shape[0], width, dtype=torch.int32)
-        req_idx, page_idx, off = [], [], 0
-        for r, n in enumerate(n_pages):
-            if n:
-                remap[r, :n] = torch.arange(off, off + n, dtype=torch.int32)
-                req_idx += [r] * n
-                page_idx += list(range(n))
-            off += n
-        dev = cam.block_table_tensor.device
-        rows = torch.tensor(req_idx, dtype=torch.long).pin_memory().to(dev, non_blocking=True)
-        cols = torch.tensor(page_idx, dtype=torch.long).pin_memory().to(dev, non_blocking=True)
-        src = cam.block_table_tensor[rows, cols].to(torch.int32).contiguous()
-        return {"src_pages": src, "block_table": remap.pin_memory().to(dev, non_blocking=True), "total": total}
-
-    def build_for_cudagraph_capture(self, common_attn_metadata):
-        return self.build(0, common_attn_metadata)
-
-    def update_draft_decode_metadata(self, metadata) -> None:
-        """Fused draft decode: advance the metadata to the next draft step,
-        capture-safe. A T5 plan already covers it (see __init__); other steps
-        were built by the base builder, which updates its own metadata."""
-        if getattr(metadata, "is_t5", False):
-            return
-        super().update_draft_decode_metadata(metadata)
-
-    def use_cascade_attention(self, *args, **kwargs) -> bool:
-        # Cascade steps are built by the base builder (common_prefix_len > 0);
-        # keep the base decision — except on fp6, whose fallback path expands
-        # per-request pages and has no shared-prefix variant.
-        if self._fp6:
-            return False
-        return super().use_cascade_attention(*args, **kwargs)
 
 
 # --------------------------------------------------------------------------
@@ -666,11 +392,19 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         # fp6: the fallback reads an fp8 scratch (see _forward_fp6_fallback)
         self._fp6 = cache_dtype in FP6_CACHE_DTYPES
         quantized_kv = cache_dtype in MJOLNIR_CACHE_DTYPES
+        # fp8 Q only behind FA4: FlashInfer's maybe_quant_query wants bf16.
         self._fallback_fp8_q = (
-            bool(self.supports_quant_query_input) and quantized_kv and _FALLBACK == "FLASH_ATTN"
-        ) or self._fp6
+            _FALLBACK == "FLASH_ATTN" and bool(self.supports_quant_query_input) and (quantized_kv or self._fp6)
+        )
+        if self._fp6:
+            # The fp6 fallback hands the base a fresh scratch tensor every
+            # step; captured graphs bake pointers at capture time and would
+            # replay against the old allocation (the IMA). Fallback steps
+            # run eager; T5 steps keep the runner's own graphs.
+            self.enable_cuda_graph = False
         self.supports_quant_query_input = False
         self._kv_layout: str | None = None
+        self._fp6_pool_layout: str | None = None  # MJOLNIR_FP6_DIRECT
         self._t5_reason = _layer_reason(self)
 
     # -- KV cache write ----------------------------------------------------
@@ -692,11 +426,91 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         kvfp6.write_kv(key, value, kv_cache, slot_mapping, st["k_ch"], st["v_ch"])
         return None
 
+    def _forward_fp6_direct(self, layer, query, kv_cache, attn_metadata, output, *rest, **kwargs):
+        """MJOLNIR_FP6_DIRECT: the scratchpad-free fp6 fallback. The patched
+        FlashInfer Ampere prefill (``fi-fp6-kv-ampere-prefill.patch``) reads
+        the packed pool directly — no per-step e4m3 scratch, no sync. K's
+        per-channel scales fold into Q and V's post-multiply the output (the
+        T5 numerics); the kernel's expand emits raw e4m3 codes."""
+        st = layer._mjolnir_fp6
+        wrapper = attn_metadata.prefill.wrapper
+        # Inputs are padded for CUDA graphs; the plan covers the actual
+        # tokens only (the spec-draft rows ride past num_actual_tokens).
+        num_actual_tokens = attn_metadata.num_actual_tokens
+        query = query[:num_actual_tokens]
+        output = output[:num_actual_tokens] if output is not None else None
+        t = num_actual_tokens
+        page_size = getattr(attn_metadata, "mjolnir_fp6_page", 16)
+        q = query.reshape(t, self.num_heads, self.head_size)
+        q = q * st["k_mul"].to(q.dtype)
+        row = self.head_size * 6 // 8
+        if self._fp6_pool_layout is None:
+            self._fp6_pool_layout = detect_kv_layout(kv_cache.shape, self.num_kv_heads, page_size, row)
+        k_cache, v_cache = split_kv_cache(kv_cache, self._fp6_pool_layout, row)
+        out = wrapper.run(q, (k_cache, v_cache))
+        out = out.reshape(t, self.num_heads, self.head_size) * st["v_mul"].to(out.dtype)
+        if os.environ.get("MJOLNIR_ATTN_FP6_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            self._fp6_debug_dump(layer, query, kv_cache, attn_metadata, out, st, wrapper, q)
+        out = out.reshape(query.shape).to(query.dtype)
+        if output is not None:
+            output.copy_(out)
+            return output
+        return out
+
+    def _fp6_debug_dump(self, layer, query, kv_cache, attn_metadata, got, st, wrapper, q_folded):
+        """One-shot numerics dump for the direct path: rebuild the step's
+        attention with dense SDPA over the scratch expansion (the exact math
+        the scratch path runs) and diff it against the wrapper's output."""
+        import mjolnir.kvfp6 as kvfp6
+
+        dev = kv_cache.device
+        t = query.shape[0]
+        npages = (t + 15) // 16
+        indices = attn_metadata.mjolnir_fp6_indices
+        src = indices[:npages].long().clamp(0, kv_cache.shape[0] - 1)
+        scratch = _fp6_scratch(npages, self.num_kv_heads, 16, 2 * self.head_size, dev)
+        kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
+        Kt = scratch[..., : self.head_size].float().transpose(1, 2).reshape(-1, self.num_kv_heads, self.head_size)[:t]
+        Vt = scratch[..., self.head_size :].float().transpose(1, 2).reshape(-1, self.num_kv_heads, self.head_size)[:t]
+        q = query.float().reshape(t, self.num_heads, self.head_size)
+        reps = self.num_heads // self.num_kv_heads
+        scores = torch.einsum("thd,shd->hts", q, Kt.repeat_interleave(reps, dim=1)) * self.scale
+        scores.masked_fill_(torch.triu(torch.ones(t, t, dtype=torch.bool, device=dev), 1), float("-inf"))
+        ref = torch.einsum("hts,shd->thd", scores.softmax(-1), Vt.repeat_interleave(reps, dim=1))
+        gotf = got.reshape(t, self.num_heads, self.head_size).float()
+        d = (ref - gotf).abs()
+        # Discriminator 1: the same wrapper on a CONTIGUOUS copy of the same
+        # pages (identical codes, no K|V interleaving) — isolates stride
+        # walking from the expand/module itself.
+        packed_row = self.head_size * 6 // 8
+        kc = src.new_zeros((npages, 16, self.num_kv_heads, packed_row), dtype=torch.uint8)
+        vc = src.new_zeros((npages, 16, self.num_kv_heads, packed_row), dtype=torch.uint8)
+        pool = kv_cache
+        for j in range(npages):
+            page = pool[src[j]]
+            kc[j] = page[..., :packed_row].transpose(0, 1)
+            vc[j] = page[..., packed_row:].transpose(0, 1)
+        out_c = wrapper.run(q_folded, (kc, vc)).reshape(t, self.num_heads, self.head_size).float()
+        dc = (ref - out_c).abs()
+        # Discriminator 2: per-head nearest-ref match (a GQA-grouping bug
+        # would show as a clean permutation).
+        best = (gotf.unsqueeze(1) - ref.unsqueeze(0)).abs().amax(dim=(2, 3)).argmin(dim=0)
+        with open("/data/cache/fp6_dbg.log", "a") as f:
+            f.write(
+                f"layer={getattr(layer, 'layer_name', '?')} t={t} npages={npages} "
+                f"max={d.max().item():.4g} mean={d.mean().item():.4g} "
+                f"contig_max={dc.max().item():.4g} contig_mean={dc.mean().item():.4g} "
+                f"ref_absmax={ref.abs().max().item():.4g} got_absmax={gotf.abs().max().item():.4g} "
+                f"scratch_max={scratch.float().abs().max().item():.4g} "
+                f"kmul=[{st['k_mul'].min().item():.3g},{st['k_mul'].max().item():.3g}] "
+                f"vmul=[{st['v_mul'].min().item():.3g},{st['v_mul'].max().item():.3g}] "
+                f"perm={best.tolist()}\n"
+            )
+
     def _forward_fp6_fallback(self, layer, query, key, value, kv_cache, attn_metadata, *rest, **kwargs):
         """A fallback step on an fp6 cache: expand the pages this step reads
-        to e4m3 as code * s_c / S (s_c the channel scale, S the layer's
-        per-head k/v scale, the descale FA4 applies), point a copy of the
-        metadata at the scratch, and run the base forward on it."""
+        to e4m3 as code * s_c / S, point a copy of the metadata at the
+        scratch, and run the base forward on it."""
         from . import kvfp6
 
         if torch.cuda.is_current_stream_capturing():
@@ -708,14 +522,29 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         _, H, N, _ = kv_cache.shape
         scratch = _fp6_scratch(pages["total"], H, N, 2 * self.head_size, kv_cache.device)
         st = layer._mjolnir_fp6
-        kvfp6.expand_pages_to_fp8(kv_cache, pages["src_pages"], scratch, self.head_size, st["k_ratio"], st["v_ratio"])
-        md = copy.copy(attn_metadata)
-        md.block_table = pages["block_table"]
-        return super().forward(layer, query, key, value, scratch[: max(1, pages["total"])], md, *rest, **kwargs)
+        # The warmup/dummy passes carry arbitrary block-table entries; clamp
+        # the gather in-bounds (their output is unused). Real steps index the
+        # pool, so this is a no-op for them.
+        src = pages["src_pages"].clamp(0, kv_cache.shape[0] - 1)
+        kvfp6.expand_pages_to_fp8(kv_cache, src, scratch, self.head_size, st["k_ratio"], st["v_ratio"])
+        # The base's build planned this step against the scratch remap (the
+        # builder swapped the block table for the plan and restored the cam),
+        # so the wrapper's buffers already index the scratch: no metadata
+        # surgery here. The scratch is presented as the fp8 tensor the plan's
+        # dtype expects.
+        return super().forward(
+            layer,
+            query,
+            key,
+            value,
+            scratch[: max(1, pages["total"])].view(torch.float8_e4m3fn),
+            attn_metadata,
+            *rest,
+            **kwargs,
+        )
 
     def _quantize_q(self, layer, query: torch.Tensor) -> torch.Tensor:
-        """Static fp8 Q for the fallback, as the attention layer would
-        quantize it: Q / q_scale, saturated to e4m3, per tensor or per KV head."""
+        """Static fp8 Q for the fallback, as the layer would quantize it."""
         scale = layer._q_scale
         n = query.shape[0]
         if scale.numel() == 1:
@@ -773,28 +602,33 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
         *args: Any,
         **kwargs: Any,
     ):
-        if not getattr(attn_metadata, "is_t5", False):
+        if not getattr(attn_metadata, "kernel_step", False):
             if self._fallback_fp8_q and attn_metadata is not None and query.dtype in (torch.bfloat16, torch.float16):
                 query = self._quantize_q(layer, query)
                 # The base forward passes the layer's q scale as q_descale
-                # only when it believes the layer quantized Q.
+                # only when it believes the layer quantized Q. FA4's fp6
+                # fallback rides this too (Q, K and V in one fp8 dtype);
+                # FlashInfer's maybe_quant_query wants bf16, so its fp6
+                # fallback arrives unquantized (_fallback_fp8_q is False).
                 self.supports_quant_query_input = True
-                try:
-                    if self._fp6:
-                        return self._forward_fp6_fallback(
-                            layer,
-                            query,
-                            key,
-                            value,
-                            kv_cache,
-                            attn_metadata,
-                            output,
-                            output_scale,
-                            output_block_scale,
-                            *args,
-                            **kwargs,
-                        )
-                    return super().forward(
+            try:
+                if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_direct", False):
+                    # MJOLNIR_FP6_DIRECT: the patched Ampere prefill reads the
+                    # packed pool directly (no scratch, no per-step expand).
+                    return self._forward_fp6_direct(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        *args,
+                        **kwargs,
+                    )
+                if self._fp6 and getattr(attn_metadata, "mjolnir_fp6_pages", None) is not None:
+                    # The fallback reads the e4m3 scratch. Without the pages
+                    # (the profile/dummy passes) the base forward's
+                    # uint8->fp8 view handles the cache as-is.
+                    return self._forward_fp6_fallback(
                         layer,
                         query,
                         key,
@@ -807,25 +641,25 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                         *args,
                         **kwargs,
                     )
-                finally:
-                    self.supports_quant_query_input = False
-            return super().forward(
-                layer,
-                query,
-                key,
-                value,
-                kv_cache,
-                attn_metadata,
-                output,
-                output_scale,
-                output_block_scale,
-                *args,
-                **kwargs,
-            )
+                return super().forward(
+                    layer,
+                    query,
+                    key,
+                    value,
+                    kv_cache,
+                    attn_metadata,
+                    output,
+                    output_scale,
+                    output_block_scale,
+                    *args,
+                    **kwargs,
+                )
+            finally:
+                self.supports_quant_query_input = False
         if self._t5_reason is not None:
             raise RuntimeError(f"Mjolnir got a layer it cannot run ({self._t5_reason}); set MJOLNIR_ATTN_DISABLE=1")
         assert output is not None and output_scale is None
-        md: MjolnirMetadata = attn_metadata
+        md: MjolnirMetadata = attn_metadata  # type: ignore[invalid-annotation]
         runner = md.runner
         k_cache, v_cache = self._kv_views(kv_cache, runner)
         if k_cache.shape[1] != runner.page_size:
@@ -834,6 +668,23 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 "set MJOLNIR_ATTN_KV_LAYOUT or MJOLNIR_ATTN_DISABLE=1"
             )
         self._write_kv(layer, key, value, kv_cache, k_cache, v_cache, md)
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            torch.cuda.synchronize()  # the IMA hunt: name the kernel that faults
+            with open("/data/cache/mjolnir_fp6.log", "a") as f:
+                f.write("write_kv ok\n")
+        if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+            # per-call dump -> a FILE (the EngineCore swallows raw stdout);
+            # the draft-prefill-vs-verify identity diff, config C isolation
+            n = md.plan.num_seqs
+            with open("/tmp/mjolnir_dbg.log", "a") as f:
+                f.write(
+                    f"layer={getattr(layer, 'layer_name', '?')} ql={md.plan.q_len} b={n} "
+                    f"lens={md.plan.seq_lens[:n].tolist()} "
+                    f"slots={md.slot_mapping[:6].tolist()} "
+                    f"run={id(runner) % 100000} "
+                    f"qsum={query.float().sum().item():.4g} "
+                    f"kvsum={k_cache[md.plan.block_table[0, :2].long()].float().sum().item():.6g}\n"
+                )
         if query.dtype not in (torch.bfloat16, torch.float16):
             # pre-quantized fp8 query from a layer fusion: dequantize
             query = (query.float() * layer._q_scale).to(torch.bfloat16)
@@ -851,6 +702,10 @@ class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
                 q_mul=st["k_mul"],
                 o_mul=st["v_mul"],
             )
+            if os.environ.get("MJOLNIR_ATTN_DEBUG") and not torch.cuda.is_current_stream_capturing():
+                torch.cuda.synchronize()
+                with open("/data/cache/mjolnir_fp6.log", "a") as f:
+                    f.write("mma fp6 ok\n")
             return output
         runner.run(
             md.plan,
@@ -899,16 +754,16 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
 
     # -- KV cache dtypes --------------------------------------------------
     # The fallback's own list, plus fp6_e2m3 where vLLM knows the dtype (the
-    # image's thor-fp6-e2m3-kv-cache patch) and the FA4 fallback can read the
-    # fp8 scratch.
+    # image's thor-fp6-e2m3-kv-cache patch) and the fallback can read the fp8
+    # scratch (see _fallback_serves_fp8_scratch).
     supported_kv_cache_dtypes: ClassVar[list] = list(getattr(_Base, "supported_kv_cache_dtypes", [])) + (
-        list(FP6_CACHE_DTYPES) if _FALLBACK == "FLASH_ATTN" else []
+        list(FP6_CACHE_DTYPES) if _fallback_serves_fp8_scratch() else []
     )
 
     @classmethod
     def supports_kv_cache_dtype(cls, kv_cache_dtype) -> bool:
         if kv_cache_dtype in FP6_CACHE_DTYPES:
-            return _fp6_known_to_vllm() and _FALLBACK == "FLASH_ATTN" and _Base.supports_kv_cache_dtype("fp8")
+            return _fp6_known_to_vllm() and _fallback_serves_fp8_scratch() and _Base.supports_kv_cache_dtype("fp8")
         return _Base.supports_kv_cache_dtype(kv_cache_dtype)
 
     @classmethod
@@ -937,6 +792,8 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
 
     @staticmethod
     def get_builder_cls():
+        from .builder import MjolnirMetadataBuilder
+
         return MjolnirMetadataBuilder
 
     @classmethod

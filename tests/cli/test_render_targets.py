@@ -751,15 +751,15 @@ def test_models_table_header_and_row_links_and_footnote(repo):
 
 def test_both_measured_pairs_lists_are_gone(repo):
     """Plan §3: no `Measured (platform, model) pairs` list anywhere — the
-    models table replaces both copies and the Benchmarks section keeps at
-    most a one-line pointer at the Supported Models table."""
+    models table replaces both copies. The kernel benchmark sections moved
+    off the root README to the Thor platform page; the rule is checked there
+    too."""
     _render_all()
     text = (repo / "README.md").read_text()
     assert "Measured (platform, model) pairs" not in text
     assert "- [" not in _section(text, "Supported Models")
-    bench_intro = _section(text, "Benchmarks").split("###")[0]
-    assert "- [" not in bench_intro
-    assert "#supported-models" in bench_intro
+    thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
+    assert "Measured (platform, model) pairs" not in thor
 
 
 def test_no_generated_page_carries_trailing_whitespace(repo):

@@ -24,7 +24,7 @@ from types import ModuleType
 _SHIPPED: tuple[tuple[str, tuple[int, int], bool], ...] = (
     ("thor", (11, 0), True),
     ("spark", (12, 1), False),
-    ("orin", (8, 7), False),
+    ("orin", (8, 7), True),
 )
 
 

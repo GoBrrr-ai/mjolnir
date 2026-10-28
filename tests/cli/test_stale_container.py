@@ -39,7 +39,7 @@ def test_serve_up_removes_stopped_container(monkeypatch, tmp_path):
     ran: list[list[str]] = []
     monkeypatch.setattr(dockerctl, "_run", lambda args, **kw: ran.append(args))
     monkeypatch.setattr(dockerctl, "missing_kv_scales", lambda s: None)
-    monkeypatch.setattr(dockerctl, "build_run_args", lambda s, serve_args=(): ["docker", "run"])
+    monkeypatch.setattr(dockerctl, "build_run_args", lambda s, serve_args=(), extra_env=(): ["docker", "run"])
     s = config.Settings(data_dir=tmp_path)
     dockerctl.serve_up(s, wait=False)
     assert _rm_calls(calls) == [["docker", "rm", "-f", dockerctl.CONTAINER_NAME]]
@@ -50,7 +50,7 @@ def test_serve_up_fresh_host_removes_nothing(monkeypatch, tmp_path):
     calls = _fake_docker(monkeypatch, None)
     monkeypatch.setattr(dockerctl, "_run", lambda args, **kw: None)
     monkeypatch.setattr(dockerctl, "missing_kv_scales", lambda s: None)
-    monkeypatch.setattr(dockerctl, "build_run_args", lambda s, serve_args=(): ["docker", "run"])
+    monkeypatch.setattr(dockerctl, "build_run_args", lambda s, serve_args=(), extra_env=(): ["docker", "run"])
     dockerctl.serve_up(config.Settings(data_dir=tmp_path), wait=False)
     assert _rm_calls(calls) == []
 

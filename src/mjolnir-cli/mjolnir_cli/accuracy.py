@@ -25,6 +25,7 @@ import json
 import os
 import shlex
 import shutil
+import platform as host_platform  # the record's host field names the machine (platform.node)
 import sqlite3
 import subprocess
 import sys
@@ -33,6 +34,7 @@ from pathlib import Path
 from statistics import mean
 
 from mjolnir_cli.config import by_model, model_of, model_short
+from mjolnir_cli.platforms import platform_of
 
 FORMAT = "mjolnir.accuracy/1"
 TOOL_REPO = "https://github.com/SeraphimSerapis/tool-eval-bench"
@@ -236,6 +238,7 @@ def run_accuracy(
     tool-eval-bench against it, and write ``accuracy.json``. Returns its path."""
     from mjolnir_cli import dockerctl
     from mjolnir_cli.config import config_field
+    from mjolnir_cli.platforms import detect, gpu_name
 
     tool = find_tool()
     run_id = time.strftime("%Y%m%d-%H%M%S")
@@ -245,6 +248,10 @@ def run_accuracy(
         "format": FORMAT,
         "run_id": run_id,
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "host": host_platform.node() or "unknown",
+        "gpu": gpu_name(),
+        # the detection-first rule: the record names the *detected* platform
+        "platform": detect().platform,
         "tool": {"repo": TOOL_REPO, "commit": TOOL_COMMIT, "command": tool},
         "args": list(passthrough) or list(DEFAULT_ARGS),
         "legs": [],
@@ -305,17 +312,20 @@ def load_runs(layout) -> list[dict]:
 
 
 def latest_legs(docs: list[dict]) -> list[dict]:
-    """One row per (model, image, config): every suite from the newest run
-    that measured it (an A/B run and a later GSM8K run merge into one row).
-    Order: first appearance."""
+    """One row per (platform, model, image, config): every suite from the
+    newest run that measured it (an A/B run and a later GSM8K run merge into
+    one row). Order: first appearance. The platform comes from the run doc
+    (platform-less records are the repo's Thor history); a leg measured on
+    two platforms is two rows — its charts are per (platform, model)."""
     rows: dict[tuple, dict] = {}
     for d in docs:
+        plat = platform_of(d)
         for leg in d.get("legs", []):
-            key = (model_of(leg), leg.get("image"), leg.get("config"))
+            key = (plat, model_of(leg), leg.get("image"), leg.get("config"))
             row = rows.setdefault(
                 key,
                 {k: leg.get(k) for k in ("id", "model", "image", "config", "label", "kv_cache_dtype", "env")}
-                | {"suites": {}, "categories": {}, "scenarios": {}, "runs": {}},
+                | {"platform": plat, "suites": {}, "categories": {}, "scenarios": {}, "runs": {}},
             )
             row["kv_cache_dtype"] = leg.get("kv_cache_dtype") or row.get("kv_cache_dtype")
             row["label"] = leg_label(row)  # recomputed: labels improve after a run is stored

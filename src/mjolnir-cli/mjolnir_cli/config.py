@@ -66,6 +66,28 @@ BASELINE_QUANT = "NVFP4"  # FlashInfer — the fastest stock backend on Thor
 FA2_QUANT = "NVFP4_FA2"  # FlashAttention 2 — vLLM 0.32.0's sm_110 default (bf16 KV)
 SERVED_MODEL_NAME = "Qwen/Qwen3.8-27B"
 
+# Per-platform serving-quant roles: the default Mjolnir config, the opt-in fast
+# one, and the stock-backend baseline each platform headlines. The constants
+# above stay the default platform's (Thor) for existing consumers; new code
+# resolves roles through the functions so a board gets its own family.
+QUANT_ROLES: dict[str, dict[str, str]] = {
+    "thor": {"default": DEFAULT_QUANT, "fast": FAST_QUANT, "baseline": BASELINE_QUANT, "fa2": FA2_QUANT},
+    "orin": {
+        "default": "AWQ_MJOLNIR_E2M3",
+        "fast": "AWQ_MJOLNIR_E2M3_VT64K",
+        "baseline": "AWQ_FLASHINFER",
+        "fa2": "AWQ_FLASHINFER",  # no FA2 config on Orin; the native-FI baseline covers it
+    },
+    "spark": {"default": "NVFP4_MJOLNIR_E2M3", "fast": "NVFP4_MJOLNIR_E2M3", "baseline": "NVFP4"},
+}
+
+
+def quant_role(role: str, platform: str = DEFAULT_PLATFORM) -> str:
+    """The platform's config for a role (``default`` / ``fast`` / ``baseline``
+    / ``fa2``); unknown platforms fall back to the default platform's."""
+    return QUANT_ROLES.get(platform, QUANT_ROLES[DEFAULT_PLATFORM])[role]
+
+
 # ── Image / serving ──────────────────────────────────────────────────────────
 # The image tag follows the upstream vLLM version it overlays (see
 # .github/workflows/docker-image.yml): narandill/mjolnir-vllm:v<vllm>.
@@ -352,7 +374,7 @@ class Settings:
     platform: str | None = None  # unresolved until resolve() (flag > env > host detection)
     image: str = field(default_factory=lambda: _env("MJOLNIR_IMAGE", DEFAULT_IMAGE))
     port: int = field(default_factory=lambda: _env_int("MJOLNIR_PORT", DEFAULT_PORT))
-    data_dir: Path = field(default_factory=lambda: Path("~/.local/share/mjolnir").expanduser())
+    data_dir: Path = field(default_factory=lambda: Path(_env("MJOLNIR_DATA", "~/.local/share/mjolnir")).expanduser())
     label: str | None = None  # explicit backend-label override (history log); else derived from quant
 
     @property
@@ -418,6 +440,8 @@ def resolve(
         s.model = cli_model
     if cli_quant:
         s.quant = cli_quant
+    elif not _env("MJOLNIR_QUANT", ""):
+        s.quant = quant_role("default", platform)  # the board's own family
     if cli_image:
         s.image = cli_image
     elif platform != DEFAULT_PLATFORM and s.image == DEFAULT_IMAGE:

@@ -112,7 +112,14 @@ def _chart_ids(layout: RepoLayout, platform: str, model: str) -> list[str]:
     if not p.is_file():
         return []
     manifest = json.loads(p.read_text())
-    return sorted(name for name, e in manifest.items() if e.get("platform") == platform and e.get("model") == model)
+    # v2 manifests are list-valued (one entry per measured pair); legacy
+    # single-entry dicts still resolve.
+    ids = []
+    for name, e in manifest.items():
+        entries = e if isinstance(e, list) else [e]
+        if any(x.get("platform") == platform and x.get("model") == model for x in entries):
+            ids.append(name)
+    return sorted(ids)
 
 
 def build_site(layout: RepoLayout) -> tuple[dict, list[tuple[str, str]]]:

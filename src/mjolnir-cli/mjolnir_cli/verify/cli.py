@@ -129,9 +129,17 @@ def execute(
     kernel_src = None
     if layout.repo_root is not None:
         cand = layout.repo_root / "src" / "mjolnir"
-        if (cand / "mjolnir" / "t5_decode.py").exists():
+        if (cand / "mjolnir" / "arch" / "thor" / "decode.py").exists():
             kernel_src = cand
-    runner = Runner(image=s.image, logdir=logdir, kernel_src=kernel_src, timeout=timeout, dry_run=dry_run, page=page)
+    runner = Runner(
+        image=s.image,
+        logdir=logdir,
+        platform=s.platform or DEFAULT_PLATFORM,
+        kernel_src=kernel_src,
+        timeout=timeout,
+        dry_run=dry_run,
+        page=page,
+    )
     ctx = stages.Ctx(
         runner=runner,
         run_id=run_id,
@@ -349,7 +357,7 @@ def hndsweep(
 
 @app.command()
 def kvfmt(
-    variants: str = typer.Option(stages.KVFMT_DEFAULT, "--variants", help="name:flags|name:flags"),
+    variants: str = typer.Option("", "--variants", help="name:flags|name:flags (default: the platform's set)"),
     refs: str = typer.Option(KERNEL["verify.kvfmt.refs"], "--refs", help="baseline legs"),
     wall_iters: int = typer.Option(200, "--wall-iters", help="harness wall-clock iterations (0 = skip)"),
     image: str | None = IMAGE,
@@ -365,7 +373,7 @@ def kvfmt(
     _run(
         "kvfmt",
         {"variants": variants, "refs": refs, "wall_iters": wall_iters},
-        {"variants": stages.KVFMT_DEFAULT, "refs": KERNEL["verify.kvfmt.refs"], "wall_iters": 200},
+        {"variants": "", "refs": KERNEL["verify.kvfmt.refs"], "wall_iters": 200},
         image,
         ls,
         iters,
@@ -379,7 +387,7 @@ def kvfmt(
 
 @app.command()
 def quant(
-    formats: str = typer.Option(stages.QUANT_FORMATS, "--formats"),
+    formats: str = typer.Option("", "--formats", help="default: the platform's set"),
     batches: int = typer.Option(2, "--batches"),
     image: str | None = IMAGE,
     ls: str | None = LS,
@@ -392,7 +400,7 @@ def quant(
     _run(
         "quant",
         {"formats": formats, "batches": batches},
-        {"formats": stages.QUANT_FORMATS, "batches": 2},
+        {"formats": "", "batches": 2},
         image,
         ls,
         stages.DEFAULT_ITERS,
@@ -495,7 +503,7 @@ def pdl(
 
 @app.command()
 def ab(
-    variants: str = typer.Option(stages.AB_DEFAULT, "--variants", help="name:flags|name:flags"),
+    variants: str = typer.Option("", "--variants", help="name:flags|name:flags (default: the platform's set)"),
     refs: str = typer.Option("fi", "--refs"),
     wall_iters: int = typer.Option(200, "--wall-iters"),
     image: str | None = IMAGE,
@@ -507,11 +515,12 @@ def ab(
     save: bool = SAVE,
     plot: bool = PLOT,
 ):
-    """A/B any harness flag sets (ncu + wall clock). Default: evict-first x PDL."""
+    """A/B any harness flag sets (ncu + wall clock). Default: the platform's
+    own A/B — the Thor launch knobs (evict-first × PDL) / the Orin KV formats."""
     _run(
         "ab",
         {"variants": variants, "refs": refs, "wall_iters": wall_iters},
-        {"variants": stages.AB_DEFAULT, "refs": "fi", "wall_iters": 200},
+        {"variants": "", "refs": "fi", "wall_iters": 200},
         image,
         ls,
         iters,
@@ -525,7 +534,7 @@ def ab(
 
 @app.command()
 def fp6prof(
-    variants: str = typer.Option(stages.PROF_DEFAULT, "--variants"),
+    variants: str = typer.Option("", "--variants", help="name:flags|name:flags (default: the platform's set)"),
     count: int = typer.Option(3, "--count", help="profiled launches per point"),
     section_set: str = typer.Option("full", "--set"),
     image: str | None = IMAGE,
@@ -540,7 +549,7 @@ def fp6prof(
     _run(
         "fp6prof",
         {"variants": variants, "count": count, "section_set": section_set},
-        {"variants": stages.PROF_DEFAULT, "count": 3, "section_set": "full"},
+        {"variants": "", "count": 3, "section_set": "full"},
         image,
         ls,
         stages.DEFAULT_ITERS,
@@ -799,13 +808,13 @@ _DEFAULTS: dict[str, dict] = {
     "correctness": {"dtypes": "fp8 bf16", "match": "", "fail_fast": False, "timeout": 180.0, "quick": False},
     "sweep": {"legs": KERNEL["verify.sweep"]},
     "hndsweep": {"legs": KERNEL["verify.hndsweep"]},
-    "kvfmt": {"variants": stages.KVFMT_DEFAULT, "refs": KERNEL["verify.kvfmt.refs"], "wall_iters": 200},
-    "quant": {"formats": stages.QUANT_FORMATS, "batches": 2},
+    "kvfmt": {"variants": "", "refs": KERNEL["verify.kvfmt.refs"], "wall_iters": 200},
+    "quant": {"formats": "", "batches": 2},
     "ring": {"stages": stages.RING_DEFAULT, "base": "", "refs": "fi"},
     "prefetch": {"distances": "0 1 2 4", "base": "--kv_format fp8", "refs": "fi"},
     "pdl": {"batches": "1 8", "dtypes": "fp8", "iters": 200},
-    "ab": {"variants": stages.AB_DEFAULT, "refs": "fi", "wall_iters": 200},
-    "fp6prof": {"variants": stages.PROF_DEFAULT, "count": 3, "section_set": "full"},
+    "ab": {"variants": "", "refs": "fi", "wall_iters": 200},
+    "fp6prof": {"variants": "", "count": 3, "section_set": "full"},
 }
 
 

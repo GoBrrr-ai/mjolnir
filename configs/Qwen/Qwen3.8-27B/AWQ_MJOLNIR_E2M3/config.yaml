@@ -1,0 +1,82 @@
+# AWQ_MJOLNIR_E2M3 — AWQ_MJOLNIR with a 6-bit e2m3 KV cache: 4 values in 3
+# bytes, 25% fewer KV bytes than fp8 (+33% tokens in the same memory). The
+# mma.sync decode kernel reads the packed rows directly (the LUT dequant to
+# the bf16 mma operands); the per-(layer, KV head, channel) scales fold into
+# the Q pre-launch and the output post-launch, so the kernel's math is
+# untouched. Prefill / mixed steps ride the fallback (MJOLNIR_ATTN_FALLBACK,
+# see the .env sidecar): the pages a step touches expand to e4m3 in a
+# scratch cache (kvfp6.expand_pages_to_fp8, lossless with these scales).
+# The scales come from `mjolnir calibrate --config AWQ_MJOLNIR_E2M3` —
+# kv_scales/e2m3-awq.json, pointed at by the .env sidecar (the model-level
+# kv_scales/e2m3.json belongs to the NVFP4 model's calibration).
+model: twolven/Qwen3.8-27B-abliterated-AWQ-MTP
+served-model-name: Qwen/Qwen3.8-27B
+
+quantization: compressed-tensors
+dtype: bfloat16
+load-format: safetensors
+
+performance-mode: throughput
+optimization-level: 3
+compilation-config:
+  cudagraph_num_of_warmups: 5
+  custom_ops:
+    - +rotary_embedding
+  pass_config:
+    eliminate_noops: true
+    fuse_allreduce_rms: false
+
+disable-custom-all-reduce: true
+trust-remote-code: true
+enforce-eager: false
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention / linear backends ─────────────────────────────────────────────
+# The Mjolnir decode kernel (sm_87: the mma.sync) serves decode steps;
+# `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs. Kernel
+# knobs: MJOLNIR_ATTN_* env vars (see src/mjolnir/README.md). The fp6 cache
+# needs calibrated scales: MJOLNIR_ATTN_KV_SCALES in the .env sidecar.
+attention-backend: MJOLNIR
+linear-backend: auto
+
+# ── KV Cache ─────────────────────────────────────────────────────────────
+kv-cache-dtype: fp6_e2m3
+kv-cache-dtype-skip-layers: sliding_window
+mamba-cache-mode: align
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+# ── Multimodal ─────────────────────────────────────────────────────────────
+language-model-only: true
+mm-encoder-tp-mode: data
+mm-processor-cache-type: shm
+
+# ── Caching & Scheduling ─────────────────────────────────────────────────
+enable-prefix-caching: true
+enable-chunked-prefill: true
+async-scheduling: true
+
+# ── Speculative Decoding — MTP (built-in head), K=3 ─────────────────────
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
+
+# ── Generation defaults (the provided Orin launch pins them server-side) ────
+override-generation-config:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# ── Chat Template ──────────────────────────────────────────────────────────
+default-chat-template-kwargs:
+  reasoning_effort: medium
+  preserve_thinking: true
+  enable_thinking: true
+
+chat-template: /configs/Qwen/Qwen3.8_chat_template.jinja

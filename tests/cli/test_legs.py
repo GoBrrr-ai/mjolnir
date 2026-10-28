@@ -81,27 +81,48 @@ def test_legs_for_stage_defaults_to_the_thor_table():
 
 @pytest.mark.parametrize(
     ("platform", "baseline"),
-    [("spark", "NVFP4"), ("orin", "AWQ_FLASHINFER")],
+    [("spark", "NVFP4")],
 )
 def test_legs_for_stage_research_platforms_measure_their_own_baseline(platform, baseline):
     # research platforms measure baselines only until their kernels land:
     # the official side only — exactly one leg, the platform's own baseline
-    # config (spark's is the thor table's NVFP4 baseline; orin's is its AWQ
-    # serving config — a quant the thor table does not carry)
+    # config (spark's is the thor table's NVFP4 baseline). The orin names its
+    # own serving table instead (it serves the AWQ family), so it is not here.
     for name in legs.SERVING:
         assert legs.legs_for_stage(name, platform) == ((legs.OFFICIAL, baseline),), name
 
 
+def test_legs_for_stage_orin_serves_its_own_family():
+    # the orin's override table: the AWQ family for every stage, with the
+    # native-FlashInfer config as the stock-backend baseline
+    for name in legs.SERVING:
+        table = legs.legs_for_stage(name, "orin")
+        assert table, name
+        assert all(cfg.startswith("AWQ_") for _, cfg in table), (name, table)
+    spec = legs.legs_for_stage("verify.spec", "orin")
+    assert spec[0] == (legs.OFFICIAL, "AWQ_FLASHINFER")
+    assert (legs.MJOLNIR, "AWQ_MJOLNIR") in spec
+    assert (legs.MJOLNIR, "AWQ_MJOLNIR_E2M3") in spec
+    assert (legs.MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K") in spec
+
+
 def test_available_serving_legs_resolve_the_orin_baseline_from_the_repo_configs():
-    # the real tree: AWQ_FLASHINFER exists on orin (its overlay), so the
-    # platform's baseline survives the existence filter for the default model
-    assert legs.available_serving_legs("bench.ab", "orin", "Qwen/Qwen3.8-27B") == ((legs.OFFICIAL, "AWQ_FLASHINFER"),)
+    # the real tree: the orin table's configs exist for the model (their
+    # overlays), so they survive the existence filter; a thor-only config
+    # (NVFP4_*) would be filtered out on orin
+    got = legs.available_serving_legs("bench.ab", "orin", "Qwen/Qwen3.8-27B")
+    assert got == legs.legs_for_stage("bench.ab", "orin")
+    assert all("NVFP4" not in cfg for _, cfg in got)
 
 
-def test_bench_and_verify_legs_render_the_orin_baseline():
-    # orin's default image is the upstream one: the official leg renders on it
-    assert legs.bench_legs("bench.ab", "orin") == f"{STOCK_IMAGE}:AWQ_FLASHINFER"
-    assert legs.verify_legs("verify.spec", "orin") == "official:AWQ_FLASHINFER"
+def test_bench_and_verify_legs_render_the_orin_family():
+    # the official leg pins the platform's stock image; the Mjolnir legs are bare
+    assert legs.bench_legs("bench.ab", "orin") == (
+        f"{STOCK_IMAGE}:AWQ_FLASHINFER,AWQ_MJOLNIR_E2M3,AWQ_MJOLNIR_E2M3_VT64K"
+    )
+    assert legs.verify_legs("verify.spec", "orin") == (
+        "official:AWQ_FLASHINFER,mjolnir:AWQ_MJOLNIR,mjolnir:AWQ_MJOLNIR_E2M3,mjolnir:AWQ_MJOLNIR_E2M3_VT64K"
+    )
 
 
 def _fake_configs(root: Path, entries: dict[str, tuple[str, ...]]) -> Path:
@@ -160,7 +181,7 @@ def test_explicit_backends_flag_beats_the_platform_body_resolution(tmp_path):
         ("verify.sweep", "thor", "fi,fa4,mjolnir-fp8,mjolnir"),
         ("verify.hndsweep", "thor", "fi,fi-hnd,mjolnir-fp8"),
         ("verify.sweep", "spark", "fi,fa2"),
-        ("verify.hndsweep", "orin", "fi,fa2"),
+        ("verify.hndsweep", "orin", "fi,fi-hnd,mjolnir-fp8"),
     ],
 )
 def test_kernel_legs_per_platform(stage, platform, want):
@@ -326,4 +347,4 @@ def test_verify_explicit_default_string_ncu_legs_run_on_spark(tmp_path):
     }
     out = CliRunner().invoke(cli.app, ["verify", "sweep", "--dry-run", "--legs", legs.KERNEL["verify.sweep"]], env=env)
     assert out.exit_code == 0, out.output
-    assert "mjolnir.t5_decode" in out.output  # the mjolnir legs are profiled as asked, not dropped
+    assert "mjolnir.arch.thor.harness" in out.output  # the mjolnir legs are profiled as asked, not dropped

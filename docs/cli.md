@@ -12,7 +12,7 @@
 | [`mjolnir history`](#mjolnir-history) | Bench results at a glance: decode throughput (t/s) per recent run. |
 | [`mjolnir version`](#mjolnir-version) | Print the version. |
 | [`mjolnir serve`](#mjolnir-serve) | Drive the vLLM container (the patched image). |
-| [`mjolnir serve up`](#mjolnir-serve-up) | Start the vLLM server (custom image, config from --model/--config). |
+| [`mjolnir serve up`](#mjolnir-serve-up) | Start the vLLM server (custom image, config from --model/--config). Anything after the flags is forwarded to `vllm serve` (e.g. `-- --enforce-eager`). |
 | [`mjolnir serve down`](#mjolnir-serve-down) | Stop the vLLM container. |
 | [`mjolnir serve status`](#mjolnir-serve-status) | Container state + /health + current queue load. |
 | [`mjolnir serve logs`](#mjolnir-serve-logs) | Tail the vLLM container logs. |
@@ -29,7 +29,7 @@
 | [`mjolnir image use`](#mjolnir-image-use) | Remember the active vLLM image (bare `mjolnir image` or no args here = arrow-key picker over local docker images). |
 | [`mjolnir image list`](#mjolnir-image-list) | List local docker images (● = the active one). |
 | [`mjolnir image build`](#mjolnir-image-build) | Build the Mjolnir vLLM image: the patch stack + the mjolnir-kernel package from this checkout (repo-root build context). |
-| [`mjolnir image gates`](#mjolnir-image-gates) | Run the sm_110 gate-probe canaries against the image (fresh container, no server needed). |
+| [`mjolnir image gates`](#mjolnir-image-gates) | Run the gate-probe canaries for this board's arch against the image (fresh containers, no server needed; GPU probes self-skip off-arch). |
 | [`mjolnir platform`](#mjolnir-platform) | The active platform (thor supported; spark / orin research): list, show. |
 | [`mjolnir platform list`](#mjolnir-platform-list) | Every shipped platform: architecture, images, maturity. |
 | [`mjolnir platform show`](#mjolnir-platform-show) | The active platform (flag &gt; env `MJOLNIR_PLATFORM` &gt; detection), its detection confidence and one provenance line per source that probed. |
@@ -42,7 +42,7 @@
 | [`mjolnir verify ring`](#mjolnir-verify-ring) | KV ring depth (TMA → MMA stages) at every L. |
 | [`mjolnir verify prefetch`](#mjolnir-verify-prefetch) | TMA L2-prefetch distance sweep. |
 | [`mjolnir verify pdl`](#mjolnir-verify-pdl) | Programmatic dependent launch on/off (wall clock). |
-| [`mjolnir verify ab`](#mjolnir-verify-ab) | A/B any harness flag sets (ncu + wall clock). Default: evict-first x PDL. |
+| [`mjolnir verify ab`](#mjolnir-verify-ab) | A/B any harness flag sets (ncu + wall clock). Default: the platform's own A/B — the Thor launch knobs (evict-first × PDL) / the Orin KV formats. |
 | [`mjolnir verify fp6prof`](#mjolnir-verify-fp6prof) | Full ncu profiles per KV format (bytes vs requests vs time, warp stalls). |
 | [`mjolnir verify timing`](#mjolnir-verify-timing) | Harness-timed medians, 1 vs 2 CTAs/SM, fp8 and bf16 Q (no ncu). |
 | [`mjolnir verify profile`](#mjolnir-verify-profile) | Profile a decode workload per config (torch profiler): graph replays, eager kernels, GPU idle, top kernels. |
@@ -73,7 +73,7 @@
 | [`mjolnir perses status`](#mjolnir-perses-status) | Container state + API health + the vLLM scrape target + the data dir. |
 | [`mjolnir perses logs`](#mjolnir-perses-logs) | Tail a stack service's logs (default: perses). |
 | [`mjolnir hw`](#mjolnir-hw) | Thor host pre-configuration — one-time, idempotent provisioning (sudo where needed): headless boot target, apt upgrade, Docker + NVIDIA default runtime, pip, jtop, swap, fan profiles (recommended + max installed, default selected), service cleanup, locked clocks, MAXN power mode. Run 'hw setup' before serving or benchmarking. |
-| [`mjolnir hw setup`](#mjolnir-hw-setup) | Pre-configure the Thor host (port of the ~/thor HW setup script). |
+| [`mjolnir hw setup`](#mjolnir-hw-setup) | Pre-configure the Jetson host (Thor/Orin — port of the ~/thor HW setup script). |
 | [`mjolnir hw status`](#mjolnir-hw-status) | Installed fan profiles and the selected default (read-only, no sudo). |
 
 <a id="mjolnir-gate"></a>
@@ -158,6 +158,7 @@ computed from the committed raw data.
 | `--readme-template` | template override (default: &lt;repo&gt;/README.md.j2) |  |
 | `--readme-out` | output override (default: &lt;repo&gt;/README.md) |  |
 | `--site` | also build the interactive benchmark site (index.html) into this directory |  |
+| `--prune` | git rm the committed verify raws the render never reads (superseded defaults, non-default A/B runs, uncharted stages); the untracked ones are reported, not deleted | off |
 
 
 <a id="mjolnir-history"></a>
@@ -196,6 +197,8 @@ Sub-commands: [`mjolnir serve up`](#mjolnir-serve-up), [`mjolnir serve down`](#m
 ## `mjolnir serve up`
 
 Start the vLLM server (custom image, config from --model/--config).
+Anything after the flags is forwarded to `vllm serve` (e.g.
+`-- --enforce-eager`).
 
 | option | description | default |
 |---|---|---|
@@ -206,6 +209,7 @@ Start the vLLM server (custom image, config from --model/--config).
 | `--wait` / `--no-wait` | wait for /health before returning | --wait |
 | `--wait-timeout` |  | `1800.0` |
 | `--dry-run` | print what would run, run nothing | off |
+| `--env` | extra container env KEY=VALUE (repeatable) |  |
 
 
 <a id="mjolnir-serve-down"></a>
@@ -309,6 +313,7 @@ re-render at the end.
 | `--model` | the model (`vendor/Model`; default: the active one, `mjolnir model`) |  |
 | `--image` | image for bare-config legs (default: $MJOLNIR_IMAGE / built-in default) |  |
 | `--port` | the server port (default: the active one) |  |
+| `--dry-run` | print the resolved legs, run nothing | off |
 
 
 <a id="mjolnir-bench-accuracy"></a>
@@ -476,12 +481,14 @@ never the remembered active image — that may be an older build.
 
 ## `mjolnir image gates`
 
-Run the sm_110 gate-probe canaries against the image (fresh container,
-no server needed).
+Run the gate-probe canaries for this board's arch against the image
+(fresh containers, no server needed; GPU probes self-skip off-arch).
 
 | option | description | default |
 |---|---|---|
 | `--image` | the vLLM image (default: the active one, `mjolnir image`) |  |
+| `--arch` | Board family (thor\|orin). Defaults to the detected one. |  |
+| `--task` | Run one named canary instead of the arch's legs. |  |
 | `--dry-run` | print what would run, run nothing | off |
 
 
@@ -589,7 +596,7 @@ KV layouts x formats: fp8 / fp6 (e2m3, e3m2) / fp4 (e2m1) / nvfp4 on NHD / inter
 
 | option | description | default |
 |---|---|---|
-| `--variants` | name:flags\|name:flags | `fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-interleaved:--kv_format fp8 --kv_layout interleaved|fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd` |
+| `--variants` | name:flags\|name:flags (default: the platform's set) | `` |
 | `--refs` | baseline legs | `fi,fi-hnd` |
 | `--wall-iters` | harness wall-clock iterations (0 = skip) | `200` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
@@ -610,7 +617,7 @@ Accuracy per KV format: relative L2 error vs attention over unquantized KV.
 
 | option | description | default |
 |---|---|---|
-| `--formats` |  | `fp8 e2m3 e3m2 e2m1 nvfp4` |
+| `--formats` | default: the platform's set | `` |
 | `--batches` |  | `2` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
 | `--ls` | L values (default: 128 4096 8192 16384 32768 65536 131072 262144) |  |
@@ -686,11 +693,12 @@ Programmatic dependent launch on/off (wall clock).
 
 ## `mjolnir verify ab`
 
-A/B any harness flag sets (ncu + wall clock). Default: evict-first x PDL.
+A/B any harness flag sets (ncu + wall clock). Default: the platform's
+own A/B — the Thor launch knobs (evict-first × PDL) / the Orin KV formats.
 
 | option | description | default |
 |---|---|---|
-| `--variants` | name:flags\|name:flags | `base:--kv_evict_first 0|evict:--kv_evict_first 1|pdl:--kv_evict_first 0 --pdl|both:--kv_evict_first 1 --pdl` |
+| `--variants` | name:flags\|name:flags (default: the platform's set) | `` |
 | `--refs` |  | `fi` |
 | `--wall-iters` |  | `200` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
@@ -711,7 +719,7 @@ Full ncu profiles per KV format (bytes vs requests vs time, warp stalls).
 
 | option | description | default |
 |---|---|---|
-| `--variants` |  | `fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd` |
+| `--variants` | name:flags\|name:flags (default: the platform's set) | `` |
 | `--count` | profiled launches per point | `3` |
 | `--set` |  | `full` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
@@ -947,8 +955,9 @@ Launch the loop: an OpenCode session with the `autoresearch` agent.
 | option | description | default |
 |---|---|---|
 | `--tag` | start a new run first (init &lt;tag&gt;) |  |
+| `--base` | branch to start from (default: main; the Orin's kernel lives on feat/orin) |  |
 | `--model` | OpenCode model (provider/model) for the orchestrator |  |
-| `--prompt` |  | `Read research/program.md and run the loop: setup is done when the ledger has a baseline row. Never stop to ask; record every experiment with `mjolnir autoresearch evaluate`.` |
+| `--prompt` | the orchestrator's brief (default: read this platform's program and run the loop) |  |
 
 
 <a id="mjolnir-autoresearch-export"></a>
@@ -1117,9 +1126,9 @@ Sub-commands: [`mjolnir hw setup`](#mjolnir-hw-setup), [`mjolnir hw status`](#mj
 
 ## `mjolnir hw setup`
 
-Pre-configure the Thor host (port of the ~/thor HW setup script).
+Pre-configure the Jetson host (Thor/Orin — port of the ~/thor HW setup script).
 
-Runs `scripts/hw/setup-thor.sh`: headless boot target, apt upgrade,
+Runs `scripts/hw/setup-jetson.sh`: headless boot target, apt upgrade,
 Docker + NVIDIA default runtime, pip, jtop, 32 GB swap (zRAM off),
 the fan profiles (`recommended` + `max` installed per-profile
 gated, with the .bck rollback backup; default selected —
@@ -1127,14 +1136,17 @@ gated, with the .bck rollback backup; default selected —
 MAXN power mode. Idempotent — safe to re-run; the script asks for
 sudo.
 
+On Orin the fan-profile step is skipped automatically (the profiles
+are Thor-tuned; Orin gets dedicated ones later).
+
 | option | description | default |
 |---|---|---|
 | `--yes` / `-y` | don't prompt to continue | off |
 | `--upgrade` / `--no-upgrade` | apt update + full-upgrade (default on — the original script's NVIDIA-carrier path) | --upgrade |
 | `--keep-gui` | keep the graphical boot target (default: headless multi-user) | off |
 | `--fan-profile` | recommended (default) \| max \| cool \| quiet — recommended/max are installed by this step if missing | `recommended` |
-| `--swap-size` | swap file size in GB (default 32 — the 128 GB Thor SoM) | `32` |
-| `--skip` | comma-separated steps to skip: gui,upgrade,pip,docker,jtop,memory,fan,host,clocks,power | `` |
+| `--swap-size` | swap file size in GB (default 32) | `32` |
+| `--skip` | comma-separated steps to skip: gui,upgrade,pip,docker,jtop,nsight,memory,fan,host,clocks,power | `` |
 | `--reboot` | reboot at the end if a step required one (non-interactive) | off |
 | `--dry-run` | print the plan, change nothing | off |
 

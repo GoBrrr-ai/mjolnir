@@ -62,9 +62,16 @@ def calibrate(
             env.append("PYTHONPATH=/opt/mjolnir-src")
     except FileNotFoundError:
         pass
+    # The engine kwargs must match the serve's: the platform overlay
+    # deep-merged over config.yaml (the board's memory/scheduler tuning —
+    # the raw yaml's defaults OOM on a 0.92 utilization). serving_config
+    # writes the merged file and build_run_args mounts it; without an
+    # overlay the plain config passes through.
+    serving = dockerctl.serving_config(s)
+    cfg = serving[1] if serving else f"{dockerctl.config_model_dir(s)}/{s.quant}/config.yaml"
     cmd = (
         f"python3 -m mjolnir.{'draftvocab' if draft_vocab else 'calibrate'} "
-        f"--config {dockerctl.config_model_dir(s)}/{s.quant}/config.yaml --out /out/{target.name} "
+        f"--config {cfg} --out /out/{target.name} "
         f"--download-dir /data/models/huggingface --max-model-len {max_model_len} "
         f"--prompts {prompts} --long {long}"
     )

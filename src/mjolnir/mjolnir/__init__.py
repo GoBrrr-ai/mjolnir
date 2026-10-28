@@ -1,6 +1,6 @@
 """Mjolnir — fp8 paged decode attention for vLLM on Jetson AGX Thor (sm_110).
 
-The kernel (codename **T5**, ``mjolnir.t5_decode``) is a CuTe-DSL tcgen05 +
+The kernel (codename **T5**, ``mjolnir.arch.thor.decode``) is a CuTe-DSL tcgen05 +
 TMEM + TMA decode kernel; ``mjolnir.backend`` wraps it as a vLLM attention
 backend and ``mjolnir.runner`` holds the plan buffers, compile cache and KV
 views.
@@ -60,6 +60,22 @@ def has_native_member() -> bool:
 def register() -> None:
     if _disabled():
         return
+    # vLLM > 0.32.0: the fp6_e2m3 KV dtype registers through the pluggable
+    # dtype API (vLLM #52670) instead of the image patch — a no-op on
+    # 0.32.0 and on a base where the patch already added it.
+    try:
+        from .kvdtype import register as _register_kv_dtype
+
+        _register_kv_dtype()
+    except Exception as e:  # noqa: BLE001 - never break vLLM startup
+        import logging
+
+        logging.getLogger("vllm.mjolnir").warning("Mjolnir fp6 KV dtype not registered: %r", e)
+    if os.environ.get("MJOLNIR_ATTN_DEBUG", "").strip():
+        # The IMA hunt: the engine core is a child process that inherits this
+        # env before its CUDA runtime initializes, so faulting kernels are
+        # named at their launch instead of surfacing on a later sync.
+        os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
     enum, register_backend = _registry()
     if BACKEND_NAME in enum.__members__:
         register_backend(enum[BACKEND_NAME], BACKEND_PATH)

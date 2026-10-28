@@ -4,11 +4,14 @@ After karpathy/autoresearch: an agent edits ONE file, runs a FIXED,
 time-boxed evaluation, keeps the change if the metric improved and resets it
 otherwise — forever, while every experiment lands on a ledger. Here:
 
-* the editable files — the kernel family ``src/mjolnir/mjolnir/t5_*.py`` (the
-  traced decode kernel and its builder, constants, plan and harness);
+* the editable files — the kernel family for this board's platform
+  (``mjolnir arch/thor/*.py``: the traced decode kernel and its builder,
+  constants, plan and harness; ``arch/orin/*.py``: the mma kernel plus its
+  runner, plan, combine and harness — resolved from the active platform);
 * the fixed harness  — ``mjolnir autoresearch evaluate``: the quick
-  correctness subset (``mjolnir verify correctness --quick``) + an ncu sweep
-  of FlashInfer vs Mjolnir (harness default) at every L;
+  correctness subset (``mjolnir verify correctness --quick``) + a sweep
+  of FlashInfer vs Mjolnir at every L (ncu-timed on Thor, events-timed
+  on Orin — the platforms' headline sweep either way);
 * the metric         — per L, FlashInfer time / Mjolnir time, both measured
   in the SAME run (drift on the shared Thor cancels out); the score is their
   geomean over L;
@@ -34,7 +37,8 @@ The loop itself is an OpenCode session (``mjolnir autoresearch run``)
 driving ``.opencode/agent/autoresearch.md`` (the orchestrator; the helpers it delegates to are user-defined OpenCode agents)
 → ``web-researcher`` / ``arxiv-researcher`` (ideas + sources) →
 ``python-engineer`` (the change) → ``debugger`` (crashes, correctness
-failures). The program they follow is ``research/program.md``.
+failures). The program they follow is ``research/program.md`` —
+``research/program-orin.md`` on an Orin (resolved by the active platform).
 """
 
 from __future__ import annotations
@@ -62,12 +66,33 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-KERNEL_DIR = Path("src/mjolnir/mjolnir")
-# the kernel family an experiment may change: the traced decode kernel plus its
-# builder, constants, plan and standalone harness (one idea, five files)
-KERNEL_FILES = tuple(
-    KERNEL_DIR / f for f in ("t5_decode.py", "t5_call.py", "t5_const.py", "t5_plan.py", "t5_harness.py")
-)
+KERNEL_DIR = Path("src/mjolnir/mjolnir/arch/thor")
+ORIN_KERNEL_DIR = Path("src/mjolnir/mjolnir/arch/orin")
+# the kernel family an experiment may change — per family (the loop runs on
+# the board it improves; resolved from the active platform, never a silent
+# default). Thor: the traced decode kernel plus its builder, constants, plan
+# and standalone harness. Orin: the mma kernel plus its runner, plan, combine
+# and standalone harness.
+THOR_FILES = tuple(KERNEL_DIR / f for f in ("decode.py", "call.py", "const.py", "plan.py", "harness.py"))
+ORIN_FILES = tuple(ORIN_KERNEL_DIR / f for f in ("mma.py", "runner.py", "plan.py", "combine.py", "harness.py"))
+# the loop's brief, per platform (what the agent reads; `run` points it there)
+PROGRAM = {"thor": Path("research/program.md"), "orin": Path("research/program-orin.md")}
+
+
+def kernel_files() -> tuple[Path, ...]:
+    """The kernel family this board's loop may change."""
+    from mjolnir_cli.platforms import resolve_platform
+
+    return ORIN_FILES if resolve_platform(None) == "orin" else THOR_FILES
+
+
+def program_file() -> Path:
+    """The program brief for this board's platform."""
+    from mjolnir_cli.platforms import resolve_platform
+
+    return PROGRAM.get(resolve_platform(None), PROGRAM["thor"])
+
+
 LEDGER_DIR = Path("research")
 TSV_COLUMNS = ["id", "ts", "commit", "status", "score", "best_before", "correctness", "agent", "hypothesis", "reason"]
 
@@ -261,10 +286,11 @@ def _init(root: Path, tag: str, base: str, evaluate_baseline: bool, image: str |
     if _git(root, "branch", "--list", branch):
         console.print(f"[red]{branch} already exists — pick a fresh tag (a run never reuses a branch)[/red]")
         return 4
-    if _git(root, "status", "--porcelain", "--", *map(str, KERNEL_FILES)):
+    kfiles = kernel_files()
+    if _git(root, "status", "--porcelain", "--", *map(str, kfiles)):
         console.print(
             "[red]the kernel family has uncommitted changes ("
-            + ", ".join(p.name for p in KERNEL_FILES)
+            + ", ".join(p.name for p in kfiles)
             + ") — commit or stash them first[/red]"
         )
         return 4
@@ -309,7 +335,8 @@ def _evaluate(
     rows = load_ledger(root)
     best = best_kept(rows)
     commit = _git(root, "rev-parse", "--short", "HEAD")
-    dirty = bool(_git(root, "status", "--porcelain", "--", *map(str, KERNEL_FILES)))
+    kfiles = kernel_files()
+    dirty = bool(_git(root, "status", "--porcelain", "--", *map(str, kfiles)))
     if dirty:
         console.print(
             "[yellow]the kernel has uncommitted changes — commit the experiment first "
@@ -536,11 +563,14 @@ def chart():
 @app.command()
 def run(
     tag: str | None = typer.Option(None, "--tag", help="start a new run first (init <tag>)"),
+    base: str = typer.Option(
+        None, "--base", help="branch to start from (default: main; the Orin's kernel lives on feat/orin)"
+    ),
     model: str | None = typer.Option(None, "--model", help="OpenCode model (provider/model) for the orchestrator"),
     prompt: str = typer.Option(
-        "Read research/program.md and run the loop: setup is done when the ledger has a baseline row. "
-        "Never stop to ask; record every experiment with `mjolnir autoresearch evaluate`.",
+        None,
         "--prompt",
+        help="the orchestrator's brief (default: read this platform's program and run the loop)",
     ),
 ):
     """Launch the loop: an OpenCode session with the `autoresearch` agent."""
@@ -548,8 +578,13 @@ def run(
     if shutil.which("opencode") is None:
         console.print("[red]opencode not found — install it: https://opencode.ai (npm i -g opencode-ai)[/red]")
         raise typer.Exit(2)
+    if prompt is None:
+        prompt = (
+            f"Read {program_file()} and run the loop: setup is done when the ledger has a baseline row. "
+            "Never stop to ask; record every experiment with `mjolnir autoresearch evaluate`."
+        )
     if tag:
-        rc = _init(root, tag, "main", True, None)
+        rc = _init(root, tag, base or ("feat/orin" if program_file() == PROGRAM["orin"] else "main"), True, None)
         if rc != 0:
             raise typer.Exit(rc)
     elif not load_ledger(root):

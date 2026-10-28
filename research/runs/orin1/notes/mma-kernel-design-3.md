@@ -1,0 +1,287 @@
+# The MMA kernel design log, part 3 (the device cu + the mma wiring)
+
+Continues `mma-kernel-design-2.md` (part 2 ends after Session 8).
+
+## Session 9 (2026-10-25): the device cu, and the mma actually wired
+
+A source read of vLLM v0.32.0's V2 speculator
+(`v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py`,
+`cudagraph_utils.py`) settles the C bug without a probe:
+
+- **The FULL graphs replay without a metadata rebuild.** `propose()` ->
+  `prefill_cudagraph_manager.run_fullgraph()` for the draft prefill and
+  `decode_cudagraph_manager.run_fullgraph()` for the fused draft steps
+  is a bare `graph.replay()`. The metadata the graph saw was built ONCE,
+  at capture, from `InputBatch.make_dummy` (seq_lens = num_tokens per
+  request: 1 for a draft step, 1+K for the draft prefill). The drafter
+  runner's host-planned `self._cu` therefore held the capture's dummy
+  lengths for every replay: each draft decode step attended ONE key.
+  That is the whole matrix: B (the drafter's ql=1 steps on Mjolnir, its
+  draft prefill on the fallback via MAX_QLEN=1) keeps the prefill's good
+  first draft and loses the rest -> 0.69/round; C also runs the draft
+  prefill (ql=4) on the drafter's stale runner -> 0.0.
+- **Eager is no cure either.** With an in-place updater (the fused path,
+  our `update_draft_decode_metadata` is a no-op for T5 steps) the steps
+  after the first reuse step 1's cu -- one key short per step.
+- **The NaN in `call_mtp_ql1`** (out = nan, opart_sum = 0): kv_len = 0
+  in every split -> lse = -inf everywhere -> the combine computed
+  exp2(-inf - -inf) = NaN. The first-3-calls capture sees the startup
+  dummy/profile steps, where seq_len 0 is legitimate (and a CUDA-graph
+  padding request is seq_len 0 in every batch). The combine floors L at
+  -FLT_MAX now: an all-empty row is 0, as documented.
+
+The fix (runner): `plan()` stages nothing; `run()` writes
+`cu[1:b+1] = cumsum(seq_lens[:b])` on the device right before the
+launch, so the cumsum is captured with the kernel and every replay,
+fused step and rewind reads the live lengths. `margin` and the UB are
+harmless again, so the backend's `margin=0` / `.cpu()` sync were
+reverted to main's: Thor's fused-draft plan needs the margin, and the
+per-build sync cost both families the async scheduling.
+
+The wiring audit also found:
+
+- **The backend never selected the mma.** `GEMVDecodeRunner(impl=)`
+  defaults to `gemv` and nothing passed `impl` — every serve so far ran
+  the GEMV (Session 6e's "the mma decode kernels serving" was the GEMV).
+  `arch/orin/__init__.py` now picks `mma` for fp8 KV / hd256 / q_len <= 8
+  (`MJOLNIR_ATTN_ORIN_IMPL=gemv` opts out) and forces its bf16 Q (the
+  mma asserts bf16; the backend's default is fp8 Q).
+- **ns_cap=16 came from the backend's `MJOLNIR_ATTN_MAX_SPLITS` default**,
+  which the runner took as the exact capacity. It is a cap now (the
+  README's "max KV chunks per sequence"): the mma's 8 on AGX Orin.
+- **The mma ignored `causal=False`** (the DSpark/DFlash block): the
+  mask now folds `self.causal` at trace time (`_key_limit`).
+- The mma's env probes (MJOLNIR_MMA16/REGCAP/REGPATH) are in the compile
+  key, so the disk cache cannot serve one probe's binary to another.
+
+Tests: `tests/kernel/test_orin_runner.py` (run by `verify vllm` on
+Orin): live seq_lens vs the plan, graph capture on dummy lengths then
+replay with the real ones + an in-place advance, padding rows 0 not NaN,
+the q_len-4 verify, the non-causal block, the Runner's selection. Not
+yet run on the board -- the A/B/C matrix is the gate (Session 8's plan).
+
+## Session 9b (2026-10-25, the board): the kernels ESCAPED every graph capture
+
+The first on-board `verify vllm`: 5/6 -- the graph-replay test failed
+with `mma: replay: rel_err 20.69`. The probe bisect
+(/tmp/opencode/{replay,eager,bake,rows,varlen,descale,ladder,ps64}_probe.py):
+
+1. **The captured CUMSUM re-ran at replay (cu=[0,2500,3016] -- live) but
+   the KERNEL DID NOT** (`out == warm-up output: True`; after
+   `out.zero_()` + a manual-cu replay the out stayed 0). The launch was
+   never in the graph.
+2. **Root cause: the TVM-FFI env-stream marker.** `_compile_args` ended
+   with `make_fake_stream(use_tvm_ffi_env_stream=True)` -- per the DSL
+   docs that SKIPS the stream param from the signature and reads the
+   stream "through the environment stream obtained from caller context".
+   Nobody set that env, so every launch landed on the DEFAULT stream:
+   fine eagerly (vLLM's forward rides the default stream -- config A's
+   short-context probes never noticed), fatal under capture (the launch
+   escapes; the replay produces the capture-time result).
+3. **The fix (committed): the Thor convention.** `_compile_args` traces a
+   REAL `cuda.CUstream` (`_stream()` = torch's current stream) so the
+   signature keeps the stream as an ordinary 16th launch arg, and
+   `run()` appends `_stream()` per call -- the capture stream during
+   `torch.cuda.graph`, the live stream eagerly. The combine gets the
+   same treatment (a new trailing `stream` param + the arg). Probe
+   verdict: the replay now re-runs the kernel (`out != warm`), both
+   impls.
+4. **The variant gains `+s1`**: the pre-s1 disk binaries carry the old
+   15-arg signature -- the marker orphans them. `run()` also asserts
+   the pool's page size against the runner's (the compile bakes every
+   tensor dim; a mismatched pool reads garbage strides -- the probe
+   hour's lesson: `_runner()` hardwired the test module's PS=16 while
+   the probes fed ps=64 pools, and EVERY "ps=64 failure" was that
+   stale-binary artifact, not a kernel bug).
+5. ⚠️ **`ref_decode` full-batch looks wrong for b>=2** (the same kernel
+   output matches the per-row ref and mismatches the full-batch one at
+   ps=16/b=2). The tests only use it via per-row slices -- park, but
+   check before any full-batch ref use.
+
+The graph-replay test's own capture also writes the cu via a captured
+`torch.cumsum` -- that part always worked (torch ops ride the capture
+stream); only the FFI launches needed the fix.
+
+## Session 10 (2026-10-26): THE ROOT CAUSE -- the kernels hardcoded a contiguous KV pool
+
+The A/B/C subtraction + the C-gemv cross-check pinned the failure to the
+ql=4 T5 path, but the decisive instrument was the **stride probe** (a
+BHN2D-shaped pool sliced the way the serving's `_kv_views` does):
+
+- contiguous pool (every offline probe + the whole test suite): rel 0.0019 OK
+- the serving's exact views (`pool[..., :D].transpose(1, 2)`, strides
+  (131072, 512, 32768, 1)): **rel 1.41 FAIL at every ql** -- freshly
+  compiled for those strides, both kernels.
+
+Mechanism: both kernels address KV rows with FLAT pointer arithmetic --
+`(pidx*PS + off) * num_head_kv + kv_head` (`* D` in the mma) -- valid only
+for a fully contiguous `(np, ps, h_k, d)` K tensor. vLLM 0.32 interleaves
+K|V in the last dim (the logical [L,B,H,N,C], C=2D) under EVERY layout
+name, so the flat math never holds in real serving; the docstring's "the
+kernel takes strides as runtime arguments" was aspirational. Every offline
+probe passed because the harness feeds the same contiguous tensor as K and
+V. The FFI *does* carry + check strides (a mismatch fails loudly:
+"Mismatched mK.strides[0]") -- consistent compile/launch strides in
+serving, so nothing errored; the kernel just read the wrong addresses.
+
+**The fix (39117cf, patch 0007)**: the KV gathers go through
+`cute.crd2idx((page, row_in_page, kv_head, 0), mK.layout)` -- the tensor's
+own layout -- and `_cute` marks the KV tensors `mark_layout_dynamic()` so
+the strides stay runtime values (the dummy-compiled capture path stays
+valid for any pool). One site in the mma's shared `g2s_stage`, four in the
+gemv; `num_head_kv` (gemv) went dead and is gone. Variant `+s1` -> `+s2`
+orphans the flat-math binaries. Post-fix stride probe: 12/12 OK (both
+impls x contig/strided x ql 1/2/4); tests/kernel/test_orin_runner 6/6.
+
+Consequences for the campaign bookkeeping: config A (the pin) never
+exercised ANY Mjolnir kernel (the `_is_draft` group-mismark force-fallbacked
+the 16 target layers with the mtp one), B exercised the ql=1 T5 path --
+which was CORRECT because... the draft steps' strided reads were garbage
+too -- B's 2.10 needs re-explanation (see session 10b). The ns=16
+over-split theory died: the offline output is identical at ns=0/8/16.
+
+Also confirmed benign-but-real: the kernel disk cache has never delivered
+a binary on this board ("Function prefix ..._args_spec not found" on every
+load -> a ~16s recompile per process; `_export`/`_disk_load` symbol
+desync). Filed for later; the serving is correct without it.
+
+## Session 10b (2026-10-26): the matrix flips clean; the pin drops
+
+Post-fix graphs-on matrix (the same 17*23 probe, temp 0, max_tokens 60):
+
+| leg | config | text | accepted |
+| --- | --- | --- | --- |
+| A | the pin (the group on FI) | correct | 42.0 |
+| A-gemv | the pin + the gemv kernel | correct | 42.0 |
+| B | MAX_QLEN=1 | correct | 42.0 |
+| C | everything Mjolnir | correct | 42.0 |
+
+All four byte-identical: the Mjolnir path reproduces the FlashInfer token
+stream exactly under greedy decoding. 0006 (the pin removal) applied on
+top. The pre-fix B contradiction (the ql=1 draft steps reading the same
+strided pool the stride probe convicts) stays parked -- the pre-fix
+binaries are orphaned and the post-fix correctness makes it academic; the
+leading theory is that B's fused-draft metadata capture rode the fallback
+gate, which the dump cannot show (the FB branch never logged).
+
+Campaign state: kernel exonerated -> root cause (the contiguous-KV
+hardcode) -> fixed -> matrix clean -> pin dropped. Next: the spec sweep
+(official-AWQ_FLASHINFER vs mjolnir-AWQ_MJOLNIR, k=1..7), then the e2e
+benches (bench e2e / bench accuracy -- now unlocked per the directive).
+
+## Session 10c (2026-10-26): the kernel disk cache never worked -- and now it does
+
+The "cache load failed -> compiling, cache off" on EVERY process start was
+a store/load FORMAT MISMATCH:
+
+- `cute.compile(..., --enable-tvm-ffi)` returns a TVMFFIJitCompiledFunction;
+  its `export_to_c(path, function_name=...)` (tvm_ffi_provider.py) writes
+  an object carrying `__tvm_ffi_<symbol>` + `__cute_internal_<symbol>_*`
+  and NO `_args_spec`.
+- `_disk_load` called `cute.runtime.load_module(path)` WITHOUT
+  `enable_tvm_ffi=True`, so `ExternalBinaryModule.__getattr__` took the
+  executor-style path, which does `engine.lookup("<prefix>_args_spec")` --
+  a symbol the TVM-FFI export never writes. Every load failed
+  ("Failed to lookup function '..._args_spec'"), every process recompiled
+  (~16s) and re-stored an object nothing could ever load.
+
+Confirmed on the board's stored object directly (no GPU): the .o has
+`__tvm_ffi_mjolnir_orin_6976b2c...` and zero `_args_spec` strings;
+`load_module(..., enable_tvm_ffi=True)` + `getattr(module, prefix)`
+returns the `tvm_ffi.core Function` cleanly. Fix: 6414d69 (patch 0008) --
+one flag. The first post-fix serve should log loads from /data/cache and
+skip the ~16s compile.
+
+## Session 10d (2026-10-26): the spec sweep, take one -- the baseline is in
+
+Two staging traps cost a run: (1) the stage's default --image is "the
+active one", which was still the stock vLLM after the rebuild -- the
+mjolnir legs booted the OFFICIAL image (no working plugin env) and died at
+startup; `mjolnir image use` now points at narandill/mjolnir-vllm:v0.32.0.
+(2) The wait-healthy loop does not notice a container that exited -- a
+dead leg burns its full 1800s timeout (7 x 30 min on take one); a
+container-status check inside that loop is the right fix, filed for later.
+
+The prefix-match-unit fix is validated: all 7 official-AWQ_FLASHINFER
+points served and measured (the crash before was EngineCore refusing
+816-token group blocks under a 32-token unit). The FI baseline at c=1:
+k=3 is the sweet spot (19.0 t/s/req, per-position 0.86/0.70/0.55); the
+acceptance decays smoothly to k=7 (0.84/0.65/0.50/0.39/0.31/0.24/0.18).
+Re-running the full sweep (both legs) on the rebuilt image -- the run also
+validates 0008's disk-cache loads on the board (the banner's loaded count).
+
+## Session 11 (2026-10-26): fp6 to the serving config -- three staging fixes
+
+**The configs.** `AWQ_MJOLNIR_E2M3` (fp6_e2m3 + the .env sidecar pointing
+`MJOLNIR_ATTN_KV_SCALES` at `kv_scales/e2m3-awq.json` -- the AWQ checkpoint's
+own calibration; the model-level `e2m3.json` belongs to the NVFP4 model) and
+the `AWQ_MJOLNIR_E2M3_VT64K` sibling (VocabTrim on top, so the fp6-only leg
+stays clean for the A/B). Verified by serve --dry-run: the sidecar's -e is
+appended AFTER the auto-wiring's -e and docker's last -e wins, so the AWQ
+scales override the format-based default. The .env files are hand-written
+(the tooling guard blocks agent writes to .env paths).
+
+**The calibrate path ignored the platform overlay.** It read the raw
+config.yaml (no gpu-memory-utilization) -> the engine wanted
+0.92 x 61.35 GiB with 54 free -> OOM at init_device. Fixed at the root:
+the calibrate command now builds `dockerctl.serving_config(s)` (the merged
+serve-config, mounted by build_run_args) and passes that path -- the
+overlay's 0.72 / max-num-seqs / prefix-match-unit reach the engine
+(c7711e2). Validated: boots at 0.72 -> 44.17 GiB. Staging note: the first
+0.72 run died mid-generation at 17% once, silently -- the `| tail` pipe ate
+the traceback; long runs go to the background unpiped.
+
+**The fp6 gate rejected the Orin's fallback.** First draft-vocab run died
+at the selector: MJOLNIR + fp6_e2m3 -> "kv_cache_dtype not supported".
+`MjolnirAttentionBackend.supports_kv_cache_dtype` allowed fp6 only with
+`_FALLBACK == "FLASH_ATTN"` (the Thor's FA4). On the Orin the FA4 probe
+fails (no sm_87 kernels) -> the fallback resolves to FLASHINFER -> fp6
+rejected. The condition's intent is "the fallback can read the e4m3
+scratch the fp6 pages expand to" -- FlashInfer does that on sm_87 (config
+C). Widened to `_fallback_serves_fp8_scratch()` = FLASH_ATTN | FLASHINFER
+(9caa6b7); the fp8-Q condition at the builder stays FA4-only (that one IS
+about FA4's quantized-query input).
+
+**draftvocab rides fp8.** The draftvocab path kept the config's fp6 dtype,
+i.e. a token-counting run on the not-yet-proven fp6 serving path. Forced
+`kv_cache_dtype="fp8"` like calibrate.py -- the ranking is
+quant-insensitive (9caa6b7). The fp6 path gets its smoke from the serve,
+not from a calibration.
+
+**The e2m3-awq calibration** (54 prompts / 48,751 tokens / 260 s, 17
+layers = 16 full-attention + the MTP layer): K amax 12-23 with median
+channels 3.5-6; V amax grows with depth, 7.5 at layer 3 to 132 at layer 63
+-- the deep-V outliers are exactly why M2's per-channel scales exist.
+
+**The serve needs an image rebuild**: serve runs the image's package, and
+the built v0.32.0 predates the fp6 M1/M2 kernel commits and this gate fix.
+Rebuilt in place (same tag; the layer cache keeps it to the changed
+COPY/install layers). The calibrate/draftvocab containers did not need it
+(they mount the checkout over /opt/mjolnir-src).
+
+## Session 12 (2026-10-26): the GEMV retires; the fp6 gate's third bug
+
+**The routing surprise.** select_impl still routed fp6 -> the GEMV (the
+M1/M2 commits gave the mma the fp6 capability but the flip never
+happened) -- the fp6 smoke would have exercised the GEMV with the
+per-channel scales, a path nothing probed. Per the directive the GEMV
+retires entirely (gemv-archive keeps it): the mma is the family's only
+kernel, select_impl is gone, the Runner validates (hd256 / fp8+e2m3 /
+M<=8, MJOLNIR_ATTN_ORIN_IMPL=gemv raises), DescaleTensors moved to
+mma.py (the DSL-tracer Optional form kept -- the UP045 ignore moved
+with it). bf16 KV needs no matrix change: a non-quantized KV routes
+the whole layer to the fallback; the GEMV was never reached.
+
+**The fp6 serve crash (the third gate bug).** The FA4-fallback probe
+short-circuits True for non-fp8 configs ("nothing to gate"), so an fp6
+config never flipped the fallback to FlashInfer on sm_87 -- _Base bound
+to FA4, whose supports_kv_cache_dtype('fp8') is False off sm90/sm100,
+and the fp6 gate (which asks the fallback to read the e4m3 scratch)
+rejected. Fix: an fp6 config probes the fallback with fp8 (the
+scratch's dtype). Found by the crashed serve (Exited 1, the same
+selector ValueError as the draftvocab run).
+
+**Test debt caught by the sweep**: the orin dry-run test still expected
+prefix-match-unit 32 (the overlay fix 9996161 landed 16 and missed it)
+-- pre-existing, fixed in passing; the stale-container tests fail on
+the clean tree too (filed separately, 10/10c's wait-healthy item).

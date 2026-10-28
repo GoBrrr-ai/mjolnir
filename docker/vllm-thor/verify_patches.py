@@ -292,6 +292,91 @@ FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
             "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
         ),
     ],
+    "fp6 prefill direct-read on Ampere (Mjolnir packed e2m3 KV, no scratchpad)": [
+        # The fp6 element type + the vec_cast delegation to the e4m3
+        # conversion (vec_dtypes.cuh) — the type everything else keys on.
+        (
+            "data/include/flashinfer/vec_dtypes.cuh",
+            "struct alignas(1) mjolnir_fp6_e2m3_sv",
+        ),
+        # The fp6 slot loader: three 4-byte cp.asyncs (the slot's gmem source
+        # is only 4B-aligned at a 12-byte stride; a cp-size=16 copy from it is
+        # undefined on sm_87 -- wrong partial lengths, skipped zero-fill).
+        (
+            "data/include/flashinfer/cp_async.cuh",
+            "pred_load_fp6_12b",
+        ),
+        # Rename guard: the old 16B-cp.async loader must be gone.
+        (
+            "data/include/flashinfer/cp_async.cuh",
+            "!pred_load_128b_src",
+        ),
+        # The "used, not just defined" loader call site in the smem wrapper.
+        (
+            "data/include/flashinfer/permuted_smem.cuh",
+            "Three 4-byte cp.asyncs are always aligned.",
+        ),
+        # The "used, not just defined" sentinel: the expand call site wired
+        # into the K compute chain (a partial apply that lands the helper
+        # without the call would compile and silently no-op).
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>",
+        ),
+        # The V-side call site.
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>",
+        ),
+        # The paged/ragged kernels' K-side branch (the expand used to exist
+        # only in the single-request kernel — a partial apply that lands the
+        # single-kernel call but not the batched ones would compile and
+        # silently read packed bytes as fp8).
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "stock 1-byte per-fragment path reads them.",
+        ),
+        # The paged/ragged kernels' V-side branch.
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "expand the packed V tile in place before compute_sfm_v reads it.",
+        ),
+        # use_kv_repack must exclude fp6: the repack path would otherwise
+        # hijack CTA_TILE_Q>16 fp6 tiles and interpret packed bytes as fp8.
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "at any CTA_TILE_Q -- never repack.",
+        ),
+        # The gmem byte-density fix: a slot holds 16 codes in 12 bytes, so
+        # the per-thread column offset scales by 3/4 (all three sites).
+        (
+            "data/include/flashinfer/attention/prefill.cuh",
+            "3/4 of the fp8",
+        ),
+        # The scale params threading through the JIT signature.
+        (
+            "jit/attention/modules.py",
+            '"maybe_k_fp6_scales"',
+        ),
+        # The dtype-string pass-through in canonicalize_torch_dtype (no
+        # torch dtype exists for 6-bit float; the string keys the map).
+        (
+            "utils.py",
+            'if dtype == "mjolnir_fp6_e2m3":',
+        ),
+        # The NVFP4-heuristic exemption in the paged prefill run: the
+        # packed-fp6 cache is uint8 too, without scale factors.
+        (
+            "prefill.py",
+            'and self._cached_kv_data_type.startswith("mjolnir_fp6")',
+        ),
+        # The output-width heuristic keys the kernel's head_dim_vo: fp6
+        # packs 8 values per 6 bytes (4/3 of the packed width).
+        (
+            "prefill.py",
+            "# MJOLNIR_FP6_KV: 8 fp6 values per 6 packed bytes.",
+        ),
+    ],
 }
 
 

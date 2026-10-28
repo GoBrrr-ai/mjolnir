@@ -88,6 +88,17 @@ CASE_STUDY_CHAPTERS: tuple[str, ...] = (
     "kv-cache-size",
 )
 STAGE_CHAPTERS = CASE_STUDY_CHAPTERS
+
+
+def chapters_for(platform: str) -> tuple[str, ...]:
+    """The chapters a platform's kernel tree can carry: the ncu-profiled
+    stages drop on platforms without Nsight Compute (there they are N/A, not
+    pending -- the events-timed stages carry the headline instead)."""
+    if REGISTRY[platform].ncu:
+        return CASE_STUDY_CHAPTERS
+    return tuple(c for c in CASE_STUDY_CHAPTERS if not STAGES[c].requires_ncu)
+
+
 # verify stages that never carry a case-study chapter
 _UNCHARTED = ("timing", "profile", "vllm")
 
@@ -380,12 +391,24 @@ class Platform:
     def outputs(self, root: Path, layout: RepoLayout) -> list[tuple[Path, Path, Any]]:
         ctx = self.build_context(layout)
         pages = root / "docs" / "templates" / "pages"
-        out = [(pages / "PLATFORM_README.md.j2", root / "docs" / "platforms" / self.key / "README.md", ctx)]
+        # a platform may override the shared page template with its own
+        # (``pages/<key>/PLATFORM_README.md.j2``) — e.g. the Thor's kernel
+        # benchmark sections, the Orin's — via {% block %} inheritance.
+        tpl = pages / self.key / "PLATFORM_README.md.j2"
+        if not tpl.is_file():
+            tpl = pages / "PLATFORM_README.md.j2"
+        out = [(tpl, root / "docs" / "platforms" / self.key / "README.md", ctx)]
         if ctx.kernel is None:
             return out
         tpls = root / "docs" / "templates" / "kernel"
         kdir = root / "docs" / "platforms" / self.key / "kernel"
         out += [(tpls / f"{c}.md.j2", kdir / f"{c}.md", ctx.kernel) for c in self.chapters]
+        # chapters this platform cannot carry must not linger from an older render
+        if kdir.is_dir():
+            wanted = {f"{c}.md" for c in self.chapters} | {"accuracy.md"}
+            for stale in kdir.glob("*.md"):
+                if stale.name not in wanted:
+                    stale.unlink()
         # the accuracy chapter renders with the case study (its "Pending" note
         # is the no-data state; test_accuracy_page_pending_without_runs pins it)
         out.append((tpls / "accuracy.md.j2", kdir / "accuracy.md", ctx.kernel))
@@ -488,7 +511,7 @@ def discover_targets(layout: RepoLayout) -> list[Root | PlatformsIndex | Platfor
     targets += [
         Platform(
             key=p.key,
-            chapters=CASE_STUDY_CHAPTERS if has_kernel_raws(layout, p.key, p.headline_model or DEFAULT_MODEL) else (),
+            chapters=chapters_for(p.key) if has_kernel_raws(layout, p.key, p.headline_model or DEFAULT_MODEL) else (),
         )
         for p in REGISTRY.values()
     ]

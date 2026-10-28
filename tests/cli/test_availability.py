@@ -124,23 +124,24 @@ def test_nvfp4_on_orin_is_the_marlin_w4a16_memory_win_only_fallback():
 # combos return the dtype-level why — the string transplanted verbatim from
 # the cycle-2 overlay matrix, pinned byte-identical in test_overlays.py.
 KV_ROWS: list[tuple[str, str, str, str, tuple[str, ...]]] = [
-    # fp8: FlashInfer serves it on every platform; FA4 and Mjolnir on thor
-    # only; FA2 rejects quantized KV everywhere (family-110 included)
+    # fp8: FlashInfer serves it on every platform; FA4 on thor; the Mjolnir
+    # kernels on thor and Orin (the Orin GEMV + mma.sync, hd 256, q_len <= 8);
+    # FA2 rejects quantized KV everywhere (family-110 included)
     ("fp8", FLASHINFER, THOR, NATIVE, ("FlashInfer",)),
     ("fp8", FLASHINFER, ORIN, NATIVE, ("FlashInfer",)),
     ("fp8", FLASHINFER, SPARK, NATIVE, ("FlashInfer",)),
     ("fp8", FA4, THOR, NATIVE, ("FA4", "sm_110")),
     ("fp8", MJOLNIR, THOR, NATIVE, ("Mjolnir",)),
+    ("fp8", MJOLNIR, ORIN, NATIVE, ("Mjolnir", "hd 256", "q_len")),
     ("fp8", FA2, THOR, UNAVAILABLE, ()),
     ("fp8", FA2, ORIN, UNAVAILABLE, ()),
     ("fp8", FA2, SPARK, UNAVAILABLE, ()),
     ("fp8", FA4, ORIN, UNAVAILABLE, ()),
     ("fp8", FA4, SPARK, UNAVAILABLE, ()),
-    ("fp8", MJOLNIR, ORIN, UNAVAILABLE, ()),
     ("fp8", MJOLNIR, SPARK, UNAVAILABLE, ()),
     # fp6 (e2m3): the Mjolnir kernel on thor — no fallback reader anywhere
     ("fp6_e2m3", MJOLNIR, THOR, NATIVE, ("Mjolnir", "calibrated scales")),
-    ("fp6_e2m3", MJOLNIR, ORIN, UNAVAILABLE, ()),
+    ("fp6_e2m3", MJOLNIR, ORIN, NATIVE, ("mma", "FlashInfer fallback", "e4m3 scratch")),
     ("fp6_e2m3", MJOLNIR, SPARK, UNAVAILABLE, ()),
     ("fp6_e2m3", FLASHINFER, THOR, UNAVAILABLE, ()),
     # nvfp4: the FA2 path (families 80/90/120) and the FlashInfer backend on
@@ -233,7 +234,10 @@ def test_kv_state_on_an_unmapped_backend_keeps_the_transplanted_dtype_why():
     # (byte-identical to the cycle-2 matrix — pinned fully in test_overlays)
     cell = kv_state("fp8", "TRITON_KITCHEN_SINK", THOR)
     assert cell.state == UNAVAILABLE
-    assert cell.why == "fp8 KV is served by FlashInfer on every platform and by FA4 / the Mjolnir kernel on thor only"
+    assert (
+        cell.why
+        == "fp8 KV is served by FlashInfer on every platform, by FA4 on thor, and by the Mjolnir kernels on thor and Orin (hd 256, q_len <= 8)"
+    )
 
 
 # ── 4. style lint over the whole table (plan §4: enforced in test) ──────────

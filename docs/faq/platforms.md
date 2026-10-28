@@ -183,12 +183,12 @@ all, so it runs on any host.
 ## `mjolnir hw`
 
 `hw setup` dispatches on the detected platform: the Jetson family (thor,
-orin) runs the existing `scripts/hw/setup-thor.sh` — orin with an
+orin) runs the existing `scripts/hw/setup-jetson.sh` — orin with an
 explicit "untested on this platform" note — anything else refuses:
 
 ```
 mjolnir hw setup is not implemented for spark yet — what exists today is
-the Jetson setup (thor, orin; scripts/hw/setup-thor.sh).
+the Jetson setup (thor, orin; scripts/hw/setup-jetson.sh).
 ```
 
 exit 2. On an unknown host it prints the probe instructions (exit 2).

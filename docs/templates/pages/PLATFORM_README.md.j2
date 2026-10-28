@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="{{ root }}assets/hero-{{ ctx.key }}.jpg" alt="Mjolnir on {{ ctx.name }}" width="100%">
+</p>
+
 # {{ ctx.name }}
 
 > **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
@@ -19,7 +23,7 @@ on each [model page](../../../configs/).
 | [`{{ r.model }}`](../../../configs/{{ r.model }}/README.md) | {% if r.default_config %}[`{{ r.default_config }}`](../../../configs/{{ r.model }}/{{ r.default_config }}/README.md){% else %}—{% endif %} | {{ "✅" if r.measured else "—" }} |
 {% endfor %}
 
-{% if ctx.kernel %}
+{%- if ctx.kernel %}
 ## Kernel
 
 Mjolnir on {{ ctx.name }}, measured chapter by chapter and pinned to the
@@ -29,9 +33,16 @@ by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
 {% set kctx = ctx.kernel %}{% set kprefix = "kernel/" %}{% include "docs/templates/kernel/_index.md.j2" %}
-{% endif %}
+{% endif -%}
+{#- a platform's override template (docs/templates/pages/<key>/PLATFORM_README.md.j2)
+    fills these: the kernel benchmark section, the end-to-end section (replacing
+    the thin one below) and anything else platform-specific. -#}
+{%- block kernel_benchmarks -%}{%- endblock -%}
+{%- block e2e -%}
 {% if ctx.e2e %}
 ## End to end
+
+{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
 
 The official vLLM image vs Mjolnir on {{ ctx.name }} — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.
@@ -44,6 +55,10 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 
 {{ chart("e2e-prefill", "End-to-end prompt processing: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
 
+{% block e2e_detail %}{% endblock %}
 {{ how("e2e") }}
-{% endif %}
+{% endif -%}
+{%- endblock -%}
+{%- block extras -%}{%- endblock %}
+
 Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform={{ ctx.key }}).

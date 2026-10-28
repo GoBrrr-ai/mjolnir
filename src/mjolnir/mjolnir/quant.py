@@ -1,6 +1,6 @@
 """Narrow KV/Q format helpers: value tables, quantization and bit packing.
 
-Split out of mjolnir/t5_decode.py (file-length ratchet); used by the kernel
+Split out of the traced kernel file (file-length ratchet); used by the kernel
 package's fp6 path (mjolnir.kvfp6) and the standalone harness.
 """
 

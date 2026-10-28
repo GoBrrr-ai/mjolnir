@@ -19,6 +19,7 @@ import json
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from mjolnir_cli import charts, interactive, readme
@@ -87,7 +88,8 @@ def test_full_render_from_fixture_data(repo):
         "fp6prof-bytes-vs-time",
     ):
         assert name in manifest, name
-        assert (repo / manifest[name]["dark"]).is_file()
+        entry = manifest[name][0] if isinstance(manifest[name], list) else manifest[name]
+        assert (repo / entry["dark"]).is_file()
     # no legacy ``-dark`` suffix anywhere under assets/benchmarks
     pngs = list((repo / "assets" / "benchmarks").rglob("*.png"))
     assert pngs and all("-dark" not in p.name for p in pngs)
@@ -98,7 +100,7 @@ def test_full_render_from_fixture_data(repo):
     # has no repo file hosting to resolve relatives against)
     dh = (repo / "docker" / "vllm-thor" / "README.md").read_text()
     assert "{{" not in dh and "<img" not in dh
-    assert "https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.png" in dh
+    assert "https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.jpg" in dh
     # the patch inventory re-emitted verbatim from docker/vllm-thor/PATCHES.md
     assert "| File | PR | What it fixes |" in dh and "thor-fp6-e2m3-kv-cache.patch" in dh
     # the kernel index lives on the platform page's `## Kernel` section (cycle
@@ -106,8 +108,11 @@ def test_full_render_from_fixture_data(repo):
     thor_page = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
     assert "**Where it stands:** 1.26× FlashInfer" in thor_page
     assert not (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").exists()
-    assert '<img src="assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in text
-    assert "<picture>" not in text and "srcset" not in text and "prefers-color-scheme" not in text
+    # the kernel benchmark charts moved off the root README to the Thor page
+    # (the root keeps only the hero + the static assets)
+    assert '<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in thor_page
+    assert "assets/benchmarks/thor" not in text
+    assert "<picture>" not in thor_page and "srcset" not in thor_page and "prefers-color-scheme" not in thor_page
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
     assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" in page  # relative to the page
     assert "Fastest variant at the most context lengths" in page
@@ -210,17 +215,21 @@ def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
     write_all(layout.verify_dir)
     _stamp(layout.verify_dir)
     manifest = charts.render_all(layout)
-    entry = manifest["kernel-speedup"]
-    assert entry["platform"] == "thor" and entry["model"] == DEFAULT_MODEL
+    # v2 manifests are list-valued: one entry per (chart, measured pair)
+    entry = next(e for e in manifest["kernel-speedup"] if e["platform"] == "thor")
+    assert entry["model"] == DEFAULT_MODEL
     assert entry["dark"] == "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png"
     assert (repo / entry["dark"]).is_file()
-    for name, e in manifest.items():
-        assert "light" not in e, name
-        assert (repo / e["dark"]).is_file(), name
-        if name in ("hero", "opening-infographic"):  # the root-page one-offs stay flat
-            continue
-        assert "platform" in e and "model" in e, name
-    assert not any(e.get("platform") == "orin" for e in manifest.values())
+    for name, es in manifest.items():
+        for e in es:
+            assert "light" not in e, name
+            assert (repo / e["dark"]).is_file(), name
+            if name == "hero":  # the root-page one-off stays flat
+                continue
+            assert "platform" in e and "model" in e, name
+    # pairs without data render no charts (the multi-pair manifest carries
+    # one entry per measured pair -- exercised on the real orin data)
+    assert not any(e.get("platform") == "spark" for es in manifest.values() for e in es)
 
 
 def test_chart_manifest_v2_legacy_entries_still_resolve(repo):
@@ -246,10 +255,12 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
     from PIL import Image
 
     from mjolnir_cli.config import RepoLayout, find_repo_root
+    from mjolnir_cli.charts_base import HERO_BG_ROOT, HERO_LOGO
 
     root = find_repo_root()
     (tmp_path / "assets").mkdir()
-    shutil.copy(root / "assets" / charts.HERO_BACKGROUND, tmp_path / "assets" / charts.HERO_BACKGROUND)
+    for name in (HERO_BG_ROOT, HERO_LOGO):
+        shutil.copy(root / "assets" / name, tmp_path / "assets" / name)
     layout = RepoLayout(
         repo_root=tmp_path,
         data_dir=tmp_path,
@@ -259,21 +270,53 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
     )
     out = charts.render_hero(layout)
     assert out is not None
-    bg = Image.open(tmp_path / "assets" / charts.HERO_BACKGROUND)
+    bg = Image.open(tmp_path / "assets" / HERO_BG_ROOT)
     hero = Image.open(out)
-    assert out.name == "hero.png" and hero.size == bg.size
-    left, top, right, bottom = charts._logotype_box(bg)
-    assert left > bg.size[0] * 0.6 and bottom < bg.size[1] * 0.8  # the MJOLNIR logotype, right side
-    # the logotype is untouched; the area under it now carries the slogan and pills
-    assert (
-        hero.crop((left, top, right, bottom)).tobytes() == bg.convert("RGB").crop((left, top, right, bottom)).tobytes()
+    assert out.name == "hero.jpg" and hero.size == bg.size
+    # the white logotype + slogan + pills land on the dark right half; the
+    # hammer art on the left stays untouched. The hero saves as JPEG (the
+    # banners were >1 MB PNGs) — compare against the background through the
+    # same lossy encode so only the real overlays differ
+    import io
+
+    buf = io.BytesIO()
+    bg.convert("RGB").save(buf, format="JPEG", quality=88, optimize=True)
+    ref = Image.open(buf)
+    left = int(bg.size[0] * 0.40)
+    a = np.asarray(hero.convert("RGB").crop((0, 0, left, bg.size[1])), dtype=int)
+    b = np.asarray(ref.crop((0, 0, left, bg.size[1])), dtype=int)
+    assert int(np.abs(a - b).max()) <= 2
+    right = hero.crop((left, 0, bg.size[0], bg.size[1]))
+    assert right.tobytes() != ref.crop((left, 0, bg.size[0], bg.size[1])).tobytes()
+
+
+def test_hero_platform_banners(tmp_path):
+    from PIL import Image
+
+    from mjolnir_cli.config import RepoLayout, find_repo_root
+    from mjolnir_cli.charts_base import HERO_LOGO
+
+    root = find_repo_root()
+    (tmp_path / "assets").mkdir()
+    for name in ("mjolnir_thor_bg.jpeg", HERO_LOGO):
+        shutil.copy(root / "assets" / name, tmp_path / "assets" / name)
+    layout = RepoLayout(
+        repo_root=tmp_path,
+        data_dir=tmp_path,
+        state_file=tmp_path / "s.json",
+        benchmarks_dir=tmp_path / "benchmarks",
+        history_file=tmp_path / "h.jsonl",
     )
-    under = (left, bottom + 20, right, min(bg.size[1], bottom + 200))
-    assert hero.crop(under).tobytes() != bg.convert("RGB").crop(under).tobytes()
+    out = charts.render_hero(layout, platform="thor")
+    assert out is not None and out.name == "hero-thor.jpg"
+    bg = Image.open(tmp_path / "assets" / "mjolnir_thor_bg.jpeg")
+    assert Image.open(out).size == bg.size
+    # a platform without its canvas renders nothing
+    assert charts.render_hero(layout, platform="orin") is None
 
 
 def test_readme_uses_the_hero():
     from mjolnir_cli.config import find_repo_root
 
     tpl = (find_repo_root() / "README.md.j2").read_text()
-    assert 'src="assets/hero.png"' in tpl and "header.png" not in tpl
+    assert 'src="assets/hero.jpg"' in tpl and "header.png" not in tpl

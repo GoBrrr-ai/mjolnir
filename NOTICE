@@ -8,7 +8,7 @@ works listed below; each keeps its own license and copyright notice.
 -------------------------------------------------------------------------------
 1. NVIDIA CUTLASS — CuTe DSL examples                         BSD-3-Clause
 -------------------------------------------------------------------------------
-src/mjolnir/mjolnir/t5_decode.py (the Mjolnir decode-attention kernel) is
+src/mjolnir/mjolnir/arch/thor/decode.py (the Mjolnir decode-attention kernel) is
 derived from
 
   examples/python/CuTeDSL/cute/blackwell/kernel/attention/mixed_input_fmha/

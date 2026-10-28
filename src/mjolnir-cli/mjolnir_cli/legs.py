@@ -90,6 +90,20 @@ KERNEL: dict[str, str] = {
     "autoresearch.evaluate": "fi,mjolnir",
 }
 
+# Platform overrides of the KERNEL tables: a platform whose headline stage
+# measures differently names its own leg ids here (looked up before the
+# default table). The Orin's headline sweep is the events-timed same-run
+# comparison (the ratio that survives the board's noise); with ncu installed
+# the HND stage profiles the GEMV for real — FA4 is absent (sm_110-only) and
+# the kvfmt/quant variant lists need their own Orin sets (the GEMV harness
+# speaks fp8/bf16/e2m3 only) before those stages open up.
+_KERNEL_BY_PLATFORM: dict[str, dict[str, str]] = {
+    "orin": {
+        "verify.sweep": "mjolnir,mjolnir-fp8,fi",
+        "verify.hndsweep": "fi,fi-hnd,mjolnir-fp8",
+    },
+}
+
 # ── `verify vllm`: greedy MJOLNIR-vs-FlashInfer smoke modes ────────────────
 SMOKE_MODES = "graph eager e2m3 lmh8"
 
@@ -106,11 +120,53 @@ _BASELINE: dict[str, str] = {
 }
 
 
+# Platform overrides of the SERVING tables: a platform whose model family
+# names its own configs lists its stages here (looked up before the default
+# table). The Orin serves the Qwen3.8-27B AWQ family: AWQ weights for sm_87,
+# per-channel fp6 scales for its KV, and the native-FlashInfer config as the
+# stock-backend baseline.
+_SERVING_BY_PLATFORM: dict[str, dict[str, tuple[Leg, ...]]] = {
+    "orin": {
+        "verify.kv-cache-size": (
+            (MJOLNIR, "AWQ_MJOLNIR"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "verify.spec": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "verify.profile": ((MJOLNIR, "AWQ_MJOLNIR_E2M3"), (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K")),
+        "bench.ab": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "bench.e2e": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+        ),
+        "bench.accuracy": (
+            (OFFICIAL, "AWQ_FLASHINFER"),
+            (MJOLNIR, "AWQ_MJOLNIR"),
+            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+        ),
+    },
+}
+
+
 def legs_for_stage(name: str, platform: str = DEFAULT_PLATFORM) -> tuple[Leg, ...]:
-    """The stage's legs on a platform: the full table on a supported one; on
-    a research platform its official baseline only — the platform's own
+    """The stage's legs on a platform: a platform override first (a family
+    that names its own configs), the full table on a supported one; on a
+    research platform its official baseline only — the platform's own
     baseline config when it names one (``_BASELINE``), else the thor table's
     official side. The Mjolnir legs arrive with the platform's kernel."""
+    per = _SERVING_BY_PLATFORM.get(platform)
+    if per and name in per:
+        return per[name]
     ls = SERVING[name]
     if REGISTRY[platform].status == "supported":
         return ls
@@ -147,7 +203,11 @@ def available_serving_legs(
 
 def kernel_legs(stage: str, platform: str = DEFAULT_PLATFORM) -> str:
     """The ncu stage's harness-leg ids for a platform (research platforms get
-    the FlashInfer + FA2 baselines)."""
+    the FlashInfer + FA2 baselines). A platform override (e.g. the Orin's
+    events-timed sweep series) wins over the default table."""
+    per = _KERNEL_BY_PLATFORM.get(platform)
+    if per and stage in per:
+        return per[stage]
     if REGISTRY[platform].status == "supported":
         return KERNEL[stage]
     return _RESEARCH_KERNEL_LEGS

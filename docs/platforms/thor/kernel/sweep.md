@@ -1,6 +1,6 @@
 # Headline L-sweep
 
-> Mjolnir vs FlashInfer vs FlashAttention 4 hd256 (fp8 Q+KV, on the Mjolnir image), ncu kernel time at every L · `mjolnir verify sweep` · run `20261022-090701`
+> Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, events-timed where there is no ncu · `mjolnir verify sweep` · run `20261028-003028`
 
 ## The question
 
@@ -9,9 +9,11 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 ## How it is measured
 
 - one sequence, 24 query / 4 KV heads, head dim 256, 128-token pages in random order — the hd256 attention shape of Qwen3.8-27B;
+
 - **ncu kernel time** of the decode kernel(s) + the split-KV merge, averaged over 50 launches, `--cache-control all` (cold L2: every launch reads KV from DRAM) and `--clock-control base`;
 - legs: **Mjolnir e2m3** (the kernel's fastest config), **Mjolnir fp8** (the `NVFP4_MJOLNIR` config; the default serves e2m3), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, NHD pages), **FlashAttention 4 hd256** via `vllm_flash_attn` (`fa_version=4`, fp8 Q+KV) — as the `NVFP4_FA4hd256` config serves it on the Mjolnir image, which carries the patched FA4;
-- bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit).
+- bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit);
+
 
 ## Result
 
@@ -21,21 +23,21 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 <img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth" width="100%">
 
-- **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.21×**, from 1.03× (L=16K) to 1.63× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
-- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.12×**, from 1.01× (L=16K) to 1.61× (L=128); faster beyond the ±3% noise band at 7 of 8 context lengths.
-- **FlashAttention 4 hd256 (fp8 Q+KV)** vs FlashInfer (fp8 KV, NHD): geomean **0.56×**, from 0.47× (L=256K) to 1.05× (L=128); faster beyond the ±3% noise band at 1 of 8 context lengths.
+- **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.25×**, from 1.05× (L=16K) to 1.79× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
+- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.16×**, from 1.03× (L=32K) to 1.81× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
+- **FlashAttention 4 hd256 (fp8 Q+KV)** vs FlashInfer (fp8 KV, NHD): geomean **0.57×**, from 0.49× (L=16K) to 1.01× (L=128); faster beyond the ±3% noise band at 0 of 8 context lengths.
 
 | L | FlashInfer | FA4 hd256 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA4 | e2m3 vs FA4 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 21.9&nbsp;µs | 20.9&nbsp;µs | 13.6&nbsp;µs | **13.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.61\times}}$ | $\color{#16a34a}{\mathbf{1.63\times}}$ | $\color{#16a34a}{\mathbf{1.53\times}}$ | $\color{#16a34a}{\mathbf{1.55\times}}$ |
-| **4K** | 60.5&nbsp;µs | 105.5&nbsp;µs | 55.0&nbsp;µs | **49.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{1.92\times}}$ | $\color{#16a34a}{\mathbf{2.11\times}}$ |
-| **8K** | 98.2&nbsp;µs | 191.0&nbsp;µs | **91.0&nbsp;µs** | 91.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{2.10\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ |
-| **16K** | 182.6&nbsp;µs | 370.1&nbsp;µs | 181.4&nbsp;µs | **177.0&nbsp;µs** | $\color{grey}{1.01\times}$ | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ |
-| **32K** | 358.0&nbsp;µs | 729.7&nbsp;µs | 341.5&nbsp;µs | **332.2&nbsp;µs** | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
-| **64K** | 748.9&nbsp;µs | 1.42&nbsp;ms | 660.0&nbsp;µs | **588.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.41\times}}$ |
-| **128K** | 1.34&nbsp;ms | 2.70&nbsp;ms | 1.26&nbsp;ms | **1.09&nbsp;ms** | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.23\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.48\times}}$ |
-| **256K** | 2.51&nbsp;ms | 5.31&nbsp;ms | 2.40&nbsp;ms | **2.06&nbsp;ms** | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.58\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
+| **128** | 23.9&nbsp;µs | 23.6&nbsp;µs | **13.2&nbsp;µs** | 13.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.81\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.77\times}}$ |
+| **4K** | 60.5&nbsp;µs | 104.6&nbsp;µs | 55.6&nbsp;µs | **49.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.88\times}}$ | $\color{#16a34a}{\mathbf{2.11\times}}$ |
+| **8K** | 94.5&nbsp;µs | 190.2&nbsp;µs | 88.5&nbsp;µs | **87.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
+| **16K** | 180.8&nbsp;µs | 370.4&nbsp;µs | 174.1&nbsp;µs | **171.6&nbsp;µs** | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ | $\color{#16a34a}{\mathbf{2.16\times}}$ |
+| **32K** | 363.1&nbsp;µs | 708.4&nbsp;µs | 350.9&nbsp;µs | **329.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ |
+| **64K** | 764.8&nbsp;µs | 1.37&nbsp;ms | 671.5&nbsp;µs | **600.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.28\times}}$ |
+| **128K** | 1.38&nbsp;ms | 2.69&nbsp;ms | 1.26&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.50\times}}$ |
+| **256K** | 2.71&nbsp;ms | 5.29&nbsp;ms | 2.39&nbsp;ms | **2.07&nbsp;ms** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.56\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -47,7 +49,7 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/sweep/20261022-090701.json`](../../../../benchmarks/raw/verify/sweep/20261022-090701.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/sweep/20261028-003028.json`](../../../../benchmarks/raw/verify/sweep/20261028-003028.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

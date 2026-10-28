@@ -1,8 +1,8 @@
 """Container plumbing for ``mjolnir verify``: harness runs, ncu legs, full
 profiles and test runs — each in a named, timed-out, reaped container.
 
-The kernel under test is ``mjolnir.t5_decode`` (``python3 -m
-mjolnir.t5_decode``). In a checkout the repo's ``src/mjolnir`` is mounted
+The kernel under test is the Thor harness (``python3 -m
+mjolnir.arch.thor.harness``). In a checkout the repo's ``src/mjolnir`` is mounted
 over the image's installed copy (``PYTHONPATH``), so every run measures the
 current source; a PyPI install runs the kernel baked into the image.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import shlex
 import subprocess
 import sys
@@ -18,12 +19,29 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mjolnir_cli.config import host_hf_hub
-from mjolnir_cli.platforms import DEFAULT_PLATFORM
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, platform_ncu
 from mjolnir_cli.verify import ncu
 from mjolnir_cli.verify.legs import FILTERS, Leg
 
 DRIVERS_DIR = Path(__file__).resolve().parent.parent / "drivers"
 NCU_HOME_DEFAULT = "/opt/nvidia/nsight-compute/2025.3.0"
+
+
+def resolve_ncu_home() -> str:
+    """The host's Nsight Compute install: ``$NCU_HOME`` wins; else the newest
+    versioned dir under ``/opt/nvidia/nsight-compute`` that carries the ncu
+    binary (JP names them by version — the Thor's 2025.3.0, the Orin's
+    2026.1.1); else the Thor default (the pre-detection layout)."""
+    env = os.environ.get("NCU_HOME")
+    if env:
+        return env
+    try:
+        cands = sorted(p for p in Path(NCU_HOME_DEFAULT).parent.glob("*") if (p / "ncu").is_file())
+    except OSError:
+        cands = []
+    return str(cands[-1]) if cands else NCU_HOME_DEFAULT
+
+
 _IN_SRC = "/opt/mjolnir-src"
 
 
@@ -46,6 +64,12 @@ def ensure_image(image: str) -> str | None:
 
 _IN_DRIVERS = "/opt/mjolnir-drivers"
 _IN_NCU = "/ncu"
+# ncu cannot lock clocks on the Jetson SoCs (GA10b/GB10b: "clock control is
+# not supported" — the flag silently no-ops). The hw setup's jetson_clocks
+# service pins the clocks instead, so profiling runs with --clock-control
+# none and treats the board's lock as the source of truth. Passing "base"
+# would be a silent lie about replay conditions.
+NCU_CLOCK = "none"
 
 
 def default_ref_image(platform: str = DEFAULT_PLATFORM) -> str:
@@ -72,9 +96,10 @@ def _hf_hub_mount() -> list[str]:
 class Runner:
     image: str
     logdir: Path
+    platform: str = DEFAULT_PLATFORM  # which kernel family the harness stages drive
     ref_image: str = field(default_factory=default_ref_image)  # FlashInfer / FA2 legs
     kernel_src: Path | None = None  # checkout's src/mjolnir (mounted over the image copy)
-    ncu_home: str = field(default_factory=lambda: os.environ.get("NCU_HOME", NCU_HOME_DEFAULT))
+    ncu_home: str = field(default_factory=resolve_ncu_home)
     timeout: float = 180.0
     dry_run: bool = False
     hq: int = 24
@@ -137,10 +162,18 @@ class Runner:
 
     # ── the kernel harness ─────────────────────────────────────────────────
     def harness_args(self, q: str, args: list[str] | str) -> list[str]:
+        """The kernel harness command for this platform: the module and the
+        dtype spellings differ per family (the Thor harness takes DSL dtype
+        names, the Orin harness bf16/fp8), the shared stage flags stay the
+        same (the Orin harness accepts the common aliases)."""
         if isinstance(args, str):
             args = shlex.split(args)
+        if self.platform == "orin":
+            # The mma kernel takes a bf16 query (the fp8-Q pack was the
+            # retired GEMV's — the M3 work); the KV stays fp8 on the harness.
+            return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", "bf16", "--kv_dtype", "fp8", *args]
         qd = "Float8E4M3FN" if q == "fp8" else "BFloat16"
-        return ["-m", "mjolnir.t5_decode", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
+        return ["-m", "mjolnir.arch.thor.harness", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]
 
     def harness(self, log: Path, q: str, args: list[str] | str, timeout: float | None = None) -> tuple[int, str]:
         name = self._name("mjolnir-verify")
@@ -193,8 +226,20 @@ class Runner:
         return f"python3 {_IN_DRIVERS}/{script}", env
 
     def ncu_leg(
-        self, log: Path, leg: Leg, L: int, iters: int, cache: str = "all", clock: str = "base"
+        self,
+        log: Path,
+        leg: Leg,
+        L: int,
+        iters: int,
+        cache: str = "all",
+        clock: str = NCU_CLOCK,
     ) -> tuple[int, dict | None]:
+        if not platform_ncu(self.platform):
+            raise RuntimeError(
+                f"ncu profiling is not available on the {self.platform!r} platform "
+                "(no Nsight Compute in the L4T rootfs) — the events-timed stages "
+                "(sweep, correctness, timing) carry this platform's headline data"
+            )
         cmd, env = self.leg_command(leg, L, iters)
         name = self._name("mjolnir-ncu")
         argv = [
@@ -242,6 +287,44 @@ class Runner:
         kv_bytes = self.batch * L * self.hk * self.d * 2 * leg.kv_bits / 8
         return rc, ncu.parse_file(log, MAIN[leg.kind], MERGE[leg.kind], L, kv_bytes)
 
+    def driver_wall(self, log: Path, script: str, L: int, iters: int, env_extra=()) -> tuple[int, float | None]:
+        """Events-timed wall clock of a driver (the FlashInfer reference on
+        platforms without ncu): parses the driver's ``mean X us/iter`` line.
+        One warm run happens inside the driver's first launches (JIT), so the
+        caller passes enough iters to amortize it."""
+        name = self._name("mjolnir-driver")
+        argv = [
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            name,
+            "--gpus",
+            "all",
+            "--entrypoint",
+            "python3",
+            "-v",
+            f"{DRIVERS_DIR}:{_IN_DRIVERS}:ro",
+        ]
+        for k, v in (
+            ("BENCH_L", L),
+            ("BENCH_ITERS", iters),
+            ("BENCH_HQ", self.hq),
+            ("BENCH_HK", self.hk),
+            ("BENCH_D", self.d),
+            ("BENCH_PAGE", self.page),
+            ("BENCH_B", self.batch),
+            ("BENCH_QLEN", self.q_len),
+        ):
+            argv += ["-e", f"{k}={v}"]
+        for k, v in env_extra:
+            argv += ["-e", f"{k}={v}"]
+        argv += [self.ref_image, f"{_IN_DRIVERS}/{script}"]  # the reference legs run on the stock image
+        rc = self._run(argv, log, name, timeout=max(self.timeout, 600.0))
+        text = log.read_text(errors="replace") if log.exists() else ""
+        m = re.search(r"mean ([0-9.]+) us/iter", text)
+        return rc, (float(m.group(1)) if m else None)
+
     # ── full ncu profile (fp6prof) ─────────────────────────────────────────
     def ncu_profile(
         self, outdir: Path, name: str, leg: Leg, L: int, count: int = 3, section_set: str = "full"
@@ -258,8 +341,8 @@ class Runner:
         for attempt in (f"--set {section_set}", secs):
             cname = self._name("mjolnir-prof")
             inner = (
-                f"mkdir -p /tmp/ncu-mjolnir && {_IN_NCU}/ncu --target-processes all --clock-control base "
-                f"--cache-control all --kernel-name regex:MixedInputFusedMultiHeadAttentionDecode "
+                f"mkdir -p /tmp/ncu-mjolnir && {_IN_NCU}/ncu --target-processes all --clock-control {NCU_CLOCK} "
+                f"--cache-control all --kernel-name {shlex.quote(FILTERS[leg.kind])} "
                 f"--launch-skip 1 --launch-count {count} {attempt} -f -o /out/{name} {cmd} && "
                 f"{_IN_NCU}/ncu --import /out/{name}.ncu-rep --page raw --csv > /out/{name}.raw.csv && "
                 f"{_IN_NCU}/ncu --import /out/{name}.ncu-rep --page details --csv > /out/{name}.details.csv && "
@@ -341,6 +424,15 @@ class Runner:
             f"HF_TOKEN={os.environ.get('HF_TOKEN', '')}",
             "-e",
             "TMPDIR=/tmp",
+            # The arch-sensitive JIT envs follow the platform (the same
+            # override build_run_args makes): the kernel compiles for the
+            # device this container runs on, and any Triton/Inductor paths
+            # in the smoke target it too.
+            *(
+                ("-e", "TORCH_CUDA_ARCH_LIST=8.7", "-e", "FLASHINFER_CUDA_ARCH_LIST=8.7", "-e", "CUTE_DSL_ARCH=sm_87")
+                if self.platform == "orin"
+                else ()
+            ),
             "-w",
             "/work",
             self.image,

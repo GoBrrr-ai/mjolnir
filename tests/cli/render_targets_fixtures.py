@@ -41,6 +41,7 @@ from pathlib import Path
 import yaml
 
 from mjolnir_cli.config import DEFAULT_MODEL
+from mjolnir_cli.platforms import REGISTRY
 from mjolnir_cli.verify import results, stages
 
 import verify_fixtures
@@ -331,7 +332,11 @@ def _seed_charts(root: Path) -> None:
         p.write_bytes(b"\x89PNG fixture")
         manifest[name] = {"stage": stage, "platform": "thor", "model": M38, "dark": dark}
     (root / "assets" / "benchmarks" / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
-    (root / "assets" / "hero.png").write_bytes(b"\x89PNG fixture")
+    (root / "assets" / "hero.jpg").write_bytes(b"\x89PNG fixture")
+    # the platform header banners are render products (render_hero) — the
+    # fixture only needs the files the rendered pages link to
+    for p in REGISTRY:
+        (root / "assets" / f"hero-{p}.jpg").write_bytes(b"\x89PNG fixture")
 
 
 def _copy_templates(root: Path) -> None:
@@ -376,7 +381,7 @@ def build_repo(tmp_path: Path, monkeypatch, *, with_data: bool = True, overview:
         "docs/methodology/benchmarking.md",
         "research/README.md",
         "research/program.md",
-        "src/mjolnir/mjolnir/t5_decode.py",
+        "src/mjolnir/mjolnir/arch/thor/decode.py",
     ):
         src = REPO / rel
         if src.is_file():

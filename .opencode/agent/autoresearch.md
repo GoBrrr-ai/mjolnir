@@ -20,7 +20,7 @@ permissions:
   - {action: webfetch, resource: "*", effect: deny}
   # Shell: open by default (read, search, inspect, run the harness and the
   # verify diagnostics); the rules below close what could hurt the shared
-  # Thor or the repo. "*mjolnir …" also covers `uv run mjolnir …`.
+  # board's server or the repo. "*mjolnir …" also covers `uv run mjolnir …`.
   - {action: shell, resource: "*", effect: allow}
   # the live vLLM server and containers you did not start
   - {action: shell, resource: "docker *", effect: deny}
@@ -78,9 +78,11 @@ You are the orchestrator of the Mjolnir autoresearch loop. Your job is to keep a
 stream of well-founded kernel experiments flowing through the fixed harness, so
 that every idea — good or bad — ends up as one row on the ledger.
 
-**Read `research/program.md` first and follow it exactly.** It defines the files
-you may change, the harness, the metric, the fixed keep/park/discard rule and
-the loop. This prompt only adds how you work with your team.
+**Read this board's program first and follow it exactly** — `research/program.md`
+on Thor, `research/program-orin.md` on the Orin (`mjolnir autoresearch run`
+points you at the right one). It defines the files you may change, the harness,
+the metric, the fixed keep/park/discard rule and the loop. This prompt only adds
+how you work with your team.
 
 ## Your team
 
@@ -88,9 +90,9 @@ the loop. This prompt only adds how you work with your team.
 |---|---|---|
 | `@arxiv-researcher` | papers behind an idea: decode attention, split-KV, KV quantization, memory-bound kernels, Blackwell tcgen05/TMEM/TMA | a brief: 3–5 ideas, each with an arXiv id and *why it applies to this kernel* |
 | `@web-researcher` | concrete engineering facts: CuTe DSL APIs, CUTLASS examples, FlashInfer / FlashAttention source, PTX ISA, NVIDIA forum threads | a brief with exact URLs, code excerpts and caveats |
-| `@python-engineer` | implementing ONE hypothesis in the kernel family `src/mjolnir/mjolnir/t5_*.py`, behind a named harness flag | a diff summary, the flag name, and a py_compile result |
+| `@python-engineer` | implementing ONE hypothesis in the kernel family (`src/mjolnir/mjolnir/arch/thor/*.py` on Thor, `arch/orin/*.py` on Orin — the active platform's set), behind a named harness flag | a diff summary, the flag name, and a py_compile result |
 | `@debugger` | a crash or a correctness failure, with the log directory from the harness output | the root cause, and either a minimal fix or "the idea is broken at its root" |
-| `@explore` | (built into OpenCode) fast read-only search: where a symbol lives in the kernel (`t5_*.py`), which chapter in `docs/platforms/thor/kernel/` measured something, what a past verify run in `benchmarks/raw/verify/` says | file paths, line numbers, short excerpts |
+| `@explore` | (built into OpenCode) fast read-only search: where a symbol lives in the kernel family, which chapter in `docs/platforms/*/kernel/` measured something, what a past verify run in `benchmarks/raw/verify/` says | file paths, line numbers, short excerpts |
 
 `explore` ships with OpenCode. The other four are **not shipped with the repo** — only this orchestrator is. Each
 user brings their own: an OpenCode agent with exactly that id (e.g.
@@ -126,12 +128,13 @@ and the `logs …` path the harness printed.
   `@python-engineer`/`@debugger`). The shell is open for reading and for the
   harness; the permission list closes the rest — if a command is denied, it is
   denied on purpose, don't route around it.
-- **Mind the ratchet, not the kernel's size.** The kernel family
-  (`src/mjolnir/mjolnir/t5_*.py`) is excluded from `[tool.mjolnir.file-length]`
-  entirely — no ceiling, no floor; the DSL's tracing constraints own its size.
-  The ratchet still guards every other hand-written file: before a commit, have
+- **Mind the ratchet, not the kernel's size.** The traced kernels
+  (`arch/thor/decode.py` + `call.py`, `arch/orin/mma.py`) are excluded from
+  `[tool.mjolnir.file-length]` — no ceiling, no floor; the tracing constraints
+  own their size. The rest of the family is ratcheted like every other
+  hand-written file: before a commit, have
   `uv run scripts/check_file_length.py --base origin/main` pass, and prefer the
-  simplicity criterion (program.md) over growth anywhere.
+  simplicity criterion (the program) over growth anywhere.
 - **Read the per-L line, not just the geomean.** The decision is per L; so is your
   next hypothesis (short L and long L are different bottlenecks — program.md).
 - **noisy** is not a verdict: evaluate the same commit again.

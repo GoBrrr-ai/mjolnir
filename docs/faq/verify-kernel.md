@@ -89,8 +89,8 @@ a number in the README is always one you can trace to a raw file.
 
 ## Improving the kernel
 
-1. Put the new path behind a harness flag in `src/mjolnir/mjolnir/t5_decode.py`
-   (`python -m mjolnir.t5_decode --help` lists the existing ones).
+1. Put the new path behind a harness flag in `src/mjolnir/mjolnir/arch/thor/harness.py`
+   (`python -m mjolnir.arch.thor.harness --help` lists the existing ones).
 2. `mjolnir verify correctness --quick`, then the full matrix.
 3. A/B it in one run, so drift on the shared GPU cancels out:
 
