@@ -13,7 +13,22 @@ from __future__ import annotations
 
 import pytest
 
+from mjolnir_cli import docker_version
+
 
 @pytest.fixture(autouse=True)
 def _pinned_platform_env(monkeypatch):
     monkeypatch.setenv("MJOLNIR_PLATFORM", "thor")
+
+
+@pytest.fixture(autouse=True)
+def _skip_docker_version_check(monkeypatch):
+    # No test may touch the real docker daemon or apt unless it says so: the
+    # pin check is skipped by default and its once-per-process guards are
+    # reset between tests. A test that exercises the check removes the env
+    # var with monkeypatch.delenv (and fakes the version probe + upgrade
+    # commands, so nothing real runs either).
+    monkeypatch.setenv("MJOLNIR_SKIP_DOCKER_CHECK", "1")
+    docker_version.reset_check_for_tests()
+    yield
+    docker_version.reset_check_for_tests()

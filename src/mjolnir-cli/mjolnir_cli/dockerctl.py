@@ -20,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-from mjolnir_cli import cachectl, overlays
+from mjolnir_cli import cachectl, docker_version, overlays
 from mjolnir_cli.config import (
     CONTAINER_NAME,
     HFCacheError,
@@ -102,6 +102,7 @@ class DockerError(RuntimeError):
 def _docker() -> str:
     if shutil.which("docker") is None:
         raise DockerError("docker not found on PATH")
+    docker_version.ensure_docker_version(offer=False)  # one notice per process; no prompt, nothing run
     return "docker"
 
 

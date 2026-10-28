@@ -120,6 +120,9 @@ def execute(
         console.print("[red]docker not found on PATH[/red]")
         return PREFLIGHT_RC, None
     if not dry_run:
+        from mjolnir_cli import docker_version
+
+        docker_version.ensure_docker_version(offer=False)  # the notice: no prompt, nothing run
         err = ensure_image(s.image)
         if err:
             console.print(f"[red]✗ {err}[/red]")
