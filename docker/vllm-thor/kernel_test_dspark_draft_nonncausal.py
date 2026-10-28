@@ -32,6 +32,7 @@ proves the real, patched code is *correct*, not just that the symbols landed:
 It self-skips (exit 0) on no-GPU / transient OOM so a plain (non --gpus) build
 passes; run with `--gpus all` to exercise it.
 """
+
 from __future__ import annotations
 
 import sys
@@ -53,8 +54,10 @@ import types
 # torch 2.13 raises `torch.AcceleratorError` (a RuntimeError subclass) on OOM;
 # older/newer versions use `torch.cuda.OutOfMemoryError`.
 _ALLOC_ERRS: tuple[type, ...] = tuple(
-    filter(None, [getattr(torch, "AcceleratorError", None)]
-    + [getattr(getattr(torch, "cuda", None), "OutOfMemoryError", None)])
+    filter(
+        None,
+        [getattr(torch, "AcceleratorError", None)] + [getattr(getattr(torch, "cuda", None), "OutOfMemoryError", None)],
+    )
 ) or (RuntimeError,)
 _ALLOC_RETRIES = 8
 _ALLOC_RETRY_SLEEP = 5.0
@@ -82,35 +85,35 @@ Q = 7  # num_query_per_req (K=7 drafter)
 
 
 def _spec() -> AttentionSpec:
-    return AttentionSpec(block_size=PAGE, num_kv_heads=NKV, head_size=HD,
-                         dtype=torch.bfloat16)
+    return AttentionSpec(block_size=PAGE, num_kv_heads=NKV, head_size=HD, dtype=torch.bfloat16)
 
 
 def _gate_cfg(non_causal: bool, has_spec: bool):
     return types.SimpleNamespace(
         attention_config=types.SimpleNamespace(use_non_causal=non_causal),
         parallel_config=types.SimpleNamespace(decode_context_parallel_size=1),
-        model_config=types.SimpleNamespace(
-            get_num_attention_heads=lambda pc: NH),
-        speculative_config=(types.SimpleNamespace(num_speculative_tokens=Q)
-                            if has_spec else None),
+        model_config=types.SimpleNamespace(get_num_attention_heads=lambda pc: NH),
+        speculative_config=(types.SimpleNamespace(num_speculative_tokens=Q) if has_spec else None),
     )
 
 
 def _gate() -> None:
     import vllm.v1.attention.backends.flashinfer as fi
+
     orig = fi.can_use_trtllm_attention
     fi.can_use_trtllm_attention = lambda **kw: False
     try:
-        assert FlashInferMetadataBuilder.get_cudagraph_support(
-            _gate_cfg(True, True), _spec()) == AttentionCGSupport.UNIFORM_BATCH
-        assert FlashInferMetadataBuilder.get_cudagraph_support(
-            _gate_cfg(True, False), _spec(
-        )) == AttentionCGSupport.UNIFORM_SINGLE_TOKEN_DECODE
+        assert (
+            FlashInferMetadataBuilder.get_cudagraph_support(_gate_cfg(True, True), _spec())
+            == AttentionCGSupport.UNIFORM_BATCH
+        )
+        assert (
+            FlashInferMetadataBuilder.get_cudagraph_support(_gate_cfg(True, False), _spec())
+            == AttentionCGSupport.UNIFORM_SINGLE_TOKEN_DECODE
+        )
     finally:
         fi.can_use_trtllm_attention = orig
-    print("PASS T1 gate (non-causal+drafter->UNIFORM_BATCH; "
-          "no-drafter->SINGLE_TOKEN)")
+    print("PASS T1 gate (non-causal+drafter->UNIFORM_BATCH; no-drafter->SINGLE_TOKEN)")
 
 
 def _build_builder():
@@ -127,8 +130,21 @@ def _build_builder():
     b.use_dcp = False
     b.use_dedicated_xqa = False
     b.use_trtllm_decode_attention = False
+    # __init__ derives use_xqa from flashinfer_trtllm_api_decode_kernel == XQA
+    # (None here -> False); the patched build() reads it on every route.
+    b.use_xqa = False
     b.flashinfer_trtllm_api_decode_kernel = None
     b.use_trtllm_gen_varlen_decode = False
+    # __init__-derived scalars the patched build() reads:
+    # the non-VLLM_BATCH_INVARIANT split defaults, the spec-token count and
+    # the NVFP4 flags (is_kvcache_nvfp4 is False here -> no trtllm-gen).
+    b._num_speculative_tokens = 0
+    b.decode_fixed_split_size = -1
+    b.prefill_fixed_split_size = -1
+    b.disable_split_kv = False
+    b.dcp_kv_cache_interleave_size = 1
+    b.nvfp4_trtllm = False
+    b.nvfp4_fa2 = False
     b.enable_cuda_graph = True
     b._decode_cudagraph_max_bs = 1024
     b.enable_full_decode_cudagraph = True
@@ -137,18 +153,18 @@ def _build_builder():
     b.kv_cache_dtype = torch.bfloat16
     b.q_data_type_prefill = torch.bfloat16
     b.q_data_type_decode = torch.bfloat16
-    b.sm_scale = 1.0 / (HD ** 0.5)
+    b.sm_scale = 1.0 / (HD**0.5)
     b.window_left = -1
     b.logits_soft_cap = 0.0
     b.has_sinks = False
     b.global_hyperparameters = types.SimpleNamespace(
-        has_sinks=False, has_same_window_lefts=True, has_same_all_params=True)
-    b.cache_config = types.SimpleNamespace(
-        get_resolved_kv_cache_layout=lambda: KVCacheLayout.LBNHC)
+        has_sinks=False, has_same_window_lefts=True, has_same_all_params=True
+    )
+    b.cache_config = types.SimpleNamespace(get_resolved_kv_cache_layout=lambda: KVCacheLayout.LBNHC)
     b.model_config = types.SimpleNamespace(dtype=torch.bfloat16)
     b.attention_config = types.SimpleNamespace(
-        use_non_causal=True, use_trtllm_attention=None,
-        disable_flashinfer_q_quantization=False)
+        use_non_causal=True, use_trtllm_attention=None, disable_flashinfer_q_quantization=False
+    )
     b.compilation_config = types.SimpleNamespace(max_cudagraph_capture_size=None)
     b.max_num_reqs = 16
     b._workspace_buffer = None
@@ -159,26 +175,14 @@ def _build_builder():
     b._noncausal_prefill_wrappers_cudagraph = {}
     b._decode_mask_cache = {}
     # Real CpuGpuBuffer keeps .cpu (torch) and .np (numpy) as views of the
-    # same pinned memory; _compute_flashinfer_kv_metadata writes .np and
-    # build() reads .cpu to hand to the wrapper, so they must stay in sync.
-    import numpy as _np
-    _ind_np = _np.zeros(64, dtype=_np.int32)
-    _ind_cpu = torch.from_numpy(_ind_np)
-    b.paged_kv_indptr = type("B", (), {
-        "gpu": torch.zeros(64, dtype=torch.int32, device=dev),
-        "cpu": _ind_cpu,
-        "np": _ind_np,
-    })()
-    _lpl_np = _np.zeros(64, dtype=_np.int32)
-    _lpl_cpu = torch.from_numpy(_lpl_np)
-    b.paged_kv_last_page_len = type("B", (), {
-        "gpu": torch.zeros(64, dtype=torch.int32, device=dev),
-        "cpu": _lpl_cpu,
-        "np": _lpl_np,
-    })()
+    # same memory and provides the copy_to_gpu that
+    # _compute_flashinfer_kv_metadata writes through.
+    from vllm.v1.utils import CpuGpuBuffer
+
+    b.paged_kv_indptr = CpuGpuBuffer(64, dtype=torch.int32, device=dev, pin_memory=False)
+    b.paged_kv_last_page_len = CpuGpuBuffer(64, dtype=torch.int32, device=dev, pin_memory=False)
     b.paged_kv_indices = torch.zeros(1024, dtype=torch.int32, device=dev)
-    b._nc_prefill_qo_indptr_buf = torch.zeros(
-        32, dtype=torch.int32, device=dev)
+    b._nc_prefill_qo_indptr_buf = torch.zeros(32, dtype=torch.int32, device=dev)
     b._draft_seq_lens_gpu = None
     b._draft_block_table = None
     b.max_num_batched_tokens = 4096
@@ -192,26 +196,22 @@ def _common(num_reqs: int, ctx: list[int], q_len: int):
     dev = torch.device("cuda")
     max_blocks = max(c // PAGE + (1 if c % PAGE else 0) for c in ctx) + 1
     qsl = torch.arange(num_reqs + 1, dtype=torch.int32, device=dev) * q_len
-    block_table_tensor = torch.zeros(
-        num_reqs, max_blocks, dtype=torch.int32, device=dev)
+    block_table_tensor = torch.zeros(num_reqs, max_blocks, dtype=torch.int32, device=dev)
     for r in range(num_reqs):
         base = r * 32
         n = ctx[r] // PAGE + (1 if ctx[r] % PAGE else 0)
-        block_table_tensor[r, :n] = torch.arange(
-            base, base + n, dtype=torch.int32, device=dev)
+        block_table_tensor[r, :n] = torch.arange(base, base + n, dtype=torch.int32, device=dev)
     return CommonAttentionMetadata(
         query_start_loc=qsl,
         query_start_loc_cpu=qsl.cpu().clone(),
         seq_lens=torch.tensor(ctx, dtype=torch.int32, device=dev),
-        seq_lens_cpu_upper_bound=torch.tensor(
-            ctx, dtype=torch.int32, device="cpu"),
+        seq_lens_cpu_upper_bound=torch.tensor(ctx, dtype=torch.int32, device="cpu"),
         num_reqs=num_reqs,
         num_actual_tokens=num_reqs * q_len,
         max_query_len=q_len,
         max_seq_len=max(ctx),
         block_table_tensor=block_table_tensor,
-        slot_mapping=torch.zeros(num_reqs * q_len, dtype=torch.int64,
-                                 device=dev),
+        slot_mapping=torch.zeros(num_reqs * q_len, dtype=torch.int64, device=dev),
         causal=False,
     )
 
@@ -229,8 +229,8 @@ def _ref_noncausal(k, v, q, ctx, block_table_tensor) -> torch.Tensor:
         vr = v[pgs].reshape(-1, NKV, HD)[:L].permute(1, 0, 2).float()
         kr_rep = torch.stack([kr[i // g] for i in range(NH)])
         vr_rep = torch.stack([vr[i // g] for i in range(NH)])
-        qr = q[r * Q:(r + 1) * Q].float()
-        s = (qr.permute(1, 0, 2) @ kr_rep.transpose(1, 2)) / (HD ** 0.5)
+        qr = q[r * Q : (r + 1) * Q].float()
+        s = (qr.permute(1, 0, 2) @ kr_rep.transpose(1, 2)) / (HD**0.5)
         s = s.softmax(-1)
         o = s @ vr_rep
         out.append(o.to(torch.bfloat16).permute(1, 0, 2).reshape(Q, NH, HD))
@@ -239,22 +239,26 @@ def _ref_noncausal(k, v, q, ctx, block_table_tensor) -> torch.Tensor:
 
 def _kv_pages(num_pages: int):
     dev = torch.device("cuda")
-    return (torch.randn(num_pages, PAGE, NKV, HD, device=dev,
-                         dtype=torch.bfloat16),
-            torch.randn(num_pages, PAGE, NKV, HD, device=dev,
-                        dtype=torch.bfloat16))
+    return (
+        torch.randn(num_pages, PAGE, NKV, HD, device=dev, dtype=torch.bfloat16),
+        torch.randn(num_pages, PAGE, NKV, HD, device=dev, dtype=torch.bfloat16),
+    )
 
 
 def main() -> int:
     _gate()  # T1 needs no big GPU alloc; run it first
 
     if not _gpu_ok():
-        print("kernel test dspark-noncausal: SKIPPED (no GPU / "
-              "OOM-saturated). Re-run the build with --gpus all to exercise "
-              "the non-causal cudagraph path.", flush=True)
+        print(
+            "kernel test dspark-noncausal: SKIPPED (no GPU / "
+            "OOM-saturated). Re-run the build with --gpus all to exercise "
+            "the non-causal cudagraph path.",
+            flush=True,
+        )
         return 0
 
     import vllm.v1.attention.backends.flashinfer as fi
+
     orig = fi.can_use_trtllm_attention
     fi.can_use_trtllm_attention = lambda **kw: False
     try:
@@ -270,18 +274,15 @@ def main() -> int:
         assert isinstance(w, BatchPrefillWithPagedKVCacheWrapper)
         assert w.is_cuda_graph_enabled, "non-causal must use cuda-graph wrapper"
         assert w._fixed_batch_size == 2
-        assert any(x is w for x in
-                   b._noncausal_prefill_wrappers_cudagraph.values())
+        assert any(x is w for x in b._noncausal_prefill_wrappers_cudagraph.values())
         # a causal batch must NOT use the non-causal cudagraph wrapper
         causal_common = _common(2, ctx_a, Q)
         causal_common.causal = True
         cmeta = b.build(common_prefix_len=0, common_attn_metadata=causal_common)
         cw = getattr(cmeta.prefill, "wrapper", None)
         assert cw is not w, "causal batch must not reuse the non-causal wrapper"
-        assert not (cw is not None and any(x is cw for x in
-                    b._noncausal_prefill_wrappers_cudagraph.values()))
-        print("PASS T2 routing (non-causal->cudagraph wrapper B=2; "
-              "causal->eager wrapper)")
+        assert not (cw is not None and any(x is cw for x in b._noncausal_prefill_wrappers_cudagraph.values()))
+        print("PASS T2 routing (non-causal->cudagraph wrapper B=2; causal->eager wrapper)")
 
         # ---- T3 correctness vs reference ----
         q = torch.randn(2 * Q, NH, HD, device=dev, dtype=torch.bfloat16)
@@ -323,8 +324,7 @@ def main() -> int:
         for _ in range(8):
             plan_with(ctx_c)
             gr.replay()
-            if (oc.reshape(2 * Q, NH, HD).float()
-                    - first.float()).abs().max().item() > 1e-3:
+            if (oc.reshape(2 * Q, NH, HD).float() - first.float()).abs().max().item() > 1e-3:
                 ok = False
                 break
         assert ok
