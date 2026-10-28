@@ -120,7 +120,14 @@ def make_case(
         lut = e2m3_values("cpu")  # (64,) fp32
         scale_h = (raw.amax(dim=(0, 1, 3)) / 7.5).clamp_min(1e-6)  # (h_k,)
         mag = (raw / scale_h.view(1, 1, h_k, 1)).clamp(-7.5, 7.5)
-        codes = (mag.unsqueeze(-1) - lut.view(1, 1, 1, 1, 64)).abs().argmin(-1).to(torch.uint8)
+        # The LUT argmin is chunked over pages: the full broadcast builds a
+        # (pages, 16, h_k, d, 64) fp32 intermediate (68.6 GB at L=262144 —
+        # the OOM killer). Chunking is bit-identical (argmin is per element)
+        # at a ~2 GB peak.
+        codes = torch.empty(num_pages, page_size, h_k, d, dtype=torch.uint8)
+        for p0 in range(0, num_pages, 512):
+            sl = slice(p0, min(p0 + 512, num_pages))
+            codes[sl] = (mag[sl].unsqueeze(-1) - lut.view(1, 1, 1, 1, 64)).abs().argmin(-1).to(torch.uint8)
         codes |= ((mag < 0).to(torch.uint8)) << 5  # sign bit (bit 5)
         c = codes.reshape(num_pages, page_size, h_k, d // 4, 4).to(torch.int32)
         b0 = c[..., 0] | ((c[..., 1] & 3) << 6)
