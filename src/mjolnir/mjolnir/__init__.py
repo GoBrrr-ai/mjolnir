@@ -60,6 +60,17 @@ def has_native_member() -> bool:
 def register() -> None:
     if _disabled():
         return
+    # vLLM > 0.32.0: the fp6_e2m3 KV dtype registers through the pluggable
+    # dtype API (vLLM #52670) instead of the image patch — a no-op on
+    # 0.32.0 and on a base where the patch already added it.
+    try:
+        from .kvdtype import register as _register_kv_dtype
+
+        _register_kv_dtype()
+    except Exception as e:  # noqa: BLE001 - never break vLLM startup
+        import logging
+
+        logging.getLogger("vllm.mjolnir").warning("Mjolnir fp6 KV dtype not registered: %r", e)
     if os.environ.get("MJOLNIR_ATTN_DEBUG", "").strip():
         # The IMA hunt: the engine core is a child process that inherits this
         # env before its CUDA runtime initializes, so faulting kernels are
