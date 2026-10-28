@@ -86,6 +86,7 @@ _COMPILE_LOCK = threading.Lock()
 # compiles in-process as before and turns the cache off for the process.
 # ----------------------------------------------------------------------------
 _DISK_MODULES: dict = {}  # keep loaded modules alive
+_LOAD_MODES: dict[str, list[str]] = {}  # family -> load modes that worked (best first)
 CACHE_STATS = {"loaded": 0, "compiled": 0}
 _disk_cache_ok = True
 
@@ -152,11 +153,27 @@ def _disk_load(key, kernel_path: str, family: str):
             return None
         import cutlass.cute as cute
 
-        # The compiled fn is a TVM-FFI object (--enable-tvm-ffi), so the
-        # store wrote an FFI-symbol-only object; load it in TVM-FFI mode or
-        # the executor-style load demands an _args_spec symbol the export
-        # never writes (every load failed, every process recompiled ~16s).
-        module = cute.runtime.load_module(str(entry[0]), enable_tvm_ffi=True)
+        # The two families export differently-shaped objects: the Orin's
+        # binaries are TVM-FFI-traced (+s1 stream marker — see its runner),
+        # so only the FFI-mode load finds their symbol; the Thor's export
+        # carries the executor symbol the plain load wraps. Try the family's
+        # remembered mode first, then the other, before giving up (the load
+        # runs once per variant per process).
+        default = ["ffi", "plain"] if family == "orin" else ["plain", "ffi"]
+        modes = _LOAD_MODES.setdefault(family, default)
+        module = None
+        for mode in list(modes):
+            try:
+                module = cute.runtime.load_module(str(entry[0]), enable_tvm_ffi=(mode == "ffi"))
+                getattr(module, entry[1])
+                break
+            except Exception:  # noqa: BLE001 - wrong mode for this object
+                module = None
+        if module is None:
+            raise RuntimeError(f"no load mode read {entry[0].name} ({modes})")
+        if modes[0] != mode:
+            modes.remove(mode)
+            modes.insert(0, mode)
         fn = getattr(module, entry[1])
         _DISK_MODULES[key] = module
         _log.debug("Mjolnir: loaded %s from %s", key, entry[0])
