@@ -274,9 +274,11 @@ def expand_pages_to_fp8(
     assert 2 * row_bytes(d) == C and out.shape[1:] == (H, N, 2 * d) and out.stride(3) == 1
     if P == 0:
         return out[:0]
+    has_ratio = k_ratio is not None or v_ratio is not None
+    mixed = (k_ratio is None) != (v_ratio is None)
     # Triton's fp8e4nv needs sm_89+; sm_87 has no e4m3 cvt, so the continuous
-    # requant falls back to torch there. sm_110 keeps the fused kernel.
-    if (k_ratio is not None or v_ratio is not None) and torch.cuda.get_device_capability(kv_cache.device) < (8, 9):
+    # requant falls back to torch there. sm_89+ keeps the fused RATIO kernel.
+    if has_ratio and (mixed or torch.cuda.get_device_capability(kv_cache.device) < (8, 9)):
         return _expand_ratio_torch(kv_cache, src_blocks, out, d, k_ratio, v_ratio)
     _expand_kernel[(P, H, N)](
         kv_cache,
@@ -289,10 +291,10 @@ def expand_pages_to_fp8(
         out.stride(0),
         out.stride(1),
         out.stride(2),
-        out,
-        out,
+        k_ratio if k_ratio is not None else out,
+        v_ratio if v_ratio is not None else out,
         e2m3_values(kv_cache.device),
-        RATIO=False,
+        RATIO=has_ratio,
         D=d,
         G_BLOCK=triton.next_power_of_2(d // 4),
         num_warps=1,
