@@ -1,6 +1,6 @@
 # Correctness matrix
 
-> kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype · `mjolnir verify correctness` · run `20261028-001015`
+> kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype · `mjolnir verify correctness` · run `20261028-092639`
 
 ## The question
 
@@ -22,7 +22,7 @@ Before any speed number counts, the kernel has to compute the same thing as atte
 | shapes / batches | ✅ 24/24 | bf16 |
 | KV formats | ✅ 24/24 | bf16 |
 
-<sub>Rendered from [`benchmarks/raw/verify/correctness/20261028-001015.json`](../../../../benchmarks/raw/verify/correctness/20261028-001015.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/correctness/20261028-092639.json`](../../../../benchmarks/raw/verify/correctness/20261028-092639.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
