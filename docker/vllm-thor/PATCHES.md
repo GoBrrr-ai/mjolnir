@@ -646,3 +646,30 @@ as a backstop) and changes nothing for ordinary logits (upstream: 24/24
 randomized rows identical before/after). Sentinel: `THOR_SPEC_SPLIT_TOPP`.
 **Drop when upstream merges #58231 — it is merged 2026-10-19, first release
 after 0.32.0.**
+
+## Open upstream watch list (assessed 2026-10-28, base v0.32.0)
+
+Status of every open PR relevant to Thor after the #62133 merge — what to
+pre-patch (nothing), what to take at the next bump (both images inherit it,
+so the e2e attention delta stays the only variable), and what to keep out of
+the image on purpose:
+
+- **Already carried here:** #62275 (the cutlass-fp4-moe-guard patch —
+  essential for the Qwen3.6-35B-A3B NVFP4 MoE) and #54165 (the
+  mamba-spec-kv-restore patch; #54163 took its gating half — see its row).
+- **Take at the next bump, not before:** #53337/#44590 (Thor-tuned Triton
+  `selective_state_update` — our image serves the hybrid model on the fused
+  CUDA GDN decode kernel, so one-sided adoption would change nothing for our
+  configs while contaminating the e2e comparison) and #60566 (screened
+  lm_head — MRV2, explicitly targets Thor, +7.7% greedy on Thor-class hw,
+  but a moving target, mutually exclusive with `MJOLNIR_LM_HEAD=fp8`
+  (a quantized head raises at load), and default-on would inflate our e2e;
+  benchmark it against LMH8 at bump time instead).
+- **Keep out on purpose:** #55366 (SM110 FA4 auto-selection — changes the
+  stock default our official-image baselines must reflect; add a new
+  official leg when it lands), #56084/#56102 (cooperative-topk — QSA-model
+  path, not our models), #53520 (prompt_logprobs corruption — V1-runner
+  only; our image runs MRV2 and no bench reads prompt_logprobs),
+  #54705 (fp8-KV scales — SM100-scoped; our kernel owns sm_110 fp8-KV),
+  #53383 (ROCm), #58868 (mmap fault-in — startup-time only).
+- **Closed unmerged — our patches stay:** #50885, #49652, #55519, #56289.
