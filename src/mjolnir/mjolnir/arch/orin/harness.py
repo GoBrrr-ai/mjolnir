@@ -90,6 +90,7 @@ def make_case(
     fp8_q: bool,
     seed: int = 7,
     device: str = "cuda",
+    layout: str = "nhd",
 ):
     """A random case: bf16 Q, e4m3/bf16 KV pool + block table + descales.
 
@@ -136,7 +137,15 @@ def make_case(
         kv = torch.stack((b0, b1, b2), -1).reshape(num_pages, page_size, h_k, d * 3 // 4).to(torch.uint8).to(device)
         kd = scale_h.view(1, h_k).to(device).expand(b, h_k).contiguous()
         vd = kd.clone()
+        if layout == "hnd":
+            # head-major STORAGE presented in the runner's logical shape
+            # (the strides carry the physical order — split_kv_cache's contract)
+            kv = kv.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+            raw = raw.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
         return q, kv, table, seq_lens, qd, kd, vd, raw
+    if layout == "hnd":
+        kv = kv.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+        raw = raw.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
     return q, kv, table, seq_lens, qd, kd, vd, raw
 
 
@@ -168,6 +177,7 @@ def check(args) -> bool:
         args.q_dtype == "fp8",
         seed=args.seed,
         device=dev,
+        layout=args.kv_layout,
     )
     b = args.batches
     scale = 1.0 / math.sqrt(args.headdim)
@@ -264,6 +274,7 @@ def bench(args) -> None:
         args.q_dtype == "fp8",
         seed=args.seed,
         device=dev,
+        layout=args.kv_layout,
     )
     b = args.batches
     scale = 1.0 / math.sqrt(args.headdim)
@@ -349,7 +360,14 @@ def main() -> int:
     p.add_argument("--headdim", "--d", type=int, default=256)
     p.add_argument("--page_size", "--ps", type=int, default=16, choices=(16, 32, 64, 128))
     p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "e2m3"))
-    p.add_argument("--kv_layout", default="hnd", choices=("hnd", "nhd"))
+    p.add_argument(
+        "--kv_layout",
+        default="nhd",
+        choices=("hnd", "nhd"),
+        help="the PHYSICAL pool arrangement the case builds: nhd = "
+        "token-major (np, ps, h_k, row) — what vLLM allocates; hnd = "
+        "head-major (np, h_k, ps, row) — contiguous per-head rows",
+    )
     p.add_argument("--q_dtype", default="bf16", choices=("bf16", "fp8"))
     p.add_argument("--non_causal", action="store_true")
     p.add_argument("--seed", type=int, default=7)
@@ -377,12 +395,6 @@ def main() -> int:
     args = p.parse_args()
     assert args.q_dtype == "bf16", "the mma kernel takes a bf16 query (the fp8-Q pack was the retired GEMV's; M3)"
     assert args.ctas_per_sm == 2, "the Orin mma grid is pinned at 2 CTAs/SM (255 regs + the smem bind)"
-    if args.kv_layout == "nhd":
-        # The mma consumes the shared machinery's head-major LOGICAL views
-        # (whatever the vLLM pool layout, detect/split hands the runner HND);
-        # the layout question is the backend's, so this flag is informational.
-        print("note: the Orin mma consumes HND logical views regardless of the vLLM pool layout")
-
     ok = True
     if args.sweep:
         for ps in (16, 32, 64, 128):
