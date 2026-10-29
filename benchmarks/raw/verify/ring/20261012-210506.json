@@ -1416,5 +1416,7 @@
    ]
   }
  ],
- "summary": {}
+ "summary": {},
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }

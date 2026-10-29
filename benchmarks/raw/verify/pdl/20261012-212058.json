@@ -166,5 +166,7 @@
    "delta_pct": -3.111622642469256
   }
  ],
- "summary": {}
+ "summary": {},
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }
