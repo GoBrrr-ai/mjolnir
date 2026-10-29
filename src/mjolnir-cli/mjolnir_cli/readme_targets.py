@@ -368,7 +368,49 @@ class Platform:
             serving = [c for c in dirs if exists_on(c.path, self.key)]
             dflt = next((c for c in serving if c.quant == DEFAULT_QUANT), serving[0] if serving else None)
             measured = any(platform_of(r) == self.key and model_of(r) == m for r in history)
-            rows.append(PlatformModel(model=m, default_config=dflt.quant if dflt else "", measured=measured))
+            # the speed cells (root Supported Models rule): the fastest-by-
+            # decode serving config's latest merged run — decode tokens/s at
+            # (1, 0), prefill tokens/s at (1, 8K) of that same config
+            from mjolnir_cli import e2e  # lazy: the history readers
+
+            by_cfg: dict[str, list[dict]] = {}
+            for r in history:
+                if platform_of(r) == self.key and model_of(r) == m and r.get("cells"):
+                    by_cfg.setdefault(str(r.get("config") or ""), []).append(r)
+            best_tps: float | None = None
+            best_pp: float | None = None
+            best_config = ""
+            for c in serving:
+                merged = e2e._merge(by_cfg.get(c.quant, []))
+                if not merged:
+                    continue
+                cell = e2e.cell(merged, 1, 0)
+                v = e2e.value(cell, "tg_tps")
+                if v is not None and (best_tps is None or v > best_tps):
+                    best_tps = v
+                    best_pp = e2e.value(e2e.cell(merged, 1, 8192), "pp_tps")
+                    best_config = c.quant
+            states = [config_cell(c.path, c.quant, self.key).state for c in serving]
+            if not serving:
+                symbol = "—"
+            elif availability.NATIVE in states:
+                symbol = SYMBOLS[availability.NATIVE]
+            elif set(states) == {availability.UNAVAILABLE}:
+                symbol = SYMBOLS[availability.UNAVAILABLE]
+            else:
+                symbol = SYMBOLS[availability.FALLBACK]
+            decode = symbol if not serving else (f"{symbol} {best_tps:.1f} t/s" if best_tps is not None else symbol)
+            prefill = "—" if not serving else (f"{best_pp:.1f} t/s" if best_pp is not None else symbol)
+            rows.append(
+                PlatformModel(
+                    model=m,
+                    default_config=dflt.quant if dflt else "",
+                    measured=measured,
+                    decode=decode,
+                    prefill=prefill,
+                    best_config=best_config,
+                )
+            )
         overview = Path("")
         if layout.repo_root:
             overview = layout.repo_root / "docs" / "platforms" / self.key / "overview.md"
@@ -539,11 +581,17 @@ class PlatformModel:
     """One row of a platform page's models table (cycle 3k §1): the model,
     its default config on the platform and whether the (platform, model)
     pair has end-to-end data. The default-config rule lives on
-    :meth:`Platform.build_context`."""
+    :meth:`Platform.build_context`. decode/prefill carry the rendered speed
+    cells (symbol, or symbol + t/s from the fastest-by-decode serving
+    config's latest merged run — decode at (1, 0), prefill at (1, 8K));
+    ``best_config`` is that config's name (the cells' hover title)."""
 
     model: str
     default_config: str
     measured: bool
+    decode: str = ""
+    prefill: str = ""
+    best_config: str = ""
 
 
 @dataclass(frozen=True)

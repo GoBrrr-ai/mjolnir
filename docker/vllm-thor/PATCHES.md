@@ -486,8 +486,8 @@ decode, T5 on an fp6 cache vs the emulator) and `smoke_vllm.py --kv fp6_e2m3`
 ## fp6 prefill direct-read — `patches/fi-fp6-kv-ampere-prefill.patch` (2026-10-27)
 
 **What:** FlashInfer's Ampere FA2 prefill learns to read the packed-fp6
-(e2m3) KV cache **directly — no fp8 scratch expansion**. Research verdict
-(`docs/stack-research/fp6-prefill-direct.md`): sm_87 has no fp8 tensor cores,
+(e2m3) KV cache **directly — no fp8 scratch expansion**. Research verdict:
+sm_87 has no fp8 tensor cores,
 so FlashInfer already dequantizes quantized KV in-kernel on Ampere ("essentially
 free", its own PR #4746) — and NVFP4 KV (software unpack) runs there at ≈fp8
 speed after #4769. The fp6 path is the same machinery with a different unpack.
@@ -520,8 +520,7 @@ speed after #4769. The fp6 path is the same machinery with a different unpack.
 `e4m3(code · s_c)` with scales at 1; the kernel now computes the same bytes
 per tile. **Fragility:** the per-j gmem scalars and the j-loop bound are the
 bump-fragile parts — re-derive `upcast_size` and the fp4/fp8 scalars from the
-new base's `produce_kv` before re-adapting (the full recipe lives in
-`docs/stack-research/fp6-prefill-direct.md`). **Validation status: patch
+new base's `produce_kv` before re-adapting. **Validation status: patch
 applies to the pinned tree, the headers + the fp6 expand instantiation
 compile for sm_87 (nvcc, CPU-side); runtime canary + the vLLM-side
 `MJOLNIR_ATTN_FP6_DIRECT` wiring are pending.**

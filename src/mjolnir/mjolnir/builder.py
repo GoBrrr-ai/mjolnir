@@ -112,9 +112,9 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
         self._kv_format = _kv_format(getattr(vllm_config.cache_config, "cache_dtype", "auto"))
         self._fp6 = self._kv_format == "e2m3"
         # MJOLNIR_FP6_DIRECT: the scratchpad-free fp6 fallback — the patched
-        # FlashInfer Ampere prefill reads the packed pool directly (docs/
-        # stack-research/fp6-prefill-direct.md). Ampere fa2 only: the patch's
-        # produce/expand live in the sm80-family prefill kernel.
+        # FlashInfer Ampere prefill reads the packed pool directly.
+        # Ampere fa2 only: the patch's produce/expand live in the
+        # sm80-family prefill kernel.
         self._fp6_direct = (
             self._fp6
             and _FALLBACK == "FLASHINFER"

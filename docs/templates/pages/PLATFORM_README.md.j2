@@ -15,16 +15,24 @@
 {% if ctx.chart_pair %}{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
 {% endif %}
 
-One row per model in `configs/` — the config the platform's overlays serve
-by default (the model page's quickstart rule) and whether the
-(platform, model) pair has end-to-end data. Per-config availability lives
-on each [model page](../../../configs/).
+## Supported Models
 
-| model | default config | measured |
-|---|---|---|
-{% for r in ctx.rows -%}
-| [`{{ r.model }}`](../../../configs/{{ r.model }}/README.md) | {% if r.default_config %}[`{{ r.default_config }}`](../../../configs/{{ r.model }}/{{ r.default_config }}/README.md){% else %}—{% endif %} | {{ "✅" if r.measured else "—" }} |
-{% endfor %}
+One row per model in `configs/` — the config the platform's overlays serve
+by default (the model page's quickstart rule) and the pair's measured
+speeds. Per-config availability lives on each [model page](../../../configs/).
+
+<table width="100%">
+  <thead>
+    <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
+  </thead>
+  <tbody>
+    {%- for r in ctx.rows %}
+    <tr><td align="left"><a href="../../../configs/{{ r.model }}/README.md"><code>{{ r.model }}</code></a></td><td align="center">{% if r.default_config %}<a href="../../../configs/{{ r.model }}/{{ r.default_config }}/README.md"><code>{{ r.default_config }}</code></a>{% else %}—{% endif %}</td><td align="center">{% if r.best_config %}<span title="{{ r.best_config }}">{{ r.decode }}</span>{% else %}{{ r.decode }}{% endif %}</td><td align="center">{% if r.best_config %}<span title="{{ r.best_config }}">{{ r.prefill }}</span>{% else %}{{ r.prefill }}{% endif %}</td></tr>
+    {%- endfor %}
+  </tbody>
+</table>
+
+> <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl]({{ root }}benchmarks/history.jsonl).</sub>
 
 {%- if ctx.kernel %}
 ## Kernel

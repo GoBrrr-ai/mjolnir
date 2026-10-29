@@ -276,42 +276,48 @@ def test_platforms_index_lists_every_platform_with_status_and_links(repo):
 def test_platform_readme_has_one_row_per_model_with_a_default_config(repo):
     """Cycle 3k §1: the models table is ONE row per `<org>/<model>` (linked to
     the model README) — never per config — with a default-config column
-    (linked) and a measured ✅/—. The default-config rule (documented on the
-    builder): no registry record carries a per-platform default config yet, so
-    it is the model page's quickstart rule — DEFAULT_QUANT when the platform's
+    (linked). The default-config rule (documented on the builder): no
+    registry record carries a per-platform default config yet, so it is the
+    model page's quickstart rule — DEFAULT_QUANT when the platform's
     overlays allow it, else the first config they allow (scan order)."""
     _render_all()
     thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
-    serving = _section(thor, "Serving")
-    rows = [ln for ln in serving.splitlines() if ln.startswith("| [`")]
+    serving = _section(thor, "Supported Models")
+    rows = [ln for ln in serving.splitlines() if ln.strip().startswith("<tr>")]
     assert len(rows) == 2, f"one row per model, got {len(rows)}: {rows}"
     m38 = _line(serving, f"configs/{M38}/README.md")
-    assert f"[`{FP6_QUANT}`](../../../configs/{M38}/{FP6_QUANT}/README.md)" in m38
+    assert f'href="../../../configs/{M38}/{FP6_QUANT}/README.md"' in m38
     m36 = _line(serving, f"configs/{M36}/README.md")
     # no M36 config is DEFAULT_QUANT, so the rule falls to the scan-first
     # config the overlays allow (NVFP4_FA2, a legacy thor-only dir)
-    assert f"[`NVFP4_FA2`](../../../configs/{M36}/NVFP4_FA2/README.md)" in m36
+    assert f'href="../../../configs/{M36}/NVFP4_FA2/README.md"' in m36
     # the availability-prose legend is gone: per-config availability lives on
     # the model page (cycle 3k §1)
     assert f"`{FP6_QUANT}` on Jetson AGX Thor:" not in thor
     spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    spark_rows = [ln for ln in _section(spark, "Serving").splitlines() if ln.startswith("| [`")]
+    spark_rows = [ln for ln in _section(spark, "Supported Models").splitlines() if ln.strip().startswith("<tr>")]
     assert len(spark_rows) == 2
     # spark's overlays serve NVFP4 first for M38; M36 has no spark config
-    assert "[`NVFP4`](../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md)" in _line(spark, f"configs/{M38}/README.md")
-    assert "| — | — |" in _line(spark, f"configs/{M36}/README.md")
+    assert 'href="../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md"' in _line(spark, f"configs/{M38}/README.md")
+    assert '<td align="center">—</td>' in _line(spark, f"configs/{M36}/README.md")
 
 
-def test_platform_readme_measured_column_follows_the_pair_history(repo):
-    """The measured column is ✅ when the (platform, model) pair has e2e
-    history, — otherwise (availability ≠ measured, decision 9)."""
+def test_platform_models_table_speeds_follow_the_pair_history(repo):
+    """The speed cells reuse the root Supported Models rule: the
+    fastest-by-decode serving config's latest merged run — decode at (1, 0),
+    prefill at (1, 8K) of that same config (its name in the hover title);
+    the bare ✅ when the pair serves but has no (1, 0) cell, — when no
+    config targets the platform."""
     _render_all()
-    thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
-    assert "✅" in _line(_section(thor, "Serving"), f"configs/{M38}/README.md")
-    assert "✅" in _line(_section(thor, "Serving"), f"configs/{M36}/README.md")
-    spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    assert "✅" in _line(_section(spark, "Serving"), f"configs/{M38}/README.md")
-    assert "| — |" in _line(_section(spark, "Serving"), f"configs/{M36}/README.md")
+    thor = _section((repo / "docs" / "platforms" / "thor" / "README.md").read_text(), "Supported Models")
+    m38 = _line(thor, f"configs/{M38}/README.md")
+    assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 52.7 t/s</span>' in m38
+    assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">9600.0 t/s</span>' in m38
+    m36 = _line(thor, f"configs/{M36}/README.md")
+    assert '<td align="center">✅</td>' in m36  # native, no (1, 0) cell in the fixture
+    spark = _section((repo / "docs" / "platforms" / "spark" / "README.md").read_text(), "Supported Models")
+    assert '<td align="center">✅</td>' in _line(spark, f"configs/{M38}/README.md")
+    assert '<td align="center">—</td>' in _line(spark, f"configs/{M36}/README.md")
 
 
 @pytest.mark.parametrize(
@@ -685,8 +691,7 @@ def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
     )
     assert (
         '<td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td>'
-        '<td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+</td></tr>'
-        in hw
+        '<td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+</td></tr>' in hw
     )
 
 
