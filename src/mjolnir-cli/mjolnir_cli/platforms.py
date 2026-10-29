@@ -79,7 +79,7 @@ class Platform:
     l2: str = ""
     # Renderer-facing data: the platform's emoji gif under assets/emoji/ (the
     # root README's platform strip). Empty = no dedicated art yet — the strip
-    # falls back to the generic Mjolnir hammer (mjolnir_emoji.gif).
+    # falls back to the generic Mjolnir hammer (mjolnir_emoji.png).
     emoji: str = ""
 
 
@@ -115,7 +115,7 @@ REGISTRY: dict[str, Platform] = {
         host_requirements="JetPack 7.x",
         short="Thor",
         headline_model="Qwen/Qwen3.8-27B",
-        emoji="mjolnir_thor_emoji.gif",
+        emoji="mjolnir_thor_emoji.png",
         mem_bandwidth_gbs=273.0,
         mem_label="LPDDR5X",
         l2="the 32 MiB L2",
@@ -134,7 +134,7 @@ REGISTRY: dict[str, Platform] = {
         status=_status("spark"),
         host_requirements="DGX OS + CUDA 13",
         short="Spark",
-        emoji="mjolni_spark_emoji.gif",
+        emoji="mjolni_spark_emoji.png",
         mem_bandwidth_gbs=273.0,
         mem_label="LPDDR5X",
     ),
@@ -157,7 +157,7 @@ REGISTRY: dict[str, Platform] = {
         # all this model): the pair its kernel index and `## End to end`
         # section render for
         headline_model="Qwen/Qwen3.8-27B",
-        emoji="mjolnir_orin_emoji.gif",
+        emoji="mjolnir_orin_emoji.png",
         mem_bandwidth_gbs=204.8,
         mem_label="LPDDR5",
         l2="the 4 MB L2",

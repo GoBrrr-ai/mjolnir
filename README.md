@@ -30,7 +30,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-## What is <img src="assets/emoji/mjolnir_emoji.gif" alt="Mjölnir" width="26" align="absmiddle"> Mjolnir?
+## What is <img src="assets/emoji/mjolnir_emoji.png" alt="Mjölnir" width="26" align="absmiddle"> Mjolnir?
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
@@ -42,7 +42,7 @@ mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 
 Every generated token re-reads the whole KV cache, so on an edge GPU **decode speed is a memory problem**. Stock vLLM on these boards reads bf16 (FlashAttention 2 — twice the bytes) or, at best, fp8; each Mjolnir kernel is written for its exact chip — the Thor's 20 SMs, 2 CTAs per SM, 32 MiB L2 and 273 GB/s of LPDDR5X, the Orin's 16 SMs and 204.8 GB/s of LPDDR5 — and the 6-bit `e2m3` KV format moves 25% fewer bytes than fp8 at near-fp8 accuracy.
 
-## <img src="assets/emoji/mjolnir_emoji.gif" alt="" width="26" align="absmiddle"> Key Features
+## <img src="assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Key Features
 
 <p align="center">
 <img src="assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
@@ -125,7 +125,7 @@ Every generated token re-reads the whole KV cache, so on an edge GPU **decode sp
 ## Quickstart
 
 > [!IMPORTANT]
-> Requirements: a supported board — <img src="assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> Jetson AGX Thor (JetPack 7.x), <img src="assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> Jetson Orin (JetPack 7.2.1+) or <img src="assets/emoji/mjolni_spark_emoji.gif" alt="" width="20" align="absmiddle"> DGX Spark (DGX OS + CUDA 13), see [Supported Hardware](#supported-hardware) — with Docker + the NVIDIA Container Toolkit, and [`uv`](https://docs.astral.sh/uv/).
+> Requirements: a supported board — <img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> Jetson AGX Thor (JetPack 7.x), <img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> Jetson Orin (JetPack 7.2.1+) or <img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> DGX Spark (DGX OS + CUDA 13), see [Supported Hardware](#supported-hardware) — with Docker + the NVIDIA Container Toolkit, and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 # the CLI (the package is mjolnir-cli; the command is `mjolnir`)
@@ -159,7 +159,7 @@ kernel results exist for its headline model — its own kernel case study.
 
 <table width="100%">
   <thead>
-    <tr><th></th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.gif" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.gif" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.gif" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></th></tr>
+    <tr><th></th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></th></tr>
   </thead>
   <tbody>
     <tr><td align="center"><strong>status</strong></td><td align="center">✅ supported</td><td align="center">⏳ research</td><td align="center">✅ supported</td></tr>
@@ -172,7 +172,7 @@ kernel results exist for its headline model — its own kernel case study.
 
 <table width="100%">
   <thead>
-    <tr><th align="left">model</th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.gif" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
+    <tr><th align="left">model</th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
   </thead>
   <tbody>
     <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_E2M3_VT64K">✅ 22.2 t/s</span></td></tr>
@@ -268,5 +268,5 @@ Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches
 
 <br />
 
-<p align="center"><sub><img src="assets/emoji/mjolnir_emoji.gif" alt="Mjölnir" width="20" align="absmiddle"> Mjölnir — built on and for the edge ❤️.</sub></p>
+<p align="center"><sub><img src="assets/emoji/mjolnir_emoji.png" alt="Mjölnir" width="20" align="absmiddle"> Mjölnir — built on and for the edge ❤️.</sub></p>
 <p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>

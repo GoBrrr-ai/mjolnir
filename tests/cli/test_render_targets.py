@@ -668,7 +668,7 @@ def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
     hw = _section((repo / "README.md").read_text(), "Supported Hardware")
     # the header row: emoji art over the bold linked name, one cell per platform
     assert 'width="72"><br><strong>Jetson AGX Thor</strong></a>' in hw
-    assert "assets/emoji/mjolnir_thor_emoji.gif" in hw
+    assert "assets/emoji/mjolnir_thor_emoji.png" in hw
     for p in platforms.REGISTRY.values():
         assert hw.count(f"<strong>{p.name}</strong></a>") == 1
     # the key rows: status (icon + word, registry-derived), kernel (the

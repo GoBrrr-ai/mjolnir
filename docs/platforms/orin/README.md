@@ -4,10 +4,10 @@
 
 # Jetson Orin
 
-> <img src="../../../assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> **supported** platform · `sm_87` · host requirements: JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) · [all platforms](../README.md)
+> <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> **supported** platform · `sm_87` · host requirements: JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) · [all platforms](../README.md)
 
 
-<img src="../../../assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> The `sm_87` mma kernel — a CuTe-DSL port of NVIDIA's Ampere FlashAttention-2
+<img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> The `sm_87` mma kernel — a CuTe-DSL port of NVIDIA's Ampere FlashAttention-2
 example, restructured for paged decode — targets AGX Orin 64GB (16 SMs,
 204.8 GB/s of LPDDR5, 4 MB L2) and serves fp8 and fp6 (`e2m3`) KV; it is
 serving-validated and measured against the FlashInfer FA2-TC reference, with
