@@ -79,7 +79,10 @@ class KernelKey:
 def _mma_variant() -> str:
     import os
 
-    return ",".join(f"{k}={os.environ.get(k, '')}" for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH"))
+    return ",".join(
+        f"{k}={os.environ.get(k, '')}"
+        for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC")
+    )
 
 
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
@@ -117,7 +120,9 @@ class OrinDecodeRunner:
         # s3: the M-tile dispatch defaults ON (mma.py reads MJOLNIR_MMA16 /
         # MJOLNIR_REGPATH as opt-OUT now) -- same env string, different
         # code, so the pre-s3 binaries are orphaned too.
-        self._variant = _mma_variant() + "+s3"  # read once: _key() is per call
+        self._variant = _mma_variant() + "+s4"  # read once: _key() is per call
+        # s4: MJOLNIR_WARPSPEC joined the variant key (the B1 warp-spec
+        # kernels must not reuse the pre-s4 binaries).
         from mjolnir.arch.orin import mma as mma_kernel
 
         assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (

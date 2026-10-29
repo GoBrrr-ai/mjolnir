@@ -53,6 +53,7 @@ import cutlass.cute as cute
 from cutlass import Float32, Int32, const_expr
 from cutlass.cute.nvgpu import cpasync
 from cutlass.cute.nvgpu.warp import LdMatrix8x8x16bOp, MmaF16BF16Op
+import cutlass.pipeline as pipeline
 
 import cuda.bindings.driver as cuda
 
@@ -132,6 +133,13 @@ class MMADecodeKernel:
         # Probe only — the smem still binds at 2 CTAs until the register
         # paths land, so this measures the cap's spill/ILP cost alone.
         self.regcap = os.environ.get("MJOLNIR_REGCAP", "") == "1"
+        # The warp-spec producers/consumers (the B1, task/plan/b1-warpspec-design.md):
+        # the warps 0-1 dequant the stage i+1 staging tile into the second bf16
+        # ring bank while the all-4-warps mma reads the stage i's bank — the
+        # named full/empty barriers per bank. Active on the plain small-tile
+        # path only (the fp6 M=1-5 / MT=32 dequant arrangement); the fp8
+        # register path (rp) is the untouched comparison baseline.
+        self.warpspec = os.environ.get("MJOLNIR_WARPSPEC", "") == "1"
         # The MT=16 register-K package: the K dequant in the fragments (no
         # sK16; the swizzled (SR, D/2) u16 view + the even/odd 2-pass gemm),
         # the sV16 alias over the dead sQ, the 2-pair ring. The M=1-2
@@ -356,6 +364,88 @@ class MMADecodeKernel:
             cute.copy(g2s_atom, v_src, v_dst)
 
     # ------------------------------------------------------------------
+    @cute.jit
+    def _dequant_tile(
+        self,
+        srcw_k,
+        srcw_v,  # the fp6 word views (None on the fp8 path)
+        srcu_k,
+        srcu_v,  # the fp8 u32 views (None on the fp6 path)
+        dst_k,
+        dst_v,  # the (SR, D/2) u32 swizzled bf16-pair views
+        tidx,
+        ntd,  # the participating threads: 128 all-warps, 64 the B1 producers
+        rp: bool,
+        mCodeLUT,
+    ):
+        """The loop-top dequant of one landed staging pair into bf16 tiles.
+
+        Extracted verbatim from the kernel_small stage loop so the B1
+        producers (ntd=64, tidx < 64) and the all-threads path (ntd=128)
+        share one body; g = tidx + i*ntd covers the SR*D/4 groups exactly
+        for both (64 and 128 both divide SR*D/4).
+        """
+        if const_expr(self.fp6):
+            # D1: the group's byte-lane phase is STATIC per thread —
+            # gi = g mod 64 and g = tidx + i*ntd with ntd ≡ 0 (mod 64), so
+            # the packed group's byte offset mod 4 never depends on the
+            # stage iteration. The verified phase -> selector map:
+            # 0->0x210, 1->0x321, 2->0x432, 3->0x543; each selects the
+            # group's 3 bytes from the {w0, w1} pool, the high nibble is a
+            # don't-care the extraction masks away.
+            phase = ((tidx % 64) * 3) % 4
+            sel = 0x210 + phase * 0x111
+            for i in cutlass.range_constexpr(self.STAGE_ROWS * self.HEAD_DIM // ntd // 4):
+                g = tidx + i * ntd  # the group index in the stage
+                r = g // (self.HEAD_DIM // 4)  # 64 groups per row
+                gi = g % (self.HEAD_DIM // 4)  # the group within the row
+                bo = r * self.row_bytes + gi * 3
+                # the row-last group (gi=63, phase 1) would read one
+                # word past the fp6 rows — clamped; the phase-1
+                # selector never uses the second word's bytes anyway.
+                w1i = cutlass.min((bo >> 2) + 1, self.STAGE_ROWS * self.row_bytes // 4 - 1)
+                xk = cute.arch.prmt(srcw_k[bo >> 2], srcw_k[w1i], sel)
+                # the D2 store-pack: the bf16 LUT values bit-cast to
+                # u16 ride one prmt per pair into a u32 — two
+                # conflict-free STS.32 into the swizzled tile replace
+                # four ~4-way-conflicted STS.16 (the Session-5 fp8
+                # lesson, now on the fp6 side).
+                k0 = mCodeLUT[xk & 0x3F].to(cutlass.Int32)
+                k1 = mCodeLUT[(xk >> 6) & 0x3F].to(cutlass.Int32)
+                k2 = mCodeLUT[(xk >> 12) & 0x3F].to(cutlass.Int32)
+                k3 = mCodeLUT[(xk >> 18) & 0x3F].to(cutlass.Int32)
+                dst_k[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(k0, k1, 0x5410))
+                dst_k[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(k2, k3, 0x5410))
+                xv = cute.arch.prmt(srcw_v[bo >> 2], srcw_v[w1i], sel)
+                v0 = mCodeLUT[xv & 0x3F].to(cutlass.Int32)
+                v1 = mCodeLUT[(xv >> 6) & 0x3F].to(cutlass.Int32)
+                v2 = mCodeLUT[(xv >> 12) & 0x3F].to(cutlass.Int32)
+                v3 = mCodeLUT[(xv >> 18) & 0x3F].to(cutlass.Int32)
+                dst_v[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(v0, v1, 0x5410))
+                dst_v[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(v2, v3, 0x5410))
+        else:
+            for i in cutlass.range_constexpr(self.STAGE_ROWS * self.HEAD_DIM // ntd // 4):
+                e4 = (tidx + i * ntd) * 4
+                r = e4 // self.HEAD_DIM
+                c = e4 % self.HEAD_DIM
+                if const_expr(not rp):
+                    qk = srcu_k[e4 // 4]
+                    qp = cute.arch.prmt(qk, qk, 0x1302)
+                    out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                    out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                    out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                    out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                    dst_k[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                    dst_k[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
+                qv = srcu_v[e4 // 4]
+                qp = cute.arch.prmt(qv, qv, 0x1302)
+                out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                dst_v[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                dst_v[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
+
     @cute.kernel
     def kernel(
         self,
@@ -872,6 +962,9 @@ class MMADecodeKernel:
         # dequant via the hardware fp8 cvt; fp6 needs the LUT, which lives
         # in the smem path) — fp6 takes the plain small-tile path.
         rp = mt == 16 and self.regpath and not self.fp6
+        # The B1 warp-spec rides the plain small-tile path only; the fp8
+        # register path stays the stock baseline (the campaign's goalpost).
+        ws = self.warpspec and not rp
 
         kv_head = cute.arch.block_idx()[0]
         split_idx = cute.arch.block_idx()[1]
@@ -1023,11 +1116,37 @@ class MMADecodeKernel:
                 cute.recast_ptr(sV16.iterator, dtype=cutlass.Uint32),
                 cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
             )
+            if const_expr(ws):
+                # the B1 second bf16 pair: the producers dequant the
+                # stage i+1 tile into bank (i+1)%2 while the all-4-warps
+                # mma reads bank i%2. +16 KB; the MT=16 dynamic total
+                # goes ~44.5 -> ~60.5 KB (2 CTAs still fit).
+                sK16b = smem.allocate_tensor(
+                    cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16
+                )
+                sV16b = smem.allocate_tensor(
+                    cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16
+                )
+                sK16bu = cute.make_tensor(
+                    cute.recast_ptr(sK16b.iterator, dtype=cutlass.Uint32),
+                    cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
+                )
+                sV16bu = cute.make_tensor(
+                    cute.recast_ptr(sV16b.iterator, dtype=cutlass.Uint32),
+                    cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
+                )
+                # the P tile gets its own 512 B under the warp-spec: the
+                # aliasing-sK16 trick breaks once the producers overwrite
+                # the bank heads one stage ahead of the P writes.
+                sP = smem.allocate_tensor(
+                    cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)), byte_alignment=16
+                )
+            else:
+                # the P tile (16, 32) bf16 aliasing sK16's head: the QK's ldmatrix
+                # reads complete before the stats-merge barrier, the P writes
+                # follow it, and the next dequant waits behind the post-PV barrier.
+                sP = cute.make_tensor(sK16.iterator, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)))
             sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
-            # the P tile (16, 32) bf16 aliasing sK16's head: the QK's ldmatrix
-            # reads complete before the stats-merge barrier, the P writes
-            # follow it, and the next dequant waits behind the post-PV barrier.
-            sP = cute.make_tensor(sK16.iterator, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)))
             if const_expr(self.fp6):
                 # the D1 word views: the group's 3 packed bytes always sit
                 # inside one (bo & ~3)-aligned word pair, so ONE word-pair
@@ -1059,6 +1178,8 @@ class MMADecodeKernel:
                     cute.make_layout(SR * self.row_bytes // 4),
                 )
         sVt = cute.composition(sV16, cute.make_layout((D, SR), stride=(SR, 1)))
+        if const_expr(ws):
+            sVtb = cute.composition(sV16b, cute.make_layout((D, SR), stride=(SR, 1)))
         # the neutral slab: the warps of the other m-bands leave -inf/0 —
         # the merge may read all 4 entries without decoding the arrangement.
         for i in cutlass.range_constexpr(4 * MT):
@@ -1133,7 +1254,24 @@ class MMADecodeKernel:
             tSsK_c = smem_thr_K.partition_S(sK8v_c)
         else:
             tSsK = smem_thr_K.partition_S(sK16)
+            if const_expr(ws):
+                tSsKb = smem_thr_K.partition_S(sK16b)
         tOsVt = smem_thr_V.partition_S(sVt)
+        if const_expr(ws):
+            tOsVtb = smem_thr_V.partition_S(sVtb)
+        # the per-stage bank selection defaults (the ws loop reassigns).
+        tSsK_sel = tSsK
+        tOsVt_sel = tOsVt
+        if const_expr(ws):
+            # the B1 named barriers: full[b] = 64 producer arrives + 64
+            # consumer syncs (the bank b tile is dequanted); empty[b] =
+            # 64 consumer arrives + 64 producer syncs (the bank b tile is
+            # consumed). Ids 4-7 (0 is sync_threads; the Thor kernel's
+            # 1-3 live in a different kernel).
+            full_bar_0 = pipeline.NamedBarrier(barrier_id=4, num_threads=NT)
+            full_bar_1 = pipeline.NamedBarrier(barrier_id=5, num_threads=NT)
+            empty_bar_0 = pipeline.NamedBarrier(barrier_id=6, num_threads=NT)
+            empty_bar_1 = pipeline.NamedBarrier(barrier_id=7, num_threads=NT)
         tSsP = smem_thr_Q.partition_S(sP)
         if const_expr(rp):
             # the u32 view of the K fragment: the even/odd dequant operates
@@ -1216,16 +1354,18 @@ class MMADecodeKernel:
                 sK8v if const_expr(rp) else None,
             )
             cute.arch.cp_async_commit_group()
-        if const_expr(self.fp6):
-            # D1: the group's byte-lane phase is STATIC per thread — gi = g
-            # mod 64 and g = tidx + i*NT with NT ≡ 0 (mod 64), so the packed
-            # group's byte offset mod 4 never depends on the stage iteration.
-            # The PRMT selector hoists out of the stage loop (the verified
-            # phase -> selector map: 0->0x210, 1->0x321, 2->0x432, 3->0x543;
-            # each selects the group's 3 bytes from the {w0, w1} pool, the
-            # high nibble is a don't-care the extraction masks away).
-            phase = ((tidx % 64) * 3) % 4
-            sel = 0x210 + phase * 0x111
+            if const_expr(ws):
+                # the bank-0 fill before the loop: the stage-0 consumers'
+                # fullV[0].sync() waits on this arrive (the stage-0
+                # producers take the stage-1 tile -> bank 1 in-loop).
+                cute.arch.cp_async_wait_group(1)
+                cute.arch.sync_threads()
+                if tidx < 64:
+                    if const_expr(self.fp6):
+                        self._dequant_tile(sK8w, sV8w, None, None, sK16u, sV16u, tidx, 64, rp, mCodeLUT)
+                    else:
+                        self._dequant_tile(None, None, sK8u, sV8u, sK16u, sV16u, tidx, 64, rp, mCodeLUT)
+                    full_bar_0.arrive()
         for stage in cutlass.range(n_stages):
             row0 = stage * SR
             if const_expr(rp):
@@ -1264,79 +1404,80 @@ class MMADecodeKernel:
                 cute.arch.cp_async_wait_group(2)
             cute.arch.sync_threads()
 
-            srcu_k = sK8u
-            srcu_v = sV8u
-            if par == 1:
-                srcu_k = sK8bu
-                srcu_v = sV8bu
-            if par == 2:
-                srcu_k = sK8cu
-                srcu_v = sV8cu
-            if const_expr(self.fp6):
-                # e2m3, the D1 diet: the group's 3 packed bytes ride ONE
-                # word pair — a single PRMT with the per-thread-constant
-                # selector (hoisted before the stage loop) replaces the 3
-                # byte loads + 3 cvts, the 4 codes come off the aligned
-                # 24-bit field with shift+mask (no over-shift ORs), and
-                # the values come from the bf16 LUT (no per-code cvt —
-                # the old fp32 LUT needed one). Scalar bf16 stores into
-                # the swizzled tiles; the PRMT store-pack stays D2.
-                srcw_k, srcw_v = sK8w, sV8w
-                if par == 1:
-                    srcw_k, srcw_v = sK8bw, sV8bw
-                if par == 2:
-                    srcw_k, srcw_v = sK8cw, sV8cw
-                for i in cutlass.range_constexpr(SR * D // NT // 4):
-                    g = tidx + i * NT  # the group index in the stage
-                    r = g // (D // 4)  # 64 groups per row
-                    gi = g % (D // 4)  # the group within the row
-                    bo = r * self.row_bytes + gi * 3
-                    # the row-last group (gi=63, phase 1) would read one
-                    # word past the fp6 rows — clamped; the phase-1
-                    # selector never uses the second word's bytes anyway.
-                    w1i = cutlass.min((bo >> 2) + 1, SR * self.row_bytes // 4 - 1)
-                    xk = cute.arch.prmt(srcw_k[bo >> 2], srcw_k[w1i], sel)
-                    # the D2 store-pack: the bf16 LUT values bit-cast to
-                    # u16 ride one prmt per pair into a u32 — two
-                    # conflict-free STS.32 into the swizzled tile replace
-                    # four ~4-way-conflicted STS.16 (the Session-5 fp8
-                    # lesson, now on the fp6 side).
-                    k0 = mCodeLUT[xk & 0x3F].to(cutlass.Int32)
-                    k1 = mCodeLUT[(xk >> 6) & 0x3F].to(cutlass.Int32)
-                    k2 = mCodeLUT[(xk >> 12) & 0x3F].to(cutlass.Int32)
-                    k3 = mCodeLUT[(xk >> 18) & 0x3F].to(cutlass.Int32)
-                    sK16u[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(k0, k1, 0x5410))
-                    sK16u[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(k2, k3, 0x5410))
-                    xv = cute.arch.prmt(srcw_v[bo >> 2], srcw_v[w1i], sel)
-                    v0 = mCodeLUT[xv & 0x3F].to(cutlass.Int32)
-                    v1 = mCodeLUT[(xv >> 6) & 0x3F].to(cutlass.Int32)
-                    v2 = mCodeLUT[(xv >> 12) & 0x3F].to(cutlass.Int32)
-                    v3 = mCodeLUT[(xv >> 18) & 0x3F].to(cutlass.Int32)
-                    sV16u[r, 2 * gi] = cutlass.Uint32(cute.arch.prmt(v0, v1, 0x5410))
-                    sV16u[r, 2 * gi + 1] = cutlass.Uint32(cute.arch.prmt(v2, v3, 0x5410))
+            if const_expr(ws):
+                # THE B1 WARP-SPEC: the producers (the warps 0-1) dequant
+                # the stage+1 staging tile into bank (stage+1)%2 while all
+                # four warps run this stage's gemms off bank stage%2 (the
+                # prologue filled bank 0; the stage-0 producers take the
+                # stage-1 tile -> bank 1, no emptyV wait — that bank is
+                # initially free). full = produced, empty = consumed; each
+                # barrier generation is 64 arrives + 64 syncs.
+                if tidx < 64:
+                    bank_p = (stage + 1) % 2
+                    if stage >= 1:
+                        if bank_p == 0:
+                            empty_bar_0.sync()
+                        else:
+                            empty_bar_1.sync()
+                    par_p = (stage + 1) % 3
+                    dst_k, dst_v = sK16u, sV16u
+                    if bank_p == 1:
+                        dst_k, dst_v = sK16bu, sV16bu
+                    if const_expr(self.fp6):
+                        srcw_k, srcw_v = sK8w, sV8w
+                        if par_p == 1:
+                            srcw_k, srcw_v = sK8bw, sV8bw
+                        if par_p == 2:
+                            srcw_k, srcw_v = sK8cw, sV8cw
+                        self._dequant_tile(srcw_k, srcw_v, None, None, dst_k, dst_v, tidx, 64, rp, mCodeLUT)
+                    else:
+                        srcu_k = sK8u
+                        srcu_v = sV8u
+                        if par_p == 1:
+                            srcu_k = sK8bu
+                            srcu_v = sV8bu
+                        if par_p == 2:
+                            srcu_k = sK8cu
+                            srcu_v = sV8cu
+                        self._dequant_tile(None, None, srcu_k, srcu_v, dst_k, dst_v, tidx, 64, rp, mCodeLUT)
+                    if bank_p == 0:
+                        full_bar_0.arrive()
+                    else:
+                        full_bar_1.arrive()
+                else:
+                    if stage % 2 == 0:
+                        full_bar_0.sync()
+                    else:
+                        full_bar_1.sync()
+                # this stage's gemms read bank stage%2 — produced one stage
+                # ahead (the rp's tSsK_cur pattern: the partition is bound
+                # to a base pointer, so the source rotates with the bank).
+                tSsK_sel = tSsK
+                tOsVt_sel = tOsVt
+                if stage % 2 == 1:
+                    tSsK_sel = tSsKb
+                    tOsVt_sel = tOsVtb
             else:
-                for i in cutlass.range_constexpr(SR * D // NT // 4):
-                    e4 = (tidx + i * NT) * 4
-                    r = e4 // D
-                    c = e4 % D
-                    if const_expr(not (rp)):
-                        qk = srcu_k[e4 // 4]
-                        qp = cute.arch.prmt(qk, qk, 0x1302)
-                        out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
-                        out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
-                        out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
-                        out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                        sK16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
-                        sK16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
-                    qv = srcu_v[e4 // 4]
-                    qp = cute.arch.prmt(qv, qv, 0x1302)
-                    out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
-                    out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
-                    out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
-                    out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
-                    sV16u[r, c // 2] = out1.bitcast(cutlass.Uint32)
-                    sV16u[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
-            cute.arch.sync_threads()
+                srcu_k = sK8u
+                srcu_v = sV8u
+                if par == 1:
+                    srcu_k = sK8bu
+                    srcu_v = sV8bu
+                if par == 2:
+                    srcu_k = sK8cu
+                    srcu_v = sV8cu
+                if const_expr(self.fp6):
+                    srcw_k, srcw_v = sK8w, sV8w
+                    if par == 1:
+                        srcw_k, srcw_v = sK8bw, sV8bw
+                    if par == 2:
+                        srcw_k, srcw_v = sK8cw, sV8cw
+                    self._dequant_tile(srcw_k, srcw_v, None, None, sK16u, sV16u, tidx, NT, rp, mCodeLUT)
+                else:
+                    self._dequant_tile(None, None, srcu_k, srcu_v, sK16u, sV16u, tidx, NT, rp, mCodeLUT)
+                cute.arch.sync_threads()
+                tSsK_sel = tSsK
+                tOsVt_sel = tOsVt
 
             acc_S.fill(0.0)
             if const_expr(rp):
@@ -1369,7 +1510,7 @@ class MMADecodeKernel:
             else:
                 acc_S2.fill(0.0)
                 for k in cutlass.range_constexpr(D // 16):
-                    cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
+                    cute.copy(smem_copy_K, tSsK_sel[None, None, k], tSrK_copy[None, None, k])
                 for k in cutlass.range_constexpr(D // 32):
                     cute.gemm(tiled_mma, acc_S, tSrQ[None, None, k], tSrK[None, None, k], acc_S)
                     cute.gemm(tiled_mma, acc_S2, tSrQ[None, None, k + D // 32], tSrK[None, None, k + D // 32], acc_S2)
@@ -1463,9 +1604,19 @@ class MMADecodeKernel:
             for k in cutlass.range_constexpr(SR // 16):
                 cute.copy(smem_copy_Q, tSsP[None, None, k], tSrP_copy[None, None, k])
             for k in cutlass.range_constexpr(cute.size(tOrVt.layout.shape[2])):
-                cute.copy(smem_copy_V, tOsVt[None, None, k], tOrVt_copy[None, None, k])
+                cute.copy(smem_copy_V, tOsVt_sel[None, None, k], tOrVt_copy[None, None, k])
                 cute.gemm(tiled_mma, acc_O, tSrP[None, None, k], tOrVt[None, None, k], acc_O)
             cute.arch.sync_threads()
+            if const_expr(ws):  # noqa: SIM102 -- the tidx split needs the nesting
+                # the bank stage%2 is fully consumed (the barrier above
+                # ordered every warp's ldmatrix); release the producers to
+                # overwrite it with the stage+2 tile. The producers' own
+                # generation arrival is their next-stage emptyV sync.
+                if tidx >= 64:
+                    if stage % 2 == 0:
+                        empty_bar_0.arrive()
+                    else:
+                        empty_bar_1.arrive()
             if const_expr(rp):
                 # the 2-pair refill: the buffer this stage consumed is now
                 # free (the barrier above); stage+2 reuses it.
