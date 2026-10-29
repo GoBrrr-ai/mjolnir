@@ -4,7 +4,7 @@
 
 # Jetson Orin
 
-> <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> **supported** platform · `sm_87` · host requirements: JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) · [all platforms](../README.md)
+> <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> **supported** platform · `sm_87` · host requirements: JetPack 7.2.1+ · [all platforms](../README.md)
 
 
 <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> The `sm_87` mma kernel — a CuTe-DSL port of NVIDIA's Ampere FlashAttention-2
@@ -19,6 +19,7 @@ Ampere.
 
 ## Serving on Jetson Orin
 
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 One row per model in `configs/` — the config the platform's overlays serve
 by default (the model page's quickstart rule) and whether the
 (platform, model) pair has end-to-end data. Per-config availability lives
@@ -101,8 +102,6 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 
 
 ## End to end
-
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 The official vLLM image vs Mjolnir on Jetson Orin — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.

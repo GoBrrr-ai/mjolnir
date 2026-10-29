@@ -74,7 +74,7 @@ EXPECTED: dict[str, dict] = {
         "stock_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
         "vllm_version": None,
         "status": "supported",
-        "host_requirements": "JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
+        "host_requirements": "JetPack 7.2.1+",
     },
 }
 
@@ -128,7 +128,7 @@ def test_unknown_platform_key_names_the_shipped_platforms():
     ("key", "requirements"),
     [
         ("thor", "JetPack 7.x"),
-        ("orin", "JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)"),
+        ("orin", "JetPack 7.2.1+"),
         ("spark", "DGX OS + CUDA 13"),
     ],
 )

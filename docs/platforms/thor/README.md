@@ -19,6 +19,7 @@ default.
 
 ## Serving on Jetson AGX Thor
 
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 One row per model in `configs/` — the config the platform's overlays serve
 by default (the model page's quickstart rule) and whether the
 (platform, model) pair has end-to-end data. Per-config availability lives
@@ -104,8 +105,6 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 
 ## End to end
-
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 The official vLLM image vs Mjolnir on Jetson AGX Thor — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.

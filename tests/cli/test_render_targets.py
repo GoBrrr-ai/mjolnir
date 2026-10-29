@@ -319,7 +319,7 @@ def test_platform_readme_measured_column_follows_the_pair_history(repo):
     [
         ("thor", "JetPack 7.x"),
         ("spark", "DGX OS + CUDA 13"),
-        ("orin", "JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)"),
+        ("orin", "JetPack 7.2.1+"),
     ],
 )
 def test_platform_readme_carries_host_requirements(repo, platform, req):
@@ -685,7 +685,7 @@ def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
     )
     assert (
         '<td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td>'
-        '<td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)</td></tr>'
+        '<td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+</td></tr>'
         in hw
     )
 

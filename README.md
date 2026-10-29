@@ -164,13 +164,13 @@ kernel results exist for its headline model — its own kernel case study.
   <tbody>
     <tr><td align="center"><strong>status</strong></td><td align="center">✅ supported</td><td align="center">⏳ research</td><td align="center">✅ supported</td></tr>
     <tr><td align="center"><strong>kernel</strong></td><td align="center"><a href="docs/platforms/thor/README.md#kernel">case study</a></td><td align="center">—</td><td align="center"><a href="docs/platforms/orin/README.md#kernel">case study</a></td></tr>
-    <tr><td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td><td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)</td></tr>
+    <tr><td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td><td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+</td></tr>
   </tbody>
 </table>
 
 ## Supported Models
 
-<table width="100%">
+<table style="width: 100%">
   <thead>
     <tr><th align="left">model</th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
   </thead>

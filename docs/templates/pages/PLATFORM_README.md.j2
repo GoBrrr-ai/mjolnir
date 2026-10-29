@@ -12,6 +12,8 @@
 
 ## Serving on {{ ctx.name }}
 
+{% if ctx.chart_pair %}{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
+{% endif -%}
 One row per model in `configs/` — the config the platform's overlays serve
 by default (the model page's quickstart rule) and whether the
 (platform, model) pair has end-to-end data. Per-config availability lives
@@ -41,8 +43,6 @@ reproduces it.
 {%- block e2e -%}
 {% if ctx.e2e %}
 ## End to end
-
-{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
 
 The official vLLM image vs Mjolnir on {{ ctx.name }} — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.
