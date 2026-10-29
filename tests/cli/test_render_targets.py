@@ -283,7 +283,7 @@ def test_platform_readme_has_one_row_per_model_with_a_default_config(repo):
     _render_all()
     thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
     serving = _section(thor, "Supported Models")
-    rows = [ln for ln in serving.splitlines() if ln.strip().startswith("<tr>")]
+    rows = [ln for ln in serving.splitlines() if ln.strip().startswith("<tr><td>")]
     assert len(rows) == 2, f"one row per model, got {len(rows)}: {rows}"
     m38 = _line(serving, f"configs/{M38}/README.md")
     assert f'href="../../../configs/{M38}/{FP6_QUANT}/README.md"' in m38
@@ -295,7 +295,7 @@ def test_platform_readme_has_one_row_per_model_with_a_default_config(repo):
     # the model page (cycle 3k §1)
     assert f"`{FP6_QUANT}` on Jetson AGX Thor:" not in thor
     spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    spark_rows = [ln for ln in _section(spark, "Supported Models").splitlines() if ln.strip().startswith("<tr>")]
+    spark_rows = [ln for ln in _section(spark, "Supported Models").splitlines() if ln.strip().startswith("<tr><td>")]
     assert len(spark_rows) == 2
     # spark's overlays serve NVFP4 first for M38; M36 has no spark config
     assert 'href="../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md"' in _line(spark, f"configs/{M38}/README.md")
