@@ -1474,7 +1474,9 @@ class MMADecodeKernel:
                         srcw_k, srcw_v = sK8cw, sV8cw
                     self._dequant_tile(srcw_k, srcw_v, None, None, sK16u, sV16u, tidx, NT, rp, mCodeLUT)
                 else:
-                    self._dequant_tile(None, None, srcu_k, srcu_v, sK16u, sV16u, tidx, NT, rp, mCodeLUT)
+                    # rp: no bf16 K tile exists (the register-K) — dst_k is
+                    # never touched (the method's const_expr(not rp) guard).
+                    self._dequant_tile(None, None, srcu_k, srcu_v, None if rp else sK16u, sV16u, tidx, NT, rp, mCodeLUT)
                 cute.arch.sync_threads()
                 tSsK_sel = tSsK
                 tOsVt_sel = tOsVt
