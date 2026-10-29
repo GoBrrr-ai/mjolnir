@@ -150,19 +150,29 @@ Mjolnir is detection-first: the CLI resolves the host platform (never a silent
 guess), every platform gets [its own page](docs/platforms/README.md) and — once
 kernel results exist for its headline model — its own kernel case study.
 
-| |{% for p in ctx.platforms %} {% set art = p.emoji or "mjolnir_emoji.gif" %}[<img src="{{ root }}assets/emoji/{{ art }}" alt="{{ p.name }}" width="72"><br>**{{ p.name }}**](docs/platforms/{{ p.key }}/README.md) |{% endfor %}
-|:---:{% for p in ctx.platforms %}|:---:{% endfor %}
-| **status** |{% for p in ctx.platforms %} {{ p.status_icon }} {{ p.status }} |{% endfor %}
-| **kernel** |{% for p in ctx.platforms %} {% if p.key in ctx.case_study_pairs %}[case study](docs/platforms/{{ p.key }}/README.md#kernel){% else %}—{% endif %} |{% endfor %}
-| **host requirements** |{% for p in ctx.platforms %} {{ p.host_requirements }} |{% endfor %}
+<table width="100%">
+  <thead>
+    <tr><th></th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.gif" %}<th align="center"><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="{{ p.name }}" width="72"><br><strong>{{ p.name }}</strong></a></th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    <tr><td align="center"><strong>status</strong></td>{% for p in ctx.platforms %}<td align="center">{{ p.status_icon }} {{ p.status }}</td>{% endfor %}</tr>
+    <tr><td align="center"><strong>kernel</strong></td>{% for p in ctx.platforms %}<td align="center">{% if p.key in ctx.case_study_pairs %}<a href="docs/platforms/{{ p.key }}/README.md#kernel">case study</a>{% else %}—{% endif %}</td>{% endfor %}</tr>
+    <tr><td align="center"><strong>host requirements</strong></td>{% for p in ctx.platforms %}<td align="center">{{ p.host_requirements }}</td>{% endfor %}</tr>
+  </tbody>
+</table>
 
 ## Supported Models
 
-| model {% for p in ctx.platforms %}| {% set art = p.emoji or "mjolnir_emoji.gif" %}[<img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> {{ p.name }}](docs/platforms/{{ p.key }}/README.md) {% endfor %}|
-|---{% for p in ctx.platforms %}|---{% endfor %}|
-{% for m in ctx.models -%}
-| [{{ m.short }}](configs/{{ m.model }}/README.md) {% for c in m.cells.values() %}| {% if c.config %}<span title="{{ c.config }}">{{ c.symbol }} {{ c.tps }} t/s</span>{% else %}{{ c.symbol }}{% endif %} {% endfor %}|
-{% endfor %}
+<table width="100%">
+  <thead>
+    <tr><th align="left">model</th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.gif" %}<th align="center"><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> <strong>{{ p.name }}</strong></a></th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {%- for m in ctx.models %}
+    <tr><td align="left"><a href="configs/{{ m.model }}/README.md">{{ m.short }}</a></td>{% for c in m.cells.values() %}<td align="center">{% if c.config %}<span title="{{ c.config }}">{{ c.symbol }} {{ c.tps }} t/s</span>{% else %}{{ c.symbol }}{% endif %}</td>{% endfor %}</tr>
+    {%- endfor %}
+  </tbody>
+</table>
 
 > <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
 

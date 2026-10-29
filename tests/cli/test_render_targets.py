@@ -661,22 +661,33 @@ def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
     """Plan §1: the supported-hardware table is the transposed platform grid —
     platforms as columns, each header cell the emoji art over the bold linked
     name (centered columns), a left key column, and the status / kernel /
-    host-requirements values stacked under each one."""
+    host-requirements values stacked under each one. Raw HTML: GitHub's
+    animated-image player never upgrades `<br>`-shaped pipe-table headers, so
+    the table ships as explicit HTML like the features grid."""
     _render_all()
     hw = _section((repo / "README.md").read_text(), "Supported Hardware")
     # the header row: emoji art over the bold linked name, one cell per platform
-    assert 'width="72"><br>**Jetson AGX Thor**]' in hw
+    assert 'width="72"><br><strong>Jetson AGX Thor</strong></a>' in hw
     assert "assets/emoji/mjolnir_thor_emoji.gif" in hw
     for p in platforms.REGISTRY.values():
-        assert hw.count(f"**{p.name}**](docs/platforms/{p.key}/README.md)") == 1
-    # the columns render centered
-    assert "|:---:|" in hw
+        assert hw.count(f"<strong>{p.name}</strong></a>") == 1
     # the key rows: status (icon + word, registry-derived), kernel (the
     # data-driven case-study link — the fixture has thor raws only), host
     # requirements — one row per key, values in registry order
-    assert "| **status** | ✅ supported | ⏳ research | ✅ supported |" in hw
-    assert "| **kernel** | [case study](docs/platforms/thor/README.md#kernel) | — | — |" in hw
-    assert "| **host requirements** | JetPack 7.x | DGX OS + CUDA 13 | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |" in hw
+    assert (
+        '<td align="center"><strong>status</strong></td><td align="center">✅ supported</td>'
+        '<td align="center">⏳ research</td><td align="center">✅ supported</td></tr>' in hw
+    )
+    assert (
+        '<td align="center"><strong>kernel</strong></td>'
+        '<td align="center"><a href="docs/platforms/thor/README.md#kernel">case study</a></td>'
+        '<td align="center">—</td><td align="center">—</td></tr>' in hw
+    )
+    assert (
+        '<td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td>'
+        '<td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)</td></tr>'
+        in hw
+    )
 
 
 def test_status_icon_map_is_data_driven(monkeypatch):
@@ -712,9 +723,13 @@ def test_models_table_cells_native_with_history_native_without_and_no_configs(re
     models = _section((repo / "README.md").read_text(), "Supported Models")
     m38 = _line(models, "configs/Qwen/Qwen3.8-27B/README.md")
     assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 52.7 t/s</span>' in m38
-    assert m38.endswith("| ✅ | ✅ |")  # spark + orin: native, no (1, 0) data
+    assert m38.endswith(
+        '<td align="center">✅</td><td align="center">✅</td></tr>'
+    )  # spark + orin: native, no (1, 0) data
     m36 = _line(models, "configs/nvidia/Qwen3.6-35B-A3B/README.md")
-    assert "| ✅ | — | — |" in m36  # thor native; spark/orin: no config targets them
+    assert (
+        '<td align="center">✅</td><td align="center">—</td><td align="center">—</td></tr>' in m36
+    )  # thor native; spark/orin: no config targets them
 
 
 def test_models_table_marks_every_config_unavailable(repo):
@@ -727,7 +742,7 @@ def test_models_table_marks_every_config_unavailable(repo):
     (d / "spark.yaml").write_text("{}\n")
     _render_all()
     models = _section((repo / "README.md").read_text(), "Supported Models")
-    assert "| ❌ |" in _line(models, "configs/nvidia/Qwen3.6-35B-A3B/README.md")
+    assert '<td align="center">❌</td>' in _line(models, "configs/nvidia/Qwen3.6-35B-A3B/README.md")
 
 
 def test_models_table_fastest_config_tie_breaks_on_scan_order(repo):
@@ -754,9 +769,9 @@ def test_models_table_header_and_row_links_and_footnote(repo):
     _render_all()
     models = _section((repo / "README.md").read_text(), "Supported Models")
     for p in REGISTRY:
-        assert f"](docs/platforms/{p}/README.md)" in models
-    assert "](configs/Qwen/Qwen3.8-27B/README.md)" in models
-    assert "](configs/nvidia/Qwen3.6-35B-A3B/README.md)" in models
+        assert f'href="docs/platforms/{p}/README.md"' in models
+    assert 'href="configs/Qwen/Qwen3.8-27B/README.md"' in models
+    assert 'href="configs/nvidia/Qwen3.6-35B-A3B/README.md"' in models
     assert "1 request" in models and "0 context" in models
     assert "[benchmarks/history.jsonl](benchmarks/history.jsonl)" in models
 

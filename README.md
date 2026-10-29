@@ -157,19 +157,28 @@ Mjolnir is detection-first: the CLI resolves the host platform (never a silent
 guess), every platform gets [its own page](docs/platforms/README.md) and — once
 kernel results exist for its headline model — its own kernel case study.
 
-| | [<img src="assets/emoji/mjolnir_thor_emoji.gif" alt="Jetson AGX Thor" width="72"><br>**Jetson AGX Thor**](docs/platforms/thor/README.md) | [<img src="assets/emoji/mjolni_spark_emoji.gif" alt="DGX Spark" width="72"><br>**DGX Spark**](docs/platforms/spark/README.md) | [<img src="assets/emoji/mjolnir_orin_emoji.gif" alt="Jetson Orin" width="72"><br>**Jetson Orin**](docs/platforms/orin/README.md) |
-|:---:|:---:|:---:|:---:
-| **status** | ✅ supported | ⏳ research | ✅ supported |
-| **kernel** | [case study](docs/platforms/thor/README.md#kernel) | — | [case study](docs/platforms/orin/README.md#kernel) |
-| **host requirements** | JetPack 7.x | DGX OS + CUDA 13 | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
+<table width="100%">
+  <thead>
+    <tr><th></th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.gif" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.gif" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.gif" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></th></tr>
+  </thead>
+  <tbody>
+    <tr><td align="center"><strong>status</strong></td><td align="center">✅ supported</td><td align="center">⏳ research</td><td align="center">✅ supported</td></tr>
+    <tr><td align="center"><strong>kernel</strong></td><td align="center"><a href="docs/platforms/thor/README.md#kernel">case study</a></td><td align="center">—</td><td align="center"><a href="docs/platforms/orin/README.md#kernel">case study</a></td></tr>
+    <tr><td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td><td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)</td></tr>
+  </tbody>
+</table>
 
 ## Supported Models
 
-| model | [<img src="assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> Jetson AGX Thor](docs/platforms/thor/README.md) | [<img src="assets/emoji/mjolni_spark_emoji.gif" alt="" width="20" align="absmiddle"> DGX Spark](docs/platforms/spark/README.md) | [<img src="assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> Jetson Orin](docs/platforms/orin/README.md) |
-|---|---|---|---|
-| [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) | <span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span> | ✅ | <span title="AWQ_MJOLNIR_E2M3_VT64K">✅ 22.2 t/s</span> |
-| [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) | <span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span> | — | — |
-
+<table width="100%">
+  <thead>
+    <tr><th align="left">model</th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.gif" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
+  </thead>
+  <tbody>
+    <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_E2M3_VT64K">✅ 22.2 t/s</span></td></tr>
+    <tr><td align="left"><a href="configs/nvidia/Qwen3.6-35B-A3B/README.md">Qwen3.6-35B-A3B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span></td><td align="center">—</td><td align="center">—</td></tr>
+  </tbody>
+</table>
 
 > <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
 

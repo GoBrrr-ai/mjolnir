@@ -4,10 +4,10 @@
 
 # {{ ctx.name }}
 
-> **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
+{% set art = ctx.emoji or "mjolnir_emoji.gif" %}> <img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
 
 {% if ctx.overview %}
-{{ ctx.overview }}
+{% set oart = ctx.emoji or "mjolnir_emoji.gif" %}<img src="{{ root }}assets/emoji/{{ oart }}" alt="" width="20" align="absmiddle"> {{ ctx.overview }}
 {% endif %}
 
 ## Serving on {{ ctx.name }}

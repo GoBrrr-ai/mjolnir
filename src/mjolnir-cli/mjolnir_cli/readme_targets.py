@@ -384,6 +384,7 @@ class Platform:
             status=rec.status,
             sm_family=rec.sm_family,
             host_requirements=rec.host_requirements,
+            emoji=rec.emoji,
             rows=rows,
             overview=overview.read_text() if overview.is_file() else "",
             chapters=self.chapters,
@@ -561,6 +562,9 @@ class PlatformContext:
     # resolve for (None when neither section renders)
     e2e: ABRow | None = None
     chart_pair: tuple[str, str] | None = None
+    # the platform's gif under assets/emoji/ ("" falls back to the generic
+    # hammer in the status line and the overview prefix)
+    emoji: str = ""
 
 
 @dataclass(frozen=True)

@@ -4,10 +4,10 @@
 
 # Jetson AGX Thor
 
-> **supported** platform · `sm_110` · host requirements: JetPack 7.x · [all platforms](../README.md)
+> <img src="../../../assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> **supported** platform · `sm_110` · host requirements: JetPack 7.x · [all platforms](../README.md)
 
 
-Thor is the platform Mjolnir is built for: the `t5` kernel family — CuTe DSL
+<img src="../../../assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> Thor is the platform Mjolnir is built for: the `t5` kernel family — CuTe DSL
 on `tcgen05` tensor cores, TMEM and TMA — is written for its 20 SMs, 2 CTAs
 per SM, 32 MiB L2 and 273 GB/s of LPDDR5X, and every default config,
 calibration and benchmark in the repo pins to it. The kernel serves through
