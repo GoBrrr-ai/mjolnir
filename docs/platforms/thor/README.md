@@ -20,6 +20,8 @@ default.
 ## Serving on Jetson AGX Thor
 
 <img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
+
+
 One row per model in `configs/` — the config the platform's overlays serve
 by default (the model page's quickstart rule) and whether the
 (platform, model) pair has end-to-end data. Per-config availability lives
