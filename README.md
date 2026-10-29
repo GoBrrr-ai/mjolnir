@@ -89,8 +89,8 @@ Every generated token re-reads the whole KV cache, so on an edge GPU **decode sp
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🐳&nbsp;<a href="docker/vllm-thor/PATCHES.md">Dockerized</a></h3>
-      <p>Official vLLM 0.32.0 + every Mjolnir kernel + the edge-GPU patch stack — one image, every platform.</p>
+      <h3>🖥️&nbsp;<a href="docs/cli.md">CLI</a></h3>
+      <p>One command surface for the whole repo: <code>serve</code> · <code>bench</code> · <code>verify</code> · <code>calibrate</code> · <code>plot</code>.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
