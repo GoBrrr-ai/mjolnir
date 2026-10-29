@@ -99,8 +99,9 @@ def chapters_for(platform: str) -> tuple[str, ...]:
     return tuple(c for c in CASE_STUDY_CHAPTERS if not STAGES[c].requires_ncu)
 
 
-# verify stages that never carry a case-study chapter
-_UNCHARTED = ("timing", "profile", "vllm")
+# verify stages that never carry a case-study chapter — one definition, in
+# results.py, shared with the writer (their runs always land in staging)
+_UNCHARTED = results.UNCHARTED
 
 # availability symbols (the table's three states, as the pages render them)
 SYMBOLS = {availability.NATIVE: "✅", availability.FALLBACK: "⚠️", availability.UNAVAILABLE: "❌"}

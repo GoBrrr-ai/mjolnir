@@ -207,9 +207,9 @@ def run_perf(
     if label:
         s.label = label
 
-    layout.raw_dir.mkdir(parents=True, exist_ok=True)
+    layout.staging_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    out_dir = layout.raw_dir / f"perf-{stamp}"
+    out_dir = layout.staging_dir / f"perf-{stamp}"  # exhaust: the record's cells carry the values; gitignored
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[mjolnir] perf bench: {repeat} sweep(s), {runs} runs/cell, {warmup_runs} warmups/cell, exact-tg={exact_tg}")

@@ -80,12 +80,12 @@ def _doc(stage, run_id, default, series=None, **kw):
 
 def test_latest_prefers_default_runs(tmp_path):
     results.save(tmp_path, _doc("sweep", "20261010-100000", True))
-    results.save(tmp_path, _doc("sweep", "20261010-110000", False))
+    results.save(tmp_path, _doc("sweep", "20261010-110000", False))  # an ad-hoc A/B → staging, never tracked
     latest_default = results.latest(tmp_path, "sweep")
     latest_any = results.latest(tmp_path, "sweep", default_only=False)
     assert latest_default and latest_any
     assert latest_default["run_id"] == "20261010-100000"
-    assert latest_any["run_id"] == "20261010-110000"
+    assert latest_any["run_id"] == "20261010-100000"  # the ad-hoc run is not in the tracked dir at all
     assert results.latest(tmp_path, "ring") is None
 
 
@@ -207,7 +207,10 @@ def test_latest_filters_by_platform_and_resolves_legacy_docs_as_thor(tmp_path):
 def test_latest_filters_by_model_and_skips_model_less_docs(tmp_path):
     results.save(tmp_path, _doc("spec", "20261010-100000", True, model="nvidia/Qwen3.6-35B-A3B"))
     results.save(tmp_path, _doc("spec", "20261010-110000", True, model="Qwen/Qwen3.8-27B"))
-    results.save(tmp_path, _doc("spec", "20261010-120000", True))  # no model: matches no model
+    # a pre-writer (legacy) model-less doc, written directly: the writer would
+    # have filed it in the headline model's group (readme_targets._matches)
+    p = tmp_path / "spec" / "20261010-120000.json"
+    p.write_text(json.dumps(_doc("spec", "20261010-120000", True)) + "\n")
     q36 = results.latest(tmp_path, "spec", model="nvidia/Qwen3.6-35B-A3B")
     q38 = results.latest(tmp_path, "spec", model="Qwen/Qwen3.8-27B")
     assert q36 and q38

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mjolnir_cli.config import BACKEND_LABELS, BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
-from mjolnir_cli.history import load_records
+from mjolnir_cli.history import load_records, spec_of
 from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
 
 # Every platform's image repo, plus the legacy names (kept so history rows
@@ -293,17 +293,6 @@ def pct(v: float | None) -> str:
     if v is None:
         return "—"
     return f"{'−' if v < 0 else '+'}{abs(v):.1f}%"
-
-
-def spec_of(rec: dict) -> dict | None:
-    """The speculative decoding a record ran with: stored in the record since
-    the field exists, else read from the config it names."""
-    if rec.get("spec") is not None:
-        return rec["spec"] or None
-    from mjolnir_cli.config import config_speculative, configs_root
-
-    path = configs_root() / str(rec.get("model", "")) / str(rec.get("config", "")) / "config.yaml"
-    return config_speculative(path) if path.exists() else None
 
 
 def spec_label(*recs: dict) -> str:

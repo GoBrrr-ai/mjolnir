@@ -344,6 +344,14 @@ class RepoLayout:
         return self.raw_dir / "verify"
 
     @property
+    def staging_dir(self) -> Path:
+        """Untracked landing zone (``benchmarks/staging/``, gitignored): experiment
+        runs and superseded records — everything the repo does not ship. Mirrored
+        by :func:`mjolnir_cli.verify.results.staging_dir`, which derives the same
+        path from the verify dir."""
+        return self.benchmarks_dir / "staging"
+
+    @property
     def charts_dir(self) -> Path:
         base = self.repo_root if self.repo_root is not None else self.benchmarks_dir
         return base / "assets" / "benchmarks"
