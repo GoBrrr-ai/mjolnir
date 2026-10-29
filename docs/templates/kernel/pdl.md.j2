@@ -2,7 +2,10 @@
 
 > {{ stages["pdl"].summary }} · `mjolnir verify pdl` · {% if has("pdl") %}run `{{ ctx.runs["pdl"] }}`{% else %}**no run yet**{% endif %}
 
-## The question
+{% if ctx.platform and ctx.platform.sm_family == "sm_87" %}> [!NOTE]
+> PDL does not exist on Ampere (`device_support_pdl` requires compute capability ≥ 9.0), so the `sm_87` kernel cannot use it — the stage stays pending on the Orin by construction.
+
+{% endif %}## The question
 
 Programmatic dependent launch lets the decode kernel start while the previous kernel drains, and the split-KV merge launch before decode finishes. Does it shorten a step?
 

@@ -7,7 +7,7 @@
   <a href="https://pypi.org/project/mjolnir-cli/"><img src="https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6" alt="mjolnir-cli on PyPI"></a>
   <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
   <img src="https://img.shields.io/badge/vLLM-0.32.0-blue" alt="vLLM 0.32.0">
-  <img src="https://img.shields.io/badge/Jetson-AGX%20Thor-76b900" alt="NVIDIA Jetson AGX Thor">
+  <img src="https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin%20%C2%B7%20DGX%20Spark-76b900" alt="Supported platforms: Jetson AGX Thor, Jetson Orin, DGX Spark">
   <a href="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
 </p>
@@ -17,32 +17,32 @@
 </p>
 
 <p align="center">
-  <b><em>Mjölnir</em></b> — <em>faster, bigger-context LLM serving on the <b>Jetson AGX Thor</b>: a dedicated decode kernel, a tuned vLLM image and a CLI that serves, benchmarks and documents it.</em>
+  <b><em>Mjölnir</em></b> — <em>faster, bigger-context LLM serving on <b>edge GPUs</b>: a dedicated decode kernel per platform, a tuned vLLM image that carries every kernel, and a CLI that serves, benchmarks and documents it.</em>
 </p>
 
 <p align="center">
   <a href="#-key-features">Features</a> •
   <a href="#quickstart">Quickstart</a> •
-  <a href="#jetson-thor-benchmarks">Benchmarks</a> •
+  <a href="docs/platforms/thor/README.md#end-to-end">Benchmarks</a> •
   <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
-  <a href="#platforms">Platforms</a> •
+  <a href="#supported-hardware">Platforms</a> •
   <a href="docs/platforms/thor/README.md#kernel">Case study</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
-## What is ⚡ Mjolnir?
+## What is <img src="assets/emoji/mjolnir_emoji.gif" alt="Mjölnir" width="26" align="absmiddle"> Mjolnir?
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir makes LLM serving on the NVIDIA Jetson AGX Thor faster and roomier**: a decode-attention kernel written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), a 6-bit KV cache format for vLLM, a patched vLLM image that runs it, and a CLI that serves models from YAML configs and benchmarks every claim:
+**Mjolnir makes LLM serving on edge GPUs faster and roomier**: a decode-attention kernel per platform family — a CuTe DSL kernel on `tcgen05` tensor cores for the Jetson AGX Thor (`sm_110`) and an `mma.sync` kernel for the Jetson Orin (`sm_87`) — a 6-bit KV cache format for vLLM, a patched vLLM image that carries every kernel, and a CLI that serves models from YAML configs and benchmarks every claim:
 
 ```bash
 mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
-Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM 0.32.0 runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+Every generated token re-reads the whole KV cache, so on an edge GPU **decode speed is a memory problem**. Stock vLLM on these boards reads bf16 (FlashAttention 2 — twice the bytes) or, at best, fp8; each Mjolnir kernel is written for its exact chip — the Thor's 20 SMs, 2 CTAs per SM, 32 MiB L2 and 273 GB/s of LPDDR5X, the Orin's 16 SMs and 204.8 GB/s of LPDDR5 — and the 6-bit `e2m3` KV format moves 25% fewer bytes than fp8 at near-fp8 accuracy.
 
-## ⚡ Key Features
+## <img src="assets/emoji/mjolnir_emoji.gif" alt="" width="26" align="absmiddle"> Key Features
 
 <p align="center">
 <img src="assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir image vs the official vLLM image — end-to-end decode and prefill" width="100%">
@@ -53,7 +53,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (4K context, 1 request): TTFT 2,319 → 1,686 ms: (1,686 − 2,319) ÷ 2,319 × 100 = **−27.3%** (a latency reduction of 27.3%). The reciprocal speedup would be 2,319 ÷ 1,686 = 1.38× (+37.6%) — the same measurement, a different convention.
+- **Worked example** (Jetson AGX Thor, 4K context, 1 request): TTFT 2,319 → 1,686 ms: (1,686 − 2,319) ÷ 2,319 × 100 = **−27.3%** (a latency reduction of 27.3%). The reciprocal speedup would be 2,319 ÷ 1,686 = 1.38× (+37.6%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
@@ -90,7 +90,7 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🐳&nbsp;<a href="docker/vllm-thor/PATCHES.md">Dockerized</a></h3>
-      <p>Official vLLM 0.32.0 + Mjolnir + Jetson Thor patches.</p>
+      <p>Official vLLM 0.32.0 + every Mjolnir kernel + the edge-GPU patch stack — one image, every platform.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -125,16 +125,16 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 ## Quickstart
 
 > [!IMPORTANT]
-> Requirements: Jetson AGX Thor (JetPack 7.x, `sm_110a`), Docker + NVIDIA Container Toolkit, [`uv`](https://docs.astral.sh/uv/).
+> Requirements: a supported board — <img src="assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> Jetson AGX Thor (JetPack 7.x), <img src="assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> Jetson Orin (JetPack 7.2.1+) or <img src="assets/emoji/mjolni_spark_emoji.gif" alt="" width="20" align="absmiddle"> DGX Spark (DGX OS + CUDA 13), see [Supported Hardware](#supported-hardware) — with Docker + the NVIDIA Container Toolkit, and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 # the CLI (the package is mjolnir-cli; the command is `mjolnir`)
 uv tool install mjolnir-cli
 
-# one-time: Thor host setup for stable numbers (clocks, power mode, fans, swap)
+# one-time: Jetson host setup for stable numbers (clocks, power mode, fans, swap)
 mjolnir hw setup
 
-# serve: Qwen3.8-27B NVFP4 on the Mjolnir image, --attention-backend MJOLNIR, port 6001
+# serve: the active model's default config on the Mjolnir image, --attention-backend MJOLNIR, port 6001
 mjolnir serve up
 ```
 
@@ -157,16 +157,15 @@ Mjolnir is detection-first: the CLI resolves the host platform (never a silent
 guess), every platform gets [its own page](docs/platforms/README.md) and — once
 kernel results exist for its headline model — its own kernel case study.
 
-| platform | status | kernel | host requirements |
-|---|---|---|---|
-| **[Jetson AGX Thor](docs/platforms/thor/README.md)** | ✅ supported | [case study](docs/platforms/thor/README.md#kernel) | JetPack 7.x |
-| **[DGX Spark](docs/platforms/spark/README.md)** | ⏳ research | — | DGX OS + CUDA 13 |
-| **[Jetson Orin](docs/platforms/orin/README.md)** | ⏳ research | — | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
-
+| | [<img src="assets/emoji/mjolnir_thor_emoji.gif" alt="Jetson AGX Thor" width="72"><br>**Jetson AGX Thor**](docs/platforms/thor/README.md) | [<img src="assets/emoji/mjolni_spark_emoji.gif" alt="DGX Spark" width="72"><br>**DGX Spark**](docs/platforms/spark/README.md) | [<img src="assets/emoji/mjolnir_orin_emoji.gif" alt="Jetson Orin" width="72"><br>**Jetson Orin**](docs/platforms/orin/README.md) |
+|:---:|:---:|:---:|:---:
+| **status** | ✅ supported | ⏳ research | ✅ supported |
+| **kernel** | [case study](docs/platforms/thor/README.md#kernel) | — | [case study](docs/platforms/orin/README.md#kernel) |
+| **host requirements** | JetPack 7.x | DGX OS + CUDA 13 | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |
 
 ## Supported Models
 
-| model | [Jetson AGX Thor](docs/platforms/thor/README.md) | [DGX Spark](docs/platforms/spark/README.md) | [Jetson Orin](docs/platforms/orin/README.md) |
+| model | [<img src="assets/emoji/mjolnir_thor_emoji.gif" alt="" width="20" align="absmiddle"> Jetson AGX Thor](docs/platforms/thor/README.md) | [<img src="assets/emoji/mjolni_spark_emoji.gif" alt="" width="20" align="absmiddle"> DGX Spark](docs/platforms/spark/README.md) | [<img src="assets/emoji/mjolnir_orin_emoji.gif" alt="" width="20" align="absmiddle"> Jetson Orin](docs/platforms/orin/README.md) |
 |---|---|---|---|
 | [Qwen3.8-27B](configs/Qwen/Qwen3.8-27B/README.md) | <span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span> | ✅ | <span title="AWQ_MJOLNIR_E2M3_VT64K">✅ 22.2 t/s</span> |
 | [Qwen3.6-35B-A3B](configs/nvidia/Qwen3.6-35B-A3B/README.md) | <span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span> | — | — |
@@ -260,5 +259,5 @@ Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches
 
 <br />
 
-<p align="center"><sub>⚡ Mjölnir — built on and for the edge ❤️.</sub></p>
+<p align="center"><sub><img src="assets/emoji/mjolnir_emoji.gif" alt="Mjölnir" width="20" align="absmiddle"> Mjölnir — built on and for the edge ❤️.</sub></p>
 <p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>

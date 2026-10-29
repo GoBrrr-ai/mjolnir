@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
+from mjolnir_cli.config import BACKEND_LABELS, BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
 from mjolnir_cli.history import load_records
 from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
 
@@ -345,4 +345,13 @@ def acceptance_line(off: dict, mj: dict) -> str:
 
 
 def side_label(rec: dict) -> str:
-    return f"{rec.get('image', '')} · {rec.get('config', '')} ({rec.get('backend', '')})"
+    """One history record as the e2e tables name it: `image · config (backend)`
+    — the backend through BACKEND_LABELS, the parenthetical dropped when the
+    record stores no backend or stores the config name verbatim (it would
+    read `CONFIG (CONFIG)`)."""
+    config = str(rec.get("config", ""))
+    backend = str(rec.get("backend", ""))
+    label = BACKEND_LABELS.get(backend, backend)
+    if not label or label == config:
+        return f"{rec.get('image', '')} · {config}"
+    return f"{rec.get('image', '')} · {config} ({label})"

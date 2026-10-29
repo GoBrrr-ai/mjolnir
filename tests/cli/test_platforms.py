@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -72,7 +73,7 @@ EXPECTED: dict[str, dict] = {
         "default_image": "narandill/mjolnir-vllm:v0.32.0",
         "stock_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
         "vllm_version": None,
-        "status": "research",
+        "status": "supported",
         "host_requirements": "JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
     },
 }
@@ -138,6 +139,42 @@ def test_host_requirements_present_and_correct_for_every_platform(key, requireme
 def test_host_requirements_is_a_documented_string_on_every_record():
     for key, record in platforms.REGISTRY.items():
         assert isinstance(record.host_requirements, str) and record.host_requirements, key
+
+
+# ── 1c. the renderer-facing memory + emoji facts ────────────────────────────
+# mem_bandwidth_gbs/mem_label/l2 feed the bandwidth chart's roofline (charts
+# .chart_bandwidth); a missing mem_label silently falls back to the Thor's
+# "LPDDR5X" and mislabels another board's chart — pinned here per platform.
+# emoji names the gif the root README's strip links; it must exist on disk.
+
+
+@pytest.mark.parametrize(
+    "key, peak, label",
+    [
+        ("thor", 273.0, "LPDDR5X"),
+        ("spark", 273.0, "LPDDR5X"),
+        ("orin", 204.8, "LPDDR5"),
+    ],
+)
+def test_memory_peak_and_label_per_platform(key, peak, label):
+    record = platforms.get(key)
+    assert record.mem_bandwidth_gbs == peak
+    assert record.mem_label == label
+
+
+def test_l2_phrase_present_where_the_cache_size_is_known():
+    assert platforms.get("thor").l2 == "the 32 MiB L2"
+    assert platforms.get("orin").l2 == "the 4 MB L2"
+    assert platforms.get("spark").l2 == ""  # GB10's GPU L2: unsourced
+
+
+def test_emoji_names_an_existing_gif_for_every_platform_that_has_one():
+    root = Path(__file__).resolve().parents[2]
+    for key, record in platforms.REGISTRY.items():
+        if not record.emoji:
+            continue
+        gif = root / "assets" / "emoji" / record.emoji
+        assert gif.is_file(), f"{key}: {record.emoji} is not in assets/emoji/"
 
 
 # ── 2. the sources ──────────────────────────────────────────────────────────

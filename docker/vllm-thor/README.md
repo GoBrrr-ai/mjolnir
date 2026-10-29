@@ -1,32 +1,32 @@
-![Mjolnir — vLLM for Jetson AGX Thor](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.jpg)
+![Mjolnir — vLLM for Jetson Thor and Orin](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.jpg)
 
 [![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
 [![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)
 [![Docker Hub](https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a)](https://hub.docker.com/r/narandill/mjolnir-vllm)
 [![vLLM 0.32.0](https://img.shields.io/badge/vLLM-0.32.0-blue)](https://github.com/thor-arena/mjolnir)
-[![Jetson AGX Thor](https://img.shields.io/badge/Jetson-AGX%20Thor-76b900)](https://www.nvidia.com/en-us/autonomous-machines/embedded-platforms/module/jetson-modules/agx-thor/)
+[![Platforms](https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin-76b900)](https://github.com/thor-arena/mjolnir#supported-hardware)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/thor-arena/mjolnir/blob/main/LICENSE)
 
-**Mjolnir** — faster, bigger-context LLM serving on the **Jetson AGX Thor**: a dedicated paged decode-attention kernel, the tuned vLLM image it runs in, and a CLI that serves, benchmarks and documents every claim.
+**Mjolnir** — faster, bigger-context LLM serving on **Jetson Tegra**: one image, a decode kernel per platform — Thor (`sm_110`) and Orin (`sm_87`) — and a CLI that serves, benchmarks and documents every claim.
 
-[GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
+[GitHub](https://github.com/thor-arena/mjolnir) · [Platforms](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/README.md) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
 
-![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg)
+![Mjolnir image vs the official vLLM image — end-to-end decode and prefill (Jetson AGX Thor)](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg)
 
 ## ⚡ What's inside this image
 
 `narandill/mjolnir-vllm:v0.32.0` is the official **vLLM 0.32.0** aarch64 image (CUDA 13.0, Ubuntu 24.04) with a small overlay on top — everything else is upstream vLLM:
 
-- **The Mjolnir decode-attention kernel** — paged decode written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
-- **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on Thor; applied and verified at build time, the build fails when a patch stops applying — the list is below.
-- **The Thor platform environment** — `sm_110a` architecture flags and the JIT environment for Triton / FlashInfer, so the prebuilt wheels run on JetPack 7.x as-is.
+- **A decode-attention kernel per platform** — the CuTe DSL `tcgen05` kernel for Jetson Thor (`sm_110`) and the `mma.sync` kernel for Jetson Orin (`sm_87`), each with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify; the family resolves at runtime from the device. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
+- **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on these boards; applied and verified at build time, the build fails when a patch stops applying — the list is below. The Thor-only hunks are probe-gated and inert on other devices.
+- **The per-platform environment** — the arch flags and the per-arch JIT environment for Triton / FlashInfer (`mjolnir serve` exports them), so the prebuilt wheels run on JetPack 7.x as-is.
 
-The Mjolnir kernel takes over single-token and speculative-verify steps; prefill and mixed steps run on the image's own attention backend (FlashAttention 4).
+The Mjolnir kernel takes over single-token and speculative-verify steps; prefill and mixed steps run on the platform's attention fallback (FlashAttention 4 on Thor, FlashInfer on Orin).
 
 
 ## ⚡ Patches
 
-`7` hand-adapted vLLM PR fixes and `12` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time:
+`7` hand-adapted vLLM PR fixes and `12` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time (the sm_110-only ones probe-gate themselves inert on other devices):
 
 | File | PR | What it fixes |
 |------|----|---------------|
@@ -55,7 +55,7 @@ The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/
 
 ## ⚡ Quickstart
 
-> Requires a Jetson AGX Thor (JetPack 7.x, `sm_110a`) with Docker + the NVIDIA Container Toolkit.
+> Runs on Jetson AGX Thor (JetPack 7.x, `sm_110`) and Jetson Orin (JetPack 7.2.1+, `sm_87`) with Docker + the NVIDIA Container Toolkit — the kernel family resolves from the device at runtime.
 
 ```bash
 docker pull narandill/mjolnir-vllm:v0.32.0

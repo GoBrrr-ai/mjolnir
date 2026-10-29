@@ -15,7 +15,7 @@ from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import NOISE_PCT
 
-PEAK_GBS = 273.0  # Jetson AGX Thor LPDDR5X theoretical peak
+PEAK_GBS = 273.0  # fallback memory peak when a platform record carries none
 
 
 NOISE = NOISE_PCT / 100  # same-run ratio noise band (see verify.stages.NOISE_PCT)
@@ -331,7 +331,7 @@ PLATFORM_HERO_SLOGAN = {
 
 PLATFORM_HERO_PILLS = {
     "thor": (("Jetson AGX Thor", "#8cc63f", "#3f8a12"), ("Mjolnir · tcgen05 decode kernel", "#f2925a", "#d4501f")),
-    "orin": (("Jetson Orin", "#8cc63f", "#3f8a12"), ("Mjolnir GEMV · research", "#f2925a", "#d4501f")),
+    "orin": (("Jetson Orin", "#8cc63f", "#3f8a12"), ("Mjolnir · mma decode kernel", "#f2925a", "#d4501f")),
     "spark": (("DGX Spark", "#8cc63f", "#3f8a12"), ("research — baselines only", "#f2925a", "#d4501f")),
 }
 

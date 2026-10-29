@@ -55,7 +55,16 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 
 {{ chart("e2e-prefill", "End-to-end prompt processing: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
 
-{% block e2e_detail %}{% endblock %}
+{% block e2e_detail %}{% if ctx.kernel and ctx.kernel.vs_vllm %}
+Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
+
+{{ ctx.kernel.vs_vllm }}
+{% if ctx.kernel.vs_vllm_missing %}
+> [!NOTE]
+> Incomplete: {{ ctx.kernel.vs_vllm_missing }}.
+{% endif %}
+> <sub>official: `{{ ctx.kernel.vs_vllm_official }}` · Mjolnir: `{{ ctx.kernel.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
+{% endif %}{% endblock %}
 {{ how("e2e") }}
 {% endif -%}
 {%- endblock -%}

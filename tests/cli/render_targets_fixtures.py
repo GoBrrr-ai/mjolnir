@@ -362,6 +362,10 @@ def build_repo(tmp_path: Path, monkeypatch, *, with_data: bool = True, overview:
     gh = root / ".github"
     gh.mkdir()
     shutil.copy(REPO / ".github" / "CONTRIBUTING.md", gh / "CONTRIBUTING.md")  # chapters link it
+    # the platform emoji gifs (the root README's strip links them; the
+    # cross-linking contract walks README.md too)
+    if (REPO / "assets" / "emoji").is_dir():
+        shutil.copytree(REPO / "assets" / "emoji", root / "assets" / "emoji")
     for pkg, init in (("mjolnir/mjolnir", "__init__.py"), ("mjolnir-cli/mjolnir_cli", "__init__.py")):
         (root / "src" / pkg).mkdir(parents=True)
         shutil.copy(REPO / "src" / pkg / init, root / "src" / pkg / init)

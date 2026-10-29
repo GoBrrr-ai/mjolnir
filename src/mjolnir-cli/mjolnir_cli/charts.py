@@ -14,7 +14,7 @@ from mjolnir_cli.charts_e2e import E2E_CHARTS
 from mjolnir_cli.charts_serving import ACCURACY_CHARTS, accuracy_rows_for
 from mjolnir_cli.config import RepoLayout, model_short
 from mjolnir_cli.e2e import latest_pair as e2e_latest_pair
-from mjolnir_cli.platforms import REGISTRY
+from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import NOISE_PCT
@@ -128,19 +128,25 @@ def chart_latency(data: dict, mode: Mode):
 
 
 def chart_bandwidth(data: dict, mode: Mode):
-    """Effective KV bandwidth (real bytes / time) vs the LPDDR5X peak."""
+    """Effective KV bandwidth (real bytes / time) vs the platform's memory
+    peak — the registry's ``mem_bandwidth_gbs`` / ``mem_label`` / ``l2`` for
+    the sweep doc's platform (thor: LPDDR5X 273 GB/s, orin: LPDDR5 205)."""
     doc = data.get("sweep")
     if not doc:
         return None
+    rec = REGISTRY.get(doc.get("platform") or DEFAULT_PLATFORM)
+    peak = (rec.mem_bandwidth_gbs if rec else 0.0) or PEAK_GBS
+    mem = (rec.mem_label if rec else "") or "LPDDR5X"
+    l2_phrase = (rec.l2 if rec else "") or "the L2"
     by = results.series_by_id(doc)
     plt = _plt()
     fig, ax = plt.subplots(figsize=(12.5, 5.6))
     theme.apply(fig, ax, mode)
-    ax.axhline(PEAK_GBS, color=mode.text_dim, lw=1.2, zorder=2)
+    ax.axhline(peak, color=mode.text_dim, lw=1.2, zorder=2)
     ax.text(
         0.005,
-        PEAK_GBS,
-        f" LPDDR5X peak {PEAK_GBS:.0f} GB/s",
+        peak,
+        f" {mem} peak {peak:.0f} GB/s",
         transform=ax.get_yaxis_transform(),
         color=mode.text_dim,
         fontsize=9.5,
@@ -165,7 +171,7 @@ def chart_bandwidth(data: dict, mode: Mode):
         plt.close(fig)
         return None
     _log2_axis(ax, Ls, mode)
-    ax.set_ylim(0, PEAK_GBS * 1.12)
+    ax.set_ylim(0, peak * 1.12)
     ax.set_ylabel("effective KV bandwidth (GB/s)")
     theme.legend(ax, mode, loc="lower right")
     theme.title(
@@ -173,7 +179,7 @@ def chart_bandwidth(data: dict, mode: Mode):
         mode,
         "How close each kernel gets to the memory roofline",
         "each leg's own KV bytes (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit) ÷ decode time · decode is "
-        "bandwidth-bound once the cache leaves the 32 MiB L2",
+        f"bandwidth-bound once the cache leaves {l2_phrase}",
     )
     _footer_run(fig, mode, doc)
     return fig

@@ -119,6 +119,9 @@ BACKEND_LABELS = {
     "NVFP4_FA2": "FlashAttention 2",
     "NVFP4_FA4hd256": "FlashAttention 4 hd256",
     "AWQ_FLASHINFER": "AWQ int4 + FlashInfer",
+    "AWQ_MJOLNIR": "Mjolnir, AWQ weights",
+    "AWQ_MJOLNIR_E2M3": "Mjolnir fp6 KV, AWQ weights",
+    "AWQ_MJOLNIR_E2M3_VT64K": "Mjolnir fp6 KV + 64K draft vocab, AWQ weights",
 }
 
 # The repo marker: a checkout has the image build context.

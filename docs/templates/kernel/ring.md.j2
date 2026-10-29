@@ -2,7 +2,10 @@
 
 > {{ stages["ring"].summary }} · `mjolnir verify ring` · {% if has("ring") %}run `{{ ctx.runs["ring"] }}`{% else %}**no run yet**{% endif %}
 
-## The question
+{% if ctx.platform and ctx.platform.sm_family == "sm_87" %}> [!NOTE]
+> The `sm_87` mma kernel stages KV through a fixed `cp.async` pipeline — it has no `--kv_stages` knob — so this stage has nothing to sweep on the Orin and the saved run is empty. The chapter stays in the index for the cross-platform comparison.
+
+{% endif %}## The question
 
 How deep should the TMA → MMA ring be? A stage is freed only when the MMA that read it completes, so deeper rings let the loader run further ahead — but they cost shared memory, and with 2 CTAs per SM each CTA has ~113 KB.
 

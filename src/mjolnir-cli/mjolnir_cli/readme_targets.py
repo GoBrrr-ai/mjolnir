@@ -278,6 +278,9 @@ class PlatformRow:
     # Renderer-facing data (cycle 3g): the status icon of the root README's
     # hardware table (platforms.STATUS_ICON) — icon + word in the status cell.
     status_icon: str = ""
+    # Renderer-facing data: the platform's emoji gif under assets/emoji/ (the
+    # root README's platform strip); empty when the platform has no art yet.
+    emoji: str = ""
 
 
 def platform_rows() -> list[PlatformRow]:
@@ -290,6 +293,7 @@ def platform_rows() -> list[PlatformRow]:
             sm_family=p.sm_family,
             host_requirements=p.host_requirements,
             status_icon=STATUS_ICON[p.status],
+            emoji=p.emoji,
         )
         for p in REGISTRY.values()
     ]

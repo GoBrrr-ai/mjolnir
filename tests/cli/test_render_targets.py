@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from mjolnir_cli import availability
+from mjolnir_cli import availability, platforms
 from mjolnir_cli.config import REGISTRY, load_layout
 
 import render_targets_fixtures as fx
@@ -658,13 +658,25 @@ def test_root_headline_stays_pinned_to_thor(repo):
 
 
 def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
-    """Plan §1: the status cell is icon + word driven by the registry status
-    (supported → ✅, research → ⏳) and platform names are bold + linked."""
+    """Plan §1: the supported-hardware table is the transposed platform grid —
+    platforms as columns, each header cell the emoji art over the bold linked
+    name (centered columns), a left key column, and the status / kernel /
+    host-requirements values stacked under each one."""
     _render_all()
     hw = _section((repo / "README.md").read_text(), "Supported Hardware")
-    assert "| **[Jetson AGX Thor](docs/platforms/thor/README.md)** | ✅ supported |" in hw
-    assert "| **[DGX Spark](docs/platforms/spark/README.md)** | ⏳ research |" in hw
-    assert "| **[Jetson Orin](docs/platforms/orin/README.md)** | ⏳ research |" in hw
+    # the header row: emoji art over the bold linked name, one cell per platform
+    assert 'width="72"><br>**Jetson AGX Thor**]' in hw
+    assert "assets/emoji/mjolnir_thor_emoji.gif" in hw
+    for p in platforms.REGISTRY.values():
+        assert hw.count(f"**{p.name}**](docs/platforms/{p.key}/README.md)") == 1
+    # the columns render centered
+    assert "|:---:|" in hw
+    # the key rows: status (icon + word, registry-derived), kernel (the
+    # data-driven case-study link — the fixture has thor raws only), host
+    # requirements — one row per key, values in registry order
+    assert "| **status** | ✅ supported | ⏳ research | ✅ supported |" in hw
+    assert "| **kernel** | [case study](docs/platforms/thor/README.md#kernel) | — | — |" in hw
+    assert "| **host requirements** | JetPack 7.x | DGX OS + CUDA 13 | JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2) |" in hw
 
 
 def test_status_icon_map_is_data_driven(monkeypatch):

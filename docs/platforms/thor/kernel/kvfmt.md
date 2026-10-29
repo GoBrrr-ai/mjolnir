@@ -75,7 +75,7 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 
 ```bash
 mjolnir verify kvfmt
-mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3|e2m3-s3:--kv_format e2m3 --kv_stages 3"
+mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3"
 ```
 
 ## Ideas to try

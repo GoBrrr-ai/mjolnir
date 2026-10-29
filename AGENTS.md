@@ -90,7 +90,7 @@ arch family. Any change there must keep **both** fallbacks working:
   ceiling moves down as the file shrinks. Once the file is within the limit,
   set its ceiling to the limit; the pre-commit hook retires the entry.
 - The traced kernel family (`src/mjolnir/mjolnir/arch/thor/{decode,call}.py`, the
-  Orin kernel `src/mjolnir/mjolnir/arch/orin/decode.py`) and the generated doc
+  Orin kernel `src/mjolnir/mjolnir/arch/orin/mma.py`) and the generated doc
   surfaces (`docs/platforms/**/*.md`, `configs/**/README.md`) are **excluded from
   the ratchet entirely** (`exclude`: no ceiling, no floor — the DSL's tracing
   constraints own the kernel's size, generation owns the docs';
@@ -154,9 +154,11 @@ arch family. Any change there must keep **both** fallbacks working:
   read-only list/show with confidence + provenance). Config overlays
   (`<quant>/platforms/<platform>.yaml`, deep-merge, lists replace) gate per-platform serving;
   the kv-dtype × backend matrix is validated at serve time. ONE image targets all three
-  platforms (Orin: JP 7.2.1+, Spark: DGX OS + CUDA 13). thor supported, spark/orin research
-  (official-image baselines only); records carry `platform` + `gpu`; `mjolnir.platforms` +
-  `mjolnir/arch/` map arch → kernel — MJOLNIR serves on `sm_110` (thor) only.
+  platforms (Orin: JP 7.2.1+, Spark: DGX OS + CUDA 13). Status derives from the kernels'
+  shipped table (`mjolnir/platforms.py _SHIPPED`, mirrored + pinned in
+  test_kernel_platforms): thor + orin supported, spark research (official-image
+  baselines only); records carry `platform` + `gpu`; `mjolnir.platforms` +
+  `mjolnir/arch/` map arch → kernel — MJOLNIR serves on `sm_110` (thor) and `sm_87` (orin).
 - **Autoresearch**: `mjolnir autoresearch init|run|evaluate|ledger|status|chart|export`
   + the OpenCode orchestrator `.opencode/agent/autoresearch.md` (it may delegate
   to user-defined agents `arxiv-researcher`, `web-researcher`, `python-engineer`,
@@ -169,11 +171,15 @@ arch family. Any change there must keep **both** fallbacks working:
   (T≥128 tiles) and the brick+coarsening batch discarded (+1.1% geomean
   resting on 8K: +0.2% without it). Ceiling under the rules ≈1–2%
   (`research/runs/oct21/`).
-- **Retired → restored as the Orin family**: the FA4 GEMV decode kernel and
-  its tooling were removed from `main` (snapshot:
+- **The Orin family (shipped)**: the retired FA4 GEMV decode kernel
+  (snapshot:
   [`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv))
-  and are being restored, re-targeted at sm_87 only, under
-  `src/mjolnir/mjolnir/arch/orin/` (see that directory's README).
+  was replaced by the `mma.sync` (`mma.m16n8k16`) decode kernel — a CuTe-DSL
+  port of NVIDIA's Ampere FA2 example — under `src/mjolnir/mjolnir/arch/orin/`
+  (fp8 + fp6 `e2m3` KV, head_size 256 only — the hd128 gap is the top
+  integration item). Serving-validated and measured: the orin kernel chapters
+  + e2e render from its raws (sweep run `20261028-001502`, 1.14× FlashInfer
+  FA2-TC geomean); see that directory's README.
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and
   `mjolnir perses …` (Perses + Prometheus dashboards, `docker/perses/`), both
   independent of the vLLM server; user files under `~/.local/share/mjolnir/`.
@@ -204,10 +210,11 @@ arch family. Any change there must keep **both** fallbacks working:
   - `mjolnir/arch/thor/harness.py` — the standalone harness (`emulate_decode`,
     the benchmark driver, CLI; `python -m mjolnir.arch.thor.harness --help`;
     refuses non-sm_100/sm_110 devices with a pointer to the Orin family).
-  - `mjolnir/arch/orin/` — the Orin (`sm_87`) family: `decode.py` (the
-    restored GEMV FMA kernel, re-targeted at sm_87 only) + `plan.py`
-    (FlashInfer-Alg.1 auto-split, board-agnostic) + `README.md`; the runner
-    and the `_SHIPPED` flip are pending.
+  - `mjolnir/arch/orin/` — the Orin (`sm_87`) family: `mma.py` (the
+    `mma.sync` `mma.m16n8k16` decode kernel — fp8 + fp6 `e2m3`, hd256 only)
+    + `plan.py` (FlashInfer-Alg.1 auto-split, board-agnostic) + `README.md`;
+    shipped (`_SHIPPED` orin row is `True`) and measured — the orin kernel
+    chapters render from its raws.
   - `mjolnir/runner.py` — the family-independent runner machinery (compile
     cache, KV views, env knobs, `StepPlan`).
   - `mjolnir/backend.py` — the vLLM backend / builder / impl / metadata.

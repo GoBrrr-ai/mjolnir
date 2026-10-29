@@ -1,6 +1,6 @@
 # Qwen/Qwen3.8-27B
 
-`AWQ_MJOLNIR_E2M3_VT64K` — compressed-tensors · serving profile. Flags live in
+`AWQ_MJOLNIR_E2M3_VT64K` — Mjolnir fp6 KV + 64K draft vocab, AWQ weights · serving profile. Flags live in
 [config.yaml](config.yaml), platform deltas in [platforms/](platforms/), Mjolnir env switches in `.env`; every number on
 this page derives from the committed raw data ([history](../../../../benchmarks/history.jsonl), [raw](../../../../benchmarks/raw/)). The model's [README](../README.md).
 
@@ -9,7 +9,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 | parameter | Orin |
 |---|---|
 | Checkpoint | `twolven/Qwen3.8-27B-abliterated-AWQ-MTP` |
-| Format | compressed-tensors |
+| Format | Mjolnir fp6 KV + 64K draft vocab, AWQ weights |
 | Max context | 190K |
 | Max concurrency | 5 |
 | Prefill chunk | 8K |

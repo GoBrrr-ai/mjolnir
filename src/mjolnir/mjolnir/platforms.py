@@ -16,11 +16,12 @@ import os
 from types import ModuleType
 
 # The platforms Mjolnir ships support for: (name, sm, implemented). A row
-# without a kernel (spark / orin) exists so the unsupported-arch error can
-# name the whole matrix; its kernel arrives as mjolnir/arch/<name>.py. The
-# kernel package cannot import the CLI's registry, so the sm rows are
-# mirrored here — the two sides are pinned in sync by
+# without a kernel (spark) exists so the unsupported-arch error can name the
+# whole matrix; its kernel arrives as mjolnir/arch/<name>.py. The kernel
+# package cannot import the CLI's registry, so the sm rows AND the
+# implemented flags are mirrored there — both pinned in sync by
 # tests/cli/test_kernel_platforms.py::test_kernel_and_cli_registries_agree_on_the_sm_rows.
+# The CLI's supported/research status derives from the implemented flags.
 _SHIPPED: tuple[tuple[str, tuple[int, int], bool], ...] = (
     ("thor", (11, 0), True),
     ("spark", (12, 1), False),

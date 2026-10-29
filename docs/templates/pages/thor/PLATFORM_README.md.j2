@@ -27,23 +27,8 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ kctx.noise_pc
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
-{{ how("kernel") }}
-
 {{ chart("kernel-bandwidth", "Effective KV bandwidth vs the LPDDR5X peak") }}
 {%- endif %}
-{% endif %}
-{% endblock %}
-
-{% block e2e_detail %}
-{% if ctx.kernel and ctx.kernel.vs_vllm %}
-Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
-
-{{ ctx.kernel.vs_vllm }}
-{% if ctx.kernel.vs_vllm_missing %}
-> [!NOTE]
-> Incomplete: {{ ctx.kernel.vs_vllm_missing }}.
-{% endif %}
-> <sub>official: `{{ ctx.kernel.vs_vllm_official }}` · Mjolnir: `{{ ctx.kernel.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
 {% endif %}
 {% endblock %}
 
@@ -66,15 +51,6 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 {% if ctx.kernel %}
 ## What's in the Mjolnir image
 
-[`{{ ctx.kernel.image }}`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v{{ ctx.kernel.vllm_version }}` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md). Tags follow the upstream vLLM version.
-
-| patch | what it does |
-|---|---|
-| **`thor-mjolnir-attention-backend`** | adds `MJOLNIR` to vLLM's attention-backend enum → `--attention-backend MJOLNIR` |
-| [#50885](https://github.com/vllm-project/vllm/pull/50885) | FULL cudagraph mode for speculative decode on the FlashInfer-native backend |
-| [#49652](https://github.com/vllm-project/vllm/pull/49652) | draft-decode cudagraphs under dynamic speculative decoding |
-| [#54165](https://github.com/vllm-project/vllm/pull/54165) | Mamba/GDN `copy_kv_cache` restore under speculative decode |
-| [#55519](https://github.com/vllm-project/vllm/pull/55519) | no false-positive KV-reuse warning on the GDN hybrid |
-| Thor `sm_110` patches | GDN prefill enablement, FA4 hd256 fp8-KV + 1-CTA decode, fused draft-decode plan advance, DSpark non-causal draft cudagraph, draft-cudagraph shape gate, the `MJOLNIR` backend name + FA4 fallback default, the `fp6_e2m3` KV cache dtype |
+[`{{ ctx.kernel.image }}`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v{{ ctx.kernel.vllm_version }}` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md) — the full inventory lives there and in the image's Docker Hub description. Tags follow the upstream vLLM version.
 {% endif %}
 {% endblock %}
