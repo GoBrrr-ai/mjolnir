@@ -12,6 +12,13 @@ HND run uses the same values transposed, so NHD vs HND differ only in layout.
 
     FI_LAYOUT=HND BENCH_L=65536 BENCH_ITERS=50 python3 fi_driver.py
 
+NOTE (2026-10-29): on a fresh container the CUDA-allocator churn poisons the
+events-mean at small ITERS (the 64K qlen=1 mean read 1570 us vs the kernel's
+785 via ncu) — the steady state needs ITERS>=200 with WARMUP>=20, or take the
+kernel time from ncu (gpu__time_duration.sum). The first BENCH_ITERS launches
+also include FlashInfer's JIT compile when WARMUP=0 (the oct28 matrix's
+82 ms/iter artifact).
+
 Env: FI_LAYOUT (NHD|HND), BENCH_L, BENCH_ITERS, BENCH_B (1), BENCH_QLEN (1), BENCH_HQ (24), BENCH_HK (4),
      BENCH_D (256), BENCH_PAGE (128), BENCH_CONTIG=1 (pages in order; default
      is a random page permutation, as the Mjolnir harness), FI_CHECK=1 (also
