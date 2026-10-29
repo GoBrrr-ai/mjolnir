@@ -159,7 +159,7 @@ kernel results exist for its headline model — its own kernel case study.
 
 <table width="100%">
   <thead>
-    <tr><th></th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></th></tr>
+    <tr><th width="250"></th><th align="center" width="250"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></th><th align="center" width="250"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></th><th align="center" width="250"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></th></tr>
   </thead>
   <tbody>
     <tr><td align="center"><strong>status</strong></td><td align="center">✅ supported</td><td align="center">⏳ research</td><td align="center">✅ supported</td></tr>
