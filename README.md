@@ -170,9 +170,9 @@ kernel results exist for its headline model — its own kernel case study.
 
 ## Supported Models
 
-<table style="width: 100%">
+<table width="100%">
   <thead>
-    <tr><th align="left">model</th><th align="center"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
+    <tr><th align="left" width="250">model</th><th align="center" width="250"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center" width="250"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center" width="250"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
   </thead>
   <tbody>
     <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_E2M3_VT64K">✅ 22.2 t/s</span></td></tr>
