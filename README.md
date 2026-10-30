@@ -34,13 +34,18 @@
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir makes LLM serving on edge GPUs faster and roomier**: a decode-attention kernel per platform family — a CuTe DSL kernel on `tcgen05` tensor cores for the Jetson AGX Thor (`sm_110`) and an `mma.sync` kernel for the Jetson Orin (`sm_87`) — a 6-bit KV cache format for vLLM, a patched vLLM image that carries every kernel, and a CLI that serves models from YAML configs and benchmarks every claim:
+**Mjolnir makes LLM serving on edge GPUs faster and roomier.** It is four things:
+
+- a **decode-attention kernel per platform** — a CuTe DSL kernel on the Thor's `tcgen05` tensor cores, an `mma.sync` kernel on the Orin — each written for its exact chip;
+- a **6-bit `e2m3` KV cache** for vLLM — 25% fewer bytes than fp8 at near-fp8 accuracy;
+- a **patched vLLM image** that carries all of it; and
+- a **CLI** that serves models from YAML configs and benchmarks every claim.
 
 ```bash
 mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
-Every generated token re-reads the whole KV cache, so on an edge GPU **decode speed is a memory problem**. Stock vLLM on these boards reads bf16 (FlashAttention 2 — twice the bytes) or, at best, fp8; each Mjolnir kernel is written for its exact chip — the Thor's 20 SMs, 2 CTAs per SM, 32 MiB L2 and 273 GB/s of LPDDR5X, the Orin's 16 SMs and 204.8 GB/s of LPDDR5 — and the 6-bit `e2m3` KV format moves 25% fewer bytes than fp8 at near-fp8 accuracy.
+Why any of this helps: **every generated token re-reads the whole KV cache** — on an edge GPU, decode speed is a memory problem. Stock vLLM reads bf16 (twice the bytes) or, at best, fp8; Mjolnir reads less, tuned per chip. The per-board story: [Supported Hardware](#supported-hardware).
 
 ## <img src="assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Key Features
 
@@ -184,7 +189,7 @@ kernel results exist for its headline model — its own kernel case study.
 
 ### Model Configs
 
-A served model is a file, not a command line: each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — in its own directory, `configs/<vendor>/<model>/<config>/config.yaml`; what YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into the config dir's optional `.env` sidecar of `KEY=VALUE` switches, the model's calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to the config dirs, and your own configs drop into `~/.local/share/mjolnir/configs/` (same layout) to appear next to the repo's:
+**A served model is a file, not a command line.** Each config is the `vllm serve` flags as YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — one directory per config under `configs/<vendor>/<model>/`, with everything the variant needs beside it: a `.env` sidecar for what YAML cannot carry (the fp8 lm_head, the draft vocabulary) and the model's calibration files. A whole model directory:
 
 ```bash
 configs/Qwen/Qwen3.8-27B/
