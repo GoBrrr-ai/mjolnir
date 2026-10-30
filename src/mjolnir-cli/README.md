@@ -1,7 +1,7 @@
 # mjolnir-cli
 
 **Serve, benchmark and document LLMs on the NVIDIA Jetson AGX Thor** with
-[Mjolnir](https://github.com/thor-arena/mjolnir) — a decode-attention kernel
+[Mjolnir](https://github.com/GoBrrr-ai/mjolnir) — a decode-attention kernel
 built for Thor (`sm_110`), a 6-bit KV-cache format for vLLM and a patched vLLM
 image that runs them. This package is the `mjolnir` command that drives all of
 it; the kernel itself ships separately as
@@ -36,7 +36,7 @@ mjolnir serve up                 # serve the default model on the Mjolnir image,
   tests and logs kernel experiments.
 
 Every command, with options and defaults:
-**[the CLI reference](https://github.com/thor-arena/mjolnir/blob/main/docs/cli.md)**
+**[the CLI reference](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/cli.md)**
 (generated from the commands; `mjolnir <command> --help` prints the same).
 
 ## Library use
@@ -51,10 +51,13 @@ re-implementing the clean-window gate or the bench-history substrate:
   `SCHEMA_VERSION`; the history-row schema is documented in the module
   docstring. Rows carry `schema_version` — absence means the legacy (pre-0.3)
   format — and `load_records` returns rows raw, never normalized.
+  `append_record` files one record per serving key (platform, model, image,
+  config): a re-run merges its cells into the stored record instead of
+  appending a line; records without a serving key are appended verbatim.
 
 Anything else can change without notice; the module docstrings are the API
-reference: [`gate.py`](https://github.com/thor-arena/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/gate.py),
-[`history.py`](https://github.com/thor-arena/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/history.py).
+reference: [`gate.py`](https://github.com/GoBrrr-ai/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/gate.py),
+[`history.py`](https://github.com/GoBrrr-ai/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/history.py).
 
 `uv tool install mjolnir-cli` is an isolated CLI install — *not* importable
 from another project. Library use means adding `mjolnir-cli` as a dependency
@@ -74,4 +77,4 @@ for anything that touches the GPU; Python ≥ 3.12. Charts need the `plot` extra
 
 `mjolnir-cli` and `mjolnir-kernel` version independently; the Docker image is
 tagged after the upstream vLLM it is built on (`v0.31.0`). Release notes:
-[GitHub Releases](https://github.com/thor-arena/mjolnir/releases).
+[GitHub Releases](https://github.com/GoBrrr-ai/mjolnir/releases).

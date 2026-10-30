@@ -10,12 +10,12 @@ import math
 from pathlib import Path
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import NOISE_PCT
 
-PEAK_GBS = 273.0  # Jetson AGX Thor LPDDR5X theoretical peak
+PEAK_GBS = 273.0  # fallback memory peak when a platform record carries none
 
 
 NOISE = NOISE_PCT / 100  # same-run ratio noise band (see verify.stages.NOISE_PCT)
@@ -116,10 +116,13 @@ def _footer_run(fig, mode: Mode, doc: dict, extra: str = "") -> None:
     ver = f"kernel {k.get('version', '?')}" + (f" ({k['git']})" if k.get("git") else "")
     p = doc.get("params", {})
     shape = f"h_q={p.get('hq', 24)} h_k={p.get('hk', 4)} d={p.get('d', 256)} page={p.get('page', 128)}"
+    # the model the doc belongs to — model-less documents are the headline
+    # model's (readme_targets._matches), so the footer names it as such
+    model = (model_of(doc) or DEFAULT_MODEL).split("/")[-1]
     theme.footer(
         fig,
         mode,
-        f"mjolnir verify {doc['stage']} · run {doc['run_id']} · {ver} · {shape}{extra}",
+        f"mjolnir verify {doc['stage']} · {model} · run {doc['run_id']} · {ver} · {shape}{extra}",
         right=theme.board_line(doc.get("platform")),
     )
 
@@ -331,7 +334,7 @@ PLATFORM_HERO_SLOGAN = {
 
 PLATFORM_HERO_PILLS = {
     "thor": (("Jetson AGX Thor", "#8cc63f", "#3f8a12"), ("Mjolnir · tcgen05 decode kernel", "#f2925a", "#d4501f")),
-    "orin": (("Jetson Orin", "#8cc63f", "#3f8a12"), ("Mjolnir GEMV · research", "#f2925a", "#d4501f")),
+    "orin": (("Jetson Orin", "#8cc63f", "#3f8a12"), ("Mjolnir · mma decode kernel", "#f2925a", "#d4501f")),
     "spark": (("DGX Spark", "#8cc63f", "#3f8a12"), ("research — baselines only", "#f2925a", "#d4501f")),
 }
 

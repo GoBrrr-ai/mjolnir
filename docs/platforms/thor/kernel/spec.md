@@ -121,4 +121,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV cache capacity](kv-cache-size.md) · [case study](../README.md#kernel) · [Full profiles per KV format →](fp6prof.md)
+[← KV cache capacity](kv-cache-size.md) · [case study](../README.md#-kernel) · [Full profiles per KV format →](fp6prof.md)

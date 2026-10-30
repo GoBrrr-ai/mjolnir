@@ -13,7 +13,7 @@ This package is the kernel only. Serving, calibration and benchmarking are the
 [`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) package; benchmarks
 (Mjolnir vs FlashInfer vs FlashAttention 2 across context lengths), the design,
 and one chapter per kernel feature live in the project repository:
-**[thor-arena/mjolnir](https://github.com/thor-arena/mjolnir)** — numbers there
+**[GoBrrr-ai/mjolnir](https://github.com/GoBrrr-ai/mjolnir)** — numbers there
 are rendered from the raw results, so they are never stale.
 
 ## What it does
@@ -74,7 +74,7 @@ The package registers a `vllm.general_plugins` entry point (`mjolnir:register`)
 that maps `AttentionBackendEnum.CUSTOM` — and `MJOLNIR`, when the vLLM build has
 that member — to `mjolnir.backend.MjolnirAttentionBackend` in every vLLM process.
 The two-line enum patch for vLLM is
-[`thor-mjolnir-attention-backend.patch`](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch).
+[`thor-mjolnir-attention-backend.patch`](https://github.com/GoBrrr-ai/mjolnir/blob/main/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch).
 
 Look for this line in the server log:
 
@@ -126,7 +126,7 @@ runs on the fallback backend.
 
 The pre-rename `THOR_T5_*` spellings are still honored. Each default is backed
 by a measurement — see the
-[kernel chapters](https://github.com/thor-arena/mjolnir/tree/main/docs/kernel).
+[kernel chapters](https://github.com/GoBrrr-ai/mjolnir/tree/main/docs/kernel).
 
 ## fp6 (e2m3) KV in vLLM
 
@@ -144,7 +144,7 @@ MJOLNIR_ATTN_KV_SCALES=kv_scales/e2m3.json vllm serve ... --kv-cache-dtype fp6_e
 ```
 
 (`mjolnir calibrate` / `mjolnir serve` do both for you —
-[docs/faq/fp6-kv.md](https://github.com/thor-arena/mjolnir/blob/main/docs/faq/fp6-kv.md).)
+[docs/faq/fp6-kv.md](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/faq/fp6-kv.md).)
 
 ## Beyond fp8: the harness
 
@@ -154,8 +154,8 @@ correctness reference. The harness can also read KV formats vLLM cannot write
 yet — fp6 (`e2m3`/`e3m2`) and fp4 (`e2m1`) read directly by `tcgen05
 kind::f8f6f4`, and `nvfp4` — and defaults to e2m3 on head-major pages for fp8 Q.
 How they compare in speed and accuracy:
-[`kvfmt`](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/kvfmt.md) and
-[`quant`](https://github.com/thor-arena/mjolnir/blob/main/docs/kernel/quant.md).
+[`kvfmt`](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/kernel/kvfmt.md) and
+[`quant`](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/kernel/quant.md).
 Wiring a vLLM cache-write path for fp6 is an open contribution.
 
 ## Platforms and architectures
@@ -168,7 +168,6 @@ compute capability to it. Thor and Jetson Orin (`sm_87`) are implemented;
 DGX Spark (`sm_121`) is declared research — named in the matrix, no kernel
 yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 and
 fp6-e2m3 KV, hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
-The retired FMA GEMV lives in the `gemv-archive` git tag.
 
 `kernel_for((11, 0))` returns `mjolnir.arch.thor`; any other compute
 capability raises `PlatformNotSupported` naming the requested `sm_XX` and the

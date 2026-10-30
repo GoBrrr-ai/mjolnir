@@ -43,8 +43,8 @@ def make_plot(app: typer.Typer):
             False,
             "--prune",
             help="git rm the committed verify raws the render never reads "
-            "(superseded defaults, non-default A/B runs, uncharted stages); "
-            "the untracked ones are reported, not deleted",
+            "(pre-writer legacy dirs: superseded defaults, tracked ad-hoc runs); "
+            "the writer already prevents new ones — the untracked are reported, not deleted",
         ),
     ):
         """Render every chart (PNGs in assets/benchmarks/, from the

@@ -10,7 +10,7 @@
 #
 # One-time human setup (before the first tag):
 #   1. pypi.org: add a (pending) trusted publisher for project `mjolnir-cli`:
-#        owner=thor-arena  repo=mjolnir  workflow=release-cli.yml  environment=pypi-cli
+#        owner=GoBrrr-ai  repo=mjolnir  workflow=release-cli.yml  environment=pypi-cli
 #   2. GitHub: Settings -> Environments -> create `pypi-cli`.
 #   3. GitHub: a tag ruleset for `mjolnir-cli-v*` (block force-push + delete).
 

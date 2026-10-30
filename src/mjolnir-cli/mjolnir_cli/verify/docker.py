@@ -169,8 +169,7 @@ class Runner:
         if isinstance(args, str):
             args = shlex.split(args)
         if self.platform == "orin":
-            # The mma kernel takes a bf16 query (the fp8-Q pack was the
-            # retired GEMV's — the M3 work); the KV stays fp8 on the harness.
+            # The mma kernel takes a bf16 query; the KV stays fp8 on the harness.
             return ["-m", "mjolnir.arch.orin.harness", "--q_dtype", "bf16", "--kv_dtype", "fp8", *args]
         qd = "Float8E4M3FN" if q == "fp8" else "BFloat16"
         return ["-m", "mjolnir.arch.thor.harness", "--q_dtype", qd, "--kv_dtype", "Float8E4M3FN", *args]

@@ -40,7 +40,7 @@ The most useful contribution: independent numbers.
 
 ```bash
 uv tool install mjolnir-cli
-git clone https://github.com/thor-arena/mjolnir && cd mjolnir
+git clone https://github.com/GoBrrr-ai/mjolnir && cd mjolnir
 mjolnir hw setup                     # once: clocks, power mode, docker runtime
 mjolnir verify all                   # correctness + every benchmark stage (~1–2 h)
 uv run mjolnir plot --readme
@@ -104,7 +104,7 @@ contribution: it tells everyone what not to try. Improvements to the orchestrato
 
 ### Report a problem
 
-Open an [issue](https://github.com/thor-arena/mjolnir/issues) with the image tag
+Open an [issue](https://github.com/GoBrrr-ai/mjolnir/issues) with the image tag
 (`mjolnir image`), the config, and the raw JSON or log path.
 
 ## Development setup

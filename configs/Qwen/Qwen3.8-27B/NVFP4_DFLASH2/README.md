@@ -27,10 +27,10 @@ mjolnir serve up --config NVFP4_DFLASH2
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_DFLASH2).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_DFLASH2).
 
 ## Benchmarks
 
 **no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `Qwen/Qwen3.8-27B` / `NVFP4_DFLASH2` on Jetson AGX Thor so far.
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

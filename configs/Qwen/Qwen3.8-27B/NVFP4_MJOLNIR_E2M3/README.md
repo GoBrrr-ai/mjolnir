@@ -27,7 +27,7 @@ mjolnir serve up --config NVFP4_MJOLNIR_E2M3
 ```
 Availability: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_MJOLNIR_E2M3).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_MJOLNIR_E2M3).
 
 ## Benchmarks
 
@@ -79,4 +79,4 @@ Mjolnir · fp6 KV, 1 request: best with **3 drafts** — 25.7 t/s per request, 3
 </details><br />
 </details>
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

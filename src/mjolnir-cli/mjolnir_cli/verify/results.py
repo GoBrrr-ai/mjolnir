@@ -31,7 +31,12 @@ Schema ``mjolnir.verify/1`` (all fields optional except the header):
 
 Readers (charts, README, docs) pick the latest *default* run of a stage, so
 an ad-hoc A/B with custom flags never replaces a headline chart by accident
-(``latest(stage, default_only=False)`` returns any run).
+(``latest(stage, default_only=False)`` returns any run). The writer enforces
+the same rule at save time (:func:`save`): default runs of rendered stages
+replace the tracked evidence for their (stage, platform, model); everything
+else — ad-hoc A/Bs, uncharted stages — lands in the gitignored
+``benchmarks/staging/`` instead, so the tracked raws stay exactly what the
+render reads no matter how many experiments run.
 """
 
 from __future__ import annotations
@@ -44,9 +49,16 @@ from typing import Any
 
 import platform as host_platform
 
+from mjolnir_cli.config import DEFAULT_MODEL, model_of
 from mjolnir_cli.platforms import platform_of
 
 SCHEMA = "mjolnir.verify/1"
+
+# Stages whose runs are never rendered (no chart, no docs chapter — see
+# ``readme_targets``). Their runs always land in the untracked staging area,
+# default parameters included, so the tracked raws are exactly what the render
+# reads. Mirrored by ``rawprune`` (the audit).
+UNCHARTED = ("timing", "profile", "vllm")
 
 
 def new_run_id() -> str:
@@ -104,16 +116,61 @@ def header(
     return doc
 
 
+def newest(rs: list[dict]) -> dict | None:
+    """The newest run of a list — preferring default parameters: the render's
+    selection rule (``readme_targets``), shared with the writer (what a new
+    default run replaces) and the prune audit (what stays tracked)."""
+    dflt = [r for r in rs if r.get("default")]
+    return (dflt or rs)[-1] if rs else None
+
+
 def stage_dir(verify_dir: Path, stage: str) -> Path:
     return verify_dir / stage
 
 
+def staging_dir(verify_dir: Path) -> Path:
+    """The untracked landing zone (``benchmarks/staging/``) — derived from the
+    verify dir (``benchmarks/raw/verify`` → ``benchmarks/staging``), the same
+    path :class:`~mjolnir_cli.config.RepoLayout.staging_dir` builds."""
+    return verify_dir.parent.parent / "staging"
+
+
 def save(verify_dir: Path, doc: dict) -> Path:
-    d = stage_dir(verify_dir, doc["stage"])
+    """File a run's document.
+
+    A default-parameter run of a rendered stage IS the tracked evidence for
+    its (stage, platform, model): it lands in ``raw/verify/<stage>/`` and
+    replaces the previous default run of that group — the newest-default-wins
+    rule the render applies, applied at write time (git history keeps the
+    retired file). Everything else — an ad-hoc A/B (custom parameters) or a
+    run of an uncharted stage — lands in ``benchmarks/staging/`` (gitignored):
+    visible locally, never shipped, never in a chart by accident."""
+    tracked = bool(doc.get("default")) and doc["stage"] not in UNCHARTED
+    d = stage_dir(verify_dir, doc["stage"]) if tracked else staging_dir(verify_dir) / "verify" / doc["stage"]
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{doc['run_id']}.json"
     p.write_text(json.dumps(doc, indent=1, sort_keys=False) + "\n")
+    if tracked:
+        _retire_superseded(verify_dir, doc)
     return p
+
+
+def _group(doc: dict) -> tuple[str, str]:
+    """The evidence group a document belongs to — mirrors ``readme_targets``
+    (``_matches``): a model-less document belongs to the platform's headline
+    model."""
+    return (platform_of(doc), model_of(doc) or DEFAULT_MODEL)
+
+
+def _retire_superseded(verify_dir: Path, doc: dict) -> None:
+    """Delete the previous default run of the same (stage, platform, model):
+    the render would never read it (``_newest`` prefers the newest default),
+    and keeping it would grow the repo with every re-run."""
+    for old in runs(verify_dir, doc["stage"]):
+        if old["run_id"] == doc["run_id"] or not old.get("default"):
+            continue
+        if _group(old) == _group(doc):
+            Path(old["_path"]).unlink(missing_ok=True)
 
 
 def load(path: Path) -> dict | None:

@@ -47,4 +47,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[case study](../README.md#kernel) · [Headline L-sweep →](sweep.md)
+[case study](../README.md#-kernel) · [Headline L-sweep →](sweep.md)

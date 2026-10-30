@@ -1,24 +1,23 @@
 # {{ stages["sweep"].title }}
 
->{% if ctx.platform and ctx.platform.sm_family == "sm_87" %} GEMV kernel vs the full serving path vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image{% else %} {{ stages["sweep"].summary }}{% endif %} · `mjolnir verify sweep` · {% if has("sweep") %}run `{{ ctx.runs["sweep"] }}`{% else %}**no run yet**{% endif %}
+>{% if ctx.platform and ctx.platform.sm_family == "sm_87" %} the `sm_87` mma kernel vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image{% else %} {{ stages["sweep"].summary }}{% endif %} · `mjolnir verify sweep` · {% if has("sweep") %}run `{{ ctx.runs["sweep"] }}`{% else %}**no run yet**{% endif %}
 
 ## The question
 
-The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAttention 4 hd256 — at every context length from 128 to 256K tokens? Short contexts are latency-bound (launch, plan, merge), long ones bandwidth-bound; a decode kernel has to win both.
+The headline: how fast is one decode step with Mjolnir against the platform's stock reference — at every context length from 128 to 256K tokens? Short contexts are latency-bound (launch, plan, merge), long ones bandwidth-bound; a decode kernel has to win both.
 
 ## How it is measured
 
 - one sequence, 24 query / 4 KV heads, head dim 256, 128-token pages in random order — the hd256 attention shape of {{ model_short }};
-{% if ctx.platform and ctx.platform.sm_family == "sm_87" %}
-- **CUDA-event wall clock** (no ncu exists on L4T): the kernel number replays the compiled launch with prebuilt arguments; the serving-path number times the full `runner.run()` call (argument packing + the split-KV LSE combine, python included); the FlashInfer reference runs in its own container on the same stock image, warmed up the same way, in the same run;
-- legs: **Mjolnir GEMV fp8** (prebuilt launches), **Mjolnir serving path** (the full per-call cost), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, 16-token pages);
+{% if ctx.platform and ctx.platform.sm_family == "sm_87" -%}
+- **CUDA-event wall clock**: the kernel number replays the compiled launch with prebuilt arguments; the FlashInfer reference runs in its own container on the same stock image, warmed up the same way, in the same run. No ncu replay on this stage, so no cold-L2/base-clock control here — the ncu-profiled stages (hndsweep, kvfmt, ab, fp6prof) carry it;
+- legs: **Mjolnir MMA** (the `sm_87` `mma.m16n8k16` kernel, prebuilt launches), **FlashInfer FA2-TC** tensor-core decode as vLLM calls it (fp8 KV, NHD pages);
 - bandwidth = each leg's *own* KV bytes ÷ time (fp8 = 8 bit);
-{% else %}
+{% else -%}
 - **ncu kernel time** of the decode kernel(s) + the split-KV merge, averaged over 50 launches, `--cache-control all` (cold L2: every launch reads KV from DRAM) and `--clock-control base`;
 - legs: **Mjolnir e2m3** (the kernel's fastest config), **Mjolnir fp8** (the `NVFP4_MJOLNIR` config; the default serves e2m3), **FlashInfer** tensor-core decode as vLLM calls it (fp8 KV, NHD pages), **FlashAttention 4 hd256** via `vllm_flash_attn` (`fa_version=4`, fp8 Q+KV) — as the `NVFP4_FA4hd256` config serves it on the Mjolnir image, which carries the patched FA4;
 - bandwidth = each leg's *own* KV bytes ÷ time (e2m3 = 6 bit, fp8 = 8 bit, bf16 = 16 bit);
 {% endif %}
-
 ## Result
 
 {% if has("sweep") -%}
@@ -26,14 +25,14 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 {{ chart("kernel-latency", "Decode latency per step") }}
 
-{{ chart("kernel-bandwidth", "Effective KV bandwidth") }}
+{{ chart("kernel-bandwidth", "Effective KV bandwidth vs the platform's memory peak") }}
 
 {% for f in ctx.findings["sweep"] -%}
 - {{ f }}
 {% endfor %}
 {{ ctx.tables.get("sweep", "") }}
 
-{{ how("kernel") }}
+{{ how(("sweep-events" if ctx.platform and ctx.platform.sm_family == "sm_87" else "kernel")) }}
 
 <sub>Rendered from [`benchmarks/raw/verify/sweep/{{ ctx.runs["sweep"] }}.json`]({{ root }}benchmarks/raw/verify/sweep/{{ ctx.runs["sweep"] }}.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±{{ ctx.noise_pct }}% noise band, red = slower, gray = within noise.</sub>
 {%- else %}
@@ -42,8 +41,9 @@ The headline: how fast is one decode step with Mjolnir, FlashInfer and FlashAtte
 
 ## How to read it
 
-At L=128 the cache fits in one tile and time is mostly fixed cost: plan, launch, merge. From ~16K the cache no longer fits the 32 MiB L2 and every kernel converges toward the DRAM roofline — the remaining gap is how much of the peak each kernel sustains (bandwidth chart) and how many bytes it has to move (KV format). FA4 reads the same fp8 bytes as the other fp8 legs; the FA2 leg (available on demand via `--legs fa2`) pays twice the bytes — it has no fp8 KV path.
+At L=128 the cache fits in one tile and time is mostly fixed cost: plan, launch, merge. From ~16K the cache no longer fits {% if ctx.platform and ctx.platform.sm_family == "sm_87" %}the L2{% else %}the 32 MiB L2{% endif %} and every kernel converges toward the DRAM roofline — the remaining gap is how much of the peak each kernel sustains (bandwidth chart) and how many bytes it has to move (KV format).{% if not (ctx.platform and ctx.platform.sm_family == "sm_87") %} FA4 reads the same fp8 bytes as the other fp8 legs; the FA2 leg (available on demand via `--legs fa2`) pays twice the bytes — it has no fp8 KV path.{% endif %}
 
+{% if not (ctx.platform and ctx.platform.sm_family == "sm_87") -%}
 ### FA4 hd256 as served: why the number is what it is
 
 The FA4 leg times the kernel as the `NVFP4_FA4hd256` serving config runs it on the Mjolnir image (the only image with the FA4 hd256 + fp8 patch group; stock vLLM downgrades hd256 + quantized KV to FA2). That path is fixed, not tunable, on vLLM {{ ctx.vllm_version }}:
@@ -54,12 +54,13 @@ The FA4 leg times the kernel as the `NVFP4_FA4hd256` serving config runs it on t
 
 With those pinned, the comparison is fair: FlashInfer remains the strongest stock baseline and Mjolnir the headline.
 
-## Reproduce
+{% endif %}## Reproduce
 
 ```bash
 mjolnir verify sweep
+{% if not (ctx.platform and ctx.platform.sm_family == "sm_87") -%}
 mjolnir verify sweep --legs fi,fa2,fi-hnd,mjolnir-fp8,mjolnir --ls "8192 65536"   # custom (not a headline run); fa2 = the on-demand bf16 baseline
-```
+{% endif %}```
 
 ## Ideas to try
 
@@ -70,4 +71,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← {{ stages["correctness"].title }}](correctness.md) · [case study](../README.md#kernel) · [{{ stages["hndsweep"].title }} →](hndsweep.md)
+[← {{ stages["correctness"].title }}](correctness.md) · [case study](../README.md#-kernel) · [{{ stages["hndsweep"].title }} →](hndsweep.md)

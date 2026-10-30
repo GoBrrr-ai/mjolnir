@@ -393,7 +393,7 @@ def main() -> int:
     p.add_argument("--ctas_per_sm", type=int, default=2, help="the Orin grid has no CTAs/SM knob; 2 only")
     p.add_argument("--max_splits", type=int, default=0, help="split-KV capacity (0 = the auto plan)")
     args = p.parse_args()
-    assert args.q_dtype == "bf16", "the mma kernel takes a bf16 query (the fp8-Q pack was the retired GEMV's; M3)"
+    assert args.q_dtype == "bf16", "the mma kernel takes a bf16 query (the fp8-Q pack path is not wired; M3)"
     assert args.ctas_per_sm == 2, "the Orin mma grid is pinned at 2 CTAs/SM (255 regs + the smem bind)"
     ok = True
     if args.sweep:

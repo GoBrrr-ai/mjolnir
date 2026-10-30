@@ -1,6 +1,6 @@
 # Qwen/Qwen3.8-27B
 
-`AWQ_MJOLNIR_E2M3` — compressed-tensors · serving profile. Flags live in
+`AWQ_MJOLNIR_E2M3` — Mjolnir fp6 KV, AWQ weights · serving profile. Flags live in
 [config.yaml](config.yaml), platform deltas in [platforms/](platforms/), Mjolnir env switches in `.env`; every number on
 this page derives from the committed raw data ([history](../../../../benchmarks/history.jsonl), [raw](../../../../benchmarks/raw/)). The model's [README](../README.md).
 
@@ -9,7 +9,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 | parameter | Orin |
 |---|---|
 | Checkpoint | `twolven/Qwen3.8-27B-abliterated-AWQ-MTP` |
-| Format | compressed-tensors |
+| Format | Mjolnir fp6 KV, AWQ weights |
 | Max context | 190K |
 | Max concurrency | 5 |
 | Prefill chunk | 8K |
@@ -27,7 +27,7 @@ mjolnir serve up --config AWQ_MJOLNIR_E2M3
 ```
 Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=AWQ_MJOLNIR_E2M3).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=AWQ_MJOLNIR_E2M3).
 
 ## Benchmarks
 
@@ -61,4 +61,4 @@ AWQ_MJOLNIR_E2M3, 1 request: best with **3 drafts** — 20.1 t/s per request, 3.
 </details><br />
 </details>
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#-kernel), one chapter per verify stage.

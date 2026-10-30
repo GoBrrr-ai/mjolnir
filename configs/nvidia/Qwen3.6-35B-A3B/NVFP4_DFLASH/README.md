@@ -27,7 +27,7 @@ mjolnir serve up --config NVFP4_DFLASH
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_DFLASH).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_DFLASH).
 
 ## Benchmarks
 ### End to end (NVFP4_DFLASH vs NVFP4_MJOLNIR_E2M3, 1 request · 128K context)
@@ -69,4 +69,4 @@ Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjo
 </details><br />
 </details>
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

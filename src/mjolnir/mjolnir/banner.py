@@ -39,7 +39,7 @@ _WHITE = "\033[1m"  # bold default foreground (handle, author)
 _RESET = "\033[0m"
 _GAP = "   "
 _AUTHOR = "by Mieszko Syty (ms1design)"
-_URL = "https://github.com/thor-arena/mjolnir"
+_URL = "https://github.com/GoBrrr-ai/mjolnir"
 
 
 def banner(version: str, color: bool = False, model: str | None = None) -> str:

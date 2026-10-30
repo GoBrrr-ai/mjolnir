@@ -312,21 +312,26 @@ def load_runs(layout) -> list[dict]:
 
 
 def latest_legs(docs: list[dict]) -> list[dict]:
-    """One row per (platform, model, image, config): every suite from the
+    """One row per (platform, model, image side, config): every suite from the
     newest run that measured it (an A/B run and a later GSM8K run merge into
     one row). Order: first appearance. The platform comes from the run doc
     (platform-less records are the repo's Thor history); a leg measured on
-    two platforms is two rows — its charts are per (platform, model)."""
+    two platforms is two rows — its charts are per (platform, model). The
+    side (official image vs Mjolnir) keys the row, not the image tag, so a
+    re-measure on a newer image of the same side supersedes the older scores
+    in place (the row keeps its position and the newest image) instead of
+    duplicating a row the labels cannot tell apart."""
     rows: dict[tuple, dict] = {}
     for d in docs:
         plat = platform_of(d)
         for leg in d.get("legs", []):
-            key = (plat, model_of(leg), leg.get("image"), leg.get("config"))
+            key = (plat, model_of(leg), _is_mjolnir(str(leg.get("image", ""))), leg.get("config"))
             row = rows.setdefault(
                 key,
                 {k: leg.get(k) for k in ("id", "model", "image", "config", "label", "kv_cache_dtype", "env")}
                 | {"platform": plat, "suites": {}, "categories": {}, "scenarios": {}, "runs": {}},
             )
+            row["image"] = leg.get("image") or row.get("image")
             row["kv_cache_dtype"] = leg.get("kv_cache_dtype") or row.get("kv_cache_dtype")
             row["label"] = leg_label(row)  # recomputed: labels improve after a run is stored
             for name, suite in (leg.get("suites") or {}).items():

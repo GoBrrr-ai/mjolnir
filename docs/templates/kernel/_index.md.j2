@@ -13,7 +13,7 @@
 {% if kctx.has_sweep -%}
 **Where it stands:** {{ kctx.geo_vs_fi }}× FlashInfer (geomean over L = {{ kctx.ls }}){% if kctx.geo_vs_fa4 %}, {{ kctx.geo_vs_fa4 }}× FlashAttention 4 hd256 (fp8 Q+KV, as the patched image serves it: 1-CTA decode, no SplitKV){% endif %}{% if kctx.geo_vs_fa2 %}, {{ kctx.geo_vs_fa2 }}× FlashAttention 2 (bf16 KV, on demand){% endif %}{% if kctx.correctness %}, {{ kctx.correctness }} correctness checks{% endif %} — run `{{ kctx.sweep_run }}`.
 
-{{ how("kernel") }}
+{{ how(("sweep-events" if kctx.platform and kctx.platform.sm_family == "sm_87" else "kernel")) }}
 
 {{ chart("kernel-speedup", "Mjolnir decode speedup over FlashInfer", pair=kctx.chart_pair) }}
 {%- else -%}

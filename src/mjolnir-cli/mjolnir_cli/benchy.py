@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 
 from mjolnir_cli.config import Settings
-from mjolnir_cli import dockerctl
+from mjolnir_cli import dockerctl, retention
 from mjolnir_cli.gate import server_load, wait_for_idle
 from mjolnir_cli import history as hist
 
@@ -207,9 +207,9 @@ def run_perf(
     if label:
         s.label = label
 
-    layout.raw_dir.mkdir(parents=True, exist_ok=True)
+    layout.staging_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    out_dir = layout.raw_dir / f"perf-{stamp}"
+    out_dir = layout.staging_dir / f"perf-{stamp}"  # exhaust: the record's cells carry the values; gitignored
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[mjolnir] perf bench: {repeat} sweep(s), {runs} runs/cell, {warmup_runs} warmups/cell, exact-tg={exact_tg}")
@@ -312,6 +312,9 @@ def run_perf(
     hist.append_record(layout.history_file, rec)
     records.append(rec)
     print_benchy_table(out_dir, rec)
+    rep = retention.sweep(layout)  # the writers prune: expired staging/logs, silent when nothing freed
+    if rep.removed:
+        print(f"[mjolnir]   🧹 {rep.summary()}")
     return records
 
 

@@ -1,10 +1,8 @@
 """The sm_87 MMA decode kernel — Phase 1 (M1): fp8 KV, bf16 Q, q_len <= 8
 (the MTP=7 verify shape: 7 drafts + the real token = 8 query tokens).
 
-The design lives in research/runs/orin1/notes/mma-kernel-design.md; the
-evidence for why the retired GEMV's scalar-issue roofline capped it at
-~20 GB/s lives in gemv-vs-mma-bottleneck.md (the kernel itself: the
-``gemv-archive`` git tag). The structure follows NVIDIA's
+The design lives in research/runs/orin1/notes/mma-kernel-design.md. The
+structure follows NVIDIA's
 Ampere FlashAttention-2 DSL example (research/runs/orin1/sources/
 ampere-fa2-dsl/fa2_ampere.py):
 
@@ -91,7 +89,7 @@ _DEQ_BIAS = cutlass.Int32(0x7B807B80)
 
 class MMADecodeKernel:
     """The traced CuTe kernel. The arg surface follows the shared runner
-    packing (the fp8/Q-descale contract the retired GEMV established)."""
+    packing."""
 
     HEAD_DIM = 256  # Qwen3.8-27B's head size
     M_TILE = 64  # the 4 warps x 16-row mma atoms; q_len*6 <= 48 pads in

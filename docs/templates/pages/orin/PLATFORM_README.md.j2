@@ -1,34 +1,32 @@
 {#- The Orin page's override: the kernel benchmark sections rebuilt from the
     Orin raw results (the same shape as the Thor's, where the Orin has data).
-    The Orin sweep is cuda-event timed (no ncu on L4T — the `sweep-events`
-    panel renders below) and the kernel is research-stage: the gap to
-    FlashInfer is the result, not a win. -#}
+    The Orin sweep is cuda-event timed (the ncu-profiled stages — hndsweep,
+    kvfmt, ab, fp6prof — carry the cold-L2/base-clock controls), and the
+    kernel is research-stage: its standing against FlashInfer is what the
+    sweep's generated finding states, never this static prose. -#}
 {% extends "docs/templates/pages/PLATFORM_README.md.j2" %}
 
 {% block kernel_benchmarks %}
 {% if ctx.kernel %}
 {% set kctx = ctx.kernel %}
-### Mjolnir Kernel
+### <img src="../../../assets/emoji/{{ ctx.emoji }}" alt="" width="26" align="absmiddle"> Mjolnir Kernel
 
 All kernel numbers are **cuda-event timed kernel time**, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
-Measured on the Orin: **research stage** — the restored `sm_87` kernel is slower than FlashInfer at every L; the chapters quantify the gap and where it comes from. Noise and methodology: [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
+Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer reference, timed in the same run; the chapters quantify where it stands. Noise and methodology: [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
 
 | leg | what runs | KV cache |
 |---|---|---|
-| **Mjolnir GEMV** | the restored `sm_87` GEMV kernel, standalone | fp8 e4m3, HND pages |
-| **Mjolnir · serving path** | the kernel as the backend launches it (plan + buffers included) | fp8 e4m3, HND pages |
-| **FlashInfer FA2-TC** | the official vLLM {{ kctx.vllm_version }} FlashInfer decode path for `sm_87` | fp8 e4m3, NHD pages |
+| **Mjolnir MMA** | the `sm_87` `mma.m16n8k16` decode kernel (a CuTe-DSL port of NVIDIA's Ampere FA2 example, restructured for paged decode): one CTA per (KV head, split, batch), `cp.async` staging, smem dequant, split-KV + fused LSE combine | fp8 e4m3, HND pages |
+| **FlashInfer FA2-TC** | the official vLLM {{ kctx.vllm_version }} FlashInfer tensor-core decode path for `sm_87` | fp8 e4m3, NHD pages |
 
 {% if "sweep" in kctx.runs %}
 {{ chart("kernel-latency", "Decode latency per step vs context length") }}
 
 {{ kctx.tables.sweep }}
 
-> <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (the Orin kernel is behind everywhere today).</sub>
+> <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
-{{ how("kernel") }}
-
-{{ chart("kernel-bandwidth", "Effective KV bandwidth vs the LPDDR5X peak") }}
+{{ chart("kernel-bandwidth", "Effective KV bandwidth vs the LPDDR5 peak") }}
 {%- endif %}
 {% endif %}
 {% endblock %}

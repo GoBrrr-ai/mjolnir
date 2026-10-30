@@ -75,7 +75,7 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 
 ```bash
 mjolnir verify kvfmt
-mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3|e2m3-s3:--kv_format e2m3 --kv_stages 3"
+mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3"
 ```
 
 ## Ideas to try
@@ -86,4 +86,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Head-major pages](hndsweep.md) · [case study](../README.md#kernel) · [KV format accuracy →](quant.md)
+[← Head-major pages](hndsweep.md) · [case study](../README.md#-kernel) · [KV format accuracy →](quant.md)

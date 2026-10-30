@@ -201,9 +201,9 @@ RING_DEFAULT = "2 3 4 5 6"
 def stage_ring(ctx: Ctx, stages: str = RING_DEFAULT, base: str = "", refs: str = "fi") -> dict:
     """KV ring depth (``--kv_stages``) at the harness default."""
     if ctx.runner.platform == "orin":
-        # The GEMV is single-pass: no KV ring to size.
-        ctx.out("   (N/A on Orin: the GEMV has no KV ring — nothing to measure)")
-        return {"error": "the Orin GEMV has no KV ring — nothing to measure"}
+        # The mma kernel has no tunable KV ring: no depth axis to sweep.
+        ctx.out("   (N/A on Orin: the mma kernel has no KV ring — nothing to measure)")
+        return {"error": "the Orin mma kernel has no KV ring — nothing to measure"}
     variants = [L_.t5_variant(f"stages={s}", f"{base} --kv_stages {s}".strip()) for s in stages.split()]
     variants.insert(0, L_.t5_variant("default", base))
     return _variant_stage(ctx, "ring", variants, refs)
@@ -214,9 +214,9 @@ def stage_prefetch(ctx: Ctx, distances: str = "0 1 2 4", base: str = "--kv_forma
     Runs on fp8 KV: the prefetch path is not wired for nvfp4 and the fp6
     ring is already tuned without it."""
     if ctx.runner.platform == "orin":
-        # The GEMV issues no L2 prefetch: no distance axis.
-        ctx.out("   (N/A on Orin: the GEMV has no L2-prefetch knob — nothing to measure)")
-        return {"error": "the Orin GEMV has no L2-prefetch knob — nothing to measure"}
+        # The mma kernel issues no L2 prefetch: no distance axis.
+        ctx.out("   (N/A on Orin: the mma kernel has no L2-prefetch knob — nothing to measure)")
+        return {"error": "the Orin mma kernel has no L2-prefetch knob — nothing to measure"}
     variants = [L_.t5_variant(f"prefetch={k}", f"{base} --l2_prefetch {k}".strip()) for k in distances.split()]
     return _variant_stage(ctx, "prefetch", variants, refs)
 
@@ -239,8 +239,8 @@ def stage_kvfmt(ctx: Ctx, variants: str = "", refs: str = KERNEL["verify.kvfmt.r
 def stage_timing(ctx: Ctx, dtypes: str = "fp8 bf16", ctas: str = "1 2", iters: int = 50) -> dict:
     """Harness-timed medians at every L, 1 vs 2 CTAs/SM, per Q dtype.
 
-    The Orin GEMV has no CTAs/SM axis: one config per (dtype, L) — bf16 Q
-    and fp8 Q (the runner's dynamic qpack) on fp8 KV."""
+    The Orin mma kernel pins one CTA/SM configuration: one config per
+    (dtype, L) — bf16 Q and fp8 Q (the runner's dynamic qpack) on fp8 KV."""
     orin = ctx.runner.platform == "orin"
     ctas_vals = ["1"] if orin else ctas.split()
     rows = []
@@ -336,7 +336,7 @@ def stage_pdl(ctx: Ctx, batches: str = "1 8", dtypes: str = "fp8", iters: int = 
     """Programmatic dependent launch on/off (wall clock — ncu serializes
     kernels, so it cannot see PDL)."""
     if ctx.runner.platform == "orin":
-        # PDL needs sm_90+; the GEMV family has no launch-overlap lever.
+        # PDL needs sm_90+; the Orin mma family has no launch-overlap lever.
         ctx.out("   (N/A on Orin: PDL does not exist below sm_90 — nothing to measure)")
         return {"error": "PDL does not exist below sm_90 — nothing to measure on Orin"}
     rows = []
@@ -520,7 +520,7 @@ def stage_vllm(
     log = ctx.logdir / "vllm" / "test_runner.log"
     # Each family's runner suite (no vLLM): tests/test_runner.py drives the
     # Thor runner against its bit-faithful emulator; tests/test_orin_runner.py
-    # drives the Orin runner (mma + GEMV) against the fp32 reference on the
+    # drives the Orin runner (the mma kernel) against the fp32 reference on the
     # vLLM 0.32 serving contract -- live device seq_lens, FULL-graph replay
     # without a metadata rebuild, the fused draft advance, padding rows,
     # the non-causal drafter block.

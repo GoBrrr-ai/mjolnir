@@ -655,5 +655,7 @@
     "262144": 1.0495
    }
   }
- }
+ },
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }

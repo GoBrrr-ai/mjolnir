@@ -333,6 +333,11 @@ class ReadmeContext:
     chart_pair: tuple[str, str] | None = None
     platform: Any = None
     platforms: list = field(default_factory=list)
+    # platform key -> headline model, for every registry platform whose
+    # headline model has kernel raws — the root README's data-driven
+    # case-study links in the Supported Hardware table (empty on a data-less
+    # checkout; research platforms drop out until they measure a kernel)
+    case_study_pairs: dict[str, str] = field(default_factory=dict)
     # the root README's Supported Models table (cycle 3g): one row per
     # scanned model, one availability (+ t/s) cell per registry platform
     models: list = field(default_factory=list)
@@ -398,6 +403,11 @@ def collect_context(
     ctx.platform = next((p for p in readme_targets.platform_rows() if p.key == platform), None)
     ctx.platforms = readme_targets.platform_rows()
     ctx.models = _models_table(layout)
+    ctx.case_study_pairs = {
+        p.key: p.headline_model or DEFAULT_MODEL
+        for p in REGISTRY.values()
+        if readme_targets.has_kernel_raws(layout, p.key, p.headline_model or DEFAULT_MODEL)
+    }
     ctx.image = f"{IMAGE_REPO}:v{ctx.vllm_version}" if ctx.vllm_version else IMAGE_REPO
     if layout.repo_root is not None:
         ctx.kernel_version = _version_from(layout.repo_root / "src" / "mjolnir" / "mjolnir" / "__init__.py")
@@ -696,15 +706,15 @@ def _accuracy_context(ctx: ReadmeContext, rows: list[dict]) -> None:
 
 _HOW: dict[str, str] = {
     "sweep-events": """\
-- **Time per decode step** = CUDA-event median over the timed launches. The kernel number replays the compiled launch with prebuilt arguments; the serving-path number times the full `runner.run()` call (argument packing + the split-KV LSE combine, python included). The FlashInfer reference runs in its own container on the same stock image, warmed up the same way, in the same run.
+- **Time per decode step** = CUDA-event median over the timed launches. The kernel number replays the compiled launch with prebuilt arguments; the FlashInfer reference runs in its own container on the same stock image, warmed up the same way, in the same run.
 - **Speedup ×** = reference time ÷ Mjolnir time; below 1 the reference is faster.
 - **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same.
-- No ncu exists on L4T, so this stage is events-timed wall clock, not `gpu__time_duration`; there is no cold-L2 or base-clock control. ±3% (`NOISE_PCT`) is the same-run spread band.""",
+- This stage is CUDA-event timed on this platform — no ncu replay, so no cold-L2 or base-clock control here (the ncu-profiled stages carry those). ±3% (`NOISE_PCT`) is the same-run spread band.""",
     "kernel": """\
-- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference (FlashInfer, FlashAttention 4 hd256) is measured the same way, at the same L, in the same run.
+- **Time per decode step** = Nsight Compute kernel time (`gpu__time_duration`) of the decode kernel **plus** its split-KV merge kernel, at base clocks with a cold L2, median over the iterations. The reference legs — FlashInfer, plus FlashAttention 4 hd256 where the platform has that leg — are measured the same way, at the same L, in the same run.
 - **Speedup ×** = reference time ÷ Mjolnir time. `1.24×` means Mjolnir needs 1 ÷ 1.24 = 81% of the reference's time per step (19% less time); below 1 the reference is faster.
 - **Geomean over L** = exp(mean of ln(speedup at each L)): every context length weighs the same, and one large ratio cannot dominate the way it would in an arithmetic mean.
-- **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated Thor.""",
+- **Colors / "beyond the noise band"**: green = speedup ≥ 1.03, grey = within ±3%, red ≤ 0.97. ±3% (`NOISE_PCT`) is how far a same-run ratio moves between repeated runs on a dedicated board.""",
     "variant": """\
 - Each cell = **reference time ÷ variant time** (Nsight Compute kernel time, decode + merge, base clocks, cold L2, same run, same L). `1.10×` = the variant needs 1 ÷ 1.10 = 91% of the reference's time; below 1 it is slower.
 - **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
@@ -750,8 +760,11 @@ def _how_e2e(ctx: Any) -> str:
         "official ÷ Mjolnir − 1, which reads larger for the same pair.",
     ]
     if ex:
+        pl = getattr(ctx, "platform", None)
+        label = getattr(pl, "name", None) if pl is not None else getattr(ctx, "name", None)
+        where = f"{label}, {ex['ctx']} context" if label else f"{ex['ctx']} context"
         lines.append(
-            f"- **Worked example** ({ex['ctx']} context, 1 request): TTFT {ex['a']:,.0f} → {ex['b']:,.0f} ms: "
+            f"- **Worked example** ({where}, 1 request): TTFT {ex['a']:,.0f} → {ex['b']:,.0f} ms: "
             f"({ex['b']:,.0f} − {ex['a']:,.0f}) ÷ {ex['a']:,.0f} × 100 = **{_signed(ex['change'])}** (a latency reduction "
             f"of {-ex['change']:.1f}%). The reciprocal speedup would be {ex['a']:,.0f} ÷ {ex['b']:,.0f} = {ex['ratio']:.2f}× "
             f"({_signed((ex['ratio'] - 1) * 100)}) — the same measurement, a different convention."
@@ -771,9 +784,9 @@ def how(ctx: Any, kind: str) -> str:
     """A collapsed "How this is calculated" panel for the tables / figures of
     ``kind`` (GitHub renders the markdown inside ``<details>``). The e2e
     panel reads the context's noise band (any context carrying
-    ``e2e_noise_pct`` works — the page contexts do too)."""
-    if kind == "kernel" and getattr(ctx, "platform", None) == "orin":
-        kind = "sweep-events"  # the Orin's headline sweep is events-timed (no ncu on L4T)
+    ``e2e_noise_pct`` works — the page contexts do too). The kind is the
+    caller's choice: the sweep templates pick ``sweep-events`` on the
+    platforms whose headline sweep is CUDA-event timed."""
     body = _how_e2e(ctx) if kind == "e2e" else _HOW[kind]
     return f"<details>\n<summary>How the % and × here are calculated</summary>\n\n{body}\n\n</details><br />"
 

@@ -7,8 +7,8 @@
   <a href="https://pypi.org/project/mjolnir-cli/"><img src="https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6" alt="mjolnir-cli on PyPI"></a>
   <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
   <img src="https://img.shields.io/badge/vLLM-{{ ctx.vllm_version }}-blue" alt="vLLM {{ ctx.vllm_version }}">
-  <img src="https://img.shields.io/badge/Jetson-AGX%20Thor-76b900" alt="NVIDIA Jetson AGX Thor">
-  <a href="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin%20%C2%B7%20DGX%20Spark-76b900" alt="Supported platforms: Jetson AGX Thor, Jetson Orin, DGX Spark">
+  <a href="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
 </p>
 
@@ -17,32 +17,37 @@
 </p>
 
 <p align="center">
-  <b><em>Mjölnir</em></b> — <em>faster, bigger-context LLM serving on the <b>Jetson AGX Thor</b>: a dedicated decode kernel, a tuned vLLM image and a CLI that serves, benchmarks and documents it.</em>
+  <b><em>Mjölnir</em></b> — <em>faster, bigger-context LLM serving on <b>edge GPUs</b>: a dedicated decode kernel per platform, a tuned vLLM image that carries every kernel, and a CLI that serves, benchmarks and documents it.</em>
 </p>
 
 <p align="center">
   <a href="#-key-features">Features</a> •
   <a href="#quickstart">Quickstart</a> •
-  <a href="#jetson-thor-benchmarks">Benchmarks</a> •
-  <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
-  <a href="#platforms">Platforms</a> •
-  <a href="docs/platforms/thor/README.md#kernel">Case study</a> •
+  <a href="docs/platforms/thor/README.md#end-to-end">Benchmarks</a> •
+  <a href="https://GoBrrr-ai.github.io/mjolnir/">Interactive charts</a> •
+  <a href="#supported-hardware">Platforms</a> •
+  <a href="docs/platforms/thor/README.md#-kernel">Case study</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
-## What is ⚡ Mjolnir?
+## What is <img src="{{ root }}assets/emoji/mjolnir_emoji.png" alt="Mjölnir" width="26" align="absmiddle"> Mjolnir?
 
 > *Mjölnir* is Old Norse for "Thor's hammer" — pronounced **"MYOL-nir"**.
 
-**Mjolnir makes LLM serving on the NVIDIA Jetson AGX Thor faster and roomier**: a decode-attention kernel written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), a 6-bit KV cache format for vLLM, a patched vLLM image that runs it, and a CLI that serves models from YAML configs and benchmarks every claim:
+**Mjolnir makes LLM serving on edge GPUs faster and roomier.** It is four things:
+
+- a **decode-attention kernel per platform** — a CuTe DSL kernel on the Thor's `tcgen05` tensor cores, an `mma.sync` kernel on the Orin — each written for its exact chip;
+- a **6-bit `e2m3` KV cache** for vLLM — 25% fewer bytes than fp8 at near-fp8 accuracy;
+- a **patched vLLM image** that carries all of it; and
+- a **CLI** that serves models from YAML configs and benchmarks every claim.
 
 ```bash
 mjolnir serve up    # or: vllm serve <model> --attention-backend MJOLNIR
 ```
 
-Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **decode speed is a memory problem**. Stock vLLM {{ ctx.vllm_version }} runs FlashAttention&nbsp;2 on Thor, which has no fp8 KV path and reads twice the bytes; FlashInfer is the fastest stock option. Mjolnir is built for this exact chip: 20 SMs, 2 CTAs per SM, a 32 MiB L2, LPDDR5X.
+Why any of this helps: **every generated token re-reads the whole KV cache** — on an edge GPU, decode speed is a memory problem. Stock vLLM reads bf16 (twice the bytes) or, at best, fp8; Mjolnir reads less, tuned per chip. The per-board story: [Supported Hardware](#supported-hardware).
 
-## ⚡ Key Features
+## <img src="{{ root }}assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Key Features
 
 {% if ctx.vs_vllm_hero -%}
 <p align="center">
@@ -82,8 +87,8 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
     </td>
     <td width="33%" valign="top" align="center">
       <br>
-      <h3>🐳&nbsp;<a href="docker/vllm-thor/PATCHES.md">Dockerized</a></h3>
-      <p>Official vLLM {{ ctx.vllm_version }} + Mjolnir + Jetson Thor patches.</p>
+      <h3>🖥️&nbsp;<a href="docs/cli.md">CLI</a></h3>
+      <p>One command surface for the whole repo: <code>serve</code> · <code>bench</code> · <code>verify</code> · <code>calibrate</code> · <code>plot</code>.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -118,16 +123,16 @@ Every generated token re-reads the whole KV cache, so on a 273 GB/s edge GPU **d
 ## Quickstart
 
 > [!IMPORTANT]
-> Requirements: Jetson AGX Thor (JetPack 7.x, `sm_110a`), Docker + NVIDIA Container Toolkit, [`uv`](https://docs.astral.sh/uv/).
+> Requirements: a supported board — <img src="{{ root }}assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> Jetson AGX Thor (JetPack 7.x), <img src="{{ root }}assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> Jetson Orin (JetPack 7.2.1+) or <img src="{{ root }}assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> DGX Spark (DGX OS + CUDA 13), see [Supported Hardware](#supported-hardware) — with Docker + the NVIDIA Container Toolkit, and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 # the CLI (the package is mjolnir-cli; the command is `mjolnir`)
 uv tool install mjolnir-cli
 
-# one-time: Thor host setup for stable numbers (clocks, power mode, fans, swap)
+# one-time: Jetson host setup for stable numbers (clocks, power mode, fans, swap)
 mjolnir hw setup
 
-# serve: Qwen3.8-27B NVFP4 on the Mjolnir image, --attention-backend MJOLNIR, port 6001
+# serve: the active model's default config on the Mjolnir image, --attention-backend MJOLNIR, port 6001
 mjolnir serve up
 ```
 
@@ -140,7 +145,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 **Use the image directly** (any model, any vLLM flags):
 
 ```bash
-docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
+docker run --rm -it --gpus all --ipc host -p 8000:8000 \
   {{ ctx.image }} <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
@@ -150,25 +155,35 @@ Mjolnir is detection-first: the CLI resolves the host platform (never a silent
 guess), every platform gets [its own page](docs/platforms/README.md) and — once
 kernel results exist for its headline model — its own kernel case study.
 
-| platform | status | kernel | host requirements |
-|---|---|---|---|
-{% for p in ctx.platforms -%}
-| **[{{ p.name }}](docs/platforms/{{ p.key }}/README.md)** | {{ p.status_icon }} {{ p.status }} | {% if p.status == "supported" %}[case study](docs/platforms/{{ p.key }}/README.md#kernel){% else %}—{% endif %} | {{ p.host_requirements }} |
-{% endfor %}
+<table width="100%">
+  <thead>
+    <tr><th width="25%"></th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.png" %}<th align="center" width="25%"><center><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="{{ p.name }}" width="72"><br><strong>{{ p.name }}</strong></a></center></th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    <tr><td align="center"><strong>status</strong></td>{% for p in ctx.platforms %}<td align="center">{{ p.status_icon }} {{ p.status }}</td>{% endfor %}</tr>
+    <tr><td align="center"><strong>kernel</strong></td>{% for p in ctx.platforms %}<td align="center">{% if p.key in ctx.case_study_pairs %}<a href="docs/platforms/{{ p.key }}/README.md#-kernel">case study</a>{% else %}—{% endif %}</td>{% endfor %}</tr>
+    <tr><td align="center"><strong>host requirements</strong></td>{% for p in ctx.platforms %}<td align="center">{{ p.host_requirements }}</td>{% endfor %}</tr>
+  </tbody>
+</table>
 
-## Supported Models
+## Measured Models
 
-| model {% for p in ctx.platforms %}| [{{ p.name }}](docs/platforms/{{ p.key }}/README.md) {% endfor %}|
-|---{% for p in ctx.platforms %}|---{% endfor %}|
-{% for m in ctx.models -%}
-| [{{ m.short }}](configs/{{ m.model }}/README.md) {% for c in m.cells.values() %}| {% if c.config %}<span title="{{ c.config }}">{{ c.symbol }} {{ c.tps }} t/s</span>{% else %}{{ c.symbol }}{% endif %} {% endfor %}|
-{% endfor %}
+<table width="100%">
+  <thead>
+    <tr><th align="left" width="25%">model</th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.png" %}<th align="center" width="25%"><center><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> <strong>{{ p.name }}</strong></a></center></th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {%- for m in ctx.models %}
+    <tr><td align="left"><a href="configs/{{ m.model }}/README.md">{{ m.short }}</a></td>{% for c in m.cells.values() %}<td align="center">{% if c.config %}<span title="{{ c.config }}">{{ c.symbol }} {{ c.tps }} t/s</span>{% else %}{{ c.symbol }}{% endif %}</td>{% endfor %}</tr>
+    {%- endfor %}
+  </tbody>
+</table>
 
-> <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
+> <sub>✅ serves natively · ❌ every config targeting it is unavailable · — no config targets it · t/s = decode tokens/s at 1 request / 0 context, the fastest config's latest run (hover a cell for it) · from [benchmarks/history.jsonl](benchmarks/history.jsonl)</sub>
 
 ### Model Configs
 
-A served model is a file, not a command line: each config is the `vllm serve` flags in YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — in its own directory, `configs/<vendor>/<model>/<config>/config.yaml`; what YAML cannot carry (the fp8 lm_head, the draft vocabulary) goes into the config dir's optional `.env` sidecar of `KEY=VALUE` switches, the model's calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to the config dirs, and your own configs drop into `~/.local/share/mjolnir/configs/` (same layout) to appear next to the repo's:
+**A served model is a file, not a command line.** Each config is the `vllm serve` flags as YAML — model, quantization, KV-cache dtype, attention backend, speculative decoding, context length — one directory per config under `configs/<vendor>/<model>/`, with everything the variant needs beside it: a `.env` sidecar for what YAML cannot carry (the fp8 lm_head, the draft vocabulary) and the model's calibration files. A whole model directory:
 
 ```bash
 configs/Qwen/Qwen3.8-27B/
@@ -252,5 +267,5 @@ Third-party code, the vLLM / FlashInfer / FlashAttention files the image patches
 
 <br />
 
-<p align="center"><sub>⚡ Mjölnir — built on and for the edge ❤️.</sub></p>
+<p align="center"><sub><img src="{{ root }}assets/emoji/mjolnir_emoji.png" alt="Mjölnir" width="20" align="absmiddle"> Mjölnir — built on and for the edge ❤️.</sub></p>
 <p align="center"><sub>Generated from <code>README.md.j2</code> by <code>mjolnir plot --readme</code>.</sub></p>

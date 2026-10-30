@@ -2,7 +2,7 @@
   <img src="{{ root }}assets/hero-{{ ctx.key }}.jpg" alt="Mjolnir on {{ ctx.name }}" width="100%">
 </p>
 
-# {{ ctx.name }}
+# <img src="{{ root }}assets/emoji/{{ ctx.emoji or "mjolnir_emoji.png" }}" alt="" width="28" align="absmiddle"> {{ ctx.name }}
 
 > **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
 
@@ -12,19 +12,30 @@
 
 ## Serving on {{ ctx.name }}
 
-One row per model in `configs/` — the config the platform's overlays serve
-by default (the model page's quickstart rule) and whether the
-(platform, model) pair has end-to-end data. Per-config availability lives
-on each [model page](../../../configs/).
+{% if ctx.chart_pair %}{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
+{% endif %}
 
-| model | default config | measured |
-|---|---|---|
-{% for r in ctx.rows -%}
-| [`{{ r.model }}`](../../../configs/{{ r.model }}/README.md) | {% if r.default_config %}[`{{ r.default_config }}`](../../../configs/{{ r.model }}/{{ r.default_config }}/README.md){% else %}—{% endif %} | {{ "✅" if r.measured else "—" }} |
-{% endfor %}
+## Measured Models
+
+One row per model in `configs/` — the config the platform's overlays serve
+by default (the model page's quickstart rule) and the pair's measured
+speeds. Per-config availability lives on each [model page](../../../configs/).
+
+<table width="100%">
+  <thead>
+    <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
+  </thead>
+  <tbody>
+    {%- for r in ctx.rows %}
+    <tr><td align="left"><a href="../../../configs/{{ r.model }}/README.md"><code>{{ r.model }}</code></a></td><td align="center">{% if r.default_config %}<a href="../../../configs/{{ r.model }}/{{ r.default_config }}/README.md"><code>{{ r.default_config }}</code></a>{% else %}—{% endif %}</td><td align="center">{% if r.best_config %}<span title="{{ r.best_config }}">{{ r.decode }}</span>{% else %}{{ r.decode }}{% endif %}</td><td align="center">{% if r.best_config %}<span title="{{ r.best_config }}">{{ r.prefill }}</span>{% else %}{{ r.prefill }}{% endif %}</td></tr>
+    {%- endfor %}
+  </tbody>
+</table>
+
+> <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl]({{ root }}benchmarks/history.jsonl).</sub>
 
 {%- if ctx.kernel %}
-## Kernel
+## <img src="{{ root }}assets/emoji/{{ ctx.emoji or "mjolnir_emoji.png" }}" alt="" width="26" align="absmiddle"> Kernel
 
 Mjolnir on {{ ctx.name }}, measured chapter by chapter and pinned to the
 headline model ({{ ctx.kernel.model }}) — every chart and table rendered
@@ -42,8 +53,6 @@ reproduces it.
 {% if ctx.e2e %}
 ## End to end
 
-{{ chart("opening-infographic", "Mjolnir vs the official vLLM image — end-to-end serving", pair=ctx.chart_pair) }}
-
 The official vLLM image vs Mjolnir on {{ ctx.name }} — the headline model's
 own history (`latest_pair`), decode tokens/s per request at 1 request.
 
@@ -55,10 +64,19 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 
 {{ chart("e2e-prefill", "End-to-end prompt processing: official vLLM vs Mjolnir", pair=ctx.chart_pair) }}
 
-{% block e2e_detail %}{% endblock %}
+{% block e2e_detail %}{% if ctx.kernel and ctx.kernel.vs_vllm %}
+Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.
+
+{{ ctx.kernel.vs_vllm }}
+{% if ctx.kernel.vs_vllm_missing %}
+> [!NOTE]
+> Incomplete: {{ ctx.kernel.vs_vllm_missing }}.
+{% endif %}
+> <sub>official: `{{ ctx.kernel.vs_vllm_official }}` · Mjolnir: `{{ ctx.kernel.vs_vllm_mjolnir }}` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
+{% endif %}{% endblock %}
 {{ how("e2e") }}
 {% endif -%}
 {%- endblock -%}
 {%- block extras -%}{%- endblock %}
 
-Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform={{ ctx.key }}).
+Explore every number in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#platform={{ ctx.key }}).

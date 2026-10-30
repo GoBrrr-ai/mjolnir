@@ -22,7 +22,7 @@ def test_plain_banner_layout():
     i1 = _start(model=False)
     assert lines[i1].endswith("Mjolnir v1.2.3")
     assert lines[i1 + 1].endswith("by Mieszko Syty (ms1design)")
-    assert lines[i1 + 2].endswith("https://github.com/thor-arena/mjolnir")
+    assert lines[i1 + 2].endswith("https://github.com/GoBrrr-ai/mjolnir")
     for i, line in enumerate(lines):
         if i1 <= i < i1 + 3:
             assert line.startswith(ART[i])
@@ -36,7 +36,7 @@ def test_plain_banner_model_line():
     i1 = _start(model=True)
     assert lines[i1].endswith("Mjolnir v1.2.3")
     assert lines[i1 + 1].endswith("by Mieszko Syty (ms1design)")
-    assert lines[i1 + 2].endswith("https://github.com/thor-arena/mjolnir")
+    assert lines[i1 + 2].endswith("https://github.com/GoBrrr-ai/mjolnir")
     assert lines[i1 + 3].endswith("Model: NVFP4_MJOLNIR_E2M3_LMH8_VT64K")
     assert all(line == ART[i] for i, line in enumerate(lines) if not (i1 <= i < i1 + 4))
 
@@ -48,7 +48,7 @@ def test_color_banner():
     i1 = _start(model=False)
     assert f"{head}Mjolnir{reset}{white} v1.2.3{reset}" in lines[i1]
     assert f"{white}by Mieszko Syty (ms1design){reset}" in lines[i1 + 1]
-    assert f"{white}https://github.com/thor-arena/mjolnir{reset}" in lines[i1 + 2]
+    assert f"{white}https://github.com/GoBrrr-ai/mjolnir{reset}" in lines[i1 + 2]
     for i, line in enumerate(lines):
         assert reset in line
         if i >= HEAD_START:

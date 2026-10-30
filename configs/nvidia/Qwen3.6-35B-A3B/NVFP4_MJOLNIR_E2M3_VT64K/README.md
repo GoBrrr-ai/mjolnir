@@ -27,10 +27,10 @@ mjolnir serve up --config NVFP4_MJOLNIR_E2M3_VT64K
 ```
 Availability: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_MJOLNIR_E2M3_VT64K).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_MJOLNIR_E2M3_VT64K).
 
 ## Benchmarks
 
 **no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `nvidia/Qwen3.6-35B-A3B` / `NVFP4_MJOLNIR_E2M3_VT64K` on Jetson AGX Thor so far.
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

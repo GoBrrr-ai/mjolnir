@@ -163,5 +163,7 @@
    "kv_tokens": 2608065,
    "max_concurrency": 12.73
   }
- }
+ },
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }

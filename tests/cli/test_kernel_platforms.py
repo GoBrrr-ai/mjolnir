@@ -123,6 +123,11 @@ def test_arch_thor_exposes_the_uniform_runner_name_the_backend_resolves():
 _KERNEL_SM = {name: sm for name, sm, _ in kp._SHIPPED}
 _CLI_SM = {key: p.sm for key, p in cp.REGISTRY.items()}
 
+# the implemented flags mirror the same way, and the CLI's status strings
+# derive from them: a platform whose kernel is implemented serves, every
+# other row is research (mjolnir_cli.platforms._IMPLEMENTED is the mirror)
+_KERNEL_IMPLEMENTED = {name: ok for name, _, ok in kp._SHIPPED}
+
 
 @pytest.mark.parametrize("key", sorted(_KERNEL_SM.keys() | _CLI_SM.keys()))
 def test_kernel_and_cli_registries_agree_on_the_sm_rows(key):
@@ -136,3 +141,19 @@ def test_kernel_and_cli_registries_agree_on_the_sm_rows(key):
         f"(mjolnir._SHIPPED: {in_kernel}, mjolnir_cli.REGISTRY: {in_cli}) — add it to both"
     )
     assert _KERNEL_SM[key] == _CLI_SM[key], f"{key}: sm {_KERNEL_SM[key]} != {_CLI_SM[key]}"
+
+
+@pytest.mark.parametrize("key", sorted(_KERNEL_SM.keys() | _CLI_SM.keys()))
+def test_kernel_and_cli_registries_agree_on_the_shipped_status(key):
+    """The CLI's supported/research status is the kernels' implemented flag:
+    ``_SHIPPED[i].implemented`` (the kernels code — the one source) must equal
+    ``REGISTRY[key].status == "supported"``. When a kernel lands or retires,
+    flip the flag in ``mjolnir.platforms._SHIPPED`` and the CLI's
+    ``_IMPLEMENTED`` mirror — this pin fails until both move together."""
+    in_kernel, in_cli = key in _KERNEL_IMPLEMENTED, key in cp.REGISTRY
+    assert in_kernel and in_cli, f"platform {key!r} exists on one side of the mirror only — add it to both"
+    assert (cp.REGISTRY[key].status == "supported") == _KERNEL_IMPLEMENTED[key], (
+        f"{key}: kernels _SHIPPED implemented={_KERNEL_IMPLEMENTED[key]} but "
+        f"the CLI registry says {cp.REGISTRY[key].status!r} — flip the flag in "
+        f"mjolnir/platforms.py and mjolnir_cli/platforms.py together"
+    )

@@ -2,6 +2,9 @@
 
 > PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) · `mjolnir verify pdl` · **no run yet**
 
+> [!NOTE]
+> PDL does not exist on Ampere (`device_support_pdl` requires compute capability ≥ 9.0), so the `sm_87` kernel cannot use it — the stage stays pending on the Orin by construction.
+
 ## The question
 
 Programmatic dependent launch lets the decode kernel start while the previous kernel drains, and the split-KV merge launch before decode finishes. Does it shorten a step?
@@ -33,4 +36,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← L2 prefetch](prefetch.md) · [case study](../README.md#kernel) · [Flag A/B →](ab.md)
+[← L2 prefetch](prefetch.md) · [case study](../README.md#-kernel) · [Flag A/B →](ab.md)

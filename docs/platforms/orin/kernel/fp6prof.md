@@ -1,6 +1,6 @@
 # Full profiles per KV format
 
-> full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format · `mjolnir verify fp6prof` · run `20261023-135335`
+> full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format · `mjolnir verify fp6prof` · **no run yet**
 
 ## The question
 
@@ -12,24 +12,8 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/fp6prof-bytes-vs-time.png" alt="Bytes vs time per KV format" width="100%">
 
-- `e2m3-hnd`: kernel time **0.79×** the baseline for 0.75× the bytes — 84% of the byte saving becomes speed (mean over L).
-
-| L | variant | bits | kernel time | time ratio | L2 bytes ratio | ideal | bytes / L2 request | top stall (cycles/instr) |
-|---|---|--:|--:|--:|--:|--:|--:|---|
-| **4K** | `fp8-hnd` | 8 | 689.3&nbsp;µs | 1.00 | 1.00 | 1.00 | 149 B | selected 1.0 |
-| **4K** | `e2m3-hnd` | 6 | 544.6&nbsp;µs | 0.79 | 0.72 | 0.75 | 86 B | selected 1.0 |
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- **time ratio** = this row's Nsight Compute kernel time ÷ the first row's at the same L; **L2 bytes ratio** = L2 read sectors ÷ the first row's; **ideal** = this row's KV bits ÷ the first row's — the ratio a purely bandwidth-bound kernel would show.
-- **bytes / L2 request** = 32 B × L2 read sectors ÷ L2 read requests.
-
-</details><br />
-
-<sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261023-135335.json`](../../../../benchmarks/raw/verify/fp6prof/20261023-135335.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+> Pending — run `mjolnir verify fp6prof` on a Jetson Orin, then `mjolnir plot --readme`.
 
 ## How to read it
 
@@ -55,4 +39,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Speculative decoding](spec.md) · [case study](../README.md#kernel) · [KV ring depth →](ring.md)
+[← Speculative decoding](spec.md) · [case study](../README.md#-kernel) · [KV ring depth →](ring.md)

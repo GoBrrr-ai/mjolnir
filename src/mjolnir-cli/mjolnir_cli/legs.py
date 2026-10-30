@@ -94,9 +94,9 @@ KERNEL: dict[str, str] = {
 # measures differently names its own leg ids here (looked up before the
 # default table). The Orin's headline sweep is the events-timed same-run
 # comparison (the ratio that survives the board's noise); with ncu installed
-# the HND stage profiles the GEMV for real — FA4 is absent (sm_110-only) and
-# the kvfmt/quant variant lists need their own Orin sets (the GEMV harness
-# speaks fp8/bf16/e2m3 only) before those stages open up.
+# the HND stage profiles the mma kernel for real — FA4 is absent (sm_110-only)
+# and the kvfmt/quant variant lists need their own Orin sets (the MMA harness
+# speaks fp8/e2m3 only) before those stages open up.
 _KERNEL_BY_PLATFORM: dict[str, dict[str, str]] = {
     "orin": {
         "verify.sweep": "mjolnir,mjolnir-fp8,fi",

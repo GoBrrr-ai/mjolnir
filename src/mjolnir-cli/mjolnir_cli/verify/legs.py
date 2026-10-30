@@ -52,7 +52,7 @@ MAIN = {
     "fi": ("BatchPrefillWithPagedKVCache", "BatchDecode"),
     "fa2": ("flash_fwd_kernel", "flash_fwd_splitkv_kernel"),
     "fa4": ("sm100_hd256_2cta_fmha_forward",),
-    "t5": ("MixedInputFusedMultiHeadAttentionDecode", "GEMVDecodeKernel"),
+    "t5": ("MixedInputFusedMultiHeadAttentionDecode", "MMADecodeKernel"),
 }
 MERGE = {
     "fi": ("MergeStates",),
@@ -149,8 +149,8 @@ def legs_from_ids(ids: str | list[str]) -> list[Leg]:
 
 # ── stage variant tables, per platform ──────────────────────────────────────
 # What each flag-set stage sweeps, spelled per family: the Thor's tcgen05
-# knobs (rings, L2 prefetch, evict, PDL) don't exist on the Orin GEMV, and
-# the GEMV harness accepts fp8/bf16/e2m3 only — each side names what it can
+# knobs (rings, L2 prefetch, evict, PDL) don't exist on the Orin mma kernel,
+# and the MMA harness accepts fp8/e2m3 only — each side names what it can
 # run. The stages resolve via stage_variants(); an explicit --variants wins.
 
 KVFMT_VARIANTS: dict[str, str] = {
@@ -160,7 +160,7 @@ KVFMT_VARIANTS: dict[str, str] = {
         "e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|"
         "nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd"
     ),
-    # The GEMV: fp8 + e2m3 KV (bf16 needs the 16-bit load path — a kernel
+    # The MMA: fp8 + e2m3 KV (bf16 needs the 16-bit load path — a kernel
     # change), HND + NHD.
     "orin": (
         "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-hnd:--kv_format fp8 --kv_layout hnd|"

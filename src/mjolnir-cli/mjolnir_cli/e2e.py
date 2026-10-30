@@ -27,8 +27,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
-from mjolnir_cli.history import load_records
+from mjolnir_cli.config import BACKEND_LABELS, BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
+from mjolnir_cli.history import _merge_records, load_records, spec_of
 from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
 
 # Every platform's image repo, plus the legacy names (kept so history rows
@@ -84,29 +84,10 @@ def _merge(recs: list[dict]) -> dict | None:
     context) cell taken from the newest run that measured it. A run at extra
     depths (``bench e2e --depths 65536,131072``) adds cells instead of
     replacing the table; runs with a different speculative setup than the
-    newest one are left out. ``merged_runs`` lists the raw dirs used."""
-    if not recs:
-        return None
-    recs = sorted(recs, key=lambda r: r.get("epoch", 0), reverse=True)
-    head = recs[0]
-    sp = spec_of(head)
-    cells: dict = {}
-    used: list[str] = []
-    for r in recs:
-        if spec_of(r) != sp:
-            continue
-        took = False
-        for c in r.get("cells", []):
-            k = (c.get("concurrency"), c.get("context") or 0, bool(c.get("prefill_phase")))
-            if k not in cells:
-                cells[k] = c
-                took = True
-        if took:
-            used.append(str(r.get("raw", "")))
-    out = dict(head)
-    out["cells"] = sorted(cells.values(), key=lambda c: (c.get("concurrency") or 0, c.get("context") or 0))
-    out["merged_runs"] = used
-    return out
+    newest one are left out. ``merged_runs`` lists the raw dirs used. The rule
+    lives once, in :func:`mjolnir_cli.history._merge_records` — the writer
+    (``append_record``) applies it at write time."""
+    return _merge_records(recs)[0] if recs else None
 
 
 def latest_pair(
@@ -295,17 +276,6 @@ def pct(v: float | None) -> str:
     return f"{'−' if v < 0 else '+'}{abs(v):.1f}%"
 
 
-def spec_of(rec: dict) -> dict | None:
-    """The speculative decoding a record ran with: stored in the record since
-    the field exists, else read from the config it names."""
-    if rec.get("spec") is not None:
-        return rec["spec"] or None
-    from mjolnir_cli.config import config_speculative, configs_root
-
-    path = configs_root() / str(rec.get("model", "")) / str(rec.get("config", "")) / "config.yaml"
-    return config_speculative(path) if path.exists() else None
-
-
 def spec_label(*recs: dict) -> str:
     """``MTP, 3 speculative tokens`` (``on both sides`` / per side when they differ)."""
 
@@ -345,4 +315,13 @@ def acceptance_line(off: dict, mj: dict) -> str:
 
 
 def side_label(rec: dict) -> str:
-    return f"{rec.get('image', '')} · {rec.get('config', '')} ({rec.get('backend', '')})"
+    """One history record as the e2e tables name it: `image · config (backend)`
+    — the backend through BACKEND_LABELS, the parenthetical dropped when the
+    record stores no backend or stores the config name verbatim (it would
+    read `CONFIG (CONFIG)`)."""
+    config = str(rec.get("config", ""))
+    backend = str(rec.get("backend", ""))
+    label = BACKEND_LABELS.get(backend, backend)
+    if not label or label == config:
+        return f"{rec.get('image', '')} · {config}"
+    return f"{rec.get('image', '')} · {config} ({label})"
