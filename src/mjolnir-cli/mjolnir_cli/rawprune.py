@@ -75,7 +75,7 @@ def audit(layout: RepoLayout) -> RawPrune:
     for (stage, _platform, _model), group in sorted(by_group.items()):
         if stage in readme_targets._UNCHARTED:
             continue  # never rendered — every raw of the stage is dead weight
-        newest = readme_targets._newest(group)
+        newest = results.newest(group)
         if newest is not None:
             report.used.append(newest["_path"])
 

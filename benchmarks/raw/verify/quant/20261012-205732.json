@@ -398,5 +398,7 @@
    "ok": true
   }
  ],
- "summary": {}
+ "summary": {},
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }

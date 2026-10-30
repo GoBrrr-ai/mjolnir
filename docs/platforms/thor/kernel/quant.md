@@ -49,4 +49,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV layouts and formats](kvfmt.md) · [case study](../README.md#kernel) · [KV cache capacity →](kv-cache-size.md)
+[← KV layouts and formats](kvfmt.md) · [case study](../README.md#-kernel) · [KV cache capacity →](kv-cache-size.md)

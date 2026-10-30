@@ -2,6 +2,9 @@
 
 > TMA L2 prefetch distance (--l2_prefetch) sweep · `mjolnir verify prefetch` · run `20261023-135447`
 
+> [!NOTE]
+> `--l2_prefetch` issues `cute.prefetch` ahead of the TMA loads — a Thor-kernel knob. The `sm_87` kernel stages its KV through `cp.async` and has no prefetch distance, so this stage has nothing to sweep on the Orin and the saved run is empty.
+
 ## The question
 
 Does prefetching K/V into L2 ahead of the TMA loads help? `--l2_prefetch k` issues `cute.prefetch` for the tile k tiles ahead.
@@ -46,4 +49,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV ring depth](ring.md) · [case study](../README.md#kernel) · [Programmatic dependent launch →](pdl.md)
+[← KV ring depth](ring.md) · [case study](../README.md#-kernel) · [Programmatic dependent launch →](pdl.md)

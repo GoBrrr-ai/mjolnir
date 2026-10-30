@@ -1,32 +1,32 @@
-![Mjolnir — vLLM for Jetson AGX Thor](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.jpg)
+![Mjolnir — vLLM for Jetson Thor and Orin](https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.jpg)
 
 [![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
 [![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)
 [![Docker Hub](https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a)](https://hub.docker.com/r/narandill/mjolnir-vllm)
-[![vLLM 0.32.0](https://img.shields.io/badge/vLLM-0.32.0-blue)](https://github.com/thor-arena/mjolnir)
-[![Jetson AGX Thor](https://img.shields.io/badge/Jetson-AGX%20Thor-76b900)](https://www.nvidia.com/en-us/autonomous-machines/embedded-platforms/module/jetson-modules/agx-thor/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/thor-arena/mjolnir/blob/main/LICENSE)
+[![vLLM 0.32.0](https://img.shields.io/badge/vLLM-0.32.0-blue)](https://github.com/GoBrrr-ai/mjolnir)
+[![Platforms](https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin-76b900)](https://github.com/GoBrrr-ai/mjolnir#supported-hardware)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/GoBrrr-ai/mjolnir/blob/main/LICENSE)
 
-**Mjolnir** — faster, bigger-context LLM serving on the **Jetson AGX Thor**: a dedicated paged decode-attention kernel, the tuned vLLM image it runs in, and a CLI that serves, benchmarks and documents every claim.
+**Mjolnir** — faster, bigger-context LLM serving on **Jetson Tegra**: one image, a decode kernel per platform — Thor (`sm_110`) and Orin (`sm_87`) — and a CLI that serves, benchmarks and documents every claim.
 
-[GitHub](https://github.com/thor-arena/mjolnir) · [Case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://thor-arena.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
+[GitHub](https://github.com/GoBrrr-ai/mjolnir) · [Platforms](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/platforms/README.md) · [Case study](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://GoBrrr-ai.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
 
-![Mjolnir image vs the official vLLM image — end-to-end decode and prefill](https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg)
+![Mjolnir image vs the official vLLM image — end-to-end decode and prefill (Jetson AGX Thor)](https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg)
 
 ## ⚡ What's inside this image
 
 `narandill/mjolnir-vllm:v0.32.0` is the official **vLLM 0.32.0** aarch64 image (CUDA 13.0, Ubuntu 24.04) with a small overlay on top — everything else is upstream vLLM:
 
-- **The Mjolnir decode-attention kernel** — paged decode written for this one chip (`sm_110`, CuTe DSL on `tcgen05` tensor cores, `TMEM` and `TMA`), with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
-- **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on Thor; applied and verified at build time, the build fails when a patch stops applying — the list is below.
-- **The Thor platform environment** — `sm_110a` architecture flags and the JIT environment for Triton / FlashInfer, so the prebuilt wheels run on JetPack 7.x as-is.
+- **A decode-attention kernel per platform** — the CuTe DSL `tcgen05` kernel for Jetson Thor (`sm_110`) and the `mma.sync` kernel for Jetson Orin (`sm_87`), each with a 6-bit `e2m3` KV-cache format and multi-token (MTP) verify; the family resolves at runtime from the device. Registered as the `MJOLNIR` attention backend; the `vllm.general_plugins` entry point also makes `--attention-backend CUSTOM` work.
+- **A hand-adapted stack of vLLM and FlashInfer patches** — the fixes hybrid GDN/Mamba spec-decode needs on these boards; applied and verified at build time, the build fails when a patch stops applying — the list is below. The Thor-only hunks are probe-gated and inert on other devices.
+- **The per-platform environment** — the arch flags and the per-arch JIT environment for Triton / FlashInfer (`mjolnir serve` exports them), so the prebuilt wheels run on JetPack 7.x as-is.
 
-The Mjolnir kernel takes over single-token and speculative-verify steps; prefill and mixed steps run on the image's own attention backend (FlashAttention 4).
+The Mjolnir kernel takes over single-token and speculative-verify steps; prefill and mixed steps run on the platform's attention fallback (FlashAttention 4 on Thor, FlashInfer on Orin).
 
 
 ## ⚡ Patches
 
-`7` hand-adapted vLLM PR fixes and `12` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time:
+`7` hand-adapted vLLM PR fixes and `12` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.32.0` and FlashInfer at build time (the sm_110-only ones probe-gate themselves inert on other devices):
 
 | File | PR | What it fixes |
 |------|----|---------------|
@@ -50,12 +50,12 @@ The Mjolnir kernel takes over single-token and speculative-verify steps; prefill
 | `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275. |
 | `thor-spec-decode-split-topp.patch` | [#58231](https://github.com/vllm-project/vllm/pull/58231) | **Split top-p masks every token for huge forced logits → token 0.** `_topp_sb_mask_kernel` (the split top-p pipeline: CUDA, batches ≤ 64, rows with `top_p < 1` and no active top-k) mapped its probability-space pivot back to logit space as `log(pivot) + log(Z) + M`, which fp32 rounds to `M` when a forced logit makes `|M|` huge (thinking-token-budget writes 1e9) — the whole row masks, spec decode emits token 0 forever (≈3× throughput loss). The fix masks in probability space (`exp(x − M)/Z > pivot`, bitwise the step kernels' predicate; `x == M` kept as a backstop). Trigger needs a **huge forced logit**, not merely `top_p < 1` + spec decode. Drop when upstream merges #58231 — it is merged 2026-10-19, first release after 0.32.0. |
 
-The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md)
+The full inventory with the deep-dive sections: [PATCHES.md](https://github.com/GoBrrr-ai/mjolnir/blob/main/docker/vllm-thor/PATCHES.md)
 
 
 ## ⚡ Quickstart
 
-> Requires a Jetson AGX Thor (JetPack 7.x, `sm_110a`) with Docker + the NVIDIA Container Toolkit.
+> Runs on Jetson AGX Thor (JetPack 7.x, `sm_110`) and Jetson Orin (JetPack 7.2.1+, `sm_87`) with Docker + the NVIDIA Container Toolkit — the kernel family resolves from the device at runtime.
 
 ```bash
 docker pull narandill/mjolnir-vllm:v0.32.0
@@ -65,7 +65,7 @@ docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=H
   narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
-The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md).
+The recommended path is the **mjolnir CLI** ([`mjolnir-cli`](https://pypi.org/project/mjolnir-cli/) on PyPI) on the host: `uv tool install mjolnir-cli && mjolnir serve up` manages this image and serves the model from a YAML config — and `mjolnir bench` / `mjolnir verify` reproduce every number in the [case study](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/platforms/thor/README.md).
 
 ## ⚡ Tags
 
@@ -79,7 +79,7 @@ A kernel release is rebuilt into the same `v0.32.0` tag; the kernel version ride
 
 ## ⚡ More
 
-- [Repo README](https://github.com/thor-arena/mjolnir) — benchmarks and docs
-- [Kernel case study](https://github.com/thor-arena/mjolnir/blob/main/docs/platforms/thor/README.md) — how the kernel works
-- [Interactive charts](https://thor-arena.github.io/mjolnir/) — every chart, live data
-- [Patch inventory](https://github.com/thor-arena/mjolnir/blob/main/docker/vllm-thor/PATCHES.md) — what is patched, and why
+- [Repo README](https://github.com/GoBrrr-ai/mjolnir) — benchmarks and docs
+- [Kernel case study](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/platforms/thor/README.md) — how the kernel works
+- [Interactive charts](https://GoBrrr-ai.github.io/mjolnir/) — every chart, live data
+- [Patch inventory](https://github.com/GoBrrr-ai/mjolnir/blob/main/docker/vllm-thor/PATCHES.md) — what is patched, and why

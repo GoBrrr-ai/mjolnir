@@ -39,6 +39,7 @@ from mjolnir_cli.commands import (
     perses,
     platform,
     results,
+    retention as retention_cmd,
     serve,
     version,
     window,
@@ -103,6 +104,7 @@ app.command("grant-permissions")(window.grant_permissions)
 app.command("drop-caches")(window.drop_caches)
 app.command()(results.make_plot(app))
 app.command()(results.history)
+app.command()(retention_cmd.gc)
 app.command()(version.version)
 
 

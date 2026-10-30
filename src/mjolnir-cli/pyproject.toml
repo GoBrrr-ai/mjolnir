@@ -34,12 +34,12 @@ dependencies = [
 plot = ["matplotlib>=3.10.9"]
 
 [project.urls]
-Homepage = "https://github.com/thor-arena/mjolnir"
-Documentation = "https://github.com/thor-arena/mjolnir/tree/main/docs"
-Repository = "https://github.com/thor-arena/mjolnir.git"
-Issues = "https://github.com/thor-arena/mjolnir/issues"
-Changelog = "https://github.com/thor-arena/mjolnir/releases"
-"CLI reference" = "https://github.com/thor-arena/mjolnir/blob/main/docs/cli.md"
+Homepage = "https://github.com/GoBrrr-ai/mjolnir"
+Documentation = "https://github.com/GoBrrr-ai/mjolnir/tree/main/docs"
+Repository = "https://github.com/GoBrrr-ai/mjolnir.git"
+Issues = "https://github.com/GoBrrr-ai/mjolnir/issues"
+Changelog = "https://github.com/GoBrrr-ai/mjolnir/releases"
+"CLI reference" = "https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/cli.md"
 
 # The distribution is `mjolnir-cli`; the command is still `mjolnir` — the
 # entry point is `main` so the central UnknownPlatform handler wraps every

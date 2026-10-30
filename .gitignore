@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.playwright-mcp/
 .pytest_cache/
 .ruff_cache/
 .env
@@ -27,6 +28,7 @@ benchmarks/raw/*
 !benchmarks/raw/accuracy/
 benchmarks/raw/accuracy/*/*/
 benchmarks/logs/
+benchmarks/staging/
 task/
 
 # autoresearch: the live ledger is untracked (discards are `git reset --hard`);

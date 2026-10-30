@@ -2,7 +2,10 @@
 
 > {{ stages["prefetch"].summary }} · `mjolnir verify prefetch` · {% if has("prefetch") %}run `{{ ctx.runs["prefetch"] }}`{% else %}**no run yet**{% endif %}
 
-## The question
+{% if ctx.platform and ctx.platform.sm_family == "sm_87" %}> [!NOTE]
+> `--l2_prefetch` issues `cute.prefetch` ahead of the TMA loads — a Thor-kernel knob. The `sm_87` kernel stages its KV through `cp.async` and has no prefetch distance, so this stage has nothing to sweep on the Orin and the saved run is empty.
+
+{% endif %}## The question
 
 Does prefetching K/V into L2 ahead of the TMA loads help? `--l2_prefetch k` issues `cute.prefetch` for the tile k tiles ahead.
 
@@ -45,4 +48,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← {{ stages["ring"].title }}](ring.md) · [case study](../README.md#kernel) · [{{ stages["pdl"].title }} →](pdl.md)
+[← {{ stages["ring"].title }}](ring.md) · [case study](../README.md#-kernel) · [{{ stages["pdl"].title }} →](pdl.md)

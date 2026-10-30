@@ -1,6 +1,6 @@
-"""Append-only benchmark history (``benchmarks/history.jsonl``).
+"""The benchmark history (``benchmarks/history.jsonl``).
 
-One line per perf sweep repeat:
+One record per serving key (platform, model, image, config):
 
     {
       "schema_version": 1,
@@ -22,9 +22,15 @@ One line per perf sweep repeat:
     }
 
 The file is the raw, git-trackable substrate for the charts and for
-"progress over time" — every nightly bump / kernel change adds a row.
+"progress over time". :func:`append_record` files a run under its serving
+key — a re-run merges its cells into the stored record (each cell kept from
+the newest run that measured it, so a ``--depths`` run adds cells instead of
+replacing the table) instead of appending another line, and a run with a
+different speculative setup replaces the record outright (the superseded one
+moves to the gitignored ``benchmarks/staging/history-extras.jsonl``). Git
+history keeps every superseded version.
 
-Rows written before ``schema_version`` existed lack the field — readers treat
+Records written before ``schema_version`` existed lack the field — readers treat
 absence as the legacy (pre-0.3) format. :func:`load_records` returns rows raw,
 never normalized.
 
@@ -41,15 +47,86 @@ import time
 from pathlib import Path
 from typing import Any
 
-from mjolnir_cli.platforms import detect, gpu_name
+from mjolnir_cli.platforms import detect, gpu_name, platform_of
 
 SCHEMA_VERSION = 1
 
 __all__ = ["SCHEMA_VERSION", "append_record", "load_records"]
 
 
+def serving_key(rec: dict[str, Any]) -> tuple[str, Any, Any, Any] | None:
+    """The serving key a perf record files under: (platform, model, image,
+    config). A record without any of model/image/config cannot be classified —
+    :func:`append_record` appends it verbatim."""
+    if not (rec.get("model") or rec.get("config") or rec.get("image")):
+        return None
+    return (platform_of(rec), rec.get("model"), rec.get("image"), rec.get("config"))
+
+
+def spec_of(rec: dict[str, Any]) -> dict | None:
+    """The speculative decoding a record ran with: stored in the record since
+    the field exists, else read from the config it names."""
+    if rec.get("spec") is not None:
+        return rec["spec"] or None
+    from mjolnir_cli.config import config_speculative, configs_root
+
+    path = configs_root() / str(rec.get("model", "")) / str(rec.get("config", "")) / "config.yaml"
+    return config_speculative(path) if path.exists() else None
+
+
 def append_record(history_file: Path, record: dict[str, Any]) -> None:
+    """File one perf record under its serving key (see the module docstring):
+    a new key appends a line, a known key merges into its stored record and
+    the file is rewritten (the merged record — the newest measurement — takes
+    the file's end, keeping the chronological order ``mjolnir history`` and
+    ``[-limit:]`` readers expect)."""
     history_file.parent.mkdir(parents=True, exist_ok=True)
+    recs = load_records(history_file)
+    key = serving_key(record)
+    idx = [i for i, r in enumerate(recs) if key is not None and serving_key(r) == key] if key else []
+    if not idx:
+        _append_line(history_file, record)  # a new serving key (or unclassifiable)
+        return
+    merged, superseded = _merge_records([record, *(recs[i] for i in idx)])
+    kept = [r for i, r in enumerate(recs) if i not in idx]
+    kept.append(merged)
+    superseded.extend(recs[i] for i in idx)
+    _rewrite(history_file, kept)
+    if superseded:
+        _stage_extras(history_file.parent / "staging" / "history-extras.jsonl", superseded)
+
+
+def _merge_records(recs: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Newest record first → (the merged record, the superseded ones). Every
+    (concurrency, context, prefill_phase) cell is kept from the newest run
+    that measured it; runs with a different speculative setup than the newest
+    are superseded (a different experiment, not evidence); ``merged_runs``
+    lists the raw dirs that contributed cells — the reader-side rule
+    (``e2e._merge``) applied at write time."""
+    rs = sorted(recs, key=lambda r: r.get("epoch", 0), reverse=True)
+    sp = spec_of(rs[0])
+    cells: dict = {}
+    used: list[str] = []
+    superseded: list[dict[str, Any]] = []
+    for r in rs:
+        if spec_of(r) != sp:
+            superseded.append(r)
+            continue
+        took = False
+        for c in r.get("cells", []):
+            ck = (c.get("concurrency"), c.get("context") or 0, bool(c.get("prefill_phase")))
+            if ck not in cells:
+                cells[ck] = c
+                took = True
+        if took:
+            used.append(str(r.get("raw", "")))
+    out = dict(rs[0])
+    out["cells"] = sorted(cells.values(), key=lambda c: (c.get("concurrency") or 0, c.get("context") or 0))
+    out["merged_runs"] = used
+    return out, superseded
+
+
+def _append_line(history_file: Path, record: dict[str, Any]) -> None:
     # a hand-edited file may lack the final newline: never glue a record onto it
     lead = ""
     if history_file.exists() and history_file.stat().st_size:
@@ -58,6 +135,20 @@ def append_record(history_file: Path, record: dict[str, Any]) -> None:
             lead = "" if f.read(1) == b"\n" else "\n"
     with history_file.open("a") as f:
         f.write(lead + json.dumps(record) + "\n")
+
+
+def _rewrite(history_file: Path, recs: list[dict[str, Any]]) -> None:
+    tmp = history_file.with_suffix(".jsonl.tmp")
+    tmp.write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
+    tmp.replace(history_file)
+
+
+def _stage_extras(path: Path, recs: list[dict[str, Any]]) -> None:
+    """Park superseded records in the gitignored staging area (provenance is
+    on disk until the next repo clean; git history keeps them regardless)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for r in recs:
+        _append_line(path, r)
 
 
 def load_records(history_file: Path) -> list[dict[str, Any]]:

@@ -21,7 +21,7 @@ this page derives from the committed raw data ([history]({{ root }}benchmarks/hi
 Availability: {{ p.cell.symbol }} {{ p.cell.why }}
 
 {% endfor -%}
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config={{ ctx.quant }}).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config={{ ctx.quant }}).
 
 ## Benchmarks
 {%- if ctx.bench.no_data %}
@@ -104,5 +104,5 @@ Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjo
 {%- set ks_secs = ctx.bench.sections | selectattr("kernel_study") | list %}
 {%- if ks_secs %}
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the{% for s in ks_secs %}{{ " ·" if not loop.first }} [{{ s.name }} kernel case study]({{ root }}docs/platforms/{{ s.key }}/README.md#kernel){% endfor %}, one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the{% for s in ks_secs %}{{ " ·" if not loop.first }} [{{ s.name }} kernel case study]({{ root }}docs/platforms/{{ s.key }}/README.md#-kernel){% endfor %}, one chapter per verify stage.
 {%- endif %}

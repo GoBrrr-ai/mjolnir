@@ -27,7 +27,7 @@ mjolnir serve up --config NVFP4_MJOLNIR
 ```
 Availability: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_MJOLNIR).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_MJOLNIR).
 
 ## Benchmarks
 
@@ -79,4 +79,4 @@ Mjolnir · fp8 KV, 1 request: best with **3 drafts** — 25.9 t/s per request, 3
 </details><br />
 </details>
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

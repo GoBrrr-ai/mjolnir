@@ -51,7 +51,7 @@ class Platform:
     default_image: str
     stock_image: str | None
     vllm_version: str | None
-    status: str  # "supported" | "research"
+    status: str  # derived from _IMPLEMENTED (the kernels' shipped table): "supported" | "research" — hand-set only for exotic states (e.g. "not_supported")
     # Tool capability: does the platform's rootfs/image ship Nsight Compute?
     # False platforms refuse the ncu-profiled stages with a clear error and
     # carry their headline data in the events-timed stages instead.
@@ -68,6 +68,37 @@ class Platform:
     # the same value as config.DEFAULT_MODEL, kept literal here because the
     # registry cannot import config).
     headline_model: str = ""
+    # Renderer-facing data: the memory system the bandwidth charts draw as the
+    # roofline (the effective-KV-bandwidth chart's peak line, its y-limit and
+    # its cache-size subtitle). 0 / "" = unknown — chart_bandwidth falls back
+    # to PEAK_GBS / "LPDDR5X" / "the L2" (the Thor values). thor: LPDDR5X
+    # 273 GB/s, 32 MiB L2; orin: LPDDR5 204.8 GB/s, 4 MB L2; spark: LPDDR5X
+    # 273 GB/s (GB10), GPU L2 unsourced.
+    mem_bandwidth_gbs: float = 0.0
+    mem_label: str = ""
+    l2: str = ""
+    # Renderer-facing data: the platform's emoji gif under assets/emoji/ (the
+    # root README's platform strip). Empty = no dedicated art yet — the strip
+    # falls back to the generic Mjolnir hammer (mjolnir_emoji.png).
+    emoji: str = ""
+
+
+# The kernels' shipped table, mirrored from ``mjolnir.platforms._SHIPPED``
+# (the packages cannot import each other — the sm rows AND the implemented
+# flags are pinned in sync by
+# tests/cli/test_kernel_platforms.py::test_kernel_and_cli_registries_agree).
+# The status strings derive from it: a platform whose kernel is implemented
+# serves, every other row is research. Flip the flag in the kernels' code
+# and here, and every doc updates from the one source.
+_IMPLEMENTED: dict[str, bool] = {
+    "thor": True,
+    "spark": False,
+    "orin": True,
+}
+
+
+def _status(key: str) -> str:
+    return "supported" if _IMPLEMENTED[key] else "research"
 
 
 REGISTRY: dict[str, Platform] = {
@@ -80,13 +111,17 @@ REGISTRY: dict[str, Platform] = {
         default_image="narandill/mjolnir-vllm:v0.32.0",
         stock_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         vllm_version="0.32.0",
-        status="supported",
+        status=_status("thor"),
         host_requirements="JetPack 7.x",
         short="Thor",
         headline_model="Qwen/Qwen3.8-27B",
+        emoji="mjolnir_thor_emoji.png",
+        mem_bandwidth_gbs=273.0,
+        mem_label="LPDDR5X",
+        l2="the 32 MiB L2",
     ),
-    # Research rows: no Mjolnir kernel/image exists yet (baselines only until
-    # one lands), so the upstream image is the default.
+    # Spark: no Mjolnir kernel/image exists yet (baselines only until one
+    # lands), so the upstream image is the default.
     "spark": Platform(
         key="spark",
         name="DGX Spark",
@@ -96,9 +131,12 @@ REGISTRY: dict[str, Platform] = {
         default_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         stock_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         vllm_version=None,
-        status="research",
+        status=_status("spark"),
         host_requirements="DGX OS + CUDA 13",
         short="Spark",
+        emoji="mjolni_spark_emoji.png",
+        mem_bandwidth_gbs=273.0,
+        mem_label="LPDDR5X",
     ),
     "orin": Platform(
         key="orin",
@@ -111,14 +149,18 @@ REGISTRY: dict[str, Platform] = {
         default_image="narandill/mjolnir-vllm:v0.32.0",
         stock_image="vllm/vllm-openai:v0.32.0-ubuntu2404",
         vllm_version=None,
-        status="research",
+        status=_status("orin"),
         ncu=True,  # JP7 ships Nsight Compute (nsight-compute-2026.1.1 in the r39.2 repo)
-        host_requirements="JetPack 7.2.1+ (L4T 39.2.1, CUDA 13.2)",
+        host_requirements="JetPack 7.2.1+",
         short="Orin",
         # measured on the Orin (the sweep, kv-cache-size and the e2e pair are
         # all this model): the pair its kernel index and `## End to end`
         # section render for
         headline_model="Qwen/Qwen3.8-27B",
+        emoji="mjolnir_orin_emoji.png",
+        mem_bandwidth_gbs=204.8,
+        mem_label="LPDDR5",
+        l2="the 4 MB L2",
     ),
 }
 

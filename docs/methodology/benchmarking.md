@@ -93,7 +93,7 @@ Rules that keep the numbers honest:
   +12.9% kernel BW while wall clock moved only 0.6% — merge/launch overhead and
   non-KV L2 traffic swallowed the kernel-level gain, which a wall-only bench
   (or an NCU-only bench) would have mis-attributed
-  ([gemv-ring-fix-bench.md, git history](https://github.com/thor-arena/mjolnir/blob/gemv-archive/deprecated/gemv/docs/gemv-ring-fix-bench.md)).
+  ([gemv-ring-fix-bench.md, git history](https://github.com/GoBrrr-ai/mjolnir/blob/gemv-archive/deprecated/gemv/docs/gemv-ring-fix-bench.md)).
   The Mjolnir stages that touch launch behaviour (`pdl`, `ab`, `kvfmt`) report
   both.
 
@@ -167,3 +167,29 @@ Rules that keep the numbers honest:
 4. **Ratios, not absolutes, for wall-clock.** See §3.
 5. **Bumps invalidate comparisons.** Bumping the vLLM nightly base
    starts a new comparison epoch; old numbers stay cited with their tag.
+6. **Evidence, not exhaust.** The tracked `benchmarks/` holds exactly what the
+   render reads — one default-run document per (verify stage, platform, model)
+   and one history record per serving key (platform, model, image, config) —
+   and the *writers* enforce it; there is no prune/promote ritual:
+   - `mjolnir verify <stage>`: a default-parameter run of a rendered stage
+     *replaces* the previous evidence for its (stage, platform, model) — git
+     history keeps the retired file. Any other run (custom parameters, an
+     uncharted stage like timing/profile/vllm) lands in the gitignored
+     `benchmarks/staging/` — visible locally, never shipped, never in a chart
+     by accident.
+   - `mjolnir bench perf|ab`: the record upserts into `history.jsonl` per
+     serving key — each (concurrency, context) cell is kept from the newest
+     run that measured it, so a `--depths` run adds cells instead of
+     replacing the table; a run with a different speculative setup replaces
+     the record (the superseded one moves to `staging/history-extras.jsonl`).
+     The perf raw dirs (benchy JSON, server log) go to `staging/` — the
+     record's cells carry the values the charts need.
+   Re-running an experiment therefore never grows the repo.
+7. **Untracked exhaust self-expires.** `benchmarks/staging/` and
+   `benchmarks/logs/` are swept at the end of every verify/bench run (and by
+   `mjolnir gc --dry-run` on demand): anything older than the grace period
+   (`$MJOLNIR_RETENTION_DAYS`, default 14, `0` disables) that nothing cites
+   is deleted — a perf dir a history record still names (its `raw` /
+   `merged_runs`) and the `logs/verify-<run_id>/` of the current evidence
+   runs always survive. Staged autoresearch rows keep their numbers in the
+   ledger, so expiring a staged document never breaks a row.

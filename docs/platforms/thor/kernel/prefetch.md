@@ -53,4 +53,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← KV ring depth](ring.md) · [case study](../README.md#kernel) · [Programmatic dependent launch →](pdl.md)
+[← KV ring depth](ring.md) · [case study](../README.md#-kernel) · [Programmatic dependent launch →](pdl.md)

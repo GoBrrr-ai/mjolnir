@@ -55,4 +55,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Speculative decoding](spec.md) · [case study](../README.md#kernel) · [KV ring depth →](ring.md)
+[← Speculative decoding](spec.md) · [case study](../README.md#-kernel) · [KV ring depth →](ring.md)

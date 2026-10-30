@@ -119,6 +119,9 @@ BACKEND_LABELS = {
     "NVFP4_FA2": "FlashAttention 2",
     "NVFP4_FA4hd256": "FlashAttention 4 hd256",
     "AWQ_FLASHINFER": "AWQ int4 + FlashInfer",
+    "AWQ_MJOLNIR": "Mjolnir, AWQ weights",
+    "AWQ_MJOLNIR_E2M3": "Mjolnir fp6 KV, AWQ weights",
+    "AWQ_MJOLNIR_E2M3_VT64K": "Mjolnir fp6 KV + 64K draft vocab, AWQ weights",
 }
 
 # The repo marker: a checkout has the image build context.
@@ -277,7 +280,7 @@ def find_repo_root() -> Path:
             return cand
     raise FileNotFoundError(
         "mjolnir repo not found (run from inside a checkout or set $MJOLNIR_REPO); "
-        "this command needs the repo — clone https://github.com/thor-arena/mjolnir"
+        "this command needs the repo — clone https://github.com/GoBrrr-ai/mjolnir"
     )
 
 
@@ -339,6 +342,14 @@ class RepoLayout:
     def verify_dir(self) -> Path:
         """Structured verify results: ``raw/verify/<stage>/<run-id>.json``."""
         return self.raw_dir / "verify"
+
+    @property
+    def staging_dir(self) -> Path:
+        """Untracked landing zone (``benchmarks/staging/``, gitignored): experiment
+        runs and superseded records — everything the repo does not ship. Mirrored
+        by :func:`mjolnir_cli.verify.results.staging_dir`, which derives the same
+        path from the verify dir."""
+        return self.benchmarks_dir / "staging"
 
     @property
     def charts_dir(self) -> Path:

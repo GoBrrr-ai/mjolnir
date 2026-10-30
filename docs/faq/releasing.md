@@ -11,7 +11,7 @@ version number."
 | `mjolnir-kernel` | [PyPI](https://pypi.org/project/mjolnir-kernel/) | its own semver, from its tag history | `mjolnir-kernel-vX.Y.Z` |
 | `mjolnir-cli` | [PyPI](https://pypi.org/project/mjolnir-cli/) | its own semver, from its tag history | `mjolnir-cli-vX.Y.Z` |
 | `narandill/mjolnir-vllm` | [Docker Hub](https://hub.docker.com/r/narandill/mjolnir-vllm) | the **pinned upstream vLLM** (`VLLM_VERSION` = the Dockerfile's `BASE_IMAGE`) | `:v0.32.0`, `:v0.32.0-<sha>`, `:latest` |
-| the release | [GitHub Releases](https://github.com/thor-arena/mjolnir/releases) | the date | `release-YYYY.MM.DD[.N]` |
+| the release | [GitHub Releases](https://github.com/GoBrrr-ai/mjolnir/releases) | the date | `release-YYYY.MM.DD[.N]` |
 | the interactive site | GitHub Pages | — | built from the release tag |
 
 The tag is the source of truth: the publishing workflows stamp `__version__`
@@ -106,7 +106,7 @@ bookkeeping.
 ## One-time setup
 
 1. **PyPI** — for each project add a trusted publisher (a *pending* one before
-   the first upload): owner `thor-arena`, repository `mjolnir`, workflow
+   the first upload): owner `GoBrrr-ai`, repository `mjolnir`, workflow
    `release-kernel.yml` / `release-cli.yml`, environment `pypi-kernel` /
    `pypi-cli`.
 2. **GitHub → Settings → Environments** — create `pypi-kernel` and `pypi-cli`

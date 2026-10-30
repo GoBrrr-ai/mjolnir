@@ -1,4 +1,4 @@
-# The interactive benchmark site (https://thor-arena.github.io/mjolnir/):
+# The interactive benchmark site (https://GoBrrr-ai.github.io/mjolnir/):
 # `mjolnir plot --site` renders one self-contained page from the committed
 # raw results (benchmarks/raw/verify + history.jsonl) at every release.
 #

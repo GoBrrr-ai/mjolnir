@@ -8,9 +8,9 @@
 # No fp8 lm_head (LMH8): this checkpoint's lm_head is already ModelOpt-quantized,
 # so MJOLNIR_LM_HEAD=fp8 leaves it as is (a no-op).
 # No draft vocab (VT): MJOLNIR_DRAFT_VOCAB on this MoE adds ~40 GB within 2 s
-# of model load and hung Thor twice (2026-10-16, thor-arena/mjolnir#25).
+# of model load and hung Thor twice (2026-10-16, GoBrrr-ai/mjolnir#25).
 # Known issue: Thor hard-hung silently with this config's worker idle
-# (thor-arena/mjolnir#27, open); production went back to the official image.
+# (GoBrrr-ai/mjolnir#27, open); production went back to the official image.
 model: nvidia/Qwen3.6-35B-A3B-NVFP4
 served-model-name: nvidia/Qwen3.6-35B-A3B-NVFP4
 

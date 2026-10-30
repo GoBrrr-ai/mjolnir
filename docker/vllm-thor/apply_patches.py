@@ -165,7 +165,7 @@ def apply_one(root: Path, patch_dir: Path, name: str) -> None:
             f.unlink(missing_ok=True)
 
 
-CHANGE_NOTICE = "# Modified by the Mjolnir image (https://github.com/thor-arena/mjolnir):"
+CHANGE_NOTICE = "# Modified by the Mjolnir image (https://github.com/GoBrrr-ai/mjolnir):"
 
 
 def patched_files(patch_file: Path) -> list[str]:

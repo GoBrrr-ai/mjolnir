@@ -6,6 +6,7 @@
 
 A general-purpose A/B for harness flags. The default run compares the L2 **evict-first** cache policy on K/V loads and PDL, alone and together.
 
+
 ## How it is measured
 
 Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-clock row. Evict-first marks K/V lines as streaming so they do not displace the rest of the model's working set in the 32 MiB L2.
@@ -79,4 +80,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Programmatic dependent launch](pdl.md) · [case study](../README.md#kernel)
+[← Programmatic dependent launch](pdl.md) · [case study](../README.md#-kernel)

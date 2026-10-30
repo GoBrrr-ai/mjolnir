@@ -99,8 +99,9 @@ def chapters_for(platform: str) -> tuple[str, ...]:
     return tuple(c for c in CASE_STUDY_CHAPTERS if not STAGES[c].requires_ncu)
 
 
-# verify stages that never carry a case-study chapter
-_UNCHARTED = ("timing", "profile", "vllm")
+# verify stages that never carry a case-study chapter — one definition, in
+# results.py, shared with the writer (their runs always land in staging)
+_UNCHARTED = results.UNCHARTED
 
 # availability symbols (the table's three states, as the pages render them)
 SYMBOLS = {availability.NATIVE: "✅", availability.FALLBACK: "⚠️", availability.UNAVAILABLE: "❌"}
@@ -151,13 +152,8 @@ def _matches(doc: dict, platform: str, model: str) -> bool:
     return m == model or (m is None and model == DEFAULT_MODEL)
 
 
-def _newest(rs: list[dict]) -> dict | None:
-    dflt = [r for r in rs if r.get("default")]
-    return (dflt or rs)[-1] if rs else None
-
-
 def _stage_doc(layout: RepoLayout, stage: str, platform: str, model: str) -> dict | None:
-    return _newest([d for d in results.runs(layout.verify_dir, stage) if _matches(d, platform, model)])
+    return results.newest([d for d in results.runs(layout.verify_dir, stage) if _matches(d, platform, model)])
 
 
 def pair_docs(layout: RepoLayout, platform: str, model: str) -> dict[str, dict]:
@@ -278,6 +274,9 @@ class PlatformRow:
     # Renderer-facing data (cycle 3g): the status icon of the root README's
     # hardware table (platforms.STATUS_ICON) — icon + word in the status cell.
     status_icon: str = ""
+    # Renderer-facing data: the platform's emoji gif under assets/emoji/ (the
+    # root README's platform strip); empty when the platform has no art yet.
+    emoji: str = ""
 
 
 def platform_rows() -> list[PlatformRow]:
@@ -290,6 +289,7 @@ def platform_rows() -> list[PlatformRow]:
             sm_family=p.sm_family,
             host_requirements=p.host_requirements,
             status_icon=STATUS_ICON[p.status],
+            emoji=p.emoji,
         )
         for p in REGISTRY.values()
     ]
@@ -364,7 +364,49 @@ class Platform:
             serving = [c for c in dirs if exists_on(c.path, self.key)]
             dflt = next((c for c in serving if c.quant == DEFAULT_QUANT), serving[0] if serving else None)
             measured = any(platform_of(r) == self.key and model_of(r) == m for r in history)
-            rows.append(PlatformModel(model=m, default_config=dflt.quant if dflt else "", measured=measured))
+            # the speed cells (root Supported Models rule): the fastest-by-
+            # decode serving config's latest merged run — decode tokens/s at
+            # (1, 0), prefill tokens/s at (1, 8K) of that same config
+            from mjolnir_cli import e2e  # lazy: the history readers
+
+            by_cfg: dict[str, list[dict]] = {}
+            for r in history:
+                if platform_of(r) == self.key and model_of(r) == m and r.get("cells"):
+                    by_cfg.setdefault(str(r.get("config") or ""), []).append(r)
+            best_tps: float | None = None
+            best_pp: float | None = None
+            best_config = ""
+            for c in serving:
+                merged = e2e._merge(by_cfg.get(c.quant, []))
+                if not merged:
+                    continue
+                cell = e2e.cell(merged, 1, 0)
+                v = e2e.value(cell, "tg_tps")
+                if v is not None and (best_tps is None or v > best_tps):
+                    best_tps = v
+                    best_pp = e2e.value(e2e.cell(merged, 1, 8192), "pp_tps")
+                    best_config = c.quant
+            states = [config_cell(c.path, c.quant, self.key).state for c in serving]
+            if not serving:
+                symbol = "—"
+            elif availability.NATIVE in states:
+                symbol = SYMBOLS[availability.NATIVE]
+            elif set(states) == {availability.UNAVAILABLE}:
+                symbol = SYMBOLS[availability.UNAVAILABLE]
+            else:
+                symbol = SYMBOLS[availability.FALLBACK]
+            decode = symbol if not serving else (f"{symbol} {best_tps:.1f} t/s" if best_tps is not None else symbol)
+            prefill = "—" if not serving else (f"{best_pp:.1f} t/s" if best_pp is not None else symbol)
+            rows.append(
+                PlatformModel(
+                    model=m,
+                    default_config=dflt.quant if dflt else "",
+                    measured=measured,
+                    decode=decode,
+                    prefill=prefill,
+                    best_config=best_config,
+                )
+            )
         overview = Path("")
         if layout.repo_root:
             overview = layout.repo_root / "docs" / "platforms" / self.key / "overview.md"
@@ -380,6 +422,7 @@ class Platform:
             status=rec.status,
             sm_family=rec.sm_family,
             host_requirements=rec.host_requirements,
+            emoji=rec.emoji,
             rows=rows,
             overview=overview.read_text() if overview.is_file() else "",
             chapters=self.chapters,
@@ -534,11 +577,17 @@ class PlatformModel:
     """One row of a platform page's models table (cycle 3k §1): the model,
     its default config on the platform and whether the (platform, model)
     pair has end-to-end data. The default-config rule lives on
-    :meth:`Platform.build_context`."""
+    :meth:`Platform.build_context`. decode/prefill carry the rendered speed
+    cells (symbol, or symbol + t/s from the fastest-by-decode serving
+    config's latest merged run — decode at (1, 0), prefill at (1, 8K));
+    ``best_config`` is that config's name (the cells' hover title)."""
 
     model: str
     default_config: str
     measured: bool
+    decode: str = ""
+    prefill: str = ""
+    best_config: str = ""
 
 
 @dataclass(frozen=True)
@@ -557,6 +606,9 @@ class PlatformContext:
     # resolve for (None when neither section renders)
     e2e: ABRow | None = None
     chart_pair: tuple[str, str] | None = None
+    # the platform's gif under assets/emoji/ ("" falls back to the generic
+    # hammer in the status line and the overview prefix)
+    emoji: str = ""
 
 
 @dataclass(frozen=True)

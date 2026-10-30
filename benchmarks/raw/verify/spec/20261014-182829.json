@@ -2521,5 +2521,7 @@
       "decode_tps": 34.032,
       "acceptance_length": 3.704
     }
-  }
+  },
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }

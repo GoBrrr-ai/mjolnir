@@ -1,8 +1,9 @@
-"""The history substrate: append-only round-trip, llama-benchy raw parsing,
-and record assembly (what the charts + the CI substrate gate consume)."""
+"""The history substrate: serving-key upsert round-trip, llama-benchy raw
+parsing, and record assembly (what the charts + the CI substrate gate consume)."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -15,7 +16,52 @@ def test_append_then_load_roundtrip(tmp_path):
     f = tmp_path / "history.jsonl"
     append_record(f, {"a": 1})
     append_record(f, {"a": 2})
-    assert load_records(f) == [{"a": 1}, {"a": 2}]
+    assert load_records(f) == [{"a": 1}, {"a": 2}]  # no serving key → verbatim
+
+
+def _rec(epoch: int, *, spec=None, cells=None, model="Qwen/Qwen3.8-27B", config="NVFP4", image="img:v1") -> dict:
+    return {
+        "schema_version": 1,
+        "epoch": float(epoch),
+        "platform": "thor",
+        "model": model,
+        "config": config,
+        "image": image,
+        "spec": spec,
+        "cells": cells or [{"concurrency": 1, "context": 0, "tg_tps": {"mean": 41.2}}],
+        "raw": f"staging/perf-{epoch}/",
+    }
+
+
+def test_upsert_merges_cells_into_the_stored_record(tmp_path):
+    f = tmp_path / "history.jsonl"
+    append_record(f, _rec(1, cells=[{"concurrency": 1, "context": 0, "tg_tps": {"mean": 41.2}}]))
+    append_record(f, _rec(2, cells=[{"concurrency": 1, "context": 65536, "tg_tps": {"mean": 30.0}}]))
+    recs = load_records(f)
+    assert len(recs) == 1  # one record per serving key — a re-run never adds a line
+    r = recs[0]
+    assert [(c["concurrency"], c["context"]) for c in r["cells"]] == [(1, 0), (1, 65536)]
+    assert r["epoch"] == 2.0  # the newest measurement is the head
+    assert r["merged_runs"] == ["staging/perf-2/", "staging/perf-1/"]  # newest contribution first
+
+
+def test_upsert_reuses_a_cell_from_the_newest_run_that_measured_it(tmp_path):
+    f = tmp_path / "history.jsonl"
+    append_record(f, _rec(1, cells=[{"concurrency": 1, "context": 0, "tg_tps": {"mean": 41.2}}]))
+    append_record(f, _rec(2, cells=[{"concurrency": 1, "context": 0, "tg_tps": {"mean": 43.0}}]))
+    (rec,) = load_records(f)
+    assert rec["cells"][0]["tg_tps"]["mean"] == 43.0
+    assert rec["merged_runs"] == ["staging/perf-2/"]
+
+
+def test_different_spec_replaces_the_record_and_stages_the_old_one(tmp_path):
+    f = tmp_path / "history.jsonl"
+    append_record(f, _rec(1, spec={"method": "mtp", "tokens": 3}))
+    append_record(f, _rec(2, spec=None))
+    (rec,) = load_records(f)
+    assert rec["epoch"] == 2.0 and rec["spec"] is None
+    extras = [json.loads(line) for line in (tmp_path / "staging" / "history-extras.jsonl").read_text().splitlines()]
+    assert [e["epoch"] for e in extras] == [1.0] and extras[0]["spec"] == {"method": "mtp", "tokens": 3}
 
 
 def test_load_missing_file_is_empty(tmp_path):

@@ -15,9 +15,9 @@ format) on each platform.
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
 | [`AWQ_FLASHINFER`](AWQ_FLASHINFER/README.md) | AWQ int4 + FlashInfer | — | — | ✅ |
-| [`AWQ_MJOLNIR`](AWQ_MJOLNIR/README.md) | AWQ_MJOLNIR | — | — | ✅ |
-| [`AWQ_MJOLNIR_E2M3`](AWQ_MJOLNIR_E2M3/README.md) | AWQ_MJOLNIR_E2M3 | — | — | ✅ |
-| [`AWQ_MJOLNIR_E2M3_VT64K`](AWQ_MJOLNIR_E2M3_VT64K/README.md) | AWQ_MJOLNIR_E2M3_VT64K | — | — | ✅ |
+| [`AWQ_MJOLNIR`](AWQ_MJOLNIR/README.md) | Mjolnir, AWQ weights | — | — | ✅ |
+| [`AWQ_MJOLNIR_E2M3`](AWQ_MJOLNIR_E2M3/README.md) | Mjolnir fp6 KV, AWQ weights | — | — | ✅ |
+| [`AWQ_MJOLNIR_E2M3_VT64K`](AWQ_MJOLNIR_E2M3_VT64K/README.md) | Mjolnir fp6 KV + 64K draft vocab, AWQ weights | — | — | ✅ |
 | [`NVFP4`](NVFP4/README.md) | FlashInfer | ✅ | ✅ | ✅ |
 | [`NVFP4_DFLASH2`](NVFP4_DFLASH2/README.md) | FlashInfer + DFlash2 | ✅ | — | — |
 | [`NVFP4_DSPARK`](NVFP4_DSPARK/README.md) | FlashInfer + DSpark | ✅ | — | — |

@@ -6687,5 +6687,7 @@
    "report": "/home/narandill/mjolnir/benchmarks/logs/verify-20261017-212447/fp6prof/t5_e2m1-hnd-L262144.ncu-rep"
   }
  ],
- "summary": {}
+ "summary": {},
+ "platform": "thor",
+ "gpu": "NVIDIA Thor"
 }

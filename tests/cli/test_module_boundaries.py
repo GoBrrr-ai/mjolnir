@@ -143,6 +143,7 @@ COMMAND_TOPICS = (
     "window",
     "calibrate",
     "results",
+    "retention",
     "version",
 )
 
