@@ -1,9 +1,9 @@
 # L2 prefetch
 
-> TMA L2 prefetch distance (--l2_prefetch) sweep · `mjolnir verify prefetch` · run `20261023-135447`
+> TMA L2 prefetch distance (--l2_prefetch) sweep · `mjolnir verify prefetch` · **no run yet**
 
 > [!NOTE]
-> `--l2_prefetch` issues `cute.prefetch` ahead of the TMA loads — a Thor-kernel knob. The `sm_87` kernel stages its KV through `cp.async` and has no prefetch distance, so this stage has nothing to sweep on the Orin and the saved run is empty.
+> `--l2_prefetch` issues `cute.prefetch` ahead of the TMA loads — not wired on the `sm_87` kernel: it stages its KV through `cp.async` and has no prefetch distance, so this stage has nothing to sweep on the Orin and the saved run is empty.
 
 ## The question
 
@@ -16,20 +16,7 @@ Distances 0 (off), 1, 2, 4 on fp8 KV (the prefetch path is not wired for NVFP4) 
 ## Result
 
 
-
-
-
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- Each cell = **reference time ÷ variant time** (Nsight Compute kernel time, decode + merge, base clocks, cold L2, same run, same L). `1.10×` = the variant needs 1 ÷ 1.10 = 91% of the reference's time; below 1 it is slower.
-- **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
-- Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
-
-</details><br />
-
-<sub>Rendered from [`benchmarks/raw/verify/prefetch/20261023-135447.json`](../../../../benchmarks/raw/verify/prefetch/20261023-135447.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+> Pending — run `mjolnir verify prefetch` on a Jetson Orin, then `mjolnir plot --readme`.
 
 ## How to read it
 

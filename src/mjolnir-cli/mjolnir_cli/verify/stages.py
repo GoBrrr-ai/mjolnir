@@ -606,8 +606,7 @@ STAGES: dict[str, Stage] = {
             "sweep",
             "Headline L-sweep",
             "ncu",
-            "Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, "
-            "events-timed where there is no ncu",
+            "Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians",
             stage_sweep,
         ),
         Stage(

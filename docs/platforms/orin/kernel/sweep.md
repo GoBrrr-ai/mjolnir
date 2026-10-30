@@ -1,6 +1,6 @@
 # Headline L-sweep
 
-> the `sm_87` mma kernel vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image · `mjolnir verify sweep` · run `20261030-141133`
+> the `sm_87` mma kernel vs the FlashInfer FA2-TC reference — events-timed at every L, same run, stock image · `mjolnir verify sweep` · run `20261030-162038`
 
 ## The question
 
@@ -21,19 +21,19 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 <img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the platform's memory peak" width="100%">
 
-- **Mjolnir MMA (fp8 KV, HND)** vs FlashInfer FA2-TC (fp8 KV, NHD): geomean **1.16×**, from 0.99× (L=8K) to 1.73× (L=128); faster beyond the ±3% noise band at 6 of 8 context lengths.
+- **Mjolnir MMA (fp8 KV, HND)** vs FlashInfer FA2-TC (fp8 KV, NHD): geomean **1.14×**, from 1.00× (L=8K) to 1.54× (L=128); faster beyond the ±3% noise band at 6 of 8 context lengths.
 
 | L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
 |---|--:|--:|--:|
-| **128** | **64.3&nbsp;µs** | 111.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.73\times}}$ |
-| **4K** | **87.0&nbsp;µs** | 129.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.48\times}}$ |
-| **8K** | 135.4&nbsp;µs | **134.4&nbsp;µs** | $\color{grey}{0.99\times}$ |
-| **16K** | **229.6&nbsp;µs** | 230.2&nbsp;µs | $\color{grey}{1.00\times}$ |
-| **32K** | **417.3&nbsp;µs** | 429.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.03\times}}$ |
-| **64K** | **800.3&nbsp;µs** | 849.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ |
-| **128K** | **1.53&nbsp;ms** | 1.65&nbsp;ms | $\color{#16a34a}{\mathbf{1.07\times}}$ |
-| **256K** | **3.03&nbsp;ms** | 3.33&nbsp;ms | $\color{#16a34a}{\mathbf{1.10\times}}$ |
-| geomean |  |  | $\color{#16a34a}{\mathbf{1.16\times}}$ |
+| **128** | **69.2&nbsp;µs** | 106.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.54\times}}$ |
+| **4K** | **87.4&nbsp;µs** | 131.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.50\times}}$ |
+| **8K** | 136.3&nbsp;µs | **135.7&nbsp;µs** | $\color{grey}{1.00\times}$ |
+| **16K** | **229.2&nbsp;µs** | 229.7&nbsp;µs | $\color{grey}{1.00\times}$ |
+| **32K** | **417.6&nbsp;µs** | 434.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.04\times}}$ |
+| **64K** | **791.3&nbsp;µs** | 838.9&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ |
+| **128K** | **1.54&nbsp;ms** | 1.64&nbsp;ms | $\color{#16a34a}{\mathbf{1.07\times}}$ |
+| **256K** | **3.04&nbsp;ms** | 3.31&nbsp;ms | $\color{#16a34a}{\mathbf{1.09\times}}$ |
+| geomean |  |  | $\color{#16a34a}{\mathbf{1.14\times}}$ |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -45,7 +45,7 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/sweep/20261030-141133.json`](../../../../benchmarks/raw/verify/sweep/20261030-141133.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/sweep/20261030-162038.json`](../../../../benchmarks/raw/verify/sweep/20261030-162038.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

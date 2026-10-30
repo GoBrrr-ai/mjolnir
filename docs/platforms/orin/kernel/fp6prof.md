@@ -1,6 +1,6 @@
 # Full profiles per KV format
 
-> full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format · `mjolnir verify fp6prof` · **no run yet**
+> full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format · `mjolnir verify fp6prof` · run `20261030-154138`
 
 ## The question
 
@@ -12,8 +12,38 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 
 ## Result
 
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/fp6prof-bytes-vs-time.png" alt="Bytes vs time per KV format" width="100%">
 
-> Pending — run `mjolnir verify fp6prof` on a Jetson Orin, then `mjolnir plot --readme`.
+- `e2m3-hnd`: kernel time **1.62×** the baseline for 0.75× the bytes — -246% of the byte saving becomes speed (mean over L).
+
+| L | variant | bits | kernel time | time ratio | L2 bytes ratio | ideal | bytes / L2 request | top stall (cycles/instr) |
+|---|---|--:|--:|--:|--:|--:|--:|---|
+| **128** | `fp8-hnd` | 8 | 15.1&nbsp;µs | 1.00 | 1.00 | 1.00 | 145 B | wait 1.3 |
+| **128** | `e2m3-hnd` | 6 | 16.0&nbsp;µs | 1.06 | 0.80 | 0.75 | 100 B | long_scoreboard 1.6 |
+| **4K** | `fp8-hnd` | 8 | 59.5&nbsp;µs | 1.00 | 1.00 | 1.00 | 131 B | wait 1.4 |
+| **4K** | `e2m3-hnd` | 6 | 92.6&nbsp;µs | 1.56 | 0.76 | 0.75 | 123 B | wait 1.4 |
+| **8K** | `fp8-hnd` | 8 | 104.5&nbsp;µs | 1.00 | 1.00 | 1.00 | 130 B | wait 1.4 |
+| **8K** | `e2m3-hnd` | 6 | 172.7&nbsp;µs | 1.65 | 0.75 | 0.75 | 125 B | wait 1.4 |
+| **16K** | `fp8-hnd` | 8 | 197.1&nbsp;µs | 1.00 | 1.00 | 1.00 | 129 B | wait 1.4 |
+| **16K** | `e2m3-hnd` | 6 | 333.0&nbsp;µs | 1.69 | 0.75 | 0.75 | 127 B | wait 1.5 |
+| **32K** | `fp8-hnd` | 8 | 379.6&nbsp;µs | 1.00 | 1.00 | 1.00 | 128 B | wait 1.4 |
+| **32K** | `e2m3-hnd` | 6 | 653.2&nbsp;µs | 1.72 | 0.75 | 0.75 | 127 B | wait 1.5 |
+| **64K** | `fp8-hnd` | 8 | 744.0&nbsp;µs | 1.00 | 1.00 | 1.00 | 128 B | wait 1.4 |
+| **64K** | `e2m3-hnd` | 6 | 1.30&nbsp;ms | 1.74 | 0.75 | 0.75 | 128 B | wait 1.5 |
+| **128K** | `fp8-hnd` | 8 | 1.47&nbsp;ms | 1.00 | 1.00 | 1.00 | 128 B | wait 1.4 |
+| **128K** | `e2m3-hnd` | 6 | 2.58&nbsp;ms | 1.75 | 0.75 | 0.75 | 128 B | wait 1.5 |
+| **256K** | `fp8-hnd` | 8 | 2.94&nbsp;ms | 1.00 | 1.00 | 1.00 | 128 B | wait 1.4 |
+| **256K** | `e2m3-hnd` | 6 | 5.15&nbsp;ms | 1.75 | 0.75 | 0.75 | 128 B | wait 1.5 |
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **time ratio** = this row's Nsight Compute kernel time ÷ the first row's at the same L; **L2 bytes ratio** = L2 read sectors ÷ the first row's; **ideal** = this row's KV bits ÷ the first row's — the ratio a purely bandwidth-bound kernel would show.
+- **bytes / L2 request** = 32 B × L2 read sectors ÷ L2 read requests.
+
+</details><br />
+
+<sub>Rendered from [`benchmarks/raw/verify/fp6prof/20261030-154138.json`](../../../../benchmarks/raw/verify/fp6prof/20261030-154138.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

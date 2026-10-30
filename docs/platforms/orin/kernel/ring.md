@@ -1,6 +1,6 @@
 # KV ring depth
 
-> TMA→MMA ring depth (--kv_stages) sweep at every L · `mjolnir verify ring` · run `20261023-135446`
+> TMA→MMA ring depth (--kv_stages) sweep at every L · `mjolnir verify ring` · **no run yet**
 
 > [!NOTE]
 > The `sm_87` mma kernel stages KV through a fixed `cp.async` pipeline — it has no `--kv_stages` knob — so this stage has nothing to sweep on the Orin and the saved run is empty. The chapter stays in the index for the cross-platform comparison.
@@ -16,20 +16,7 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 ## Result
 
 
-
-
-
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- Each cell = **reference time ÷ variant time** (Nsight Compute kernel time, decode + merge, base clocks, cold L2, same run, same L). `1.10×` = the variant needs 1 ÷ 1.10 = 91% of the reference's time; below 1 it is slower.
-- **geomean** = exp(mean of ln(ratio)) over the context lengths; **bold** = the fastest variant at that L.
-- Green ≥ 1.03, grey within ±3% (`NOISE_PCT`, the run-to-run spread of a same-run ratio), red ≤ 0.97.
-
-</details><br />
-
-<sub>Rendered from [`benchmarks/raw/verify/ring/20261023-135446.json`](../../../../benchmarks/raw/verify/ring/20261023-135446.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+> Pending — run `mjolnir verify ring` on a Jetson Orin, then `mjolnir plot --readme`.
 
 ## How to read it
 

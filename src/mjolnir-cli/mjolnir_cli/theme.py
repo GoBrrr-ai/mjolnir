@@ -137,10 +137,11 @@ def line_kw(mode: Mode, series_id: str) -> dict:
 
 
 def diverging_cmap(mode: Mode):
-    """blue (FlashInfer faster) -> gray (parity) -> orange (Mjolnir faster)."""
+    """red (reference faster = worse) -> gray (parity) -> green (Mjolnir faster = better)."""
     from matplotlib.colors import LinearSegmentedColormap
 
-    return LinearSegmentedColormap.from_list(f"mjolnir-div-{mode.name}", [mode.flashinfer, mode.neutral, mode.mjolnir])
+    bad, good = {"light": ("#fecaca", "#bbf7d0"), "dark": ("#7f1d1d", "#14532d")}[mode.name]
+    return LinearSegmentedColormap.from_list(f"mjolnir-div-{mode.name}", [bad, mode.neutral, good])
 
 
 # status scale for "how much worse than the baseline" (accuracy heatmaps):

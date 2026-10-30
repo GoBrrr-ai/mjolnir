@@ -47,7 +47,7 @@ from raw results in [`benchmarks/raw/verify/`](../../../benchmarks/raw/verify/)
 by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
-**Where it stands:** 1.16× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261030-141133`.
+**Where it stands:** 1.14× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261030-162038`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -64,17 +64,17 @@ reproduces it.
 | # | chapter | question | status |
 |---|---|---|---|
 | 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261030-140528` |
-| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, events-timed where there is no ncu | ✅ run `20261030-141133` |
+| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261030-162038` |
 | 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261030-141453` |
-| 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ⏳ pending |
-| 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ⏳ pending |
+| 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261030-151506` |
+| 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261030-153729` |
 | 6 | [KV cache capacity](kernel/kv-cache-size.md) | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context | ✅ run `20261026-203434` |
 | 7 | [Speculative decoding](kernel/spec.md) | MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count | ✅ run `20261026-175121` |
-| 8 | [Full profiles per KV format](kernel/fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ⏳ pending |
-| 9 | [KV ring depth](kernel/ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ✅ run `20261023-135446` |
-| 10 | [L2 prefetch](kernel/prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ✅ run `20261023-135447` |
+| 8 | [Full profiles per KV format](kernel/fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261030-154138` |
+| 9 | [KV ring depth](kernel/ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ⏳ pending |
+| 10 | [L2 prefetch](kernel/prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ⏳ pending |
 | 11 | [Programmatic dependent launch](kernel/pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ⏳ pending |
-| 12 | [Flag A/B](kernel/ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ⏳ pending |
+| 12 | [Flag A/B](kernel/ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261030-145834` |
 | 13 | [Accuracy](kernel/accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | ✅ run `20261017-210613` |
 
 
@@ -95,15 +95,15 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 
 | L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
 |---|--:|--:|--:|
-| **128** | **64.3&nbsp;µs** | 111.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.73\times}}$ |
-| **4K** | **87.0&nbsp;µs** | 129.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.48\times}}$ |
-| **8K** | 135.4&nbsp;µs | **134.4&nbsp;µs** | $\color{grey}{0.99\times}$ |
-| **16K** | **229.6&nbsp;µs** | 230.2&nbsp;µs | $\color{grey}{1.00\times}$ |
-| **32K** | **417.3&nbsp;µs** | 429.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.03\times}}$ |
-| **64K** | **800.3&nbsp;µs** | 849.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ |
-| **128K** | **1.53&nbsp;ms** | 1.65&nbsp;ms | $\color{#16a34a}{\mathbf{1.07\times}}$ |
-| **256K** | **3.03&nbsp;ms** | 3.33&nbsp;ms | $\color{#16a34a}{\mathbf{1.10\times}}$ |
-| geomean |  |  | $\color{#16a34a}{\mathbf{1.16\times}}$ |
+| **128** | **69.2&nbsp;µs** | 106.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.54\times}}$ |
+| **4K** | **87.4&nbsp;µs** | 131.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.50\times}}$ |
+| **8K** | 136.3&nbsp;µs | **135.7&nbsp;µs** | $\color{grey}{1.00\times}$ |
+| **16K** | **229.2&nbsp;µs** | 229.7&nbsp;µs | $\color{grey}{1.00\times}$ |
+| **32K** | **417.6&nbsp;µs** | 434.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.04\times}}$ |
+| **64K** | **791.3&nbsp;µs** | 838.9&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ |
+| **128K** | **1.54&nbsp;ms** | 1.64&nbsp;ms | $\color{#16a34a}{\mathbf{1.07\times}}$ |
+| **256K** | **3.04&nbsp;ms** | 3.31&nbsp;ms | $\color{#16a34a}{\mathbf{1.09\times}}$ |
+| geomean |  |  | $\color{#16a34a}{\mathbf{1.14\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 

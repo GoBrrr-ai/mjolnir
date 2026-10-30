@@ -182,11 +182,15 @@ class Runner:
         return rc, log.read_text(errors="replace") if log.exists() else ""
 
     # ── ncu-profiled legs ──────────────────────────────────────────────────
-    def leg_command(self, leg: Leg, L: int, iters: int) -> tuple[str, list[str]]:
+    def leg_command(self, leg: Leg, L: int, iters: int, warmup: bool = True) -> tuple[str, list[str]]:
         """(python command line inside the container, extra docker -e args)."""
         common_env = [
             f"BENCH_L={L}",
-            f"BENCH_ITERS={iters}",
+            # The events-timed drivers need ITERS>=200 with WARMUP>=20 for a
+            # steady-state mean — the allocator churn poisons small-ITERS
+            # medians (the fi_driver docstring). The harness is self-warming
+            # and its medians are stable at 50; ncu legs keep exact launches.
+            f"BENCH_ITERS={max(iters, 200) if leg.kind != 't5' else iters}",
             f"BENCH_HQ={self.hq}",
             f"BENCH_HK={self.hk}",
             f"BENCH_D={self.d}",
@@ -194,6 +198,8 @@ class Runner:
             f"BENCH_B={self.batch}",
             f"BENCH_QLEN={self.q_len}",
         ]
+        if leg.kind != "t5":
+            common_env.append(f"WARMUP={20 if warmup else 0}")
         if leg.kind == "t5":
             args = self.harness_args(
                 leg.q,
@@ -239,7 +245,7 @@ class Runner:
                 "(no Nsight Compute in the L4T rootfs) — the events-timed stages "
                 "(sweep, correctness, timing) carry this platform's headline data"
             )
-        cmd, env = self.leg_command(leg, L, iters)
+        cmd, env = self.leg_command(leg, L, iters, warmup=False)
         name = self._name("mjolnir-ncu")
         argv = [
             "docker",
