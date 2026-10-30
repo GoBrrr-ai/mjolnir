@@ -39,7 +39,7 @@ mjolnir serve up --config NVFP4
 ```
 Availability: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4).
 
 ## Benchmarks
 ### End to end (NVFP4 vs NVFP4_MJOLNIR_E2M3_LMH8_VT64K, 1 request · 32K context)

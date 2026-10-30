@@ -27,7 +27,7 @@ mjolnir serve up --config AWQ_FLASHINFER
 ```
 Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=AWQ_FLASHINFER).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=AWQ_FLASHINFER).
 
 ## Benchmarks
 ### End to end (AWQ_FLASHINFER vs AWQ_MJOLNIR_E2M3_VT64K, 1 request · 32K context)

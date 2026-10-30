@@ -16,7 +16,7 @@ or upstream PR/issue anchors cited inline.
 | [`../research/`](../research/) | The **autoresearch** loop: program, agents, ledgers of every experiment. |
 
 The retired GEMV decode kernel and its reports are in git history:
-[`gemv-archive:deprecated/gemv/`](https://github.com/thor-arena/mjolnir/tree/gemv-archive/deprecated/gemv).
+[`gemv-archive:deprecated/gemv/`](https://github.com/GoBrrr-ai/mjolnir/tree/gemv-archive/deprecated/gemv).
 
 ## Suggested reading order
 

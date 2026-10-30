@@ -4,7 +4,7 @@
 
 Please do **not** open public GitHub issues for security bugs. Use GitHub's
 private vulnerability disclosure form:
-[thor-arena/mjolnir — Security Advisories](https://github.com/thor-arena/mjolnir/security/advisories/new).
+[GoBrrr-ai/mjolnir — Security Advisories](https://github.com/GoBrrr-ai/mjolnir/security/advisories/new).
 
 ## Scope
 

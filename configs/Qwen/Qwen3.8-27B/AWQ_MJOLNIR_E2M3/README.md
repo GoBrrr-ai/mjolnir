@@ -27,7 +27,7 @@ mjolnir serve up --config AWQ_MJOLNIR_E2M3
 ```
 Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=AWQ_MJOLNIR_E2M3).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=AWQ_MJOLNIR_E2M3).
 
 ## Benchmarks
 

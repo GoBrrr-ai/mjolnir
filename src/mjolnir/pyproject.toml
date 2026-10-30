@@ -32,11 +32,11 @@ dependencies = []
 dsl = ["nvidia-cutlass-dsl>=4.2"]
 
 [project.urls]
-Homepage = "https://github.com/thor-arena/mjolnir"
-Documentation = "https://github.com/thor-arena/mjolnir/tree/main/docs/kernel"
-Repository = "https://github.com/thor-arena/mjolnir.git"
-Issues = "https://github.com/thor-arena/mjolnir/issues"
-Changelog = "https://github.com/thor-arena/mjolnir/releases"
+Homepage = "https://github.com/GoBrrr-ai/mjolnir"
+Documentation = "https://github.com/GoBrrr-ai/mjolnir/tree/main/docs/kernel"
+Repository = "https://github.com/GoBrrr-ai/mjolnir.git"
+Issues = "https://github.com/GoBrrr-ai/mjolnir/issues"
+Changelog = "https://github.com/GoBrrr-ai/mjolnir/releases"
 
 # vLLM loads general plugins in every process; register() maps the MJOLNIR
 # (patched vLLM) and CUSTOM (stock vLLM) backend enum members to the class.

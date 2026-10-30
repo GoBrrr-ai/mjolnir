@@ -157,4 +157,4 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 </details><br />
 
 
-Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform=orin).
+Explore every number in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#platform=orin).

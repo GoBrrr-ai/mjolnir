@@ -27,7 +27,7 @@ mjolnir serve up --config NVFP4_FA2
 ```
 Availability: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_FA2).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_FA2).
 
 ## Benchmarks
 

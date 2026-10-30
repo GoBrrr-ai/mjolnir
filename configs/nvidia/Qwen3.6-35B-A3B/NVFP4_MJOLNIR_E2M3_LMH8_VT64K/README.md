@@ -27,7 +27,7 @@ mjolnir serve up --config NVFP4_MJOLNIR_E2M3_LMH8_VT64K
 ```
 Availability: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_MJOLNIR_E2M3_LMH8_VT64K).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_MJOLNIR_E2M3_LMH8_VT64K).
 
 ## Benchmarks
 

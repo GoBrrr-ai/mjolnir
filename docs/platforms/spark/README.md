@@ -36,4 +36,4 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
 
 > <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl](../../../benchmarks/history.jsonl).</sub>
 
-Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform=spark).
+Explore every number in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#platform=spark).

@@ -181,4 +181,4 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 
 
-Explore every number in [the interactive charts](https://thor-arena.github.io/mjolnir/#platform=thor).
+Explore every number in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#platform=thor).

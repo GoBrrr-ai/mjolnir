@@ -100,7 +100,7 @@ def test_full_render_from_fixture_data(repo):
     # has no repo file hosting to resolve relatives against)
     dh = (repo / "docker" / "vllm-thor" / "README.md").read_text()
     assert "{{" not in dh and "<img" not in dh
-    assert "https://raw.githubusercontent.com/thor-arena/mjolnir/main/assets/hero.jpg" in dh
+    assert "https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.jpg" in dh
     # the patch inventory re-emitted verbatim from docker/vllm-thor/PATCHES.md
     assert "| File | PR | What it fixes |" in dh and "thor-fp6-e2m3-kv-cache.patch" in dh
     # the kernel index lives on the platform page's `## Kernel` section (cycle

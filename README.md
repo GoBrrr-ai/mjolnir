@@ -8,7 +8,7 @@
   <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
   <img src="https://img.shields.io/badge/vLLM-0.32.0-blue" alt="vLLM 0.32.0">
   <img src="https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin%20%C2%B7%20DGX%20Spark-76b900" alt="Supported platforms: Jetson AGX Thor, Jetson Orin, DGX Spark">
-  <a href="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/thor-arena/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
 </p>
 
@@ -24,7 +24,7 @@
   <a href="#-key-features">Features</a> •
   <a href="#quickstart">Quickstart</a> •
   <a href="docs/platforms/thor/README.md#end-to-end">Benchmarks</a> •
-  <a href="https://thor-arena.github.io/mjolnir/">Interactive charts</a> •
+  <a href="https://GoBrrr-ai.github.io/mjolnir/">Interactive charts</a> •
   <a href="#supported-hardware">Platforms</a> •
   <a href="docs/platforms/thor/README.md#kernel">Case study</a> •
   <a href="#contributing">Contributing</a>

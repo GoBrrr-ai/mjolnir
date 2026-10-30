@@ -27,7 +27,7 @@ mjolnir serve up --config NVFP4_MJOLNIR
 ```
 Availability: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 
-Explore the numbers in [the interactive charts](https://thor-arena.github.io/mjolnir/#config=NVFP4_MJOLNIR).
+Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_MJOLNIR).
 
 ## Benchmarks
 

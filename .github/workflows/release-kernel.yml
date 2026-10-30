@@ -10,7 +10,7 @@
 #
 # One-time human setup (before the first tag):
 #   1. pypi.org: add a (pending) trusted publisher for project `mjolnir-kernel`:
-#        owner=thor-arena  repo=mjolnir  workflow=release-kernel.yml  environment=pypi-kernel
+#        owner=GoBrrr-ai  repo=mjolnir  workflow=release-kernel.yml  environment=pypi-kernel
 #   2. GitHub: Settings -> Environments -> create `pypi-kernel`
 #      (optional protection rule: required reviewer).
 #   3. GitHub: a tag ruleset for `mjolnir-kernel-v*` (block force-push + delete).

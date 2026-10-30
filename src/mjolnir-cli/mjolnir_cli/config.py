@@ -280,7 +280,7 @@ def find_repo_root() -> Path:
             return cand
     raise FileNotFoundError(
         "mjolnir repo not found (run from inside a checkout or set $MJOLNIR_REPO); "
-        "this command needs the repo — clone https://github.com/thor-arena/mjolnir"
+        "this command needs the repo — clone https://github.com/GoBrrr-ai/mjolnir"
     )
 
 
