@@ -30,14 +30,14 @@ Availability: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up 
 Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=AWQ_FLASHINFER).
 
 ## Benchmarks
-### End to end (AWQ_FLASHINFER vs AWQ_MJOLNIR_E2M3_VT64K, 1 request · 32K context)
+### End to end (AWQ_FLASHINFER vs AWQ_MJOLNIR_VT64K, 1 request · 32K context)
 
-| metric | official `AWQ_FLASHINFER` | Mjolnir `AWQ_MJOLNIR_E2M3_VT64K` | change |
+| metric | official `AWQ_FLASHINFER` | Mjolnir `AWQ_MJOLNIR_VT64K` | change |
 |---|--:|--:|--:|
-| decode (t/s) | 16.6 | 19.8 | +18.8% |
-| prefill (t/s) | 395 | 377 | −4.6% |
-| TTFT (ms) | 88,381 | 92,647 | +4.8% |
-| ITL (ms) | 60.5 | 50.7 | −16.1% |
+| decode (t/s) | 16.6 | 22.4 | +34.7% |
+| prefill (t/s) | 395 | 393 | −0.4% |
+| TTFT (ms) | 88,381 | 88,742 | +0.4% |
+| ITL (ms) | 60.5 | 44.7 | −26.1% |
 
 <img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
 

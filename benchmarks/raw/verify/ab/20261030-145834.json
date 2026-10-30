@@ -1,0 +1,679 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "ab",
+ "run_id": "20261030-145834",
+ "ts": "2026-10-30T15:15:05+00:00",
+ "default": true,
+ "host": "agx-orin-dev",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "fe40d4b",
+  "dirty": false
+ },
+ "gate": {
+  "gated": true,
+  "clean": true,
+  "server": "up"
+ },
+ "params": {
+  "variants": [
+   [
+    "t5:fp8-hnd",
+    "--kv_format fp8 --kv_layout hnd"
+   ],
+   [
+    "t5:e2m3-hnd",
+    "--kv_format e2m3 --kv_layout hnd"
+   ]
+  ],
+  "refs": "fi",
+  "wall_iters": 200,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "orin",
+ "gpu": "Orin (nvgpu)",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "series": [
+  {
+   "id": "fi",
+   "label": "FlashInfer (fp8 KV, NHD)",
+   "kind": "fi",
+   "role": "baseline",
+   "flags": "",
+   "env": {
+    "FI_LAYOUT": "NHD"
+   },
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "nhd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 30.61,
+     "main_us": 30.61,
+     "merge_us": 0,
+     "min_us": 30.14,
+     "l2_sectors": 16501.96,
+     "ctas": 4,
+     "invocations": 50,
+     "gbps": 8.56,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 30.61,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 81.99,
+     "main_us": 74.63,
+     "merge_us": 7.36,
+     "min_us": 79.65,
+     "l2_sectors": 314553.24,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 102.31,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 74.63,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.36,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 129.76,
+     "main_us": 122.5,
+     "merge_us": 7.26,
+     "min_us": 127.81,
+     "l2_sectors": 597227.8,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 129.29,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 122.5,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.26,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 224.61,
+     "main_us": 217.26,
+     "merge_us": 7.35,
+     "min_us": 221.47,
+     "l2_sectors": 1162468.2999999998,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 149.39,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 217.26,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.35,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 412.98,
+     "main_us": 405.71,
+     "merge_us": 7.27,
+     "min_us": 409.86,
+     "l2_sectors": 2293047.68,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 162.5,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 405.71,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.27,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 794.73,
+     "main_us": 787.43,
+     "merge_us": 7.3,
+     "min_us": 788.35,
+     "l2_sectors": 4554191.1,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 168.88,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 787.43,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.3,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1557.48,
+     "main_us": 1550.0,
+     "merge_us": 7.48,
+     "min_us": 1537.14,
+     "l2_sectors": 9076474.059999999,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 172.35,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 1550.0,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.48,
+       "inv": 50
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 3027.82,
+     "main_us": 3020.0,
+     "merge_us": 7.82,
+     "min_us": 3017.17,
+     "l2_sectors": 18121162.400000002,
+     "ctas": 32,
+     "invocations": 50,
+     "gbps": 177.31,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 3020.0,
+       "inv": 50
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 7.82,
+       "inv": 50
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:fp8-hnd",
+   "label": "fp8-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format fp8 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "fp8",
+   "kv_layout": "hnd",
+   "kv_bits": 8.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 13.21,
+     "main_us": 13.21,
+     "merge_us": 0,
+     "min_us": 12.61,
+     "l2_sectors": 59555.56,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 19.84,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 13.21,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 56.69,
+     "main_us": 56.69,
+     "merge_us": 0,
+     "min_us": 55.94,
+     "l2_sectors": 305371.94,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 147.97,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 56.69,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 101.96,
+     "main_us": 101.96,
+     "merge_us": 0,
+     "min_us": 100.45,
+     "l2_sectors": 567485.99,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 164.55,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 101.96,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 193.9,
+     "main_us": 193.9,
+     "merge_us": 0,
+     "min_us": 192.86,
+     "l2_sectors": 1091814.78,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 173.05,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 193.9,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 377.58,
+     "main_us": 377.58,
+     "merge_us": 0,
+     "min_us": 375.36,
+     "l2_sectors": 2140452.69,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 177.73,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 377.58,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 742.09,
+     "main_us": 742.09,
+     "merge_us": 0,
+     "min_us": 737.73,
+     "l2_sectors": 4237733.96,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 180.86,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 742.09,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 1470.0,
+     "main_us": 1470.0,
+     "merge_us": 0,
+     "min_us": 1470.0,
+     "l2_sectors": 8432287.78,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 182.61,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 1470.0,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 2930.0,
+     "main_us": 2930.0,
+     "merge_us": 0,
+     "min_us": 2920.0,
+     "l2_sectors": 16821405.48,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 183.23,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 2930.0,
+       "inv": 101
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "t5:e2m3-hnd",
+   "label": "e2m3-hnd",
+   "kind": "t5",
+   "role": "variant",
+   "flags": "--kv_format e2m3 --kv_layout hnd",
+   "env": {},
+   "q": "fp8",
+   "kv_format": "e2m3",
+   "kv_layout": "hnd",
+   "kv_bits": 6.0,
+   "points": [
+    {
+     "L": 128,
+     "total_us": 15.76,
+     "main_us": 15.76,
+     "merge_us": 0,
+     "min_us": 15.46,
+     "l2_sectors": 47460.0,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 12.48,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 15.76,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 4096,
+     "total_us": 91.37,
+     "main_us": 91.37,
+     "merge_us": 0,
+     "min_us": 90.75,
+     "l2_sectors": 231766.66,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 68.86,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 91.37,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 8192,
+     "total_us": 170.96,
+     "main_us": 170.96,
+     "merge_us": 0,
+     "min_us": 170.18,
+     "l2_sectors": 428403.88,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 73.6,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 170.96,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 16384,
+     "total_us": 331.51,
+     "main_us": 331.51,
+     "merge_us": 0,
+     "min_us": 329.98,
+     "l2_sectors": 821641.79,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 75.91,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 331.51,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 32768,
+     "total_us": 652.81,
+     "main_us": 652.81,
+     "merge_us": 0,
+     "min_us": 650.59,
+     "l2_sectors": 1608136.07,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 77.1,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 652.81,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 1290.0,
+     "main_us": 1290.0,
+     "merge_us": 0,
+     "min_us": 1290.0,
+     "l2_sectors": 3181123.31,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 78.03,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 1290.0,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 131072,
+     "total_us": 2580.0,
+     "main_us": 2580.0,
+     "merge_us": 0,
+     "min_us": 2570.0,
+     "l2_sectors": 6327109.79,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 78.03,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 2580.0,
+       "inv": 101
+      }
+     ]
+    },
+    {
+     "L": 262144,
+     "total_us": 5140.0,
+     "main_us": 5140.0,
+     "merge_us": 0,
+     "min_us": 5130.0,
+     "l2_sectors": 12619079.04,
+     "ctas": 32,
+     "invocations": 101,
+     "gbps": 78.34,
+     "kernels": [
+      {
+       "name": "kernel_cutlass_kernel_small_mjolnirarchorinmmaMMADecodeKernel_object_at__tensorptrbf16gmemalign16o1124256614461442561_te",
+       "avg_us": 5140.0,
+       "inv": 101
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "rows": [
+  {
+   "L": 128,
+   "series": "t5:fp8-hnd",
+   "median_us": 68.22,
+   "gbps": 3.84,
+   "ok": true
+  },
+  {
+   "L": 128,
+   "series": "t5:e2m3-hnd",
+   "median_us": 65.28,
+   "gbps": 3.01,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:fp8-hnd",
+   "median_us": 85.86,
+   "gbps": 97.7,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "series": "t5:e2m3-hnd",
+   "median_us": 120.0,
+   "gbps": 52.4,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:fp8-hnd",
+   "median_us": 135.62,
+   "gbps": 124.0,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "series": "t5:e2m3-hnd",
+   "median_us": 204.64,
+   "gbps": 61.5,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:fp8-hnd",
+   "median_us": 229.5,
+   "gbps": 146.0,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "series": "t5:e2m3-hnd",
+   "median_us": 366.5,
+   "gbps": 68.7,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:fp8-hnd",
+   "median_us": 416.13,
+   "gbps": 161.0,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "series": "t5:e2m3-hnd",
+   "median_us": 691.42,
+   "gbps": 72.8,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:fp8-hnd",
+   "median_us": 789.47,
+   "gbps": 170.0,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "series": "t5:e2m3-hnd",
+   "median_us": 1340.9,
+   "gbps": 75.1,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:fp8-hnd",
+   "median_us": 1534.24,
+   "gbps": 175.0,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "series": "t5:e2m3-hnd",
+   "median_us": 2636.86,
+   "gbps": 76.4,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:fp8-hnd",
+   "median_us": 3023.9,
+   "gbps": 178.0,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "series": "t5:e2m3-hnd",
+   "median_us": 5233.6,
+   "gbps": 76.9,
+   "ok": true
+  }
+ ],
+ "summary": {}
+}

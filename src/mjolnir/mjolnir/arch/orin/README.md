@@ -3,22 +3,7 @@
 This subpackage is the Mjolnir kernel for **Jetson AGX Orin 64GB (`sm_87`,
 GA10B Ampere)** — targeted at that one architecture (Thor keeps the
 `tcgen05` `t5_*` family; this family never runs on sm_100/sm_110). The
-family's only kernel is the tensor-core `mma.m16n8k16` decode kernel; the
-FMA GEMV that preceded it is retired to the **`gemv-archive`** git tag.
-
-## Provenance
-
-* The first Orin kernel was the archived GEMV FMA decode
-  (`gemv-archive`, commit `6989e30`,
-  `deprecated/gemv/kernel/sm100_hd256_decode_gemv.py` — the retired FA4
-  `head_dim=256` GEMV experiment). It measured **~20 GB/s** of KV
-  bandwidth against FlashInfer's ~162 GB/s marginal — bandwidth-starved
-  by its 96-thread scalar-issue CTA — and was the baseline that
-  motivated the mma kernel (see "Measured status").
-* The mma kernel: a CuTe-DSL port of NVIDIA's Ampere
-  FlashAttention-2 DSL example, restructured for the paged decode shapes
-  (research/runs/orin1/notes/mma-kernel-design*.md; the bottleneck
-  analysis: gemv-vs-mma-bottleneck.md).
+family's only kernel is the tensor-core `mma.m16n8k16` decode kernel.
 
 ## What the kernel is
 
@@ -64,11 +49,9 @@ Tensor Cores / 5.3 TFLOPS fp32 / ~42.5 TFLOPS fp16 (derived) /
 
 ## Measured status
 
-* **The GEMV baseline (2026-10-23, retired)**: `mjolnir verify sweep`
-  same-run vs FlashInfer FA2-TC — the GEMV streamed ~20 GB/s of KV
-  (0.52× at L=128 widening to ~0.14× at 262K); bandwidth-starved, not
-  latency- or issue-bound (12 of 48 warp slots resident). This is what
-  motivated the mma kernel.
+* **The mma kernel**: `mjolnir verify sweep` same-run vs FlashInfer
+  FA2-TC across the M/L band (research/runs/orin1/notes/
+  mma-kernel-design-2.md).
 * **The mma kernel (2026-10-26)**: serving-validated end-to-end — the
   A/B/C matrix byte-identical correct, the spec sweep 14/14 (Mjolnir
   19.9 t/s/req vs FlashInfer 18.9 at c=1, +5.0% aggregate at c=4,

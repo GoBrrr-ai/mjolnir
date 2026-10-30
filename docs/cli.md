@@ -285,7 +285,7 @@ End-to-end perf bench (gated clean window, raw JSON, history log).
 | `--runs` | measured runs per cell (llama-benchy --runs) | `6` |
 | `--warmup-runs` | discarded warmup runs per cell: 1 (llama-benchy's own) or 0 | `1` |
 | `--repeat` | independent gated sweeps (default: one sweep, 6 runs per cell) | `1` |
-| `--depths` | context depths | `0,4096,8192,16384,32768,65536,131072` |
+| `--depths` | context depths (hardcoded default cap: e2e MAX_CTX=32K; pass --depths explicitly to go deeper) | `0,4096,8192,16384,32768` |
 | `--concurrency` |  | `1,2,4` |
 | `--pp` |  | `2048` |
 | `--tg` |  | `128` |

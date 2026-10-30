@@ -1,15 +1,15 @@
 {
  "schema": "mjolnir.verify/1",
  "stage": "correctness",
- "run_id": "20261028-092639",
- "ts": "2026-10-28T09:30:55+00:00",
+ "run_id": "20261030-140528",
+ "ts": "2026-10-30T14:11:32+00:00",
  "default": true,
  "host": "agx-orin-dev",
  "image": "narandill/mjolnir-vllm:v0.32.0",
  "kernel": {
   "version": "0.1.0",
-  "git": "0b897cf",
-  "dirty": false
+  "git": "bfe00ad",
+  "dirty": true
  },
  "gate": {
   "gated": false,
@@ -53,9 +53,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00205 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
@@ -72,9 +72,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00174 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
@@ -91,9 +91,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00167 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
@@ -110,9 +110,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00206 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
@@ -129,9 +129,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00174 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
@@ -148,9 +148,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00169 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
@@ -167,9 +167,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00211 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
@@ -186,9 +186,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00176 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
@@ -205,9 +205,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00170 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
@@ -224,9 +224,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00207 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
@@ -243,9 +243,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00178 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
@@ -262,9 +262,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00165 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
@@ -281,9 +281,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00209 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
@@ -300,9 +300,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00177 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
@@ -319,9 +319,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00165 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
@@ -338,9 +338,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00203 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
@@ -357,9 +357,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00177 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
@@ -376,9 +376,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00166 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=fp8 split=True",
@@ -395,9 +395,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00206 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=fp8 split=True",
@@ -414,9 +414,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00174 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=fp8 split=True",
@@ -433,9 +433,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00169 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=fp8 split=True",
@@ -452,9 +452,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00207 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=fp8 split=True",
@@ -471,9 +471,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00178 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=fp8 split=True",
@@ -490,9 +490,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 107.9,
+   "seconds": 104.9,
    "check": "rel_err=0.00168 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kvfp8.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kvfp8.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=e2m3 split=True",
@@ -509,9 +509,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00220 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=e2m3 split=True",
@@ -528,9 +528,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00183 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=e2m3 split=True",
@@ -547,9 +547,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00167 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=e2m3 split=True",
@@ -566,9 +566,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00216 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=e2m3 split=True",
@@ -585,9 +585,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00184 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=e2m3 split=True",
@@ -604,9 +604,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00169 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=e2m3 split=True",
@@ -623,9 +623,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00219 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=e2m3 split=True",
@@ -642,9 +642,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00186 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=e2m3 split=True",
@@ -661,9 +661,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00167 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=e2m3 split=True",
@@ -680,9 +680,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00214 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=e2m3 split=True",
@@ -699,9 +699,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00183 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=e2m3 split=True",
@@ -718,9 +718,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00166 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=e2m3 split=True",
@@ -737,9 +737,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00214 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=e2m3 split=True",
@@ -756,9 +756,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00187 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=e2m3 split=True",
@@ -775,9 +775,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00170 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=e2m3 split=True",
@@ -794,9 +794,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00217 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=e2m3 split=True",
@@ -813,9 +813,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00185 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=e2m3 split=True",
@@ -832,9 +832,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00169 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=1,024 kv=e2m3 split=True",
@@ -851,9 +851,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00216 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=8,192 kv=e2m3 split=True",
@@ -870,9 +870,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00185 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=1 L<=65,536 kv=e2m3 split=True",
@@ -889,9 +889,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00168 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=1,024 kv=e2m3 split=True",
@@ -908,9 +908,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00217 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=8,192 kv=e2m3 split=True",
@@ -927,9 +927,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00184 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   },
   {
    "label": "b=1 M=4 L<=65,536 kv=e2m3 split=True",
@@ -946,9 +946,9 @@
    ],
    "passed": true,
    "rc": 0,
-   "seconds": 147.4,
+   "seconds": 256.5,
    "check": "rel_err=0.00169 (tol 0.05)",
-   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261028-092639/correctness/orin-sweep-kve2m3.log"
+   "log": "/home/narandill/Projects/mjolnir/benchmarks/logs/verify-20261030-140528/correctness/orin-sweep-kve2m3.log"
   }
  ],
  "summary": {

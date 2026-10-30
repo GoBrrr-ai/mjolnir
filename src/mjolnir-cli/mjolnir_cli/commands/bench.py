@@ -54,7 +54,11 @@ def bench_perf(
         1, "--warmup-runs", min=0, max=1, help="discarded warmup runs per cell: 1 (llama-benchy's own) or 0"
     ),
     repeat: int = typer.Option(1, "--repeat", help="independent gated sweeps (default: one sweep, 6 runs per cell)"),
-    depths: str = typer.Option(",".join(map(str, E2E_DEPTHS)), "--depths", help="context depths"),
+    depths: str = typer.Option(
+        ",".join(str(d) for d in E2E_DEPTHS if d <= _E2E_MAX_CTX),
+        "--depths",
+        help="context depths (hardcoded default cap: e2e MAX_CTX=32K; pass --depths explicitly to go deeper)",
+    ),
     concurrency: str = typer.Option("1,2,4", "--concurrency"),
     pp: int = typer.Option(2048, "--pp"),
     tg: int = typer.Option(128, "--tg"),

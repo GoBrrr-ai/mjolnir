@@ -15,9 +15,6 @@ or upstream PR/issue anchors cited inline.
 | [`faq/`](faq/) | **Task guides for the `mjolnir` CLI** — serve, verify, A/B, new model configs, base-image bumps, autoresearch. Start at [`faq/index.md`](faq/index.md). |
 | [`../research/`](../research/) | The **autoresearch** loop: program, agents, ledgers of every experiment. |
 
-The retired GEMV decode kernel and its reports are in git history:
-[`gemv-archive:deprecated/gemv/`](https://github.com/GoBrrr-ai/mjolnir/tree/gemv-archive/deprecated/gemv).
-
 ## Suggested reading order
 
 1. [the platform page's kernel index](platforms/thor/README.md#-kernel) — the design in one section, then the chapters.

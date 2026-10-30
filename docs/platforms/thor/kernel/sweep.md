@@ -1,6 +1,6 @@
 # Headline L-sweep
 
-> Mjolnir vs FlashInfer (FA4 hd256 on Thor, FA2-TC on Orin), fp8 KV — ncu kernel time on Thor, events-timed where there is no ncu · `mjolnir verify sweep` · run `20261028-003028`
+> Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians · `mjolnir verify sweep` · run `20261028-003028`
 
 ## The question
 

@@ -89,11 +89,10 @@ Rules that keep the numbers honest:
   (median of 4 profiled launches). The 273 GB/s DRAM roofline is shown for
   reference only; a kernel at 100% of it is already DRAM-saturated.
 - The two instruments are read **together**, and disagreements are documented:
-  in the retired GEMV kernel's ring-depth study, NCU showed a ring fix buying
-  +12.9% kernel BW while wall clock moved only 0.6% — merge/launch overhead and
-  non-KV L2 traffic swallowed the kernel-level gain, which a wall-only bench
-  (or an NCU-only bench) would have mis-attributed
-  ([gemv-ring-fix-bench.md, git history](https://github.com/GoBrrr-ai/mjolnir/blob/gemv-archive/deprecated/gemv/docs/gemv-ring-fix-bench.md)).
+  in an early Orin kernel iteration's ring-depth study, NCU showed a ring fix
+  buying +12.9% kernel BW while wall clock moved only 0.6% — merge/launch
+  overhead and non-KV L2 traffic swallowed the kernel-level gain, which a
+  wall-only bench (or an NCU-only bench) would have mis-attributed.
   The Mjolnir stages that touch launch behaviour (`pdl`, `ab`, `kvfmt`) report
   both.
 

@@ -175,12 +175,12 @@ KV_AVAILABILITY: dict[str, dict[str, dict[str, Availability]]] = {
         },
         MJOLNIR: {
             "thor": Availability(NATIVE, "The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype."),
-            # the Orin GEMV + mma.sync decode kernels: e4m3 KV, head_dim 256,
+            # the Orin mma.sync decode kernel: e4m3 KV, head_dim 256,
             # q_len <= 8 — measured against FlashInfer FA2-TC across the
             # M/L band (research/runs/orin1/notes/mma-kernel-design-2.md)
             "orin": Availability(
                 NATIVE,
-                "The Orin Mjolnir kernels (the FMA GEMV and the mma.sync decode: hd 256, q_len <= 8) read e4m3 KV natively.",
+                "The Orin Mjolnir mma.sync decode kernel (hd 256, q_len <= 8) reads e4m3 KV natively.",
             ),
         },
     },

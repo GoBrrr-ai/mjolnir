@@ -180,9 +180,8 @@ def _orin_correctness(ctx: Ctx, timeout: float) -> dict:
     """The Orin correctness matrix: one container per KV format runs the
     harness sweep (page size x M x L against the fp32 reference) — fp8 and
     fp6 e2m3, both against the dequantized-pool reference. The mma kernel
-    takes a bf16 query only (the fp8-Q pack retired with the GEMV; the M3
-    work), so the loop axis is the KV format, not Q. The check lines parse
-    into the shared case schema."""
+    takes a bf16 query only, so the loop axis is the KV format, not Q. The
+    check lines parse into the shared case schema."""
     cases = []
     for kv in ("fp8", "e2m3"):
         log = ctx.logdir / "correctness" / f"orin-sweep-kv{kv}.log"

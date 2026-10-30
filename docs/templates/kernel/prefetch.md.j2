@@ -3,7 +3,7 @@
 > {{ stages["prefetch"].summary }} · `mjolnir verify prefetch` · {% if has("prefetch") %}run `{{ ctx.runs["prefetch"] }}`{% else %}**no run yet**{% endif %}
 
 {% if ctx.platform and ctx.platform.sm_family == "sm_87" %}> [!NOTE]
-> `--l2_prefetch` issues `cute.prefetch` ahead of the TMA loads — a Thor-kernel knob. The `sm_87` kernel stages its KV through `cp.async` and has no prefetch distance, so this stage has nothing to sweep on the Orin and the saved run is empty.
+> `--l2_prefetch` issues `cute.prefetch` ahead of the TMA loads — not wired on the `sm_87` kernel: it stages its KV through `cp.async` and has no prefetch distance, so this stage has nothing to sweep on the Orin and the saved run is empty.
 
 {% endif %}## The question
 

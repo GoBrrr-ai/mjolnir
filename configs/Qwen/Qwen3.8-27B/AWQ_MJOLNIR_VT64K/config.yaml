@@ -1,0 +1,83 @@
+# AWQ_MJOLNIR_VT64K — AWQ_MJOLNIR (fp8 KV) + VocabTrim: the MTP drafter's
+# logits are computed only over the 64K most frequent target tokens
+# (kv_scales/draft_vocab-awq.json, calibrated on this checkpoint). Verification
+# stays over the full vocabulary (rejection sampling exact — the output
+# distribution is unchanged); only acceptance can drop, by at most the
+# uncovered share. The env sidecar carries MJOLNIR_DRAFT_VOCAB / _SIZE (vLLM
+# YAML cannot). The fp6-only sibling (AWQ_MJOLNIR_E2M3) stays clean for the A/B.
+#
+model: twolven/Qwen3.8-27B-abliterated-AWQ-MTP
+served-model-name: Qwen/Qwen3.8-27B
+
+quantization: compressed-tensors
+dtype: bfloat16
+load-format: safetensors
+
+performance-mode: throughput
+optimization-level: 3
+compilation-config:
+  cudagraph_num_of_warmups: 5
+  custom_ops:
+    - +rotary_embedding
+  pass_config:
+    eliminate_noops: true
+    fuse_allreduce_rms: false
+
+disable-custom-all-reduce: true
+trust-remote-code: true
+enforce-eager: false
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+reasoning-parser: qwen3
+
+# ── Attention / linear backends ─────────────────────────────────────────────
+# The Mjolnir decode kernel (sm_87: the mma.sync) serves decode steps;
+# `mjolnir serve` adds VLLM_KV_CACHE_LAYOUT=HND for MJOLNIR configs (the
+# kernel reads head-major pages). Kernel knobs: MJOLNIR_ATTN_* env vars
+# (see src/mjolnir/README.md). fp8 KV with no scales: the checkpoint ships
+# none (the descales default to 1.0, the same as AWQ_FLASHINFER).
+attention-backend: MJOLNIR
+linear-backend: auto
+
+# ── KV Cache ─────────────────────────────────────────────────────────────
+kv-cache-dtype: fp8
+kv-cache-dtype-skip-layers: sliding_window
+mamba-cache-mode: align
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+# ── Multimodal ─────────────────────────────────────────────────────────────
+language-model-only: true
+mm-encoder-tp-mode: data
+mm-processor-cache-type: shm
+
+# ── Caching & Scheduling ─────────────────────────────────────────────────
+enable-prefix-caching: true
+enable-chunked-prefill: true
+async-scheduling: true
+
+# ── Speculative Decoding — MTP (built-in head), K=4 ─────────────────────
+# The verify q_len = 5 rows of 8 per KV head (30 rows ≤ 32) -> the mma
+# kernel_small MT32 path — the deepest verify that stays on the fast kernel.
+# A/B against the K=5 row (the big-kernel verify): same grid, same config.
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 4
+
+# ── Generation defaults (the provided Orin launch pins them server-side) ────
+override-generation-config:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
+
+# ── Chat Template ──────────────────────────────────────────────────────────
+default-chat-template-kwargs:
+  reasoning_effort: medium
+  preserve_thinking: true
+  enable_thinking: true
+
+chat-template: /configs/Qwen/Qwen3.8_chat_template.jinja

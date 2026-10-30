@@ -5,7 +5,7 @@
 ## The question
 
 {% if ctx.platform and ctx.platform.sm_family == "sm_87" -%}
-A general-purpose A/B for harness flags. The sm_87 default run compares the KV formats themselves — fp8 vs e2m3 on HND pages — the Thor's launch knobs (evict-first, PDL) do not exist on Ampere.
+A general-purpose A/B for harness flags. The sm_87 default run compares the KV formats themselves — fp8 vs e2m3 on HND pages — the launch knobs (evict-first, PDL) do not exist on Ampere.
 {% else -%}
 A general-purpose A/B for harness flags. The default run compares the L2 **evict-first** cache policy on K/V loads and PDL, alone and together.
 {% endif %}

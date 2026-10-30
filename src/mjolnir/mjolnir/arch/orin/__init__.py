@@ -6,8 +6,7 @@ contract). The family mirrors the Thor layout:
 
 * :mod:`mjolnir.arch.orin.mma` — the tensor-core (mma.sync m16n8k16)
   decode kernel: fp8 and fp6-e2m3 KV, bf16 Q, head_dim 256, q_len <= 8
-  (decode and the MTP verify). The family's only kernel — the retired
-  GEMV FMA kernel lives in the ``gemv-archive`` git tag;
+  (decode and the MTP verify). The family's only kernel;
 * :mod:`mjolnir.arch.orin.plan` — the split-KV planner (FlashInfer
   Alg. 1, board-agnostic: the SM count is a device query, so AGX Orin
   64/32 GB, Orin NX and Orin Nano all plan correctly);
@@ -71,9 +70,7 @@ class Runner(OrinDecodeRunner):
         if max_q_len > MMA_MAX_Q_LEN:
             raise ValueError(f"the Orin mma kernel serves q_len <= {MMA_MAX_Q_LEN} (got {max_q_len})")
         if env_flag("MJOLNIR_ATTN_ORIN_IMPL", "") not in ("", "mma"):
-            raise ValueError(
-                "MJOLNIR_ATTN_ORIN_IMPL: the GEMV kernel was retired (gemv-archive) — the mma is the only Orin kernel"
-            )
+            raise ValueError("MJOLNIR_ATTN_ORIN_IMPL: only 'mma' is supported on Orin")
         kw["q_mode"] = "bf16"
         super().__init__(split_cap=max_splits, **kw)
         self.ctas_per_sm = ctas_per_sm

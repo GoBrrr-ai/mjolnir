@@ -188,11 +188,9 @@ arch family. Any change there must keep **both** fallbacks working:
   (T≥128 tiles) and the brick+coarsening batch discarded (+1.1% geomean
   resting on 8K: +0.2% without it). Ceiling under the rules ≈1–2%
   (`research/runs/oct21/`).
-- **The Orin family (shipped)**: the retired FA4 GEMV decode kernel
-  (snapshot:
-  [`gemv-archive:deprecated/gemv/`](https://github.com/GoBrrr-ai/mjolnir/tree/gemv-archive/deprecated/gemv))
-  was replaced by the `mma.sync` (`mma.m16n8k16`) decode kernel — a CuTe-DSL
-  port of NVIDIA's Ampere FA2 example — under `src/mjolnir/mjolnir/arch/orin/`
+- **The Orin family (shipped)**: the `mma.sync` (`mma.m16n8k16`) decode
+  kernel — a CuTe-DSL port of NVIDIA's Ampere FA2 example — under
+  `src/mjolnir/mjolnir/arch/orin/`
   (fp8 + fp6 `e2m3` KV, head_size 256 only — the hd128 gap is the top
   integration item). Serving-validated and measured: the orin kernel chapters
   + e2e render from its raws (sweep run `20261028-001502`, 1.14× FlashInfer
@@ -545,4 +543,3 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
 - Patch inventory: `docker/vllm-thor/PATCHES.md`.
 - Measurement discipline: `docs/methodology/benchmarking.md`.
 - Docs index: `docs/README.md`; FAQ: `docs/faq/index.md`.
-- The retired GEMV kernel (git history): [`gemv-archive:deprecated/gemv/`](https://github.com/GoBrrr-ai/mjolnir/tree/gemv-archive/deprecated/gemv).

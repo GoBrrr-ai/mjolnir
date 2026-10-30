@@ -35,6 +35,16 @@ from mjolnir_cli.charts_base import (
 )
 
 
+def _series_label(sid: str, s: dict, default: str) -> str:
+    """The Mjolnir series' KV format comes from the doc, not the sid: the
+    platform's default config decides it (thor e2m3, orin fp8)."""
+    if sid in ("mjolnir", "mjolnir-fp8"):
+        kv = (s or {}).get("kv_format")
+        if kv:
+            return f"Mjolnir · {kv} KV"
+    return default
+
+
 def chart_speedup(data: dict, mode: Mode):
     """Headline: Mjolnir's speedup over FlashInfer (and FA2's, for scale)."""
     doc = data.get("sweep")
@@ -61,24 +71,32 @@ def chart_speedup(data: dict, mode: Mode):
         ys = [sp[L] for L in xs]
         ymax = max(ymax, max(ys))
         ax.plot(xs, ys, **theme.line_kw(mode, sid))
-        name = {
-            "mjolnir": "Mjolnir · e2m3 KV",
-            "mjolnir-fp8": "Mjolnir · fp8 KV",
-            "fa2": "FlashAttention 2",
-            "fa4": "FlashAttention 4 hd256",
-        }[sid]
+        name = _series_label(
+            sid,
+            by[sid],
+            {
+                "mjolnir": "Mjolnir · e2m3 KV",
+                "mjolnir-fp8": "Mjolnir · fp8 KV",
+                "fa2": "FlashAttention 2",
+                "fa4": "FlashAttention 4 hd256",
+            }[sid],
+        )
         labels.append((xs[-1], ys[-1], name))  # the geomeans are in the README table, not here
     _log2_axis(ax, Ls, mode)
     ax.set_ylim(0, max(2.0, ymax * 1.12))
     ax.set_ylabel("speedup over FlashInfer (×, higher is faster)")
     ax.set_xlim(Ls[0] / 1.5, Ls[-1] * 3.6)  # room for the direct labels
     _place_labels(ax, mode, labels)
+    timing_note = (
+        "ncu kernel time (decode + split-KV merge), cold L2, base clocks"
+        if "fa4" in by
+        else "same-run CUDA-event medians (decode + split-KV merge)"
+    )
     theme.title(
         ax,
         mode,
         "Mjolnir decode vs FlashInfer — every context length",
-        "ncu kernel time (decode + split-KV merge), cold L2, base clocks · one sequence, 24 query / 4 KV heads, "
-        f"d=256 · gray band = ±{NOISE_PCT:.0f}% run-to-run noise",
+        f"{timing_note} · one sequence, 24 query / 4 KV heads, d=256 · gray band = ±{NOISE_PCT:.0f}% run-to-run noise",
     )
     _footer_run(fig, mode, doc)
     return fig
@@ -109,7 +127,7 @@ def chart_latency(data: dict, mode: Mode):
             continue  # no measured points — a legend ghost otherwise
         xs = sorted(pm)
         Ls = sorted(set(Ls) | set(xs))
-        ax.plot(xs, [pm[x] for x in xs], label=names[sid], **theme.line_kw(mode, sid))
+        ax.plot(xs, [pm[x] for x in xs], label=_series_label(sid, by[sid], names[sid]), **theme.line_kw(mode, sid))
     if not Ls:
         plt.close(fig)
         return None
@@ -118,15 +136,37 @@ def chart_latency(data: dict, mode: Mode):
     _log_y_ticks(ax)
     ax.set_ylabel("decode time per step (µs, log)")
     theme.legend(ax, mode, loc="upper left")
+    if "fa4" in by:
+        note = (
+            "FA4 hd256: the patched image's FA path (1-CTA decode, no SplitKV) · "
+            "FA2 (on demand) reads 2× the bytes — no fp8 KV path"
+        )
+    else:
+        note = "the stock baseline is FlashInfer's FA2-TC decode"
     theme.title(
         ax,
         mode,
         "Decode latency per step",
-        "one decode step over the whole KV cache · lower is faster · FA4 hd256: the patched image's FA path "
-        "(1-CTA decode, no SplitKV) · FA2 (on demand) reads 2× the bytes — no fp8 KV path",
+        "one decode step over the whole KV cache · lower is faster · " + note,
     )
     _footer_run(fig, mode, doc)
     return fig
+
+
+def _derived_gbps(s: dict, doc: dict) -> dict[int, float]:
+    """Events-timed legs don't carry ncu-measured bytes; the KV bytes are
+    deterministic from the geometry (the same cache every kernel reads):
+    L × 2(K+V) × h_k × d × kv_bits/8."""
+    params = doc.get("params") or {}
+    h_k, d, bits = params.get("hk") or params.get("heads_k"), params.get("d"), s.get("kv_bits")
+    if not (h_k and d and bits):
+        return {}
+    out = {}
+    for p in s.get("points", []):
+        L, total = p.get("L"), p.get("total_us")
+        if L and total:
+            out[L] = round(L * 2 * h_k * d * (bits / 8) / (total * 1e-6) / 1e9, 2)
+    return out
 
 
 def chart_bandwidth(data: dict, mode: Mode):
@@ -167,10 +207,12 @@ def chart_bandwidth(data: dict, mode: Mode):
             continue
         pm = results.point_map(by[sid], "gbps")
         if not pm:
+            pm = _derived_gbps(by[sid], doc)  # events-timed legs: geometry-derived bytes
+        if not pm:
             continue  # no measured bytes — a legend ghost otherwise
         xs = sorted(pm)
         Ls = sorted(set(Ls) | set(xs))
-        ax.plot(xs, [pm[x] for x in xs], label=names[sid], **theme.line_kw(mode, sid))
+        ax.plot(xs, [pm[x] for x in xs], label=_series_label(sid, by[sid], names[sid]), **theme.line_kw(mode, sid))
     if not Ls:
         plt.close(fig)
         return None

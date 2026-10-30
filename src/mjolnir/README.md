@@ -168,7 +168,6 @@ compute capability to it. Thor and Jetson Orin (`sm_87`) are implemented;
 DGX Spark (`sm_121`) is declared research — named in the matrix, no kernel
 yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 and
 fp6-e2m3 KV, hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
-The retired FMA GEMV lives in the `gemv-archive` git tag.
 
 `kernel_for((11, 0))` returns `mjolnir.arch.thor`; any other compute
 capability raises `PlatformNotSupported` naming the requested `sm_XX` and the

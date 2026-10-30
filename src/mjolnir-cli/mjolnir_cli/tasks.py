@@ -39,7 +39,7 @@ TASKS: list[Task] = [
     Task(
         "orin-gates",
         "docker/vllm-thor/kernel_test_orin_gates.py",
-        "sm_87 gate-probe canary (O1 plugin, O2 gemv, O3 mma fp8, O4 mma fp6 M1+M2)",
+        "sm_87 gate-probe canary (O1 plugin, O2 mma fp8, O3 mma fp6)",
         arch="orin",
     ),
     Task(

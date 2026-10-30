@@ -79,7 +79,10 @@ class KernelKey:
 def _mma_variant() -> str:
     import os
 
-    return ",".join(f"{k}={os.environ.get(k, '')}" for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH"))
+    return ",".join(
+        f"{k}={os.environ.get(k, '')}"
+        for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC")
+    )
 
 
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
@@ -117,7 +120,9 @@ class OrinDecodeRunner:
         # s3: the M-tile dispatch defaults ON (mma.py reads MJOLNIR_MMA16 /
         # MJOLNIR_REGPATH as opt-OUT now) -- same env string, different
         # code, so the pre-s3 binaries are orphaned too.
-        self._variant = _mma_variant() + "+s3"  # read once: _key() is per call
+        self._variant = _mma_variant() + "+s4"  # read once: _key() is per call
+        # s4: MJOLNIR_WARPSPEC joined the variant key (the B1 warp-spec
+        # kernels must not reuse the pre-s4 binaries).
         from mjolnir.arch.orin import mma as mma_kernel
 
         assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
@@ -152,7 +157,13 @@ class OrinDecodeRunner:
         if kv_format == "e2m3":
             from mjolnir.kvfp6 import e2m3_values
 
-            self._lut = e2m3_values(self.device)
+            # uint16 bit patterns: every e2m3 value is exact in bf16
+            # (subnormals included), so the table stores the bf16 BITS —
+            # the kernels' per-code load zero-extends into the prmt
+            # store-pack with no cvt in sight. (A 2-per-u32 pair table was
+            # tried and is WRONG: the 4 codes of a group are arbitrary —
+            # {c0, c1} is not a {2j, 2j+1} table pair.)
+            self._lut = e2m3_values(self.device).to(torch.bfloat16).view(torch.uint16)
         if sm_count is None:
             sm_count = torch.cuda.get_device_properties(self.device).multi_processor_count
         self.sm_count = sm_count
