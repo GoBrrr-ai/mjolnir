@@ -48,6 +48,46 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------------
 # Metadata
 # --------------------------------------------------------------------------
+def _retarget_flashinfer_arch() -> None:
+    """Point FlashInfer's AOT/JIT artifact resolution at the SERVING device.
+
+    The image bakes ``FLASHINFER_CUDA_ARCH_LIST`` for its build arch (the
+    Thor image ships ``11.0a``); on any other device every FI AOT dispatch
+    then resolves to a wrong-arch artifact and the kernel launch fails with
+    "no kernel image is available for execution on the device" — seen on
+    the Orin (sm_87) the first time a step left the Mjolnir kernel for the
+    fallback (the retired big-kernel verify, 2026-10-31). The device is the
+    truth: unless the bake already targets this device exactly, retarget it
+    to the device (FI normalizes ``major.minor`` itself; the resolver then
+    picks its best-scoring provider for this cc — the sm80-class artifacts
+    run on every 8.x minor). Idempotent; called from the builder's
+    __init__, before any FI module can resolve."""
+    if not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        return
+    major, minor = torch.cuda.get_device_capability()
+    want = f"{major}.{minor}"
+    baked = os.environ.get("FLASHINFER_CUDA_ARCH_LIST")
+    if baked is None:
+        return  # nothing baked: FI already targets the device
+    for entry in baked.replace(",", " ").split():
+        try:
+            bm, bminor = entry.strip().split(".", 1)
+        except ValueError:
+            continue
+        if bm.isdigit() and int(bm) == major and bminor.rstrip("af") == str(minor):
+            return  # the bake already targets this device
+    os.environ["FLASHINFER_CUDA_ARCH_LIST"] = want
+    logger.info(
+        "Mjolnir: FLASHINFER_CUDA_ARCH_LIST was %s (the image's bake) but the "
+        "serving device is sm_%d%d — retargeted to %s so FlashInfer resolves "
+        "artifacts for this device",
+        baked,
+        major,
+        minor,
+        want,
+    )
+
+
 class MjolnirMetadata:
     """Decode-only kernel-step metadata (one per KV-cache group).
 
@@ -84,6 +124,10 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
     supports_update_block_table: bool = False
 
     def __init__(self, kv_cache_spec, layer_names, vllm_config, device, *args, **kwargs):
+        # The FI fallback's artifact resolution must target THIS device, not
+        # the image's build arch (a Thor bake poisons every FI dispatch on an
+        # Orin — the "no kernel image" K=5 verify failure, 2026-10-31).
+        _retarget_flashinfer_arch()
         cache_config = vllm_config.cache_config
         saved_dtype = cache_config.cache_dtype
         fp6_scratch = _kv_format(saved_dtype) == "e2m3"
