@@ -481,6 +481,35 @@ def prefetch(
 
 
 @app.command()
+def qsa(
+    variants: str = typer.Option("fp8 e2m3", "--variants", help="indexer KV formats to prove"),
+    batches: int = typer.Option(2, "--batches"),
+    q_len: int = typer.Option(5, "--q-len", help="MTP verify shape: 1 + drafts (ring caps at 4)"),
+    image: str | None = IMAGE,
+    ls: str | None = LS,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
+):
+    """Qwen4 QSA readiness: the indexer decode (MQA 4x128 over the
+    compressed pool) kernel-vs-emulator at every L — the MJOLNIR_ATTN_QSA probe."""
+    _run(
+        "qsa",
+        {"variants": variants, "batches": batches, "q_len": q_len},
+        {"variants": "fp8 e2m3", "batches": 2, "q_len": 5},
+        image,
+        ls,
+        stages.DEFAULT_ITERS,
+        False,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
+
+
+@app.command()
 def pdl(
     batches: str = typer.Option("1 8", "--batches"),
     dtypes: str = typer.Option("fp8", "--dtypes"),

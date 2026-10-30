@@ -396,6 +396,55 @@ def stage_quant(ctx: Ctx, formats: str = "", batches: int = 2) -> dict:
     return {"rows": rows, "params": {"formats": formats, "batches": batches}}
 
 
+# ── qsa (Qwen4 sparse-attention indexer readiness) ──────────────────────────
+
+
+def stage_qsa(ctx: Ctx, variants: str = "fp8 e2m3", batches: int = 2, q_len: int = 5) -> dict:
+    """Qwen4 QSA readiness probe: the indexer decode is today's kernel
+    re-parameterized to (heads_q=4, heads_k=1, headdim=128) over the
+    compressed pool — prove that geometry kernel-vs-emulator at every L,
+    with the MTP q_len (indexer score rows = 4 indexer heads x q_len; the
+    MTP ring caps drafts at 4, so q_len 5 = 1 + K). One indexed slot covers
+    4 tokens (the compress ratio), so the L axis maps to seqlen ceil(L/4).
+
+    The gather decode for the SELECTED main-KV rows is a separate,
+    MJOLNIR_ATTN_QSA-gated change (see task/research/qwen4-27b-upstream-
+    prep/qwen4-27b-sm110-paper-tuning.md); this stage pins the indexer
+    half and the MTP-shape smoke."""
+    rows = []
+    for f in variants.split():
+        extra = "" if f == "fp8" else f"--kv_format {f}"
+        for L in ctx.ls:
+            ctx.wait_clean()
+            slots = (L + 3) // 4  # qsa.COMPRESS_RATIO; kept inline: host code
+            log = ctx.logdir / "qsa" / f"idx-{f}-L{L}.log"
+            flags = (
+                f"--heads_q 4 --heads_k 1 --headdim 128 --page_size 128 "
+                f"--q_len {q_len} --batches {batches} --seqlen {slots} {extra}"
+            )
+            rc, text = ctx.runner.harness(log, "fp8", flags, timeout=900 if L <= 32768 else 2400)
+            med, gbps = _median(text)
+            passed = rc == 0 and bool(re.search(r"^PASS$", text, re.MULTILINE))
+            rows.append(
+                {
+                    "variant": f"idx-{f}",
+                    "role": "indexer",
+                    "L": L,
+                    "slots": slots,
+                    "q_len": q_len,
+                    "median_us": med,
+                    "gbps": gbps,
+                    "pass": passed,
+                    "ok": passed and med is not None,
+                }
+            )
+            if med:
+                ctx.out(f"   idx-{f}  L={L:>7,} ({slots:>6,} slots)  {med:>10.1f} µs")
+            elif not ctx.runner.dry_run:
+                ctx.out(f"   idx-{f}  L={L:>7,} FAILED (exit {rc}) — {log}")
+    return {"rows": rows, "params": {"variants": variants, "batches": batches, "q_len": q_len}}
+
+
 # ── fp6prof (full ncu profiles) ─────────────────────────────────────────────
 
 # The metrics kept per profile (the full set is ~1000 metrics x launches —
@@ -633,6 +682,13 @@ STAGES: dict[str, Stage] = {
             stage_quant,
         ),
         Stage(
+            "qsa",
+            "Qwen4 QSA readiness",
+            "harness",
+            "indexer-decode geometry (MQA 4x128 over the compressed pool, MTP q_len) kernel-vs-emulator per L — the MJOLNIR_ATTN_QSA probe",
+            stage_qsa,
+        ),
+        Stage(
             "ring",
             "KV ring depth",
             "ncu",
@@ -746,6 +802,9 @@ def summarize(stage: str, doc: dict) -> dict:
     if stage == "correctness" or stage == "vllm":
         cs = doc.get("cases", [])
         out = {"passed": sum(1 for c in cs if c.get("passed")), "failed": sum(1 for c in cs if not c.get("passed"))}
+    if stage == "qsa":
+        rs = doc.get("rows", [])
+        out = {"passed": sum(1 for r in rs if r.get("pass")), "failed": sum(1 for r in rs if not r.get("pass"))}
     return out
 
 
