@@ -274,6 +274,19 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "keep = (prob > pivot) | (x == M)  # THOR_SPEC_SPLIT_TOPP",
         ),
     ],
+    "thor qwen4 dense decoder: mlp_only_layers hybrid rule (THOR_QWEN4_DENSE)": [
+        # v0.32.0's Qwen4ExpDecoderLayer builds a sparse MoE block for every
+        # layer and transformers rejects num_experts <= 0, so a dense Qwen4
+        # checkpoint cannot load. The patch mirrors qwen3_next's own hybrid
+        # rule (mlp_only_layers + (layer_idx+1) % decoder_sparse_step): a
+        # dense checkpoint lists EVERY layer in mlp_only_layers and gets
+        # Qwen3NextMLP. Inert for every existing qwen4_exp checkpoint (none
+        # set mlp_only_layers) — and inert for all other model families.
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_DENSE",
+        ),
+    ],
 }
 
 

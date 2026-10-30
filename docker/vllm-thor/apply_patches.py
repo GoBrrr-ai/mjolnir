@@ -96,6 +96,18 @@ PATCH_ORDER = [
     "thor-sm110-mxfp4-moe-gate.patch",
     "thor-sm110-cutlass-fp4-moe-guard.patch",
     "thor-spec-decode-split-topp.patch",
+    # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
+    # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
+    # MoE block for every layer and transformers rejects num_experts <= 0, so
+    # the patch mirrors qwen3_next's own hybrid rule — a checkpoint that lists
+    # every layer in mlp_only_layers gets Qwen3NextMLP. INERT for every
+    # existing checkpoint (none set mlp_only_layers on qwen4_exp) and for all
+    # other model families; config-driven, so no sm_110 gate. Touches only
+    # models/qwen4_exp/nvidia/model.py — order-independent. If the released
+    # 27B arrives under a NEW model_type instead, this is necessary but not
+    # sufficient (a new architectures registration is also needed) — see
+    # task/research/qwen4-27b-upstream-prep/ (release-day checklist).
+    "thor-qwen4-dense-model.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

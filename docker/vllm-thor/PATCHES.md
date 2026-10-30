@@ -17,7 +17,9 @@ and two **sm_110 MoE backend gate fixes** plus a **spec-decode split top-p
 fix** (see "Thor MoE backend gates on sm_110" below).
 Seventeen patches in total, applied by `apply_patches.py`
 onto the installed vllm package **and** the installed flashinfer package;
-verified by `verify_patches.py`.
+verified by `verify_patches.py` — plus the Thor-authored **dense-decoder
+support for the qwen4_exp family** (`thor-qwen4-dense-model.patch`, see
+"Thor qwen4 dense decoder" below), inert until a dense checkpoint ships.
 
 The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
 and its kernel were removed when the Mjolnir kernel replaced them; the last
@@ -47,6 +49,7 @@ Base this was verified against: **vllm 0.32.0**
 | `thor-sm110-mxfp4-moe-gate.patch` | [#62133](https://github.com/vllm-project/vllm/pull/62133) | **Fix OAI Triton MXFP4 MoE on SM110** (supersedes closed #61387). #58877 (in v0.32.0) widened the OAI-Triton device gate to `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init (upstream issue #61374). The GPT-OSS MXFP4 **selector** keeps **MARLIN** the default on SM110 (TRITON opt-in) and `_swizzle_mxfp4` applies the persistent + `epilogue_subtile=1` constraints on SM110 too. Drop when upstream merges #62133 — **merged 2026-10-27 (f03b704), first release after 0.32.0: retire this patch at the next base bump** (upstream rewrote the same hunks; its Thor numbers — MARLIN 13:22 vs TRITON 18:24 eval — confirm the MARLIN default our gate chose). |
 | `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275. |
 | `thor-spec-decode-split-topp.patch` | [#58231](https://github.com/vllm-project/vllm/pull/58231) | **Split top-p masks every token for huge forced logits → token 0.** `_topp_sb_mask_kernel` (the split top-p pipeline: CUDA, batches ≤ 64, rows with `top_p < 1` and no active top-k) mapped its probability-space pivot back to logit space as `log(pivot) + log(Z) + M`, which fp32 rounds to `M` when a forced logit makes `|M|` huge (thinking-token-budget writes 1e9) — the whole row masks, spec decode emits token 0 forever (≈3× throughput loss). The fix masks in probability space (`exp(x − M)/Z > pivot`, bitwise the step kernels' predicate; `x == M` kept as a backstop). Trigger needs a **huge forced logit**, not merely `top_p < 1` + spec decode. Drop when upstream merges #58231 — it is merged 2026-10-19, first release after 0.32.0. |
+| `thor-qwen4-dense-model.patch` | Thor-authored (basis: the recovered Intel `fp8_dense.cpp` — Qwen4-27B is **dense**) | **Dense-decoder support for the qwen4_exp family.** v0.32.0 builds `Qwen4ExpSparseMoeBlock` for every layer and transformers rejects `num_experts <= 0`, so no dense Qwen4 checkpoint can load. The patch mirrors qwen3_next's own hybrid rule (`mlp_only_layers` + `(layer_idx + 1) % decoder_sparse_step`): a checkpoint that lists every layer in `mlp_only_layers` gets `Qwen3NextMLP` (`Qwen2MoeMLP`) with `config.intermediate_size`. The MTP drafter goes dense through the same layer class; `Qwen4ExpMixtureOfExperts` already handles zero MoE layers. **Inert** for every existing checkpoint (none set `mlp_only_layers` on qwen4_exp). See "Thor qwen4 dense decoder" below. |
 
 ## Why "hand-adapted" and not the raw diff
 
@@ -646,7 +649,51 @@ randomized rows identical before/after). Sentinel: `THOR_SPEC_SPLIT_TOPP`.
 **Drop when upstream merges #58231 — it is merged 2026-10-19, first release
 after 0.32.0.**
 
+## Thor qwen4 dense decoder — `patches/thor-qwen4-dense-model.patch` (2026-10-31)
+
+**What:** dense-decoder support for the `qwen4_exp` family, so the confirmed
+**Qwen4-27B dense** shape can serve on the image the day weights land. Basis:
+the recovered Intel `fp8_dense.cpp` ("Dense Qwen4 TP2 decode") and the
+`qwen4_exp` family code in v0.32.0 — full evidence chain in
+`task/research/qwen4-27b-upstream-prep/` (private).
+
+- **The blocker:** `Qwen4ExpDecoderLayer` builds `Qwen4ExpSparseMoeBlock`
+  unconditionally, and transformers' `Qwen4ExpTextConfig.__post_init__`
+  rejects `num_experts <= 0` — no dense checkpoint can load. Upstream has no
+  dense decoder for the family (checked 2026-10-30).
+- **The fix:** `mlp_only_layers` + `(layer_idx + 1) % decoder_sparse_step` —
+  qwen3_next's own hybrid rule, verbatim. A dense checkpoint ships
+  `num_experts > 0` (satisfying the validation) and lists **every layer** in
+  `mlp_only_layers`; every `mlp` becomes `Qwen3NextMLP` (the `Qwen2MoeMLP`
+  alias — `gate_up_proj`/`down_proj`, the tensor names a dense checkpoint
+  carries) with `config.intermediate_size` (leak: 14336). Asserts fire with a
+  clear message if a "dense" config forgets either field.
+- **What rides along for free:** the MTP drafter builds its layer through the
+  same `Qwen4ExpDecoderLayer` (dense drafter); `Qwen4ExpMixtureOfExperts.
+  set_moe_parameters` already returns zero counts when no layer matches;
+  `is_model_fused_shared_expert_compatible` returns False; `load_weights`'
+  `maybe_fuse_shared_experts` is `getattr`-defaulted.
+- **Probe-gated, not sm_110-gated:** the branch is config-driven on every
+  platform, and **inert** for every existing checkpoint — none set
+  `mlp_only_layers` on a `qwen4_exp` config, so `is_moe_layer` stays True
+  everywhere and the built model is byte-identical to stock. Other model
+  families never import this file.
+- **Not sufficient if** the released 27B arrives under a **new model_type**
+  (a dense `qwen4` config class + architectures string): that also needs a
+  config-class mapping and a registry entry — release-day work, checklist in
+  the research dir. The QSA layers (indexer cache, budget 2048) come from the
+  family code unchanged; the Mjolnir kernel side is `MJOLNIR_ATTN_QSA`
+  (`mjolnir/arch/thor/qsa.py`, `mjolnir verify qsa`).
+
 ## Open upstream watch list (assessed 2026-10-28, base v0.32.0)
+**Sentinel:** `verify_patches.py` checks `THOR_QWEN4_DENSE` in
+`models/qwen4_exp/nvidia/model.py`. **Validated:** applies clean to the
+pristine v0.32.0 `model.py` (`patch -p1 --forward`); the result compiles and
+is byte-identical to the hand-applied intent. **Not yet run:** a real server
+smoke needs a dense checkpoint (none exists) — the inertness claim is
+static: the branch reduces to stock whenever `mlp_only_layers` is absent.
+
+
 
 Status of every open PR relevant to Thor after the #62133 merge — what to
 pre-patch (nothing), what to take at the next bump (both images inherit it,
