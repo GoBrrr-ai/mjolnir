@@ -26,7 +26,7 @@
   <a href="docs/platforms/thor/README.md#end-to-end">Benchmarks</a> •
   <a href="https://GoBrrr-ai.github.io/mjolnir/">Interactive charts</a> •
   <a href="#supported-hardware">Platforms</a> •
-  <a href="docs/platforms/thor/README.md#kernel">Case study</a> •
+  <a href="docs/platforms/thor/README.md#-kernel">Case study</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -147,7 +147,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 **Use the image directly** (any model, any vLLM flags):
 
 ```bash
-docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
+docker run --rm -it --gpus all --ipc host -p 8000:8000 \
   narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
@@ -159,20 +159,20 @@ kernel results exist for its headline model — its own kernel case study.
 
 <table width="100%">
   <thead>
-    <tr><th width="250"></th><th align="center" width="250"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></th><th align="center" width="250"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></th><th align="center" width="250"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></th></tr>
+    <tr><th width="25%"></th><th align="center" width="25%"><center><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="Jetson AGX Thor" width="72"><br><strong>Jetson AGX Thor</strong></a></center></th><th align="center" width="25%"><center><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="DGX Spark" width="72"><br><strong>DGX Spark</strong></a></center></th><th align="center" width="25%"><center><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="Jetson Orin" width="72"><br><strong>Jetson Orin</strong></a></center></th></tr>
   </thead>
   <tbody>
     <tr><td align="center"><strong>status</strong></td><td align="center">✅ supported</td><td align="center">⏳ research</td><td align="center">✅ supported</td></tr>
-    <tr><td align="center"><strong>kernel</strong></td><td align="center"><a href="docs/platforms/thor/README.md#kernel">case study</a></td><td align="center">—</td><td align="center"><a href="docs/platforms/orin/README.md#kernel">case study</a></td></tr>
+    <tr><td align="center"><strong>kernel</strong></td><td align="center"><a href="docs/platforms/thor/README.md#-kernel">case study</a></td><td align="center">—</td><td align="center"><a href="docs/platforms/orin/README.md#-kernel">case study</a></td></tr>
     <tr><td align="center"><strong>host requirements</strong></td><td align="center">JetPack 7.x</td><td align="center">DGX OS + CUDA 13</td><td align="center">JetPack 7.2.1+</td></tr>
   </tbody>
 </table>
 
-## Supported Models
+## Measured Models
 
 <table width="100%">
   <thead>
-    <tr><th align="left" width="250">model</th><th align="center" width="250"><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></th><th align="center" width="250"><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></th><th align="center" width="250"><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></th></tr>
+    <tr><th align="left" width="25%">model</th><th align="center" width="25%"><center><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></center></th><th align="center" width="25%"><center><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></center></th><th align="center" width="25%"><center><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></center></th></tr>
   </thead>
   <tbody>
     <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_E2M3_VT64K">✅ 22.2 t/s</span></td></tr>
@@ -180,7 +180,7 @@ kernel results exist for its headline model — its own kernel case study.
   </tbody>
 </table>
 
-> <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
+> <sub>✅ serves natively · ❌ every config targeting it is unavailable · — no config targets it · t/s = decode tokens/s at 1 request / 0 context, the fastest config's latest run (hover a cell for it) · from [benchmarks/history.jsonl](benchmarks/history.jsonl)</sub>
 
 ### Model Configs
 

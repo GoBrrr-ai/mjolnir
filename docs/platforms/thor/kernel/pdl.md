@@ -49,4 +49,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← L2 prefetch](prefetch.md) · [case study](../README.md#kernel) · [Flag A/B →](ab.md)
+[← L2 prefetch](prefetch.md) · [case study](../README.md#-kernel) · [Flag A/B →](ab.md)

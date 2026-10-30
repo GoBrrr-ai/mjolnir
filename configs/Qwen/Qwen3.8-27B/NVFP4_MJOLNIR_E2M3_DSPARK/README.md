@@ -33,4 +33,4 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 **no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `Qwen/Qwen3.8-27B` / `NVFP4_MJOLNIR_E2M3_DSPARK` on Jetson AGX Thor so far.
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

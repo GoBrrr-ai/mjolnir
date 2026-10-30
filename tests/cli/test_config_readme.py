@@ -319,7 +319,7 @@ def test_non_e2e_sections_are_collapsed_with_their_charts_and_how_inside(repo):
     assert "Kernel stages (case-study scope)" not in page and "Raw provenance" not in page
     assert "kernel-speedup.png" not in page  # no inline stage charts
     assert (
-        "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel)" in page
+        "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel)" in page
     )  # the one link instead
     spec = page.split("<summary>Speculative decoding</summary>")[1].split("<summary>KV capacity</summary>")[0]
     assert "46.9" in spec and "How the % and × here are calculated" in spec

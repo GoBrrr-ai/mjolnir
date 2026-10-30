@@ -26,7 +26,7 @@
   <a href="docs/platforms/thor/README.md#end-to-end">Benchmarks</a> •
   <a href="https://GoBrrr-ai.github.io/mjolnir/">Interactive charts</a> •
   <a href="#supported-hardware">Platforms</a> •
-  <a href="docs/platforms/thor/README.md#kernel">Case study</a> •
+  <a href="docs/platforms/thor/README.md#-kernel">Case study</a> •
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -140,7 +140,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 **Use the image directly** (any model, any vLLM flags):
 
 ```bash
-docker run --rm -it --gpus all --ipc host -p 8000:8000 -e VLLM_KV_CACHE_LAYOUT=HND \
+docker run --rm -it --gpus all --ipc host -p 8000:8000 \
   {{ ctx.image }} <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
@@ -152,20 +152,20 @@ kernel results exist for its headline model — its own kernel case study.
 
 <table width="100%">
   <thead>
-    <tr><th width="250"></th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.png" %}<th align="center" width="250"><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="{{ p.name }}" width="72"><br><strong>{{ p.name }}</strong></a></th>{% endfor %}</tr>
+    <tr><th width="25%"></th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.png" %}<th align="center" width="25%"><center><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="{{ p.name }}" width="72"><br><strong>{{ p.name }}</strong></a></center></th>{% endfor %}</tr>
   </thead>
   <tbody>
     <tr><td align="center"><strong>status</strong></td>{% for p in ctx.platforms %}<td align="center">{{ p.status_icon }} {{ p.status }}</td>{% endfor %}</tr>
-    <tr><td align="center"><strong>kernel</strong></td>{% for p in ctx.platforms %}<td align="center">{% if p.key in ctx.case_study_pairs %}<a href="docs/platforms/{{ p.key }}/README.md#kernel">case study</a>{% else %}—{% endif %}</td>{% endfor %}</tr>
+    <tr><td align="center"><strong>kernel</strong></td>{% for p in ctx.platforms %}<td align="center">{% if p.key in ctx.case_study_pairs %}<a href="docs/platforms/{{ p.key }}/README.md#-kernel">case study</a>{% else %}—{% endif %}</td>{% endfor %}</tr>
     <tr><td align="center"><strong>host requirements</strong></td>{% for p in ctx.platforms %}<td align="center">{{ p.host_requirements }}</td>{% endfor %}</tr>
   </tbody>
 </table>
 
-## Supported Models
+## Measured Models
 
 <table width="100%">
   <thead>
-    <tr><th align="left" width="250">model</th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.png" %}<th align="center" width="250"><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> <strong>{{ p.name }}</strong></a></th>{% endfor %}</tr>
+    <tr><th align="left" width="25%">model</th>{% for p in ctx.platforms %}{% set art = p.emoji or "mjolnir_emoji.png" %}<th align="center" width="25%"><center><a href="docs/platforms/{{ p.key }}/README.md"><img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> <strong>{{ p.name }}</strong></a></center></th>{% endfor %}</tr>
   </thead>
   <tbody>
     {%- for m in ctx.models %}
@@ -174,7 +174,7 @@ kernel results exist for its headline model — its own kernel case study.
   </tbody>
 </table>
 
-> <sub>✅ at least one of the model's configs serves natively on the platform · ❌ every config targeting it is explicitly unavailable there · — no config targets it. t/s (when shown): decode tokens/s at 1 request and 0 context — the fastest config's latest run, its name in the cell's hover title · from [benchmarks/history.jsonl](benchmarks/history.jsonl).</sub>
+> <sub>✅ serves natively · ❌ every config targeting it is unavailable · — no config targets it · t/s = decode tokens/s at 1 request / 0 context, the fastest config's latest run (hover a cell for it) · from [benchmarks/history.jsonl](benchmarks/history.jsonl)</sub>
 
 ### Model Configs
 

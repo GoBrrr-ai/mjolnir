@@ -61,4 +61,4 @@ AWQ_MJOLNIR, 1 request: best with **3 drafts** — 20.0 t/s per request, 3.12 to
 </details><br />
 </details>
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#-kernel), one chapter per verify stage.

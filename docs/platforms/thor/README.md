@@ -2,7 +2,7 @@
   <img src="../../../assets/hero-thor.jpg" alt="Mjolnir on Jetson AGX Thor" width="100%">
 </p>
 
-# Jetson AGX Thor
+# <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="28" align="absmiddle"> Jetson AGX Thor
 
 > <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> **supported** platform · `sm_110` · host requirements: JetPack 7.x · [all platforms](../README.md)
 
@@ -39,7 +39,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
 </table>
 
 > <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl](../../../benchmarks/history.jsonl).</sub>
-## Kernel
+## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Kernel
 
 Mjolnir on Jetson AGX Thor, measured chapter by chapter and pinned to the
 headline model (Qwen/Qwen3.8-27B) — every chart and table rendered
@@ -80,7 +80,7 @@ reproduces it.
 
 
 
-### Mjolnir Kernel
+### <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
 Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, see [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
@@ -159,7 +159,7 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 </details><br />
 
-## How the kernel works
+## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> How the kernel works
 
 A decode step is one query token per sequence against the whole KV cache: at 64K tokens that is 128 MiB of K and V per layer, read once. The design goal is to keep the LPDDR5X busy and everything else out of the way.
 
@@ -172,10 +172,10 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 | 🪶 | **6-bit KV (e2m3) read directly by the MMA** (`kind::f8f6f4`, TMA unpacks to byte containers) | 25% fewer bytes at near-fp8 accuracy: [kvfmt](kernel/kvfmt.md), [quant](kernel/quant.md), [capacity](kernel/kv-cache-size.md) |
 | 🚿 | **L2 evict-first on K/V loads**, a 2-stage ring for fp6 | KV is streamed once; keep L2 for the rest of the model: [ring](kernel/ring.md), [ab](kernel/ab.md) |
 
-The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the chapter index under [Kernel](#kernel) above.
+The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the chapter index under [Kernel](#-kernel) above.
 
 
-## What's in the Mjolnir image
+## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> What's in the Mjolnir image
 
 [`narandill/mjolnir-vllm:v0.32.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.32.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md) — the full inventory lives there and in the image's Docker Hub description. Tags follow the upstream vLLM version.
 

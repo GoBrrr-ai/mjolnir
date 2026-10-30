@@ -104,5 +104,5 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 {%- set ks_secs = ctx.bench.sections | selectattr("kernel_study") | list %}
 {%- if ks_secs %}
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the{% for s in ks_secs %}{{ " ·" if not loop.first }} [{{ s.name }} kernel case study]({{ root }}docs/platforms/{{ s.key }}/README.md#kernel){% endfor %}, one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the{% for s in ks_secs %}{{ " ·" if not loop.first }} [{{ s.name }} kernel case study]({{ root }}docs/platforms/{{ s.key }}/README.md#-kernel){% endfor %}, one chapter per verify stage.
 {%- endif %}

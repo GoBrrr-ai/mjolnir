@@ -2,7 +2,7 @@
   <img src="{{ root }}assets/hero-{{ ctx.key }}.jpg" alt="Mjolnir on {{ ctx.name }}" width="100%">
 </p>
 
-# {{ ctx.name }}
+# <img src="{{ root }}assets/emoji/{{ ctx.emoji or "mjolnir_emoji.png" }}" alt="" width="28" align="absmiddle"> {{ ctx.name }}
 
 {% set art = ctx.emoji or "mjolnir_emoji.png" %}> <img src="{{ root }}assets/emoji/{{ art }}" alt="" width="20" align="absmiddle"> **{{ ctx.status }}** platform · `{{ ctx.sm_family }}` · host requirements: {{ ctx.host_requirements }} · [all platforms](../README.md)
 
@@ -35,7 +35,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
 > <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl]({{ root }}benchmarks/history.jsonl).</sub>
 
 {%- if ctx.kernel %}
-## Kernel
+## <img src="{{ root }}assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Kernel
 
 Mjolnir on {{ ctx.name }}, measured chapter by chapter and pinned to the
 headline model ({{ ctx.kernel.model }}) — every chart and table rendered

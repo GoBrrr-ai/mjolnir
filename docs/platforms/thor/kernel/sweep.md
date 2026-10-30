@@ -79,4 +79,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Correctness matrix](correctness.md) · [case study](../README.md#kernel) · [Head-major pages →](hndsweep.md)
+[← Correctness matrix](correctness.md) · [case study](../README.md#-kernel) · [Head-major pages →](hndsweep.md)

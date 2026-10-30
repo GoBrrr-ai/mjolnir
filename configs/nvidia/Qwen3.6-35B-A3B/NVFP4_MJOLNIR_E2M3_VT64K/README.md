@@ -33,4 +33,4 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 **no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `nvidia/Qwen3.6-35B-A3B` / `NVFP4_MJOLNIR_E2M3_VT64K` on Jetson AGX Thor so far.
 
-The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel), one chapter per verify stage.
+The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

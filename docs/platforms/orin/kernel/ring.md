@@ -50,4 +50,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Full profiles per KV format](fp6prof.md) · [case study](../README.md#kernel) · [L2 prefetch →](prefetch.md)
+[← Full profiles per KV format](fp6prof.md) · [case study](../README.md#-kernel) · [L2 prefetch →](prefetch.md)

@@ -10,6 +10,7 @@
 | [`mjolnir drop-caches`](#mjolnir-drop-caches) | Clear the host page cache (`sysctl -w vm.drop_caches=3`) for a clean kernel-bench baseline. Uses the NOPASSWD grant (run `mjolnir grant-permissions` if it's missing); never prompts. |
 | [`mjolnir plot`](#mjolnir-plot) | Render every chart (PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
 | [`mjolnir history`](#mjolnir-history) | Bench results at a glance: decode throughput (t/s) per recent run. |
+| [`mjolnir gc`](#mjolnir-gc) | Free the untracked exhaust: expired experiment runs, superseded perf dirs and verify logs — anything past the grace period that nothing cites. |
 | [`mjolnir version`](#mjolnir-version) | Print the version. |
 | [`mjolnir serve`](#mjolnir-serve) | Drive the vLLM container (the patched image). |
 | [`mjolnir serve up`](#mjolnir-serve-up) | Start the vLLM server (custom image, config from --model/--config). Anything after the flags is forwarded to `vllm serve` (e.g. `-- --enforce-eager`). |
@@ -174,6 +175,19 @@ benchmarks/history.jsonl — `--json` dumps the records.
 |---|---|---|
 | `--limit` | how many recent runs to show | `5` |
 | `--json` / `-j` | emit the raw JSON records (for scripts) | off |
+
+
+<a id="mjolnir-gc"></a>
+
+## `mjolnir gc`
+
+Free the untracked exhaust: expired experiment runs, superseded perf
+dirs and verify logs — anything past the grace period that nothing cites.
+
+| option | description | default |
+|---|---|---|
+| `--days` | grace period in days (default: $MJOLNIR_RETENTION_DAYS or 14; 0 keeps everything) |  |
+| `--dry-run` | report what would be freed, delete nothing | off |
 
 
 <a id="mjolnir-version"></a>

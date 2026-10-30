@@ -2,7 +2,7 @@
   <img src="../../../assets/hero-spark.jpg" alt="Mjolnir on DGX Spark" width="100%">
 </p>
 
-# DGX Spark
+# <img src="../../../assets/emoji/mjolni_spark_emoji.png" alt="" width="28" align="absmiddle"> DGX Spark
 
 > <img src="../../../assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> **research** platform · `sm_121` · host requirements: DGX OS + CUDA 13 · [all platforms](../README.md)
 

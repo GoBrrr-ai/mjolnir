@@ -74,4 +74,4 @@ Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — s
 
 ---
 
-[← Head-major pages](hndsweep.md) · [case study](../README.md#kernel) · [KV format accuracy →](quant.md)
+[← Head-major pages](hndsweep.md) · [case study](../README.md#-kernel) · [KV format accuracy →](quant.md)

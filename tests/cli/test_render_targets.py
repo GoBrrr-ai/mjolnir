@@ -339,13 +339,13 @@ def test_platform_readme_carries_host_requirements(repo, platform, req):
     [("thor", True), ("spark", False)],
 )
 def test_platform_readme_carries_the_kernel_index_only_with_raws(repo, platform, indexed):
-    """Cycle 3k §1: `## Kernel` embeds the old case-study index (headline
-    findings, chart, chapter table) only when the platform has raws; a rawless
-    platform renders no kernel section at all — and the kernel README is never
-    emitted (its content moved into the section)."""
+    """Cycle 3k §1: the emoji-decorated `## Kernel` embeds the old case-study
+    index (headline findings, chart, chapter table) only when the platform
+    has raws; a rawless platform renders no kernel section at all — and the
+    kernel README is never emitted (its content moved into the section)."""
     _render_all()
     page = (repo / "docs" / "platforms" / platform / "README.md").read_text()
-    assert ("## Kernel" in page) is indexed
+    assert ('absmiddle"> Kernel' in page) is indexed
     if indexed:
         assert "Where it stands" in page  # the headline finding, reused
         assert "](kernel/sweep.md)" in page  # the chapter table links the chapters
@@ -518,7 +518,7 @@ def test_benchmarks_data_lives_in_the_merged_readme(repo):
     assert "1.26" not in bench  # no inline sweep summary
     assert "benchmarks/raw/verify/" not in bench  # no per-stage provenance
     assert (
-        "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel)" in bench
+        "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel)" in bench
     )  # the one replacement line
 
 
@@ -544,7 +544,7 @@ def test_benchmarks_no_data_line_plus_the_kernel_case_study_link(repo):
     page = (repo / "configs" / M36 / "NVFP4_MJOLNIR_E2M3" / "README.md").read_text()
     assert "no data yet" in page.split("<details>")[0]
     assert "1.26" not in page
-    assert "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#kernel)" in page
+    assert "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel)" in page
 
 
 def test_benchmarks_chart_references_resolve_from_the_config_dir(repo):
@@ -572,10 +572,13 @@ def _md_links(text: str) -> list[str]:
 
 
 def _gh_anchors(text: str) -> set[str]:
-    """GitHub-style slugs of every heading (fenced code blocks carry none)."""
+    """GitHub-style slugs of every heading (fenced code blocks carry none).
+    Inline HTML — an emoji ``<img>`` — contributes nothing, but the spaces
+    around it stay (each becomes a hyphen): GitHub renders the decorated
+    ``## <img …> Kernel`` as the anchor ``-kernel``."""
     body = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
     return {
-        re.sub(r"[^\w\- ]", "", h.lower()).replace(" ", "-").strip()
+        re.sub(r"[^\w\- ]", "", re.sub(r"<[^>]+>", "", h).lower()).replace(" ", "-")
         for h in re.findall(r"^#{1,6} (.+)$", body, flags=re.MULTILINE)
     }
 
@@ -686,7 +689,7 @@ def test_hw_table_renders_icon_word_status_and_bold_linked_names(repo):
     )
     assert (
         '<td align="center"><strong>kernel</strong></td>'
-        '<td align="center"><a href="docs/platforms/thor/README.md#kernel">case study</a></td>'
+        '<td align="center"><a href="docs/platforms/thor/README.md#-kernel">case study</a></td>'
         '<td align="center">—</td><td align="center">—</td></tr>' in hw
     )
     assert (
@@ -725,7 +728,7 @@ def test_models_table_cells_native_with_history_native_without_and_no_configs(re
     a native config but no (1, 0) history → the bare ✅; (d) Qwen3.6 targets
     only thor (all its configs are thor-only) → — on spark/orin."""
     _render_all()
-    models = _section((repo / "README.md").read_text(), "Supported Models")
+    models = _section((repo / "README.md").read_text(), "Measured Models")
     m38 = _line(models, "configs/Qwen/Qwen3.8-27B/README.md")
     assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 52.7 t/s</span>' in m38
     assert m38.endswith(
@@ -746,7 +749,7 @@ def test_models_table_marks_every_config_unavailable(repo):
     d.mkdir(exist_ok=True)
     (d / "spark.yaml").write_text("{}\n")
     _render_all()
-    models = _section((repo / "README.md").read_text(), "Supported Models")
+    models = _section((repo / "README.md").read_text(), "Measured Models")
     assert '<td align="center">❌</td>' in _line(models, "configs/nvidia/Qwen3.6-35B-A3B/README.md")
 
 
@@ -764,7 +767,7 @@ def test_models_table_fastest_config_tie_breaks_on_scan_order(repo):
                     c["tg_tps"]["mean"] = 50.0
     layout.history_file.write_text("".join(json.dumps(r) + "\n" for r in recs))
     _render_all()
-    models = _section((repo / "README.md").read_text(), "Supported Models")
+    models = _section((repo / "README.md").read_text(), "Measured Models")
     assert '<span title="NVFP4">✅ 50.0 t/s</span>' in _line(models, "configs/Qwen/Qwen3.8-27B/README.md")
 
 
@@ -772,7 +775,7 @@ def test_models_table_header_and_row_links_and_footnote(repo):
     """Plan §2/§3: one linked column per registry platform, one linked row per
     scanned model, and the footnote's cell definition + history provenance."""
     _render_all()
-    models = _section((repo / "README.md").read_text(), "Supported Models")
+    models = _section((repo / "README.md").read_text(), "Measured Models")
     for p in REGISTRY:
         assert f'href="docs/platforms/{p}/README.md"' in models
     assert 'href="configs/Qwen/Qwen3.8-27B/README.md"' in models
@@ -789,7 +792,7 @@ def test_both_measured_pairs_lists_are_gone(repo):
     _render_all()
     text = (repo / "README.md").read_text()
     assert "Measured (platform, model) pairs" not in text
-    assert "- [" not in _section(text, "Supported Models")
+    assert "- [" not in _section(text, "Measured Models")
     thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
     assert "Measured (platform, model) pairs" not in thor
 
