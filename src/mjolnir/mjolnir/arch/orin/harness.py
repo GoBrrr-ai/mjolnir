@@ -329,6 +329,50 @@ def bench(args) -> None:
     # The shared verify stage code parses this canonical line (stages._MEDIAN).
     print(f"median {med:.2f} us, {gbps:.3g} GB/s (prebuilt launches, b={b}, M={args.q_len})")
 
+    # The device truth: the graphed pipeline (fill_cu + decode + combine)
+    # captured K launches deep and replayed back-to-back — the per-launch
+    # cost vLLM's CUDA graphs actually pay. The prebuilt line above brackets
+    # ONE eager launch per window, so it carries the host submit floor
+    # (~30 us on this board) on top of the kernel; the eager `full` line
+    # adds the python arg packing. Neither is the serving number.
+    from mjolnir.arch.orin.runner import _stream
+
+    key = runner._key(args.q_len, not args.non_causal, kv.shape[0], b, table.shape[1])
+    gfn = _R._COMPILED[key]
+    gbase = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns)
+    plan_seq = plan.seq_lens
+
+    def graphed_step():
+        runner._fill_cu(plan_seq, b)
+        gfn(*gbase, _stream())
+        if runner.split:
+            runner._combine(b, args.q_len, out)
+
+    KG = 32
+    for _ in range(3):
+        graphed_step()
+    torch.cuda.synchronize()
+    g = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(g):
+        for _ in range(KG):
+            graphed_step()
+    for _ in range(args.warmup):
+        g.replay()
+    torch.cuda.synchronize()
+    gt = []
+    for _ in range(args.iters):
+        s, e = torch.cuda.Event(True), torch.cuda.Event(True)
+        s.record()
+        g.replay()
+        e.record()
+        torch.cuda.synchronize()
+        gt.append(s.elapsed_time(e) * 1000 / KG)
+    gt.sort()
+    print(
+        f"graphed median {gt[len(gt) // 2]:.2f} us, {kv_gb / (gt[len(gt) // 2] / 1e6):.3g} GB/s "
+        f"(graphed pipeline x{KG}, b={b}, M={args.q_len})"
+    )
+
     # The full serving path (arg packing + the LSE combine): back-to-back
     # runner.run() calls, one event pair each -- the honest per-call cost
     # vLLM would pay, python included. Parsed by stages._FULL_MEDIAN.

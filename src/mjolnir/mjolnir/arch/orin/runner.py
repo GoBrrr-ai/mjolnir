@@ -122,8 +122,13 @@ class OrinDecodeRunner:
         # kernels must not reuse the pre-s4 binaries). s5: the big kernel
         # RETIRED (Option C) — the dispatch refuses rows > SMALL_ROWS and
         # MJOLNIR_MMA16 left the variant key; same-env pre-s5 entries must
-        # not resurface.
-        self._variant = _mma_variant() + "+s5"  # read once: _key() is per call
+        # not resurface. The split CAPACITY rides the key too (appended
+        # once ns_cap is resolved below): it is baked into the TVM-FFI
+        # signature (the partial shapes, the grid.y) but is not a KernelKey
+        # field — without it, two configs with different
+        # MJOLNIR_ATTN_MAX_SPLITS sharing a cache dir would silently load
+        # each other's wrong-capacity binary.
+        self._variant = _mma_variant() + "+s5"  # the capacity joins below
         from mjolnir.arch.orin import mma as mma_kernel
 
         assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
@@ -182,6 +187,7 @@ class OrinDecodeRunner:
         if split_cap > 0:
             auto = min(auto, split_cap)
         self.ns_cap = max_splits if max_splits > 0 else max(1, auto)
+        self._variant = self._variant + f"+ns{self.ns_cap}"  # read once: _key() is per call
         # The mma kernel always uses the fixed split-KV grid and writes
         # partials, so the combine must ALWAYS run -- it is exact at ns=1
         # (one partial merges to itself). With split tied to ns_cap>1 the
@@ -510,14 +516,16 @@ class OrinDecodeRunner:
     # ---------------------------------------------------------------- launch
     def _scale_buf(self, buf: torch.Tensor, b: int, scale: torch.Tensor) -> torch.Tensor:
         """vLLM's (1,)/(h_k,)/(b, h_k) descale -> the kernel's (b, h_k) view,
-        as one captured broadcast copy."""
+        as one captured broadcast copy. No intermediate allocs: a scalar
+        rides copy_'s broadcast directly (ones_like * scale allocated a
+        fresh device tensor every call)."""
         view = buf[:b]
         if scale.dim() == 0 or scale.numel() == 1:
-            view.copy_(torch.ones_like(view) * scale.reshape(()))
+            view.copy_(scale.detach().reshape(()).float())
         elif scale.dim() == 1 and scale.shape[0] == self.h_k:
-            view.copy_(scale.unsqueeze(0).expand(b, self.h_k))
+            view.copy_(scale.detach().float().unsqueeze(0).expand(b, self.h_k))
         else:
-            view.copy_(scale.reshape(b, self.h_k))
+            view.copy_(scale.detach().reshape(b, self.h_k).float())
         return view
 
     def _pack_q(self, q3: torch.Tensor, b: int, ql: int) -> torch.Tensor:
