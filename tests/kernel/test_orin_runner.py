@@ -203,6 +203,58 @@ def test_non_causal_block():
         assert (ref - causal_ref).abs().max().item() > 1e-3, "the case must tell the two masks apart"
 
 
+def test_big_kernel_rows_refuse_and_route_to_the_fallback():
+    # Option C (2026-10-30): the 64-row big kernel is retired. q_len 5
+    # (30 rows on the g=6 model) stays on the small kernel; q_len 6
+    # (36 rows) must refuse — can_implement gates the builder's plan to
+    # the fallback, and a direct compile raises loudly instead of
+    # silently running the slow path.
+    for impl in IMPLS:
+        runner = _runner(impl, 2, 6)
+        assert runner.can_implement(5), "q_len 5 (30 rows) is the small kernel"
+        assert not runner.can_implement(6), "q_len 6 (36 rows) must refuse"
+        assert not runner.can_implement(8), "q_len 8 (48 rows) must refuse"
+        try:
+            runner.ensure_compiled(6)
+            raise AssertionError("ensure_compiled(q_len 6) must refuse (the retired big kernel)")
+        except NotImplementedError:
+            pass
+        # precompile skips the refused shapes instead of dying on them
+        runner.precompile()
+        assert not runner.is_compiled(6), "the refused q_len must not compile"
+
+
+def test_builder_routes_refused_rows_to_the_fallback():
+    # the shared builder's duck-typed gate (Option C): a refused q_len must
+    # return None so super().build() (the fallback backend) takes the step;
+    # a runner without can_implement (Thor) is unaffected.
+    try:
+        from mjolnir.builder import MjolnirBuilder
+    except ImportError:
+        print("  (skip: vllm not importable)")
+        return
+    from types import SimpleNamespace
+
+    def cam(q_len: int) -> SimpleNamespace:
+        # one real request of q_len tokens (uniform: the kernel-step shape)
+        return SimpleNamespace(
+            max_query_len=q_len,
+            num_reqs=1,
+            causal=True,
+            dcp_local_seq_lens=None,
+            num_actual_tokens=q_len,
+            query_start_loc_cpu=torch.tensor([0, q_len]),
+        )
+
+    builder = MjolnirBuilder.__new__(MjolnirBuilder)
+    builder.runner = _runner("mma", 1, 6)
+    assert builder._kernel_step_q_len(cam(6)) is None, "36 rows must ride the fallback"
+    assert builder._kernel_step_q_len(cam(5)) == 5, "30 rows stay on the small kernel"
+    thor_like = SimpleNamespace(max_q_len=8, max_num_seqs=4)  # no can_implement
+    builder.runner = thor_like
+    assert builder._kernel_step_q_len(cam(6)) == 6, "a gateless runner (Thor) keeps every q_len"
+
+
 def test_backend_runner_picks_the_kernel_and_caps_the_splits():
     def backend_runner(kv_format: str, max_splits: int = 16) -> Runner:
         # the kwargs the vLLM backend passes (fp8 Q, MAX_SPLITS' default 16)

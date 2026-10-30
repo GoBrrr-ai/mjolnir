@@ -79,10 +79,9 @@ class KernelKey:
 def _mma_variant() -> str:
     import os
 
-    return ",".join(
-        f"{k}={os.environ.get(k, '')}"
-        for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC")
-    )
+    # MJOLNIR_MMA16 left the key with the big kernel's retirement (Option C):
+    # the dispatch no longer reads it, so it cannot fork the generated code.
+    return ",".join(f"{k}={os.environ.get(k, '')}" for k in ("MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC"))
 
 
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
@@ -117,12 +116,14 @@ class OrinDecodeRunner:
         # gathers read the pool through the view's own (dynamic) strides --
         # the pre-s2 binaries hardcoded the flat contiguous layout and read
         # garbage from vLLM's interleaved pool (orin1, the stride probe).
-        # s3: the M-tile dispatch defaults ON (mma.py reads MJOLNIR_MMA16 /
-        # MJOLNIR_REGPATH as opt-OUT now) -- same env string, different
-        # code, so the pre-s3 binaries are orphaned too.
-        self._variant = _mma_variant() + "+s4"  # read once: _key() is per call
+        # s3: the M-tile dispatch defaults ON (the small tiles) -- same env
+        # string, different code, so the pre-s3 binaries are orphaned too.
         # s4: MJOLNIR_WARPSPEC joined the variant key (the B1 warp-spec
-        # kernels must not reuse the pre-s4 binaries).
+        # kernels must not reuse the pre-s4 binaries). s5: the big kernel
+        # RETIRED (Option C) — the dispatch refuses rows > SMALL_ROWS and
+        # MJOLNIR_MMA16 left the variant key; same-env pre-s5 entries must
+        # not resurface.
+        self._variant = _mma_variant() + "+s5"  # read once: _key() is per call
         from mjolnir.arch.orin import mma as mma_kernel
 
         assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
@@ -216,6 +217,16 @@ class OrinDecodeRunner:
         self._combine_fns: dict = {}  # (b, ql) -> the fused combine (combine.py)
 
     # ------------------------------------------------------------------ plan
+    def can_implement(self, q_len: int) -> bool:
+        """The builder's kernel-step gate: the small kernel serves
+        ``seqlen_q * g`` rows up to :attr:`MMADecodeKernel.SMALL_ROWS` (32);
+        larger verify shapes (K>=5 drafts on the g=6 model) REFUSE and the
+        vLLM backend routes the step to the fallback backend — the 64-row
+        big kernel is retired (Option C, 2026-10-30). Duck-typed by the
+        shared builder (``getattr(runner, "can_implement", None)``): the
+        Thor runner has no such cap."""
+        return q_len * self.h_r <= self._kernel_cls.SMALL_ROWS
+
     def n_tiles(self, q_len: int) -> int:
         """The t5 runner's tile count has no meaning here; 1 CTA covers all
         M rows of a (kv_head, chunk). Kept for surface parity."""
@@ -456,7 +467,17 @@ class OrinDecodeRunner:
         The TVM-FFI signature bakes tensor shapes, so the dummies must match
         the shapes the launch will use: pass the pool size, the batch (the
         graph-capture size) and the block-table stride. run() compiles on
-        miss for eager calls; capture paths must precompile per shape."""
+        miss for eager calls; capture paths must precompile per shape.
+
+        Refused shapes (``not can_implement(q_len)`` — the retired big
+        kernel) raise here: the builder must have routed the step to the
+        fallback before planning."""
+        if not self.can_implement(q_len):
+            raise NotImplementedError(
+                f"q_len {q_len} x g {self.h_r} = {q_len * self.h_r} rows > "
+                f"{self._kernel_cls.SMALL_ROWS}: the big kernel is retired — "
+                "the builder must route this step to the fallback backend"
+            )
         key = self._key(q_len, causal, num_pages, batch, max_blocks)
         if key in _COMPILED:
             return
@@ -478,9 +499,12 @@ class OrinDecodeRunner:
         torch.cuda.synchronize(dev)
 
     def precompile(self, q_lens=None):
-        """Compile every variant this runner can launch."""
+        """Compile every variant this runner can launch. Shapes the kernel
+        refuses (rows > SMALL_ROWS — the retired big kernel) are skipped:
+        the builder routes those steps to the fallback."""
         for ql in q_lens or range(1, self.max_q_len + 1):
-            self.ensure_compiled(ql)
+            if self.can_implement(ql):
+                self.ensure_compiled(ql)
         torch.cuda.synchronize(self.device)
 
     # ---------------------------------------------------------------- launch

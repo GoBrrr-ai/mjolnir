@@ -223,8 +223,9 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
                     loaded,
                     _runner.kernel_cache_dir() or "cache (off)",
                 )
+        rows_cap = getattr(getattr(self.runner, "_kernel_cls", None), "SMALL_ROWS", None)
         logger.info(
-            "Mjolnir decode enabled: h_q=%d h_k=%d d=%d page=%d q_len<=%d Q=%s "
+            "Mjolnir decode enabled: h_q=%d h_k=%d d=%d page=%d q_len<=%d (rows<=%s, larger steps -> %s) Q=%s "
             "ctas/SM=%d slots(q1)=%d pdl=%s l2_prefetch=%d "
             "kv_evict_first=%s kv=%s fallback=%s",
             num_heads,
@@ -232,6 +233,8 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             kv_cache_spec.head_size,
             kv_cache_spec.block_size,
             self.runner.max_q_len,
+            rows_cap if rows_cap else "n/a",
+            _fallback_name(),
             q_mode,
             self.runner.ctas_per_sm,
             self.runner.slots(1),
@@ -269,6 +272,13 @@ class MjolnirMetadataBuilder(_BaseBuilder):  # type: ignore[misc, valid-type]
             return None
         q_len = int(cam.max_query_len)
         if not 1 <= q_len <= runner.max_q_len or cam.num_reqs > runner.max_num_seqs:
+            return None
+        # The per-family row gate (duck-typed): the Orin mma kernel refuses
+        # rows beyond its small-kernel capacity (the big kernel is retired —
+        # Option C), so those steps ride the fallback backend. The Thor
+        # runner has no such gate.
+        can = getattr(runner, "can_implement", None)
+        if can is not None and not can(q_len):
             return None
         causal = getattr(cam, "causal", True)
         if causal is not True and not (causal is False and _NONCAUSAL):

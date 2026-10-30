@@ -44,6 +44,7 @@ serves through it; ``python -m mjolnir.arch.orin.harness`` drives it.
 from __future__ import annotations
 
 import math
+import os
 from typing import NamedTuple, Optional
 
 import cutlass
@@ -92,7 +93,13 @@ class MMADecodeKernel:
     packing."""
 
     HEAD_DIM = 256  # Qwen3.8-27B's head size
-    M_TILE = 64  # the 4 warps x 16-row mma atoms; q_len*6 <= 48 pads in
+    # The row capacity of the small (MT16/MT32) kernel: the dispatch serves
+    # seqlen_q * g <= SMALL_ROWS and REFUSES beyond — the 64-row big kernel
+    # is retired (Option C, 2026-10-30): the vLLM builder routes those steps
+    # to the fallback backend (the runner's can_implement gates the plan),
+    # and a direct call fails loudly instead of silently running the slow path.
+    SMALL_ROWS = 32
+    M_TILE = 64  # RETIRED with the big kernel (kept for its dead code path)
     STAGE_ROWS = 32  # the KV rows per smem stage
     NUM_THREADS = 128  # 4 warps
     MAX_Q_LEN = 8  # the MTP=7 verify shape (7 drafts + the real token)
@@ -122,10 +129,8 @@ class MMADecodeKernel:
         # P/softmax/HMMA work per KV byte 4x FlashInfer's at M=1 (the
         # instruction-mix profile, mma-kernel-design-2.md); the small tiles
         # cut the 16K+ gap by a third and gated 42/42 + 24/24 (sessions 4-5).
-        # Default ON since the oct28 run; MJOLNIR_MMA16=0 opts out (A/B).
-        import os
-
-        self.small_tile = os.environ.get("MJOLNIR_MMA16", "1") != "0"
+        # Default ON since the oct28 run; the old MJOLNIR_MMA16 opt-out died
+        # with the big kernel (there is no alternative path to fall back to).
         # The 3-CTA occupancy probe: nvvm.minctasm (= __launch_bounds__
         # min-blocks) makes ptxas cap the registers to <=170/thread.
         # Probe only — the smem still binds at 2 CTAs until the register
@@ -185,7 +190,10 @@ class MMADecodeKernel:
         # — fp8 AND fp6 e2m3 alike (the LUT dequant is per byte, identical
         # in both tile shapes; only the M-overhead differs). The register-K
         # package stays fp8-only (no LUT plumbing in the fragment path).
-        if const_expr(self.small_tile and seqlen_q * self.g <= 32):
+        # Beyond SMALL_ROWS the kernel REFUSES (the retired big kernel) —
+        # the vLLM builder never gets here (runner.can_implement gates the
+        # plan to the fallback); a direct call fails loudly instead.
+        if const_expr(seqlen_q * self.g <= self.SMALL_ROWS):
             self.kernel_small(
                 mQ,
                 mK,
@@ -211,27 +219,11 @@ class MMADecodeKernel:
                 stream=stream,
             )
             return
-        self.kernel(
-            mQ,
-            mK,
-            mV,
-            mO,
-            mLSE,
-            mCuSeqlensQ,
-            mCuSeqlensK,
-            mDescale,
-            mCodeLUT,
-            mO_partial,
-            mLSE_partial,
-            mPageTable,
-            seqlen_q,
-            seqlen_k,
-            softmax_scale_log2,
-            num_splits,
-        ).launch(
-            grid=(cute.size(mV.shape[-2]), num_splits, batch_size),
-            block=[self.NUM_THREADS, 1, 1],
-            stream=stream,
+        raise NotImplementedError(
+            f"the Orin mma big kernel is retired: {seqlen_q * self.g} rows "
+            f"(q_len {seqlen_q} x g {self.g}) > {self.SMALL_ROWS} — route the "
+            "step to the fallback backend (the vLLM builder's can_implement "
+            "gate does); MJOLNIR_ATTN_FALLBACK serves it"
         )
 
     # ------------------------------------------------------------------
