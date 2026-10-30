@@ -282,7 +282,7 @@ def test_platform_readme_has_one_row_per_model_with_a_default_config(repo):
     overlays allow it, else the first config they allow (scan order)."""
     _render_all()
     thor = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()
-    serving = _section(thor, "Supported Models")
+    serving = _section(thor, "Measured Models")
     rows = [ln for ln in serving.splitlines() if ln.strip().startswith("<tr><td ")]
     assert len(rows) == 2, f"one row per model, got {len(rows)}: {rows}"
     m38 = _line(serving, f"configs/{M38}/README.md")
@@ -295,7 +295,7 @@ def test_platform_readme_has_one_row_per_model_with_a_default_config(repo):
     # the model page (cycle 3k §1)
     assert f"`{FP6_QUANT}` on Jetson AGX Thor:" not in thor
     spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
-    spark_rows = [ln for ln in _section(spark, "Supported Models").splitlines() if ln.strip().startswith("<tr><td ")]
+    spark_rows = [ln for ln in _section(spark, "Measured Models").splitlines() if ln.strip().startswith("<tr><td ")]
     assert len(spark_rows) == 2
     # spark's overlays serve NVFP4 first for M38; M36 has no spark config
     assert 'href="../../../configs/Qwen/Qwen3.8-27B/NVFP4/README.md"' in _line(spark, f"configs/{M38}/README.md")
@@ -309,13 +309,13 @@ def test_platform_models_table_speeds_follow_the_pair_history(repo):
     the bare ✅ when the pair serves but has no (1, 0) cell, — when no
     config targets the platform."""
     _render_all()
-    thor = _section((repo / "docs" / "platforms" / "thor" / "README.md").read_text(), "Supported Models")
+    thor = _section((repo / "docs" / "platforms" / "thor" / "README.md").read_text(), "Measured Models")
     m38 = _line(thor, f"configs/{M38}/README.md")
     assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 52.7 t/s</span>' in m38
     assert '<span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">9600.0 t/s</span>' in m38
     m36 = _line(thor, f"configs/{M36}/README.md")
     assert '<td align="center">✅</td>' in m36  # native, no (1, 0) cell in the fixture
-    spark = _section((repo / "docs" / "platforms" / "spark" / "README.md").read_text(), "Supported Models")
+    spark = _section((repo / "docs" / "platforms" / "spark" / "README.md").read_text(), "Measured Models")
     assert '<td align="center">✅</td>' in _line(spark, f"configs/{M38}/README.md")
     assert '<td align="center">—</td>' in _line(spark, f"configs/{M36}/README.md")
 

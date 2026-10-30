@@ -4,10 +4,10 @@
 
 # <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="28" align="absmiddle"> Jetson AGX Thor
 
-> <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> **supported** platform · `sm_110` · host requirements: JetPack 7.x · [all platforms](../README.md)
+> **supported** platform · `sm_110` · host requirements: JetPack 7.x · [all platforms](../README.md)
 
 
-<img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> Thor is the platform Mjolnir is built for: the `t5` kernel family — CuTe DSL
+Thor is the platform Mjolnir is built for: the `t5` kernel family — CuTe DSL
 on `tcgen05` tensor cores, TMEM and TMA — is written for its 20 SMs, 2 CTAs
 per SM, 32 MiB L2 and 273 GB/s of LPDDR5X, and every default config,
 calibration and benchmark in the repo pins to it. The kernel serves through
@@ -22,7 +22,7 @@ default.
 <img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 
-## Supported Models
+## Measured Models
 
 One row per model in `configs/` — the config the platform's overlays serve
 by default (the model page's quickstart rule) and the pair's measured
@@ -39,7 +39,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
 </table>
 
 > <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl](../../../benchmarks/history.jsonl).</sub>
-## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Kernel
+## <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="26" align="absmiddle"> Kernel
 
 Mjolnir on Jetson AGX Thor, measured chapter by chapter and pinned to the
 headline model (Qwen/Qwen3.8-27B) — every chart and table rendered
@@ -80,7 +80,7 @@ reproduces it.
 
 
 
-### <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
+### <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
 Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs, see [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
@@ -159,7 +159,7 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 </details><br />
 
-## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> How the kernel works
+## <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="26" align="absmiddle"> How the kernel works
 
 A decode step is one query token per sequence against the whole KV cache: at 64K tokens that is 128 MiB of K and V per layer, read once. The design goal is to keep the LPDDR5X busy and everything else out of the way.
 
@@ -175,7 +175,7 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the chapter index under [Kernel](#-kernel) above.
 
 
-## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> What's in the Mjolnir image
+## <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="26" align="absmiddle"> What's in the Mjolnir image
 
 [`narandill/mjolnir-vllm:v0.32.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.32.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md) — the full inventory lives there and in the image's Docker Hub description. Tags follow the upstream vLLM version.
 

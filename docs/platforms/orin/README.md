@@ -4,10 +4,10 @@
 
 # <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="28" align="absmiddle"> Jetson Orin
 
-> <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> **supported** platform · `sm_87` · host requirements: JetPack 7.2.1+ · [all platforms](../README.md)
+> **supported** platform · `sm_87` · host requirements: JetPack 7.2.1+ · [all platforms](../README.md)
 
 
-<img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> The `sm_87` mma kernel — a CuTe-DSL port of NVIDIA's Ampere FlashAttention-2
+The `sm_87` mma kernel — a CuTe-DSL port of NVIDIA's Ampere FlashAttention-2
 example, restructured for paged decode — targets AGX Orin 64GB (16 SMs,
 204.8 GB/s of LPDDR5, 4 MB L2) and serves fp8 and fp6 (`e2m3`) KV; it is
 serving-validated and measured against the FlashInfer FA2-TC reference, with
@@ -22,7 +22,7 @@ Ampere.
 <img src="../../../assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 
-## Supported Models
+## Measured Models
 
 One row per model in `configs/` — the config the platform's overlays serve
 by default (the model page's quickstart rule) and the pair's measured
@@ -39,7 +39,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
 </table>
 
 > <sub>✅ at least one of the model's configs serves natively on the platform · — no config targets it. Speeds (when shown): decode tokens/s at 1 request / 0 context and prefill tokens/s at 1 request / 8K context — the fastest-by-decode serving config's latest merged run, its name in the cells' hover title · from [benchmarks/history.jsonl](../../../benchmarks/history.jsonl).</sub>
-## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Kernel
+## <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="26" align="absmiddle"> Kernel
 
 Mjolnir on Jetson Orin, measured chapter by chapter and pinned to the
 headline model (Qwen/Qwen3.8-27B) — every chart and table rendered
@@ -80,7 +80,7 @@ reproduces it.
 
 
 
-### <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
+### <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
 
 All kernel numbers are **cuda-event timed kernel time**, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
 Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer reference, timed in the same run; the chapters quantify where it stands. Noise and methodology: [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).

@@ -7,7 +7,7 @@
 {% block kernel_benchmarks %}
 {% if ctx.kernel %}
 {% set kctx = ctx.kernel %}
-### <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
+### <img src="../../../assets/emoji/{{ ctx.emoji }}" alt="" width="26" align="absmiddle"> Mjolnir Kernel
 
 All kernel numbers are **ncu kernel time** (decode + split-KV merge), cold L2, base clocks, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
 Measured on a dedicated Thor: a same-run ratio repeats within ±{{ kctx.noise_pct }}% between runs, see [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).
@@ -33,7 +33,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±{{ kctx.noise_pc
 {% endblock %}
 
 {% block extras %}
-## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> How the kernel works
+## <img src="../../../assets/emoji/{{ ctx.emoji }}" alt="" width="26" align="absmiddle"> How the kernel works
 
 A decode step is one query token per sequence against the whole KV cache: at 64K tokens that is 128 MiB of K and V per layer, read once. The design goal is to keep the LPDDR5X busy and everything else out of the way.
 
@@ -49,7 +49,7 @@ A decode step is one query token per sequence against the whole KV cache: at 64K
 The full walkthrough — one chapter per experiment, each with its chart, data table and the command that reproduces it — is the chapter index under [Kernel](#-kernel) above.
 
 {% if ctx.kernel %}
-## <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> What's in the Mjolnir image
+## <img src="../../../assets/emoji/{{ ctx.emoji }}" alt="" width="26" align="absmiddle"> What's in the Mjolnir image
 
 [`{{ ctx.kernel.image }}`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v{{ ctx.kernel.vllm_version }}` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md) — the full inventory lives there and in the image's Docker Hub description. Tags follow the upstream vLLM version.
 {% endif %}

@@ -9,7 +9,7 @@
 {% block kernel_benchmarks %}
 {% if ctx.kernel %}
 {% set kctx = ctx.kernel %}
-### <img src="../../../assets/emoji/mjolnir_emoji.png" alt="" width="26" align="absmiddle"> Mjolnir Kernel
+### <img src="../../../assets/emoji/{{ ctx.emoji }}" alt="" width="26" align="absmiddle"> Mjolnir Kernel
 
 All kernel numbers are **cuda-event timed kernel time**, one sequence with 24 query / 4 KV heads, head dim 256, 128-token pages — the attention shape of Qwen3.8-27B — at **every context length from 128 to 256K tokens**.
 Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer reference, timed in the same run; the chapters quantify where it stands. Noise and methodology: [`docs/methodology/benchmarking.md`](../../../docs/methodology/benchmarking.md).

@@ -8,7 +8,7 @@ exist for its headline model, its own kernel case study under `kernel/`.
 | platform | status | compute | host requirements |
 |---|---|---|---|
 {% for p in ctx.platforms -%}
-| [{{ p.name }}]({{ p.key }}/README.md) | {{ p.status }} | `{{ p.sm_family }}` | {{ p.host_requirements }} |
+| <img src="{{ root }}assets/emoji/{{ p.emoji }}" alt="" width="20" align="absmiddle"> [{{ p.name }}]({{ p.key }}/README.md) | {{ p.status }} | `{{ p.sm_family }}` | {{ p.host_requirements }} |
 {% endfor %}
 
 Per model and per serving config: the [config tree](../../configs/) — each
