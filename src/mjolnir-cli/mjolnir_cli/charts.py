@@ -105,6 +105,8 @@ def chart_latency(data: dict, mode: Mode):
         if sid not in by:
             continue
         pm = results.point_map(by[sid])
+        if not pm:
+            continue  # no measured points — a legend ghost otherwise
         xs = sorted(pm)
         Ls = sorted(set(Ls) | set(xs))
         ax.plot(xs, [pm[x] for x in xs], label=names[sid], **theme.line_kw(mode, sid))
@@ -164,6 +166,8 @@ def chart_bandwidth(data: dict, mode: Mode):
         if sid not in by:
             continue
         pm = results.point_map(by[sid], "gbps")
+        if not pm:
+            continue  # no measured bytes — a legend ghost otherwise
         xs = sorted(pm)
         Ls = sorted(set(Ls) | set(xs))
         ax.plot(xs, [pm[x] for x in xs], label=names[sid], **theme.line_kw(mode, sid))

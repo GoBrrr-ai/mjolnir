@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 
 from mjolnir_cli import theme
-from mjolnir_cli.config import RepoLayout
+from mjolnir_cli.config import DEFAULT_MODEL, RepoLayout, model_of
 from mjolnir_cli.theme import Mode
 from mjolnir_cli.verify import results
 from mjolnir_cli.verify.stages import NOISE_PCT
@@ -116,10 +116,13 @@ def _footer_run(fig, mode: Mode, doc: dict, extra: str = "") -> None:
     ver = f"kernel {k.get('version', '?')}" + (f" ({k['git']})" if k.get("git") else "")
     p = doc.get("params", {})
     shape = f"h_q={p.get('hq', 24)} h_k={p.get('hk', 4)} d={p.get('d', 256)} page={p.get('page', 128)}"
+    # the model the doc belongs to — model-less documents are the headline
+    # model's (readme_targets._matches), so the footer names it as such
+    model = (model_of(doc) or DEFAULT_MODEL).split("/")[-1]
     theme.footer(
         fig,
         mode,
-        f"mjolnir verify {doc['stage']} · run {doc['run_id']} · {ver} · {shape}{extra}",
+        f"mjolnir verify {doc['stage']} · {model} · run {doc['run_id']} · {ver} · {shape}{extra}",
         right=theme.board_line(doc.get("platform")),
     )
 
