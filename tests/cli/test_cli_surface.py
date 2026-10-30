@@ -38,6 +38,7 @@ SUB_APP_COMMANDS = {
 # Root commands (not sub-apps): their --help shows these options.
 ROOT_COMMAND_OPTIONS = {
     "history": ["--limit", "--json"],
+    "gc": ["--days", "--dry-run"],
     "plot": ["--readme", "--readme-template", "--readme-out", "--site"],
 }
 
@@ -129,7 +130,7 @@ def test_every_root_and_sub_app_command_body_lives_in_a_commands_module():
     from mjolnir_cli.cli import app
 
     owned = [(p, cb) for p, cb in _callbacks(app) if p[0] not in ("verify", "autoresearch")]
-    assert len(owned) == 7 + sum(len(v) for v in SUB_APP_COMMANDS.values())
+    assert len(owned) == 8 + sum(len(v) for v in SUB_APP_COMMANDS.values())
     bad = [(p, cb.__module__) for p, cb in owned if not cb.__module__.startswith("mjolnir_cli.commands.")]
     assert bad == []
 
@@ -169,6 +170,7 @@ def test_root_help_exits_zero_and_lists_top_level_commands_in_current_order():
         "drop-caches",
         "plot",
         "history",
+        "gc",
         "version",
         "serve",
         "bench",

@@ -185,3 +185,11 @@ Rules that keep the numbers honest:
      The perf raw dirs (benchy JSON, server log) go to `staging/` — the
      record's cells carry the values the charts need.
    Re-running an experiment therefore never grows the repo.
+7. **Untracked exhaust self-expires.** `benchmarks/staging/` and
+   `benchmarks/logs/` are swept at the end of every verify/bench run (and by
+   `mjolnir gc --dry-run` on demand): anything older than the grace period
+   (`$MJOLNIR_RETENTION_DAYS`, default 14, `0` disables) that nothing cites
+   is deleted — a perf dir a history record still names (its `raw` /
+   `merged_runs`) and the `logs/verify-<run_id>/` of the current evidence
+   runs always survive. Staged autoresearch rows keep their numbers in the
+   ledger, so expiring a staged document never breaks a row.

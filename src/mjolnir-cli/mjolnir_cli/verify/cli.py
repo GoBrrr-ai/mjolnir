@@ -23,6 +23,7 @@ import sys
 import typer
 
 from mjolnir_cli import legs as legs_
+from mjolnir_cli import retention
 from mjolnir_cli.cli_shared import _unset_flag
 from mjolnir_cli.config import DEFAULT_IMAGE, load_layout, resolve
 from mjolnir_cli.legs import KERNEL, SMOKE_MODES
@@ -206,6 +207,9 @@ def execute(
         else:
             why = "uncharted stage" if is_default else "custom parameters"
             console.print(f"   📝 [bold]{p}[/bold]  (untracked — {why}: stays local, never in a chart)")
+        rep = retention.sweep(layout)  # the writer prunes: expired staging/logs, silent when nothing freed
+        if rep.removed:
+            console.print(f"   🧹 [dim]{rep.summary()}[/dim]")
         if plot and layout.is_repo:
             _replot(layout)
     failed = [c for c in doc.get("cases", []) if not c.get("passed")]

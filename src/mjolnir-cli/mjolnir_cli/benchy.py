@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 
 from mjolnir_cli.config import Settings
-from mjolnir_cli import dockerctl
+from mjolnir_cli import dockerctl, retention
 from mjolnir_cli.gate import server_load, wait_for_idle
 from mjolnir_cli import history as hist
 
@@ -312,6 +312,9 @@ def run_perf(
     hist.append_record(layout.history_file, rec)
     records.append(rec)
     print_benchy_table(out_dir, rec)
+    rep = retention.sweep(layout)  # the writers prune: expired staging/logs, silent when nothing freed
+    if rep.removed:
+        print(f"[mjolnir]   🧹 {rep.summary()}")
     return records
 
 

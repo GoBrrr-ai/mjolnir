@@ -57,6 +57,12 @@ the agents run on**. When doing anything on the GPU:
 - There is **no prune/promote ritual**: re-running never grows the repo. The
   contract: `docs/methodology/benchmarking.md` §6; the audit (`mjolnir plot
   --prune`) still cleans pre-writer legacy dirs.
+- **Untracked exhaust self-expires**: `benchmarks/staging/` and
+  `benchmarks/logs/` are swept at the end of every verify/bench run (and by
+  `mjolnir gc` on demand). Anything past the grace period
+  (`$MJOLNIR_RETENTION_DAYS`, default 14, `0` = keep everything) that nothing
+  cites is freed — a perf dir a history record still names and the logs of
+  the current evidence runs always survive; fresh work is untouchable.
 - `README.md`, `docs/platforms/**`, `configs/**/README.md` (the Benchmarks
   section included) and
   `assets/benchmarks/` are **generated** (`uv run mjolnir plot --readme`) from
