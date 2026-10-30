@@ -167,3 +167,21 @@ Rules that keep the numbers honest:
 4. **Ratios, not absolutes, for wall-clock.** See §3.
 5. **Bumps invalidate comparisons.** Bumping the vLLM nightly base
    starts a new comparison epoch; old numbers stay cited with their tag.
+6. **Evidence, not exhaust.** The tracked `benchmarks/` holds exactly what the
+   render reads — one default-run document per (verify stage, platform, model)
+   and one history record per serving key (platform, model, image, config) —
+   and the *writers* enforce it; there is no prune/promote ritual:
+   - `mjolnir verify <stage>`: a default-parameter run of a rendered stage
+     *replaces* the previous evidence for its (stage, platform, model) — git
+     history keeps the retired file. Any other run (custom parameters, an
+     uncharted stage like timing/profile/vllm) lands in the gitignored
+     `benchmarks/staging/` — visible locally, never shipped, never in a chart
+     by accident.
+   - `mjolnir bench perf|ab`: the record upserts into `history.jsonl` per
+     serving key — each (concurrency, context) cell is kept from the newest
+     run that measured it, so a `--depths` run adds cells instead of
+     replacing the table; a run with a different speculative setup replaces
+     the record (the superseded one moves to `staging/history-extras.jsonl`).
+     The perf raw dirs (benchy JSON, server log) go to `staging/` — the
+     record's cells carry the values the charts need.
+   Re-running an experiment therefore never grows the repo.

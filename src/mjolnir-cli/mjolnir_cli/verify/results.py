@@ -116,6 +116,14 @@ def header(
     return doc
 
 
+def newest(rs: list[dict]) -> dict | None:
+    """The newest run of a list — preferring default parameters: the render's
+    selection rule (``readme_targets``), shared with the writer (what a new
+    default run replaces) and the prune audit (what stays tracked)."""
+    dflt = [r for r in rs if r.get("default")]
+    return (dflt or rs)[-1] if rs else None
+
+
 def stage_dir(verify_dir: Path, stage: str) -> Path:
     return verify_dir / stage
 

@@ -51,6 +51,9 @@ re-implementing the clean-window gate or the bench-history substrate:
   `SCHEMA_VERSION`; the history-row schema is documented in the module
   docstring. Rows carry `schema_version` — absence means the legacy (pre-0.3)
   format — and `load_records` returns rows raw, never normalized.
+  `append_record` files one record per serving key (platform, model, image,
+  config): a re-run merges its cells into the stored record instead of
+  appending a line; records without a serving key are appended verbatim.
 
 Anything else can change without notice; the module docstrings are the API
 reference: [`gate.py`](https://github.com/thor-arena/mjolnir/blob/main/src/mjolnir-cli/mjolnir_cli/gate.py),

@@ -40,12 +40,23 @@ the agents run on**. When doing anything on the GPU:
   (`MJOLNIR_REF_IMAGE` overrides); e2e charts ignore native configs served
   from a Mjolnir image.
 
-### Every number ships with its raw artifact
-- Kernel results: `mjolnir verify <stage>` → one `mjolnir.verify/1` JSON per run
-  in `benchmarks/raw/verify/<stage>/<run_id>.json` (`"default": true` only when
-  every parameter is the stage default — only those feed headline charts).
-- End-to-end results: `mjolnir bench perf|ab` → `benchmarks/raw/perf-<ts>/` +
-  one row per run in `benchmarks/history.jsonl`.
+### Every number ships with its raw artifact — and the writers prune
+- Kernel results: `mjolnir verify <stage>` → one `mjolnir.verify/1` JSON per
+  run (`"default": true` only when every parameter is the stage default). The
+  writer enforces the render's rule: a default run of a rendered stage
+  **replaces** the previous evidence for its (stage, platform, model) in
+  `benchmarks/raw/verify/<stage>/` (git history keeps the retired file); any
+  other run — custom parameters, or an uncharted stage (timing/profile/vllm) —
+  lands in `benchmarks/staging/` (gitignored).
+- End-to-end results: `mjolnir bench perf|ab` → one record per serving key
+  (platform, model, image, config) **upserted** into `benchmarks/history.jsonl`
+  (cells union per (concurrency, context); a different spec setup replaces the
+  record; superseded records → `benchmarks/staging/history-extras.jsonl`).
+  The perf raw dirs (benchy JSON, server log) go to `benchmarks/staging/` —
+  the record's cells carry the values.
+- There is **no prune/promote ritual**: re-running never grows the repo. The
+  contract: `docs/methodology/benchmarking.md` §6; the audit (`mjolnir plot
+  --prune`) still cleans pre-writer legacy dirs.
 - `README.md`, `docs/platforms/**`, `configs/**/README.md` (the Benchmarks
   section included) and
   `assets/benchmarks/` are **generated** (`uv run mjolnir plot --readme`) from
@@ -255,8 +266,10 @@ arch family. Any change there must keep **both** fallbacks working:
   calibration files (`kv_scales/<format>.json`, `draft_vocab.json`) sit next to
   the config dirs. User-local configs in `~/.local/share/mjolnir/configs/`
   (`$MJOLNIR_CONFIGS_DIR`), same layout.
-- `benchmarks/` — `raw/verify/` (committed kernel raws), `raw/perf-*` (e2e raws),
-  `history.jsonl`, `logs/` (untracked).
+- `benchmarks/` — `raw/verify/` (the committed evidence: one default run per
+  stage + platform + model), `raw/accuracy/` (accuracy runs),
+  `staging/` (gitignored: experiments, perf exhaust, superseded records),
+  `history.jsonl` (one record per serving key), `logs/` (untracked).
 - `assets/benchmarks/` — generated charts (`*.png`, `manifest.json`).
 - `README.md.j2` (repo root) + `docs/templates/` — the templates (`pages/` + `kernel/`).
 - `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index

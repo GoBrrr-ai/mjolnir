@@ -152,13 +152,8 @@ def _matches(doc: dict, platform: str, model: str) -> bool:
     return m == model or (m is None and model == DEFAULT_MODEL)
 
 
-def _newest(rs: list[dict]) -> dict | None:
-    dflt = [r for r in rs if r.get("default")]
-    return (dflt or rs)[-1] if rs else None
-
-
 def _stage_doc(layout: RepoLayout, stage: str, platform: str, model: str) -> dict | None:
-    return _newest([d for d in results.runs(layout.verify_dir, stage) if _matches(d, platform, model)])
+    return results.newest([d for d in results.runs(layout.verify_dir, stage) if _matches(d, platform, model)])
 
 
 def pair_docs(layout: RepoLayout, platform: str, model: str) -> dict[str, dict]:
