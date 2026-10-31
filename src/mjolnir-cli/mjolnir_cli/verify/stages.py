@@ -420,7 +420,8 @@ def stage_qsa(ctx: Ctx, variants: str = "fp8 e2m3", batches: int = 2, q_len: int
             log = ctx.logdir / "qsa" / f"idx-{f}-L{L}.log"
             flags = (
                 f"--heads_q 4 --heads_k 1 --headdim 128 --page_size 128 "
-                f"--q_len {q_len} --batches {batches} --seqlen {slots} {extra}"
+                f"--q_len {q_len} --batches {batches} --seqlen {slots} "
+                f"--iterations {ctx.iters} {extra}"
             )
             rc, text = ctx.runner.harness(log, "fp8", flags, timeout=900 if L <= 32768 else 2400)
             med, gbps = _median(text)
