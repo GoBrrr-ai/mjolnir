@@ -33,7 +33,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
     <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
   </thead>
   <tbody>
-    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.0 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">448.7 t/s</span></td></tr>
+    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.5 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">449.3 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
@@ -63,7 +63,7 @@ reproduces it.
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261030-140528` |
+| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261031-005307` |
 | 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261030-162038` |
 | 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261030-141453` |
 | 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261030-151506` |
@@ -128,9 +128,9 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 18.4 → **23.0** $\color{#16a34a}{\text{+24.6\\%}}$ | — | 4,713 → **4,628** $\color{grey}{\text{−1.8\\%}}$ | 54.5 → **43.8** $\color{#16a34a}{\text{−19.7\\%}}$ |
+| no ctx | 1 | 18.4 → **23.5** $\color{#16a34a}{\text{+27.4\\%}}$ | — | 4,713 → **4,647** $\color{grey}{\text{−1.4\\%}}$ | 54.5 → **43.2** $\color{#16a34a}{\text{−20.8\\%}}$ |
 | 4K | 1 | 17.7 → **21.2** $\color{#16a34a}{\text{+19.7\\%}}$ | 469 → **472** $\color{grey}{\text{+0.6\\%}}$ | 13,320 → **13,255** $\color{grey}{\text{−0.5\\%}}$ | 57.1 → **47.9** $\color{#16a34a}{\text{−16.1\\%}}$ |
-| 8K | 1 | 18.6 → **23.6** $\color{#16a34a}{\text{+26.9\\%}}$ | 448 → **449** $\color{grey}{\text{+0.2\\%}}$ | 23,072 → **23,047** $\color{grey}{\text{−0.1\\%}}$ | 54.4 → **42.7** $\color{#16a34a}{\text{−21.6\\%}}$ |
+| 8K | 1 | 18.6 → **24.1** $\color{#16a34a}{\text{+30.0\\%}}$ | 448 → **449** $\color{grey}{\text{+0.3\\%}}$ | 23,072 → **23,015** $\color{grey}{\text{−0.2\\%}}$ | 54.4 → **42.1** $\color{#16a34a}{\text{−22.8\\%}}$ |
 | 16K | 1 | 17.3 → **22.3** $\color{#16a34a}{\text{+28.3\\%}}$ | 428 → **428** $\color{grey}{\text{−0.0\\%}}$ | 43,274 → **43,305** $\color{grey}{\text{+0.1\\%}}$ | 58.3 → **45.4** $\color{#16a34a}{\text{−22.1\\%}}$ |
 | 32K | 1 | 16.6 → **22.4** $\color{#16a34a}{\text{+34.7\\%}}$ | 395 → **393** $\color{grey}{\text{−0.4\\%}}$ | 88,381 → **88,742** $\color{grey}{\text{+0.4\\%}}$ | 60.5 → **44.7** $\color{#16a34a}{\text{−26.1\\%}}$ |
 | no ctx | 2 | 32.2 → **37.7** $\color{#16a34a}{\text{+17.1\\%}}$ | — | 8,981 → **8,810** $\color{grey}{\text{−1.9\\%}}$ | 59.2 → **48.3** $\color{#16a34a}{\text{−18.4\\%}}$ |
