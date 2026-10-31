@@ -153,6 +153,193 @@ def emulate_decode(
     return o_emu, lse_emu, o_exact
 
 
+def run_qsa_gather(
+    batches: int = 2,
+    seqlen: int = 65536,
+    q_len: int = 1,
+    heads_q: int = 24,
+    heads_k: int = 4,
+    headdim: int = 256,
+    page_size: int = 128,
+    iterations: int = 50,
+    warmup_iterations: int = 5,
+    seed: int = 1111,
+    tolerance: float = 0.05,
+    **_,
+):
+    """The QSA scratch-gather decision experiment (MJOLNIR_ATTN_QSA path).
+
+    Dense decode over the whole context vs COPY the selected rows into a
+    page-shaped scratch (torch row gather) + the SAME dense kernel on the
+    scratch — the P0 gather with zero traced-body changes. Correctness:
+    (a) a full selection reproduces dense exactly, (b) a partial selection
+    matches the emulate_decode selection oracle. Timing: cuda-event medians
+    of dense / copy+gather / copy alone at the requested context — the
+    numbers the ``verify qsagain`` stage collects.
+    """
+    from mjolnir.arch.thor import qsa
+    from mjolnir.arch.thor.runner import T5DecodeRunner
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU is required to run this example!")
+    cap = torch.cuda.get_device_capability()
+    if cap not in ((10, 0), (11, 0)):
+        raise RuntimeError(f"Thor sm_110 harness; device is sm_{cap[0]}{cap[1]}")
+    torch.manual_seed(seed)
+    dev = torch.device("cuda")
+    PS = page_size
+    spec = qsa.IndexerSpec()
+    spec.check_main_page_size(PS)
+    assert q_len >= 1
+
+    n_blocks = math.ceil(seqlen / PS)
+    num_pages = n_blocks * batches + 4
+    gen = torch.Generator().manual_seed(seed)
+    k_pool = (torch.randn(num_pages, PS, heads_k, headdim, generator=gen) * 0.5).to(torch.float8_e4m3fn).to(dev)
+    v_pool = (torch.randn(num_pages, PS, heads_k, headdim, generator=gen) * 0.5).to(torch.float8_e4m3fn).to(dev)
+    block_table = torch.zeros(batches, n_blocks, dtype=torch.int32)
+    for s in range(batches):
+        block_table[s] = torch.arange(s * n_blocks, (s + 1) * n_blocks, dtype=torch.int32)
+    block_table = block_table.to(dev)
+    seq_lens = torch.full((batches,), seqlen, dtype=torch.int32, device=dev)
+
+    # deterministic budget-limited selection: evenly spaced blocks + the tail
+    n_sel = min(spec.budget_blocks, n_blocks)
+    if n_blocks > spec.budget_blocks:
+        ids = torch.linspace(0, n_blocks - 17, n_sel - 16).round().long()
+        ids = torch.cat([ids, torch.arange(n_blocks - 16, n_blocks)])
+    else:
+        ids = torch.arange(n_blocks)
+    selection = torch.full((batches, spec.budget_blocks), -1, dtype=torch.int32, device=dev)
+    selection[:, : len(ids)] = ids.to(dev)
+
+    eff = qsa.effective_seq_lens(selection, seq_lens.cpu(), spec)
+    src, dst, sbt, pages_max = qsa.scratch_plan(selection.cpu(), seq_lens.cpu(), block_table.cpu(), spec, PS)
+    scratch_pages = pages_max * batches + 2
+    scratch_k = torch.empty(scratch_pages, PS, heads_k, headdim, dtype=torch.float8_e4m3fn, device=dev)
+    scratch_v = torch.empty_like(scratch_k)
+    scratch_bt = torch.zeros(batches, sbt.shape[1], dtype=torch.int32, device=dev)
+    scratch_bt[:, : sbt.shape[1]] = sbt.to(dev)
+
+    tokens = batches * q_len
+    query = (torch.randn(tokens, heads_q, headdim, generator=gen) * 0.5).to(torch.bfloat16).to(dev)
+    out = torch.empty(tokens, heads_q, headdim, dtype=torch.bfloat16, device=dev)
+    one = torch.ones(1, device=dev)
+    softmax_scale = 1.0 / math.sqrt(headdim)
+
+    runner = T5DecodeRunner(
+        num_heads=heads_q,
+        num_kv_heads=heads_k,
+        head_size=headdim,
+        page_size=PS,
+        out_dtype=torch.bfloat16,
+        max_num_seqs=batches,
+        max_q_len=max(2, q_len),
+        q_mode="bf16",
+        kv_format="fp8",
+        device=dev,
+    )
+    plan_dense = runner.plan(seq_lens.tolist(), batches, q_len, block_table, seq_lens)
+    plan_gather = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
+    runner.ensure_compiled(q_len, plan_dense.with_reduction)
+    runner.ensure_compiled(q_len, plan_gather.with_reduction, causal=False)
+
+    # ---- correctness (a): full selection == dense, same kernel ----
+    sel_full = qsa.identity_selection(seq_lens.cpu(), spec).to(dev)
+    eff_full = qsa.effective_seq_lens(sel_full, seq_lens.cpu(), spec)
+    src_f, dst_f, sbt_f, pages_f = qsa.scratch_plan(sel_full.cpu(), seq_lens.cpu(), block_table.cpu(), spec, PS)
+    full_k = torch.empty(pages_f * batches + 2, PS, heads_k, headdim, dtype=torch.float8_e4m3fn, device=dev)
+    full_v = torch.empty_like(full_k)
+    qsa.scratch_copy(k_pool, full_k, src_f.to(dev), dst_f.to(dev))
+    qsa.scratch_copy(v_pool, full_v, src_f.to(dev), dst_f.to(dev))
+    full_bt = torch.zeros(batches, sbt_f.shape[1], dtype=torch.int32, device=dev)
+    full_bt[:, : sbt_f.shape[1]] = sbt_f.to(dev)
+    plan_full = runner.plan(eff_full.tolist(), batches, q_len, full_bt, eff_full.to(dev))
+    runner.ensure_compiled(q_len, plan_full.with_reduction, causal=False)
+    out_full = torch.empty_like(out)
+    runner.run(plan_full, query, out_full, full_k, full_v, one, one, softmax_scale)
+    runner.run(plan_dense, query, out, k_pool, v_pool, one, one, softmax_scale)
+    torch.cuda.synchronize()
+    err_full = (out.float() - out_full.float()).abs().max().item()
+    print(f"qsa gather: full-selection vs dense max|err| = {err_full:.3g} (expect ~0)")
+    assert err_full == 0.0, "full-selection scratch decode diverged from dense"
+
+    # ---- correctness (b): partial selection vs the selection oracle ----
+    qsa.scratch_copy(k_pool, scratch_k, src.to(dev), dst.to(dev))
+    qsa.scratch_copy(v_pool, scratch_v, src.to(dev), dst.to(dev))
+    runner.run(plan_gather, query, out, scratch_k, scratch_v, one, one, softmax_scale)
+    torch.cuda.synchronize()
+    o_got = (
+        out.view(batches, q_len, heads_k, heads_q // heads_k, headdim)
+        .permute(0, 2, 1, 3, 4)
+        .reshape(batches, heads_k, q_len * (heads_q // heads_k), headdim)
+        .float()
+        .cpu()
+    )
+    o_emu, _, _ = emulate_decode(
+        query.view(batches, q_len, heads_k, -1, headdim)
+        .permute(0, 2, 1, 3, 4)
+        .reshape(batches, heads_k, q_len * (heads_q // heads_k), headdim)
+        .float()
+        .cpu(),
+        k_pool.float().cpu(),
+        v_pool.float().cpu(),
+        block_table.cpu(),
+        seq_lens.cpu(),
+        torch.ones(batches, heads_k),
+        torch.ones(batches, heads_k),
+        torch.ones(batches, heads_k),
+        softmax_scale,
+        1.0,
+        q_len,
+        2,
+        fp8=False,
+        selection_blocks=selection.cpu(),
+    )
+    err_sel = (o_got - o_emu).abs().max().item()
+    tol = tolerance * max(1.0, o_emu.abs().max().item())
+    print(f"qsa gather: partial-selection vs oracle max|err| = {err_sel:.3g} (tol {tol:.3g})")
+    assert err_sel <= tol, "scratch decode diverged from the selection oracle"
+
+    # ---- timing: dense / copy+gather / copy alone ----
+    def timed(fn, iters=iterations, warmup=warmup_iterations):
+        for _ in range(warmup):
+            fn()
+        torch.cuda.synchronize()
+        times = []
+        for _ in range(iters):
+            s, e = torch.cuda.Event(True), torch.cuda.Event(True)
+            s.record()
+            fn()
+            e.record()
+            e.synchronize()
+            times.append(s.elapsed_time(e) * 1000.0)
+        times.sort()
+        return times[len(times) // 2]
+
+    def copy():
+        qsa.scratch_copy(k_pool, scratch_k, src.to(dev), dst.to(dev))
+        qsa.scratch_copy(v_pool, scratch_v, src.to(dev), dst.to(dev))
+
+    def gather_step():
+        copy()
+        runner.run(plan_gather, query, out, scratch_k, scratch_v, one, one, softmax_scale)
+
+    def dense_step():
+        runner.run(plan_dense, query, out, k_pool, v_pool, one, one, softmax_scale)
+
+    t_dense = timed(dense_step)
+    t_gather = timed(gather_step)
+    t_copy = timed(copy)
+    kv_bytes = int(seq_lens.sum()) * heads_k * headdim * 2
+    sel_bytes = int(eff.sum()) * heads_k * headdim * 2
+    for name, us in (("dense", t_dense), ("gather", t_gather), ("copy", t_copy)):
+        print(f"median {name} {us:.2f} us")
+    print(f"qsa ratio dense/gather = {t_dense / t_gather:.3f} (copy share {t_copy / t_gather:.2f})")
+    print(f"qsa bytes: dense {kv_bytes} B vs selected {sel_bytes} B (+ indexer cache, not modeled here)")
+    print("PASS")
+
+
 def run(
     batches: int = 1,
     seqlen: int = 1024,
@@ -734,8 +921,21 @@ def main():
         action="store_true",
         help="E1: the last CTA per (seq, q tile, kv head) merges the split partials in-kernel",
     )
+    parser.add_argument(
+        "--qsa_gather",
+        action="store_true",
+        help="the QSA scratch-gather decision experiment (MJOLNIR_ATTN_QSA "
+        "path): dense decode vs copy-selected-rows + the same kernel on the "
+        "scratch — correctness vs the selection oracle + cuda-event medians; "
+        "uses --batches/--seqlen/--q_len/--heads_q/--heads_k/--headdim/"
+        "--page_size/--iterations/--seed/--tolerance, forces fp8 KV",
+    )
 
     kwargs = vars(parser.parse_args())
+    if kwargs.pop("qsa_gather", False):
+        run_qsa_gather(**kwargs)
+        print("PASS")
+        return
     if kwargs["kv_format"] == "auto":  # sub-8-bit formats need fp8 Q
         kwargs["kv_format"] = HARNESS_KV_FORMAT_FP8Q if kwargs["q_dtype"] is cutlass.Float8E4M3FN else "fp8"
     run(**kwargs)
