@@ -155,6 +155,14 @@ class MMADecodeKernel:
         # at the 255 cap) + ONE ldmatrix round feeding both dequant passes +
         # the two accumulator chains. MJOLNIR_SLICEQ=1 opts in.
         self.slice_q = os.environ.get("MJOLNIR_SLICEQ", "") == "1"
+        # The verify-shape fragment-dequant (task/plan/fp8-longL-20261030/
+        # e15-verify-fd-design.md — the FlashInfer NUM_MMA_Q=2 form): the
+        # MT=32 path's K dequant moves from the sK16 smem producer to a
+        # per-k-tile in-register recipe, and the Q is ldmatrix'd per
+        # k-tile (unhoistable — the SLICEQ lesson). Deletes the sK16 tile
+        # + its writeback (−16 KB smem; the E16's prerequisite).
+        # MJOLNIR_VERIFY_FD=1 opts in.
+        self.verify_fd = os.environ.get("MJOLNIR_VERIFY_FD", "") == "1"
 
     # ------------------------------------------------------------------
     @cute.jit
