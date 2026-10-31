@@ -239,10 +239,9 @@ def run_qsa_gather(
         kv_format="fp8",
         device=dev,
     )
-    plan_dense = runner.plan(seq_lens.tolist(), batches, q_len, block_table, seq_lens)
-    plan_gather = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
-    runner.ensure_compiled(q_len, plan_dense.with_reduction)
-    runner.ensure_compiled(q_len, plan_gather.with_reduction, causal=False)
+    # NOTE: runner.plan() writes into the runner's PERSISTENT shared device
+    # buffers — a plan is only valid until the next plan() call. Every
+    # run() below is immediately preceded by its own plan().
 
     # ---- correctness (a): full selection == dense, same kernel ----
     sel_full = qsa.identity_selection(seq_lens.cpu(), spec).to(dev)
@@ -254,11 +253,13 @@ def run_qsa_gather(
     qsa.scratch_copy(v_pool, full_v, src_f.to(dev), dst_f.to(dev))
     full_bt = torch.zeros(batches, sbt_f.shape[1], dtype=torch.int32, device=dev)
     full_bt[:, : sbt_f.shape[1]] = sbt_f.to(dev)
-    plan_full = runner.plan(eff_full.tolist(), batches, q_len, full_bt, eff_full.to(dev))
-    runner.ensure_compiled(q_len, plan_full.with_reduction, causal=False)
     out_full = torch.empty_like(out)
-    runner.run(plan_full, query, out_full, full_k, full_v, one, one, softmax_scale)
-    runner.run(plan_dense, query, out, k_pool, v_pool, one, one, softmax_scale)
+    plan = runner.plan(eff_full.tolist(), batches, q_len, full_bt, eff_full.to(dev), causal=False)
+    runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
+    runner.run(plan, query, out_full, full_k, full_v, one, one, softmax_scale)
+    plan = runner.plan(seq_lens.tolist(), batches, q_len, block_table, seq_lens)
+    runner.ensure_compiled(q_len, plan.with_reduction)
+    runner.run(plan, query, out, k_pool, v_pool, one, one, softmax_scale)
     torch.cuda.synchronize()
     err_full = (out.float() - out_full.float()).abs().max().item()
     print(f"qsa gather: full-selection vs dense max|err| = {err_full:.3g} (expect ~0)")
@@ -267,7 +268,9 @@ def run_qsa_gather(
     # ---- correctness (b): partial selection vs the selection oracle ----
     qsa.scratch_copy(k_pool, scratch_k, src.to(dev), dst.to(dev))
     qsa.scratch_copy(v_pool, scratch_v, src.to(dev), dst.to(dev))
-    runner.run(plan_gather, query, out, scratch_k, scratch_v, one, one, softmax_scale)
+    plan = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
+    runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
+    runner.run(plan, query, out, scratch_k, scratch_v, one, one, softmax_scale)
     torch.cuda.synchronize()
     o_got = (
         out.view(batches, q_len, heads_k, heads_q // heads_k, headdim)
@@ -322,11 +325,15 @@ def run_qsa_gather(
         qsa.scratch_copy(v_pool, scratch_v, src.to(dev), dst.to(dev))
 
     def gather_step():
+        # re-plan every step: the honest per-step cost (serving rebuilds
+        # metadata each step), and plan() owns the persistent buffers
         copy()
-        runner.run(plan_gather, query, out, scratch_k, scratch_v, one, one, softmax_scale)
+        plan = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
+        runner.run(plan, query, out, scratch_k, scratch_v, one, one, softmax_scale)
 
     def dense_step():
-        runner.run(plan_dense, query, out, k_pool, v_pool, one, one, softmax_scale)
+        plan = runner.plan(seq_lens.tolist(), batches, q_len, block_table, seq_lens)
+        runner.run(plan, query, out, k_pool, v_pool, one, one, softmax_scale)
 
     t_dense = timed(dense_step)
     t_gather = timed(gather_step)
