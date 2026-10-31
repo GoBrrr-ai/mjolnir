@@ -166,8 +166,8 @@ registry (`mjolnir.arch.thor` re-exports the exact runner surface the backend
 consumes), and `mjolnir/platforms.py` is the torch-free leaf that maps a
 compute capability to it. Thor and Jetson Orin (`sm_87`) are implemented;
 DGX Spark (`sm_121`) is declared research — named in the matrix, no kernel
-yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 and
-fp6-e2m3 KV, hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
+yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 KV at
+hd 128/256, fp6-e2m3 KV hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
 
 `kernel_for((11, 0))` returns `mjolnir.arch.thor`; any other compute
 capability raises `PlatformNotSupported` naming the requested `sm_XX` and the

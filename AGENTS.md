@@ -191,8 +191,8 @@ arch family. Any change there must keep **both** fallbacks working:
 - **The Orin family (shipped)**: the `mma.sync` (`mma.m16n8k16`) decode
   kernel — a CuTe-DSL port of NVIDIA's Ampere FA2 example — under
   `src/mjolnir/mjolnir/arch/orin/`
-  (fp8 + fp6 `e2m3` KV, head_size 256 only — the hd128 gap is the top
-  integration item). Serving-validated and measured: the orin kernel chapters
+  (fp8 KV hd 128/256 + fp6 `e2m3` KV hd 256 — the hd128 support landed
+  2026-10-31, d777d71). Serving-validated and measured: the orin kernel chapters
   + e2e render from its raws (sweep run `20261028-001502`, 1.14× FlashInfer
   FA2-TC geomean); see that directory's README.
 - **Side stacks**: `mjolnir litellm …` (LiteLLM proxy, `docker/litellm/`) and

@@ -70,14 +70,26 @@ Tensor Cores / 5.3 TFLOPS fp32 / ~42.5 TFLOPS fp16 (derived) /
   post-multiply the output (`o_mul`) — the kernel untouched
   (`mjolnir/kvfp6.py`, the calibration `kv_scales/e2m3-awq.json`).
 
-## The hd128 gap (the top integration item)
+## hd128 (shipped, 2026-10-31)
 
-The mma serves **head_size 256 only** (`mjolnir verify vllm` reports the
-gap: the stock smoke model Qwen3-0.6B is hd128). The t5 family serves any
-`head_size % 128 == 0`. Widening the mma to hd128 is a tile-shape pass
-(M_TILE/N per stage derive from D) but **fp6 stays hd256-only**: a 96-byte
-row splits into non-integral 4-byte lane slices. Until then the plugin
-smoke needs a hd256 model.
+The mma serves **head_size 128 and 256 for fp8** from one D-parameterized
+body: the staging, the fragment counts and the PV ranges all derive from
+`self.HEAD_DIM`, the constructor takes the head size, and the runner
+gates `{128, 256}`, keys the binary on it (the TVM-FFI dims bake it) and
+passes it to the split-KV combine — whose elements-per-thread is
+`d / NUM_THREADS`. That combine was the whole hd128 bug: it baked
+D=256, so at hd128 its second element per thread read and wrote past
+the row — masked whenever `max_splits=1` (the write-through path), a
+9.2 rel-err otherwise. fp6 stays **hd256-only**: the e2m3 D2 recipe's
+byte-lane phase is static per thread and assumes 64 groups per row
+(a per-iteration phase would serve hd128's 32).
+
+Verified on the harness (rel err 0.0016–0.0019 vs the fp64 reference):
+L 1K–262K, q_len 3/4/5, HND + NHD, split caps 2/4/8; the hd256 fp8 and
+fp6 regressions clean. At M=5 / L=64K the hd128 shape graphs 600 µs vs
+hd256's 967 µs (1.61× — an hd128 model streams half the KV bytes), and
+the kernel drops to 128 regs / 27 KB smem (4 CTAs/SM by registers) from
+hd256's 236 regs / 83 KB (2 CTAs/SM).
 
 ## Not portable from Thor (deliberate)
 

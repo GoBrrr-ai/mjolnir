@@ -75,7 +75,8 @@ mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3"
 
 ## Ideas to try
 
-- close the hd128 gap (the top integration item): the mma serves head_size 256 only, and fp6 stays hd256-only — a 96-byte row splits into non-integral 4-byte lane slices.
+- fp6 hd128: the e2m3 D2 recipe's byte-lane phase is static per thread (64 groups/row); a per-iteration phase would serve hd128's 32.
+- fp4 (e2m1) KV through the same LUT path — half the bytes of fp6 again; the accuracy needs finer scales (per-channel K folded into Q, per-token V into P).
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../../../.github/CONTRIBUTING.md).
 
