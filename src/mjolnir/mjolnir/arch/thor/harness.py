@@ -267,8 +267,10 @@ def run_qsa_gather(
     plan = runner.plan([L1] * batches, batches, q_len, full_bt, seqs1, causal=False)
     runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
     runner.run(plan, query, out_full, full_k, full_v, one, one, softmax_scale)
-    plan = runner.plan([L1] * batches, batches, q_len, block_table[:, :pages1], seqs1)
-    runner.ensure_compiled(q_len, plan.with_reduction)
+    # both sides causal=False: the gather's shared-selection visibility — the
+    # check is layout transparency, not causal semantics (q_len > 1 ladders differ)
+    plan = runner.plan([L1] * batches, batches, q_len, block_table[:, :pages1], seqs1, causal=False)
+    runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
     runner.run(plan, query, out, k_pool, v_pool, one, one, softmax_scale)
     torch.cuda.synchronize()
     err_full = (out.float() - out_full.float()).abs().max().item()
