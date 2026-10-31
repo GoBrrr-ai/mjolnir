@@ -168,32 +168,57 @@ def fp8_linear(x: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor, chunk: in
     return out.reshape(*shape[:-1], N)
 
 
+def w8a8_linear(x: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor, chunk: int = 16384) -> torch.Tensor:
+    """W8A8: x (..., K) quantized per row to e4m3, then cuBLASLt's rowwise
+    scaled fp8 GEMM (tensor cores) against the per-row-quantized weight.
+
+    The head-shaped Triton kernel above is ~3x off bandwidth on LAYER shapes
+    (N = 5-17K, latency-bound: few tiles, no split-K); cuBLASLt's fp8 GEMM
+    measured 2.2x under bf16 cuBLAS on [6, 5120] x [5120, 17408] on the Thor.
+    Activations are quantized dynamically per row (M is small: the drafter
+    never sees more than max_num_seqs x (K+1) rows), so the extra activation
+    error is bounded and the acceptance gate re-measures it."""
+    shape = x.shape
+    x2 = x.reshape(-1, shape[-1])
+    if x2.stride(-1) != 1:
+        x2 = x2.contiguous()
+    M, _ = x2.shape
+    if M > ROW_CHUNK:  # absurd for the drafter; the dequant path is the safe fallback
+        return fp8_linear(x, w8, scale, chunk)
+    x8, xs = quantize_rows(x2)
+    out = torch._scaled_mm(
+        x8, w8.t(), scale_a=xs.view(-1, 1), scale_b=scale.view(1, -1).to(torch.float32), out_dtype=x.dtype
+    )
+    return out.reshape(*shape[:-1], -1)
+
+
 class Fp8HeadMethod:
     """Stands in for the lm_head's quant method: ``apply`` runs the fp8
     GEMM; everything else (``embedding`` for a tied head, attributes) goes
     to the original method."""
 
-    def __init__(self, base, w8: torch.Tensor, scale: torch.Tensor):
+    def __init__(self, base, w8: torch.Tensor, scale: torch.Tensor, gemm=fp8_linear):
         self._base = base
         self.w8 = w8
         self.scale = scale
+        self.gemm = gemm
 
     def apply(self, layer, x, bias=None):
-        out = fp8_linear(x, self.w8, self.scale)
+        out = self.gemm(x, self.w8, self.scale)
         return out + bias if bias is not None else out
 
     def __getattr__(self, name):
         return getattr(self._base, name)
 
 
-def _self_test(w: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor) -> float:
-    """Relative error of the fp8 head vs bf16 on random activations."""
+def _self_test(w: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor, gemm=fp8_linear) -> float:
+    """Relative error of the fp8 weight vs bf16 on random activations."""
     g = torch.Generator(device=w.device).manual_seed(0)
     x = torch.randn(4, w.shape[1], device=w.device, dtype=w.dtype, generator=g)
     rows = torch.arange(0, w.shape[0], max(1, w.shape[0] // ROW_CHUNK), device=w.device)[:ROW_CHUNK]
     ref = x.float() @ w.index_select(0, rows).float().t()  # a strided row sample: no full fp32 copy
     w8s = w8.view(torch.uint8).index_select(0, rows).view(torch.float8_e4m3fn)  # fp8 has no index_select kernel
-    got = fp8_linear(x, w8s, scale.index_select(0, rows)).float()
+    got = gemm(x, w8s, scale.index_select(0, rows)).float()
     return float((got - ref).norm() / ref.norm().clamp_min(1e-12))
 
 
@@ -657,7 +682,9 @@ def _drafter_linears(draft) -> list[tuple[str, object]]:
             continue
         qm = getattr(mod, "quant_method", None)
         w = getattr(mod, "weight", None)
-        if qm is None or "Unquantized" not in type(qm).__name__:
+        # strict: an embedding (UnquantizedEmbeddingMethod) would pass a loose
+        # "Unquantized" check and get its weight freed under it — a boot crash
+        if qm is None or "UnquantizedLinearMethod" not in type(qm).__name__:
             continue
         if w is None or w.ndim != 2 or w.dtype not in (torch.bfloat16, torch.float16, torch.float32):
             continue
@@ -673,12 +700,17 @@ def install_fp8_mtp_layer(draft) -> None:
     done, saved, worst = 0, 0, 0.0
     for name, mod in _drafter_linears(draft):
         w = mod.weight.data
+        # cuBLASLt's fp8 GEMM needs K and N multiples of 16; anything else
+        # stays bf16 (none expected on qwen3_5, but never serve a crash)
+        if w.shape[0] % 16 or w.shape[1] % 16:
+            _log.warning("Mjolnir mtp layer fp8: %s shape %s not 16-divisible; left bf16", name, tuple(w.shape))
+            continue
         w8, scale = quantize_rows(w)
-        err = _self_test(w, w8, scale)
+        err = _self_test(w, w8, scale, gemm=w8a8_linear)
         if not err < 0.05:
             _log.warning("Mjolnir mtp layer fp8: %s self-test rel. error %.4f; left bf16", name, err)
             continue
-        mod.quant_method = Fp8HeadMethod(mod.quant_method, w8, scale)
+        mod.quant_method = Fp8HeadMethod(mod.quant_method, w8, scale, gemm=w8a8_linear)
         mod._mjolnir_fp8 = True
         mod.weight.data = torch.empty(0, dtype=w.dtype, device=w.device)  # the bf16 copy is dead weight
         done += 1
