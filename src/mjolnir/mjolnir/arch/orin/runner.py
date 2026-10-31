@@ -84,7 +84,14 @@ def _mma_variant() -> str:
     # the dispatch no longer reads it, so it cannot fork the generated code.
     return ",".join(
         f"{k}={os.environ.get(k, '')}"
-        for k in ("MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC", "MJOLNIR_SLICEQ", "MJOLNIR_DUMP_S")
+        for k in (
+            "MJOLNIR_REGCAP",
+            "MJOLNIR_REGPATH",
+            "MJOLNIR_WARPSPEC",
+            "MJOLNIR_SLICEQ",
+            "MJOLNIR_DUMP_S",
+            "MJOLNIR_S_PP",
+        )
     )
 
 

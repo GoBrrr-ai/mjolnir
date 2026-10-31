@@ -173,6 +173,16 @@ class MMADecodeKernel:
         # entries per column. Path-independent (any backend path).
         # MJOLNIR_DUMP_S=1 opts in.
         self.dump_raw_s = os.environ.get("MJOLNIR_DUMP_S", "") == "1"
+        # E16 (the stage double-buffer, the single-P form): the next stage's
+        # QK accumulates into a second acc set while the softmax consumes
+        # the current one — the softmax's ALU burst rides the QK mma drains
+        # (the hmma-alu probe: the burst-after-burst shape is ~free, the
+        # per-round interleave costs +1.14 cyc/op). Registers +8 (one acc
+        # set: 236 -> ~244 under the 255 cap); NO new smem (the P store is
+        # serialized behind the post-PV barrier — one sP tile). fp8 rp
+        # only, not with SLICEQ (its own acc economy). MJOLNIR_S_PP=1 opts
+        # in; the binary is variant-keyed.
+        self.s_pp = os.environ.get("MJOLNIR_S_PP", "") == "1" and self.regpath and not self.fp6 and not self.slice_q
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -287,6 +297,8 @@ class MMADecodeKernel:
         kv_row0,
         buf,
         k_dst_view: cute.Tensor | None = None,
+        with_k: bool = True,
+        with_v: bool = True,
     ) -> None:
         """One KV stage: gmem -> smem fp8 (32 rows x 256 B = 4 x 16B chunks
         per thread) into buffer `buf` of the double-buffered staging tiles.
@@ -375,8 +387,10 @@ class MMADecodeKernel:
                 ),
                 cute.make_layout(16),
             )
-            cute.copy(g2s_atom, k_src, k_dst)
-            cute.copy(g2s_atom, v_src, v_dst)
+            if const_expr(with_k):
+                cute.copy(g2s_atom, k_src, k_dst)
+            if const_expr(with_v):
+                cute.copy(g2s_atom, v_src, v_dst)
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -1247,6 +1261,12 @@ class MMADecodeKernel:
             tSrK = thr_mma.make_fragment_B(thr_mma.partition_B(sK16))
         tOrVt = thr_mma.make_fragment_B(thr_mma.partition_B(sVt))
         acc_S = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
+        # E16: the second S set — the next stage's QK accumulates here while
+        # the softmax consumes acc_S; the loop-bottom swap is a trace-time
+        # alias. Declared unconditionally (the DSL's staged branches need the
+        # binding pre-defined); the knob-off paths never touch it, so the
+        # dead storage costs no registers.
+        acc_S_pp = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
         if const_expr(not (rp) or self.slice_q):
             acc_S2 = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
         acc_O = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, D)), cutlass.Float32)
@@ -1411,6 +1431,54 @@ class MMADecodeKernel:
                 sK8v if const_expr(rp) else None,
             )
             cute.arch.cp_async_commit_group()
+            if const_expr(rp and self.s_pp):
+                # E16: the prologue QK(0) — the softmax(0) is issued inside
+                # the loop after the QK(1) burst (the probe's ALU-after-burst
+                # shape). This wait covers the stage-0 and stage-1 rows; the
+                # stage-2 K refills the bank the QK(0) just consumed and
+                # feeds the loop's QK(2) (iter 1).
+                cute.arch.cp_async_wait_group(0)
+                cute.arch.sync_threads()
+                acc_S.fill(0.0)
+                for k in cutlass.range_constexpr(D // 32):
+                    cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
+                for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
+                    qp = (tSrKu[i] & 0x00FF00FF) << 8
+                    out = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                    tSrKu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
+                for k in cutlass.range_constexpr(D // 32):
+                    cute.gemm(tiled_mma, acc_S, tSrQ_even[None, None, k], tSrK[None, None, k], acc_S)
+                for k in cutlass.range_constexpr(D // 32):
+                    cute.copy(smem_copy_K, tSsK[None, None, k], tSrK_copy[None, None, k])
+                for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
+                    out = (tSrKu[i] & _DEQ_MASK_SIGN) | ((tSrKu[i] & _DEQ_MASK_LSB) >> 4)
+                    tSrKu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
+                for k in cutlass.range_constexpr(D // 32):
+                    cute.gemm(tiled_mma, acc_S, tSrQ_odd[None, None, k], tSrK[None, None, k], acc_S)
+                self.g2s_stage(
+                    mK,
+                    mV,
+                    mPageTable,
+                    sK8,
+                    sK8b,
+                    sK8c,
+                    sV8,
+                    sV8b,
+                    sV8c,
+                    tidx,
+                    kv_start,
+                    cutlass.min(2 * SR, kv_len_c - 1),
+                    kv_len_c,
+                    num_head_kv,
+                    kv_head,
+                    batch_idx,
+                    kv_row0,
+                    0,
+                    sK8v,
+                    with_k=True,
+                    with_v=False,
+                )
+                cute.arch.cp_async_commit_group()
             if const_expr(ws):
                 # the bank-0 fill before the loop: the stage-0 consumers'
                 # fullV[0].sync() waits on this arrive (the stage-0
@@ -1432,6 +1500,10 @@ class MMADecodeKernel:
                 # just consumed, so it issues after the post-PV barrier at
                 # the loop bottom.
                 par = 2 * (stage % 2)
+                # E16: the deep K(s+1) sits in the G(s-2) group {V(s), K(s+1)}
+                # (two bottoms back); wait(1) leaves only the newest group
+                # {V(s+1), K(s+2)} outstanding — exact for the top-of-loop
+                # QK(s+1) and the V(s) dequant.
                 cute.arch.cp_async_wait_group(1)
             else:
                 par = stage % 3
@@ -1460,6 +1532,35 @@ class MMADecodeKernel:
                 cute.arch.cp_async_commit_group()
                 cute.arch.cp_async_wait_group(2)
             cute.arch.sync_threads()
+
+            if const_expr(rp and self.s_pp):  # noqa: SIM102 -- the stage bound needs the nesting
+                # E16: the NEXT stage's QK into the second acc set — its mma
+                # burst precedes this stage's softmax so the softmax's ALU
+                # rides the drains (the probe's burst-after-burst shape; the
+                # per-round interleave would cost +1.14 cyc/op). The stage+1
+                # raw landed under the wait above (the K refill runs a stage
+                # deeper than the V: the loop bottom fetches V(s+2) then
+                # K(s+3), and the prologue fetched 0, 1 and K(2)).
+                if stage + 1 < n_stages:
+                    acc_S_pp.fill(0.0)
+                    tSsK_next = tSsK_c
+                    if par == 2:
+                        tSsK_next = tSsK
+                    for k in cutlass.range_constexpr(D // 32):
+                        cute.copy(smem_copy_K, tSsK_next[None, None, k], tSrK_copy[None, None, k])
+                    for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
+                        qp = (tSrKu[i] & 0x00FF00FF) << 8
+                        out = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                        tSrKu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
+                    for k in cutlass.range_constexpr(D // 32):
+                        cute.gemm(tiled_mma, acc_S_pp, tSrQ_even[None, None, k], tSrK[None, None, k], acc_S_pp)
+                    for k in cutlass.range_constexpr(D // 32):
+                        cute.copy(smem_copy_K, tSsK_next[None, None, k], tSrK_copy[None, None, k])
+                    for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
+                        out = (tSrKu[i] & _DEQ_MASK_SIGN) | ((tSrKu[i] & _DEQ_MASK_LSB) >> 4)
+                        tSrKu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
+                    for k in cutlass.range_constexpr(D // 32):
+                        cute.gemm(tiled_mma, acc_S_pp, tSrQ_odd[None, None, k], tSrK[None, None, k], acc_S_pp)
 
             if const_expr(ws):
                 # THE B1 WARP-SPEC: the producers (the warps 0-1) dequant
@@ -1538,8 +1639,9 @@ class MMADecodeKernel:
                 tSsK_sel = tSsK
                 tOsVt_sel = tOsVt
 
-            acc_S.fill(0.0)
-            if const_expr(rp and not self.slice_q):
+            if const_expr(not (rp and self.s_pp)):
+                acc_S.fill(0.0)
+            if const_expr(rp and not self.slice_q and not self.s_pp):
                 # the fragment ldmatrix follows the ring parity — this
                 # stage's fp8 K lives in buffer `par`; the partition is
                 # bound to a base pointer, so the source rotates too.
@@ -1598,7 +1700,7 @@ class MMADecodeKernel:
                     cute.gemm(tiled_mma, acc_S2, tSrQ_odd[None, None, 0], tSrK2[None, None, ks], acc_S2)
                 for i in cutlass.range_constexpr(cute.size(acc_S)):
                     acc_S[i] = acc_S[i] + acc_S2[i]
-            else:
+            elif const_expr(not rp):
                 acc_S2.fill(0.0)
                 for k in cutlass.range_constexpr(D // 16):
                     cute.copy(smem_copy_K, tSsK_sel[None, None, k], tSrK_copy[None, None, k])
@@ -1713,7 +1815,14 @@ class MMADecodeKernel:
                         empty_bar_1.arrive()
             if const_expr(rp):
                 # the 2-pair refill: the buffer this stage consumed is now
-                # free (the barrier above); stage+2 reuses it.
+                # free (the barrier above). Under the S_PP the fetch splits
+                # and the K runs a stage deeper: V(s+2) commits first (its
+                # raw bank the dequant(s+2) consumes two iterations out),
+                # then K(s+3) re-fills the buffer the QK(s+1) consumed this
+                # iteration — the loop-top wait_group(1) then guarantees
+                # everything through stage s+1 landed. The V cannot go
+                # deeper: its raw bank lags (the dequant reads it one stage
+                # after the fetch) and the sV16 dst is single.
                 row0_next = cutlass.min((stage + 2) * SR, kv_len_c - 1)
                 self.g2s_stage(
                     mK,
@@ -1735,8 +1844,41 @@ class MMADecodeKernel:
                     kv_row0,
                     2 * ((stage + 2) % 2),
                     sK8v,
+                    with_k=not self.s_pp,
+                    with_v=True,
                 )
+                if const_expr(self.s_pp):
+                    self.g2s_stage(
+                        mK,
+                        mV,
+                        mPageTable,
+                        sK8,
+                        sK8b,
+                        sK8c,
+                        sV8,
+                        sV8b,
+                        sV8c,
+                        tidx,
+                        kv_start,
+                        cutlass.min((stage + 3) * SR, kv_len_c - 1),
+                        kv_len_c,
+                        num_head_kv,
+                        kv_head,
+                        batch_idx,
+                        kv_row0,
+                        2 * ((stage + 3) % 2),
+                        sK8v,
+                        with_k=True,
+                        with_v=False,
+                    )
                 cute.arch.cp_async_commit_group()
+            if const_expr(rp and self.s_pp):
+                # the ping-pong rotation: the DSL's dynamic loop traces the
+                # body once, so a Python tuple swap would never rotate at
+                # runtime — the next stage's S moves with an explicit
+                # register copy (8 floats/lane, noise against the stage).
+                for i in cutlass.range_constexpr(cute.size(acc_S)):
+                    acc_S[i] = acc_S_pp[i]
 
         self.epilogue(
             acc_O,
