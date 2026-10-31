@@ -96,6 +96,19 @@ class IndexerSpec:
         )
 
 
+def effective_seq_lens(selection_blocks: torch.Tensor, seq_lens: torch.Tensor, spec: IndexerSpec) -> torch.Tensor:
+    """The gather call's ``seq_lens``: tokens actually covered by the
+    selection (blocks clipped to L). The kernel's S masking uses it, so a
+    block id beyond L contributes nothing and a partial last block clips."""
+    ids = selection_blocks.to(torch.int64)
+    valid = ids >= 0
+    lo = ids.clamp_min(0) * spec.ratio
+    hi = (ids.clamp_min(0) + 1) * spec.ratio
+    L = seq_lens.view(-1, 1).to(torch.int64)
+    contrib = (hi.clamp_max(L) - lo.clamp_max(L)).clamp_min(0) * valid
+    return contrib.sum(dim=1).to(torch.int32)
+
+
 def indexer_seq_lens(seq_lens: torch.Tensor, spec: IndexerSpec) -> torch.Tensor:
     """The indexer decode's ``seq_lens``: one KV row per compressed slot."""
     return (seq_lens.to(torch.int64) + spec.ratio - 1).div(spec.ratio).to(torch.int32)

@@ -63,10 +63,20 @@ def emulate_decode(
     chunk_tiles,
     fp8,
     causal=True,
+    selection_blocks=None,  # (b, budget_blocks) int32, -1 padded: QSA gather reference
+    compress_ratio=4,
 ):
     """Bit-faithful model of the kernel's arithmetic (contiguous chunk split, running
     max, -inf guard, P rounding to e4m3(p * 448) or bf16, descale folding).
-    Also returns a plain fp32 attention for the fp8-vs-exact gap."""
+    Also returns a plain fp32 attention for the fp8-vs-exact gap.
+
+    With ``selection_blocks`` the S columns are the SELECTED tokens (the QSA
+    gather path): block i covers rows [i*ratio, (i+1)*ratio) of the sequence,
+    gathered per (page, row) from the pool. Visibility is then owned by the
+    selection (every query row sees every selected column — the shared-
+    selection semantics of MTP verify), so ``causal`` is ignored; an
+    all-blocks selection at q_len == 1 is bit-identical to the dense path
+    (the identity oracle)."""
     b, h_k, n_q, d = q_packed.shape
     PS = k_pool.shape[1]
     h_r = n_q // q_len
@@ -76,21 +86,40 @@ def emulate_decode(
     o_exact = torch.zeros(b, h_k, n_q, d)
     for bi in range(b):
         L = int(seq_lens[bi])
-        n_blk = math.ceil(L / PS)
-        pages = block_table[bi, :n_blk].long()
-        Kb = k_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)  # (h_k, L, d)
-        Vb = v_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)
-        S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
-        qi = torch.arange(n_q) // h_r
-        lim = L - q_len + qi if causal else torch.full((n_q,), L - 1)  # (n_q,) last key each row sees
-        masked = torch.arange(L)[None, :] > lim[:, None]  # (n_q, L)
+        if selection_blocks is not None:
+            ids = selection_blocks[bi]
+            ids = ids[ids >= 0].long()
+            rows = torch.cat(
+                [
+                    torch.arange(min(int(i) * compress_ratio, L), min((int(i) + 1) * compress_ratio, L))
+                    for i in ids.tolist()
+                ]
+                or [torch.empty(0, dtype=torch.long)]
+            )
+            n_cols = len(rows)
+            pages_of_row, rows_in_page = rows // PS, rows % PS
+            Kb = k_pool[pages_of_row, rows_in_page].permute(1, 0, 2)  # (h_k, n_cols, d)
+            Vb = v_pool[pages_of_row, rows_in_page].permute(1, 0, 2)
+            S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
+            masked = torch.zeros(1, dtype=torch.bool)  # no positional mask: the selection owns visibility
+            lim = None
+            tiles = math.ceil(n_cols / tile_s_rows)
+        else:
+            n_blk = math.ceil(L / PS)
+            pages = block_table[bi, :n_blk].long()
+            Kb = k_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)  # (h_k, L, d)
+            Vb = v_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)
+            S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
+            qi = torch.arange(n_q) // h_r
+            lim = L - q_len + qi if causal else torch.full((n_q,), L - 1)  # (n_q,) last key each row sees
+            masked = torch.arange(L)[None, :] > lim[:, None]  # (n_q, L)
+            tiles = math.ceil(L / tile_s_rows)
         S = S.masked_fill(masked[None], -math.inf)
         qk = q_descale[bi] * k_descale[bi]  # (h_k,)
         c = (scale_qs * log2_e * qk)[:, None]  # (h_k, 1)
         cta_scale = (scale_qs * qk)[:, None]
         vd = v_descale[bi][:, None, None]
 
-        tiles = math.ceil(L / tile_s_rows)
         o_parts, m_parts, l_parts = [], [], []
         n_chunks = math.ceil(tiles / chunk_tiles)
         for j in range(n_chunks):  # contiguous chunks, as in the plan
@@ -98,7 +127,7 @@ def emulate_decode(
             l = torch.zeros(h_k, n_q)
             o = torch.zeros(h_k, n_q, d)
             for t in range(j * chunk_tiles, min((j + 1) * chunk_tiles, tiles)):
-                sl = slice(t * tile_s_rows, min((t + 1) * tile_s_rows, L))
+                sl = slice(t * tile_s_rows, min((t + 1) * tile_s_rows, S.shape[-1]))
                 St = S[:, :, sl]
                 m_new = torch.maximum(m, St.amax(dim=-1))
                 m_use = torch.where(m_new == -math.inf, torch.zeros_like(m_new), m_new)
