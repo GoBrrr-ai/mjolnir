@@ -535,12 +535,17 @@ def stage_vllm(
     if rc != 0 and not any(not c["passed"] for c in cases):
         cases.append({"label": f"runner tests (exit {rc})", "passed": ctx.runner.dry_run, "log": str(log)})
     if orin:
-        # The plugin smoke needs a head_size-256 model on this platform (both
-        # Orin kernels serve hd256; the default smoke model is hd128 and would
-        # run entirely on the fallback). The served end-to-end check is the
-        # spec stage against the AWQ_MJOLNIR config.
-        ctx.out("   (smoke: N/A on Orin -- the Orin kernels serve head_size 256, the smoke model is hd128)")
-        return {"cases": cases, "params": {"smoke_modes": "", "model": model, "tokens": tokens}}
+        # The Orin mma serves fp8 KV at hd 128/256 — the hd128 smoke model
+        # runs on the kernel now (serving-validated 2026-10-31: the builder
+        # routes d=128, decode on the mma, CUDA graphs captured). lmh8 needs
+        # fp8 tensor cores (sm_100+); e2m3 serves hd256 only (the D2 phase
+        # assumes 64 groups/row) and the smoke model is hd128 — both stay
+        # off; the served end-to-end check is the spec stage against the
+        # AWQ_MJOLNIR config.
+        smoke_modes = " ".join(m for m in smoke_modes.split() if m in ("graph", "eager"))
+        if not smoke_modes:
+            ctx.out("   (smoke: no Orin-valid modes requested)")
+            return {"cases": cases, "params": {"smoke_modes": "", "model": model, "tokens": tokens}}
     # The smoke modes: e2m3 needs the vLLM fp6 cache-write patch (the
     # Mjolnir image), lmh8 needs fp8 tensor cores (sm_100+), spec needs a
     # served drafter.

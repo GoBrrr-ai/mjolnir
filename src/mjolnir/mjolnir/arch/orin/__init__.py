@@ -5,7 +5,8 @@ One subpackage per implemented architecture, sibling to
 contract). The family mirrors the Thor layout:
 
 * :mod:`mjolnir.arch.orin.mma` — the tensor-core (mma.sync m16n8k16)
-  decode kernel: fp8 and fp6-e2m3 KV, bf16 Q, head_dim 256, q_len <= 8
+  decode kernel: fp8 (head_dim 128/256) and fp6-e2m3 (head_dim 256) KV,
+  bf16 Q, q_len <= 8
   (decode and the MTP verify). The family's only kernel;
 * :mod:`mjolnir.arch.orin.plan` — the split-KV planner (FlashInfer
   Alg. 1, board-agnostic: the SM count is a device query, so AGX Orin
@@ -28,7 +29,6 @@ __all__ = ["OrinDecodeRunner", "Runner"]
 
 _log = logging.getLogger("vllm.mjolnir")
 
-MMA_HEAD_DIM = 256  # mma.MMADecodeKernel.HEAD_DIM (not imported: that traces CUTLASS)
 MMA_MAX_Q_LEN = 8  # mma.MMADecodeKernel.MAX_Q_LEN
 MMA_KV_FORMATS = ("fp8", "e2m3")  # the mma kernel's KV formats
 
@@ -63,8 +63,11 @@ class Runner(OrinDecodeRunner):
         head_size = kw["head_size"]
         kv_format = kw.get("kv_format", "fp8")
         max_q_len = kw.get("max_q_len", 1)
-        if head_size != MMA_HEAD_DIM:
-            raise ValueError(f"the Orin mma kernel serves head_size {MMA_HEAD_DIM} only (got {head_size})")
+        supported = (256,) if kv_format == "e2m3" else (128, 256)
+        if head_size not in supported:
+            raise ValueError(
+                f"the Orin mma kernel serves head_size {'/'.join(map(str, supported))} for {kv_format} KV (got {head_size})"
+            )
         if kv_format not in MMA_KV_FORMATS:
             raise ValueError(f"the Orin mma kernel serves {'/'.join(MMA_KV_FORMATS)} KV only (got {kv_format!r})")
         if max_q_len > MMA_MAX_Q_LEN:
