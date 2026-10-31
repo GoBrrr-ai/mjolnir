@@ -130,6 +130,10 @@ on sm_110 with stock vLLM 0.32.0 paths (Mjolnir image, `--enforce-eager`):
 
 ## Release-day checklist
 
+> **The runnable version of this checklist — exact commands, decision
+> tree, failure table — is [qwen4-27b-day0.md](qwen4-27b-day0.md).** This
+> section is the rationale; that file is what you open on the day.
+
 0. **Base audit (done 2026-10-31, v0.32.0 cut 2026-10-17):** the MTP
    quantized-layer remap (#55513) and the PLE pinned-host UVA offload are
    **already in**; the post-cut QSA-naming and PLE-disk-offload PRs are out

@@ -24,6 +24,7 @@ trust or publish any number.
 | Run the LiteLLM proxy stack (independent of the vLLM server) | [litellm-proxy.md](litellm-proxy.md) |
 | Serve on a 6-bit (e2m3) KV cache: calibrate, serve, check | [fp6-kv.md](fp6-kv.md) |
 | Prepare for the upcoming Qwen4-27B (dense `qwen4` + QSA): what the image carries, what to check on release day | [qwen4-27b.md](qwen4-27b.md) |
+| **The Qwen4-27B day-0 runbook**: phase-by-phase commands, decision tree, failure table | [qwen4-27b-day0.md](qwen4-27b-day0.md) |
 | Run on — or bench for — another GPU: `mjolnir platform` (thor / spark / orin) | [platforms.md](platforms.md) |
 
 ## Benchmarking
