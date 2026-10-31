@@ -172,17 +172,19 @@ def scratch_copy(
     scratch: torch.Tensor,
     src_rows: torch.Tensor,
     dst_rows: torch.Tensor,
+    counts: torch.Tensor,
 ) -> None:
-    """Row-gather pool -> scratch on the flat ``(pages * PS, ...)`` row view
-    (one torch gather kernel per call; the production path fuses K+V into
-    one Triton kernel — same index math). Skips -1 rows. Works for fp8
-    element views and packed uint8 byte views alike (rows are the unit)."""
-    pf = pool.view(-1, *pool.shape[2:]) if pool.dim() > 2 else pool
-    sf = scratch.view(-1, *scratch.shape[2:]) if scratch.dim() > 2 else scratch
-    for i in range(src_rows.shape[0]):
-        m = src_rows[i] >= 0
-        if m.any():
-            sf[dst_rows[i][m]] = pf[src_rows[i][m]]
+    """Row-gather pool -> scratch on the flat ``(pages * PS, ...)`` row view.
+    ``counts`` (host ints, from ``effective_seq_lens``) fix each sequence's
+    valid-row count so the copy is ONE index kernel with no device sync
+    (a data-dependent mask would sync every call). Works for fp8 element
+    views and packed uint8 byte views alike (rows are the unit)."""
+    pf = pool.view(-1, *pool.shape[2:])
+    sf = scratch.view(-1, *scratch.shape[2:])
+    for i, n in enumerate(counts.tolist()):
+        n = int(n)
+        if n:
+            sf[dst_rows[i, :n].long()] = pf[src_rows[i, :n].long()]
 
 
 def indexer_seq_lens(seq_lens: torch.Tensor, spec: IndexerSpec) -> torch.Tensor:
