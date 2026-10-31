@@ -83,7 +83,13 @@ kernels stay the correctness reference.
 0. **Base audit (done 2026-10-31, v0.32.0 cut 2026-10-17):** the MTP
    quantized-layer remap (#55513) and the PLE pinned-host UVA offload are
    **already in**; the post-cut QSA-naming and PLE-disk-offload PRs are out
-   but non-blocking. Re-run this check against whatever base the release
+   but non-blocking. The qwen4_exp custom ops carry **no sm_110 hard gates**
+   (HC glue, indexer top-k, QSA sparse, the `hc_down_silu` CuTe-DSL JIT and
+   the capability-keyed skinny-GEMM plans all fall back gracefully) — the
+   QSA sparse kernel and the skinny GEMM are just *untuned* on Thor (no
+   sm_110 entry anywhere upstream), which is exactly the gap the Mjolnir
+   probe targets. The `hc_down_silu` CuTe JIT is the one smoke item (runs
+   on every layer). Re-run this check against whatever base the release
    image pins.
 1. **Fetch the config** and check the five unknowns: layer count, the
    GDN/full schedule, whether PLE exists, the MTP drafter depth, and the
