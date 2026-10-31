@@ -49,7 +49,7 @@ from raw results in [`benchmarks/raw/verify/`](../../../benchmarks/raw/verify/)
 by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
-**Where it stands:** 1.14× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261030-162038`.
+**Where it stands:** 1.18× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261031-200707`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -65,8 +65,8 @@ reproduces it.
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261031-005307` |
-| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261030-162038` |
+| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261031-200054` |
+| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261031-200707` |
 | 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261030-141453` |
 | 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261030-151506` |
 | 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261030-153729` |
@@ -97,15 +97,15 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 
 | L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
 |---|--:|--:|--:|
-| **128** | **69.2&nbsp;µs** | 106.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.54\times}}$ |
-| **4K** | **87.4&nbsp;µs** | 131.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.50\times}}$ |
-| **8K** | 136.3&nbsp;µs | **135.7&nbsp;µs** | $\color{grey}{1.00\times}$ |
-| **16K** | **229.2&nbsp;µs** | 229.7&nbsp;µs | $\color{grey}{1.00\times}$ |
-| **32K** | **417.6&nbsp;µs** | 434.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.04\times}}$ |
-| **64K** | **791.3&nbsp;µs** | 838.9&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ |
-| **128K** | **1.54&nbsp;ms** | 1.64&nbsp;ms | $\color{#16a34a}{\mathbf{1.07\times}}$ |
-| **256K** | **3.04&nbsp;ms** | 3.31&nbsp;ms | $\color{#16a34a}{\mathbf{1.09\times}}$ |
-| geomean |  |  | $\color{#16a34a}{\mathbf{1.14\times}}$ |
+| **128** | **66.6&nbsp;µs** | 118.2&nbsp;µs | $\color{#16a34a}{\mathbf{1.78\times}}$ |
+| **4K** | **88.7&nbsp;µs** | 130.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.47\times}}$ |
+| **8K** | **137.0&nbsp;µs** | 144.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.05\times}}$ |
+| **16K** | 231.0&nbsp;µs | **230.0&nbsp;µs** | $\color{grey}{1.00\times}$ |
+| **32K** | **416.5&nbsp;µs** | 431.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.03\times}}$ |
+| **64K** | **790.5&nbsp;µs** | 860.5&nbsp;µs | $\color{#16a34a}{\mathbf{1.09\times}}$ |
+| **128K** | **1.54&nbsp;ms** | 1.66&nbsp;ms | $\color{#16a34a}{\mathbf{1.08\times}}$ |
+| **256K** | **3.03&nbsp;ms** | 3.37&nbsp;ms | $\color{#16a34a}{\mathbf{1.11\times}}$ |
+| geomean |  |  | $\color{#16a34a}{\mathbf{1.18\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
