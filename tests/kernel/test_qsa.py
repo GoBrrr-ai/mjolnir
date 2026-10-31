@@ -56,7 +56,7 @@ def test_spec_invariants():
     assert SPEC.budget_tokens == 2048 and SPEC.budget_blocks == 512
     assert SPEC.page_size in qsa.QSA_PAGE_SIZES
     assert SPEC.slots(1) == 1 and SPEC.slots(4) == 1 and SPEC.slots(5) == 2
-    assert SPEC.pool_pages(2048) == 8 and SPEC.pool_pages(1) == 1
+    assert SPEC.pool_pages(2048) == 4 and SPEC.pool_pages(1) == 1  # 512 slots / 128 per page
     assert SPEC.score_rows(1) == 4 and SPEC.score_rows(5) == 20
     for bad in ({"ratio": 8}, {"page_size": 256}, {"dim": 96}, {"budget_tokens": 1025}):
         try:

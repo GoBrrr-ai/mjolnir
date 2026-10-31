@@ -108,11 +108,12 @@ def test_partial_selection_equals_masked_dense():
     sel[0, :4] = torch.tensor([0, 5, 6, 250])
     sel[1, :3] = torch.tensor([1, 2, 249])
     o_sel, _, _ = _run(q, k, v, bt, sl, qd, kd, vd, selection_blocks=sel)
-    # reference: dense scores restricted to the selected rows (per sequence)
-    ar = torch.arange(math.ceil(L / PS))
+    # reference: dense scores restricted to the selected rows (per sequence,
+    # through that sequence's OWN block table)
     for bi in range(2):
-        Kb = k[ar].reshape(-1, HEADS_K, D)[:L].permute(1, 0, 2)
-        Vb = v[ar].reshape(-1, HEADS_K, D)[:L].permute(1, 0, 2)
+        bt_i = bt[bi][: math.ceil(L / PS)].long()
+        Kb = k[bt_i].reshape(-1, HEADS_K, D)[:L].permute(1, 0, 2)
+        Vb = v[bt_i].reshape(-1, HEADS_K, D)[:L].permute(1, 0, 2)
         S = torch.einsum("gnd,gld->gnl", q[bi], Kb) / math.sqrt(D)
         ids = sel[bi][sel[bi] >= 0].long()
         mask = torch.zeros(L, dtype=torch.bool)
@@ -120,7 +121,9 @@ def test_partial_selection_equals_masked_dense():
             mask[i * SPEC.ratio : min((i + 1) * SPEC.ratio, L)] = True
         P = torch.softmax(S[..., mask], -1)
         o_ref = torch.einsum("gnl,gld->gnd", P, Vb[:, mask, :])
-        assert (o_sel[bi] - o_ref).abs().max() < 1e-5, bi
+        # the oracle rounds P to bf16 per chunk (the kernel's bf16-P path) —
+        # the reference is exact fp32, so the tolerance is the rounding noise
+        assert (o_sel[bi] - o_ref).abs().max() < 5e-3, bi
 
 
 def test_blocks_clip_to_l():
