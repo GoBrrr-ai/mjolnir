@@ -104,7 +104,7 @@ def effective_seq_lens(selection_blocks: torch.Tensor, seq_lens: torch.Tensor, s
     valid = ids >= 0
     lo = ids.clamp_min(0) * spec.ratio
     hi = (ids.clamp_min(0) + 1) * spec.ratio
-    L = seq_lens.view(-1, 1).to(torch.int64)
+    L = seq_lens.to(ids.device, torch.int64).view(-1, 1)
     contrib = (hi.clamp_max(L) - lo.clamp_max(L)).clamp_min(0) * valid
     return contrib.sum(dim=1).to(torch.int32)
 
