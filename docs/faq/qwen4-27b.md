@@ -102,9 +102,12 @@ on sm_110 with stock vLLM 0.32.0 paths (Mjolnir image, `--enforce-eager`):
 - Backend knobs (`vllm serve --sparse-indexer-topk-backend …`):
   `deep_select` (SM100a/103a only), `cooperative` (the fail above),
   `persistent`, `per_row`, `flashinfer`, `torch` (debug reference).
-  **Not yet validated on Thor: `persistent`, `per_row`, `flashinfer`,
-  `torch`** — the window closed on host-RAM pressure (the smoke needs
-  ~15 GiB of the 122 GiB unified pool free). First follow-up.
+  **`persistent` VALIDATED on Thor (2026-10-31, patched image):** the
+  fixture serves end-to-end — greedy decode finite and deterministic
+  through all QSA layers, zero engine errors. That run was also the
+  **first execution of the stock Triton QSA decode attention on sm_110**
+  (untuned but functional). The `torch` backend is the guaranteed-correct
+  reference; `per_row`/`flashinfer` remain untested.
 - This **upgrades the impl-swap from perf to correctness** for decode:
   whichever way release day goes, the serving config must either pin a
   working topk backend or route QSA decode through the Mjolnir impl.
@@ -114,6 +117,13 @@ on sm_110 with stock vLLM 0.32.0 paths (Mjolnir image, `--enforce-eager`):
   `text_config` — vLLM reads `hf_text_config`), and the dense tensors are
   `mlp.gate_up_proj.weight` / `mlp.down_proj.weight` with the MoE router
   `mlp.gate.weight` dropped.
+- **The Mjolnir impl-swap ships** (`thor-qwen4-qsa-mjolnir.patch` +
+  `mjolnir.qsa_impl`): `MJOLNIR_ATTN_QSA=1` routes pure-decode steps
+  through the tcgen05 scratch-gather (the measured 13.5×/11.7× path) and
+  falls back to the stock Triton path for prefill/verify/mixed batches,
+  bf16 caches, or anything unexpected — announcing both. Device
+  validation of the swapped path is the remaining item (the stock-path
+  smoke above is the baseline it must reproduce).
 
 ## Release-day checklist
 
