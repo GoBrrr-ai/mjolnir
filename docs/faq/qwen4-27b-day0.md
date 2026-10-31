@@ -6,6 +6,43 @@ commands. The background (architecture, evidence, per-item state) lives in
 [qwen4-27b.md](qwen4-27b.md); this file is the do-it list. Nothing here
 requires judgement that isn't written down.
 
+**Where everything lives** (local scratch docs are on this machine only —
+everything needed on the day is committed here or cited by hash):
+
+- Code: the QSA host math
+  [`src/mjolnir/mjolnir/arch/thor/qsa.py`](../../src/mjolnir/mjolnir/arch/thor/qsa.py)
+  (IndexerSpec, scratch_plan, effective_seq_lens), the serving impl
+  [`src/mjolnir/mjolnir/qsa_impl.py`](../../src/mjolnir/mjolnir/qsa_impl.py)
+  (`build_impl_class`, the guard chain), the fused gather
+  [`src/mjolnir/mjolnir/qsa_gather.py`](../../src/mjolnir/mjolnir/qsa_gather.py),
+  the runner [`src/mjolnir/mjolnir/arch/thor/runner.py`](../../src/mjolnir/mjolnir/arch/thor/runner.py)
+  (`T5DecodeRunner`: plan→run adjacency, `ctas_per_sm=2` default).
+- Patches: [`docker/vllm-thor/PATCHES.md`](../../docker/vllm-thor/PATCHES.md)
+  (20 vLLM-side + 2 FlashInfer-side; the three Qwen4 ones are
+  `thor-qwen4-dense-model`, `thor-qwen4-topk-sm110`, `thor-qwen4-qsa-mjolnir`)
+  — registered in `apply_patches.py`, sentineled in `verify_patches.py`.
+- Tooling: [`scripts/qwen4_shape_lock.py`](../../scripts/qwen4_shape_lock.py)
+  (the five-unknowns check), [`scripts/qwen4_dense_fixture.py`](../../scripts/qwen4_dense_fixture.py)
+  (the fixture generator — the sm_110 canary).
+- Local research (this machine/worktree only): `task/research/qwen4-27b-upstream-prep/` —
+  `summary.md` (architecture + the recovered-PR story), `qwen4-27b-sm110-paper-tuning.md`
+  (shape lock, bandwidth model, §3.8 integration point, §6 per-item checklist),
+  `gpu-window-rooster.md` (every device-window result), `code-hunt.md`
+  (the code recovery), `dumps/` (the recovered Intel tree + configs),
+  `window-20261031/` (the evidence copies).
+- Upstream: the SM120 cooperative_topk report
+  [vllm#47266](https://github.com/vllm-project/vllm/issues/47266) (Issue 8 —
+  same failure class, family-exclusion fix), the Thor warmup failure
+  [vllm#56083](https://github.com/vllm-project/vllm/issues/56083) fixed by
+  [#56084](https://github.com/vllm-project/vllm/pull/56084) and
+  [#56102](https://github.com/vllm-project/vllm/pull/56102) (the mechanism:
+  a 16-block cluster vs Thor's max 8); FA4 hd256+FP8 status
+  [flash-attention#2456](https://github.com/Dao-AILab/flash-attention/issues/2456);
+  SM110 FA4 auto-selection [vllm#55366](https://github.com/vllm-project/vllm/issues/55366);
+  the MTP quantized-layer remap [vllm#55513](https://github.com/vllm-project/vllm/pull/55513);
+  the FlashInfer XQA sm_110 gap
+  [flashinfer#2522](https://github.com/flashinfer-ai/flashinfer/issues/2522).
+
 ## Proven state (all device-evidenced 2026-10-31, branch `feat/thor-kernel-improvements`)
 
 | Capability | Evidence | Number |
@@ -19,11 +56,9 @@ requires judgement that isn't written down.
 | Backend in real vLLM | `verify vllm`, 39/39 | \|Δlp\| ≤ 0.04 mean |
 | Occupancy axis | `verify timing` | 2 CTAs/SM ≥ 1 at every L (the shipped default) |
 
-Image: `narandill/mjolnir-vllm:v0.32.0` with 16 patches incl.
-`thor-qwen4-dense-model`, `thor-qwen4-topk-sm110`, `thor-qwen4-qsa-mjolnir`.
-Gates 20/20. The QSA kernel side lives in `src/mjolnir/mjolnir/arch/thor/qsa.py`,
-the serving impl in `src/mjolnir/mjolnir/qsa_impl.py`, the tooling in
-`scripts/qwen4_shape_lock.py` + `scripts/qwen4_dense_fixture.py`.
+Image: `narandill/mjolnir-vllm:v0.32.0` — 20 vLLM patches + 2 FlashInfer
+patches, gates 20/20. Ratios are **reference ÷ ours** (>1 = Mjolnir faster,
+±3% same-run noise — [methodology](../methodology/benchmarking.md)).
 
 ## Phase 0 — the config lands (30 min, no GPU)
 
@@ -46,17 +81,19 @@ Decision tree:
   `IndexerSpec` in `mjolnir/arch/thor/qsa.py` (the constants are asserted,
   the change is mechanical) and re-run `verify qsa` + `qsagain`.
 - If `ple_layer_ids` is non-empty → PLE is present: budget ~95 GiB
-  **host-resident** (vLLM's pinned-host UVA offload) and plan
-  `--gpu-memory-utilization` around it — the smoke showed how tight a
+  **host-resident** (vLLM's pinned-host UVA offload, already in 0.32.0 —
+  [#55513](https://github.com/vllm-project/vllm/pull/55513) is in too) and
+  plan `--gpu-memory-utilization` around it — the smoke showed how tight a
   122 GiB unified board gets when a build runs alongside.
-- `heads_per_ngram`/ngram vocab fields → the 64K draft vocab: the default
-  config `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` pattern applies (see the Qwen3.6
-  configs), including the fp8 lm_head if the head isn't pre-quantized.
+- `heads_per_ngram` / `ngram_vocab_size_base` → the 64K draft vocab: the
+  `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` pattern applies (see the
+  [Qwen3.6 configs](../../configs/nvidia/Qwen3.6-35B-A3B/)), including the
+  fp8 lm_head if the head isn't pre-quantized ([fp6-kv.md](fp6-kv.md)).
 
 ## Phase 1 — serving config + first serve (1 h)
 
 ```bash
-# 1. the config dir (per docs/faq/new-model-config.md), then the .env switches:
+# 1. the config dir (per [new-model-config.md](new-model-config.md)), then the .env switches:
 #    MJOLNIR_ATTN_QSA=1                 # the Mjolnir QSA decode (impl-swap)
 #    (the topk guard needs no switch — the patch makes `auto` safe on sm_110)
 # 2. serve, stock backend first (the honest baseline):
@@ -66,6 +103,7 @@ docker run --gpus all ... narandill/mjolnir-vllm:v0.32.0 \
 # 3. greedy sanity: finite tokens, deterministic ×2
 # 4. re-serve with the MJOLNIR backend + the impl swap:
 #    --attention-backend MJOLNIR (dense/full layers) + MJOLNIR_ATTN_QSA=1 (QSA layers)
+# 5. only then: drop --enforce-eager and enable the speculative config
 ```
 
 Known-shape facts to check against the log:
@@ -88,7 +126,8 @@ mjolnir calibrate --config <cfg> --draft-vocab   # if the 64K draft vocab path a
 ```
 
 - Commit the scales next to the config (`kv_scales/2` format — per
-  (layer, KV head, channel); a `/1` file is per-head and stale).
+  (layer, KV head, channel); a `/1` file is per-head and stale — see
+  [fp6-kv.md](fp6-kv.md)).
 - **Indexer-pool scales are phase 2**: fp8 per-tensor first, fp6 later —
   the calibration extension lands in `mjolnir calibrate` (checklist item 5,
   code pending at the time of writing).
@@ -107,15 +146,19 @@ uv run mjolnir verify timing                 # re-confirm 2 CTAs/SM on the relea
   verdict is the RATIO, always same-run (±3% noise band).
 - If the real geometry differs from the fixture's (more KV heads, another
   budget), `verify qsa` re-proves it in minutes.
+- These stages refuse to run while a server is up —
+  [clean-window-gate.md](clean-window-gate.md) is the discipline.
 
 ## Phase 4 — the A/B and any default flips (half a day)
 
 ```bash
 mjolnir bench ab          # legs from src/mjolnir-cli/mjolnir_cli/legs.py
-mjolnir bench e2e         # the README infographic (restarts the server per leg — own the window)
+mjolnir bench e2e         # the README infographic
 uv run mjolnir plot --readme
 ```
 
+- **Both `bench ab` and `bench e2e` restart the server per leg** — schedule
+  deliberately in a window you own.
 - **A default flip (KV dtype, draft count, impl-swap on) requires a
   same-run A/B win across L** — never a single-cell win
   ([methodology](../methodology/benchmarking.md)).
@@ -140,5 +183,6 @@ uv run mjolnir plot --readme
   needs the real checkpoint — note the GDN layers carry most KV bytes).
 - Verify-batch (MTP) Mjolnir decode — per-row selections need either
   per-row scratch plans or a shared superset (kernel masking).
-- The upstream `cooperative_topk` fix (#56084/#56102) — retire our patch
-  at the bump that lands either.
+- The upstream `cooperative_topk` fix ([#56084](https://github.com/vllm-project/vllm/pull/56084)
+  / [#56102](https://github.com/vllm-project/vllm/pull/56102)) — retire our
+  patch at the bump that lands either.
