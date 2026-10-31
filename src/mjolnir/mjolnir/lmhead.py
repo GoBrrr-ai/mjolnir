@@ -20,6 +20,13 @@ in through the ``.env`` sidecar inside its config dir, see
   row-slice) with no dequant->bf16 up-scale; the one exception is a bf16 head,
   which goes to fp8 only when ``MJOLNIR_LM_HEAD=fp8`` is set.
 
+* ``MJOLNIR_MTP_LAYER=fp8`` — the drafter's own Linear weights (the MTP
+  layer + its eh_proj ``fc``; ~0.9 GB bf16 on Qwen3.8-27B, re-read on every
+  draft step) quantized to e4m3 per row at load and run through the same
+  fp8 GEMM. Drafter-only: verification stays lossless; acceptance may shift
+  a little (measure with ``verify spec`` before adopting). The bf16
+  originals are freed (~0.45 GiB back to the KV cache).
+
 The hooks wrap ``GPUModelRunner.load_model`` (installed by
 ``mjolnir.register`` when either variable is set) and run after the target
 and the drafter are loaded, before CUDA-graph capture.
@@ -50,12 +57,17 @@ ENV_DRAFT_VOCAB_SIZE = "MJOLNIR_DRAFT_VOCAB_SIZE"
 # bf16/fp8. Set to 0/off to force the dequant->fp8 fallback (the A/B control).
 # The NVFP4 in-kernel GEMM is CUDA-only and self-checked; A/B on the Thor.
 ENV_DRAFT_VOCAB_NATIVE = "MJOLNIR_DRAFT_VOCAB_NATIVE"
+ENV_MTP_LAYER = "MJOLNIR_MTP_LAYER"
 FP8_MAX = 448.0
 SMALL_M = 64  # beyond this many rows (prompt logprobs) the dequantized chunks win
 
 
 def wanted() -> bool:
-    return bool(os.environ.get(ENV_LM_HEAD, "").strip() or os.environ.get(ENV_DRAFT_VOCAB, "").strip())
+    return bool(
+        os.environ.get(ENV_LM_HEAD, "").strip()
+        or os.environ.get(ENV_DRAFT_VOCAB, "").strip()
+        or os.environ.get(ENV_MTP_LAYER, "").strip()
+    )
 
 
 # ── fp8-weight GEMM ─────────────────────────────────────────────────────────
@@ -628,6 +640,62 @@ def install_draft_vocab(draft_model, ids: list[int], size: int | None = None) ->
 # ── the hook ────────────────────────────────────────────────────────────────
 
 
+# ── fp8 for the drafter's own Linear weights ────────────────────────────────
+
+
+def _drafter_linears(draft) -> list[tuple[str, object]]:
+    """The drafter's unquantized 2-D Linear modules except its lm_head.
+
+    The drafter model IS the MTP module (its transformer layer, the eh_proj
+    ``fc``, the pre-fc projections) — every weight here is re-read on every
+    draft step, so fp8 halves the drafter's per-step weight traffic. The
+    shared lm_head goes through install_fp8_head instead, and the embedding
+    has no quant_method, so both fall out of the filter."""
+    seen, out = set(), []
+    for name, mod in draft.named_modules():
+        if id(mod) in seen or name.split(".")[-1] == "lm_head":
+            continue
+        qm = getattr(mod, "quant_method", None)
+        w = getattr(mod, "weight", None)
+        if qm is None or "Unquantized" not in type(qm).__name__:
+            continue
+        if w is None or w.ndim != 2 or w.dtype not in (torch.bfloat16, torch.float16, torch.float32):
+            continue
+        seen.add(id(mod))
+        out.append((name, mod))
+    return out
+
+
+def install_fp8_mtp_layer(draft) -> None:
+    """fp8 per-row the drafter's Linear weights (MJOLNIR_MTP_LAYER=fp8)."""
+    if getattr(draft, "_mjolnir_mtp_fp8", False):
+        return
+    done, saved, worst = 0, 0, 0.0
+    for name, mod in _drafter_linears(draft):
+        w = mod.weight.data
+        w8, scale = quantize_rows(w)
+        err = _self_test(w, w8, scale)
+        if not err < 0.05:
+            _log.warning("Mjolnir mtp layer fp8: %s self-test rel. error %.4f; left bf16", name, err)
+            continue
+        mod.quant_method = Fp8HeadMethod(mod.quant_method, w8, scale)
+        mod._mjolnir_fp8 = True
+        mod.weight.data = torch.empty(0, dtype=w.dtype, device=w.device)  # the bf16 copy is dead weight
+        done += 1
+        saved += w.numel() * w.element_size()
+        worst = max(worst, err)
+    if done:
+        draft._mjolnir_mtp_fp8 = True
+        _log.info(
+            "Mjolnir mtp layer fp8: %d weights -> e4m3 per-row, %.2f GiB bf16 freed, worst self-test %.4f",
+            done,
+            saved / 2**30,
+            worst,
+        )
+    else:
+        _log.warning("Mjolnir mtp layer fp8: no eligible drafter weights found")
+
+
 def _lm_heads(model) -> list:
     seen, out = set(), []
     for name, mod in model.named_modules():
@@ -660,6 +728,13 @@ def after_load(runner) -> None:
                     install_fp8_head(head, target)
                 except Exception as e:  # noqa: BLE001
                     _log.warning("Mjolnir lm_head fp8: not installed (%r)", e)
+    if os.environ.get(ENV_MTP_LAYER, "").strip().lower() == "fp8" and draft is not None:
+        try:
+            install_fp8_mtp_layer(draft)
+        except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+            _log.warning("Mjolnir mtp layer fp8: not installed (%r)", e)
+    elif os.environ.get(ENV_MTP_LAYER, "").strip() and draft is None:
+        _log.warning("Mjolnir mtp layer fp8: %s set but this config has no drafter", ENV_MTP_LAYER)
     if torch.cuda.is_available():
         # hand the quantization temporaries back before vLLM profiles memory
         # for the KV cache (a cached-but-free block still counts as used)
