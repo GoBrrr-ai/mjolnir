@@ -47,18 +47,21 @@ if triton is not None:
         DREAL: tl.constexpr,  # actual bytes (D == next_pow2(DREAL))
         MAX_ROWS: tl.constexpr,
     ):
+        # one program per (sequence, head, ROW): the row loop of a 2D grid
+        # serializes 2048 dependent iterations behind 8 CTAs (~4 GB/s);
+        # a 3D grid makes the copy bandwidth-bound again
         b = tl.program_id(0)
         h = tl.program_id(1)
-        offs = tl.arange(0, D)
-        mask = offs < DREAL
+        j = tl.program_id(2)
         count = tl.load(counts_ptr + b)
-        for j in range(count):
+        if j < count:
             src_flat = tl.load(src_idx_ptr + b * MAX_ROWS + j)
             dst_flat = tl.load(dst_idx_ptr + b * MAX_ROWS + j)
+            offs = tl.arange(0, D)
+            mask = offs < DREAL
             src = src_ptr + src_flat * src_row_stride + h * src_head_stride
             dst = dst_ptr + dst_flat * dst_row_stride + h * dst_head_stride
-            vals = tl.load(src + offs, mask=mask)
-            tl.store(dst + offs, vals, mask=mask)
+            tl.store(dst + offs, tl.load(src + offs, mask=mask), mask=mask)
 
 
 def gather_rows(
@@ -80,7 +83,7 @@ def gather_rows(
     max_rows = src_rows.shape[1]
     d = pool.shape[-1]
     d_pow2 = triton.next_power_of_2(d)
-    _gather_rows_kernel[(src_rows.shape[0], pool.shape[2])](
+    _gather_rows_kernel[(src_rows.shape[0], pool.shape[2], max_rows)](
         pool,
         scratch,
         src_rows.to(torch.int64),
