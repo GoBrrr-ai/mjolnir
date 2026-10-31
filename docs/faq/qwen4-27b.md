@@ -78,19 +78,48 @@ kernels stay the correctness reference.
   (vLLM's PLE offload): exclude it from `gpu-memory-utilization` planning
   and expect `mjolnir gc`'s page-cache discipline to matter around restarts.
 
+## Fixture serve-smoke on Thor (2026-10-31) — one hard upstream fail found
+
+Serving the tiny dense `qwen4_exp` fixture (GDN+QSA layers, random weights)
+on sm_110 with stock vLLM 0.32.0 paths (Mjolnir image, `--enforce-eager`):
+
+- **The engine loads and prefills** — the dense-MLP patch, the GDN
+  CuTe-DSL prefill kernel (`gdn_blackwell_prefill_sm110a`), hyper-connection
+  glue and the indexer pool allocation all work on Thor.
+- **The first decode top-k kills the engine**: `cooperative_topk.cu:48 —
+  launch failed: cluster misconfiguration`. vLLM's
+  `--sparse-indexer-topk-backend auto` chain is cooperative → persistent →
+  per_row, but a launch *error* is a fatal `EngineDeadError`, not a
+  fallback: the indexer's thread-block cluster config does not fit
+  sm_110's 20-SM partitions. **Stock Qwen4 QSA serving is broken on Thor
+  until the topk backend is pinned or the Mjolnir impl owns it.**
+- Backend knobs (`vllm serve --sparse-indexer-topk-backend …`):
+  `deep_select` (SM100a/103a only), `cooperative` (the fail above),
+  `persistent`, `per_row`, `flashinfer`, `torch` (debug reference).
+  **Not yet validated on Thor: `persistent`, `per_row`, `flashinfer`,
+  `torch`** — the window closed on host-RAM pressure (the smoke needs
+  ~15 GiB of the 122 GiB unified pool free). First follow-up.
+- This **upgrades the impl-swap from perf to correctness** for decode:
+  whichever way release day goes, the serving config must either pin a
+  working topk backend or route QSA decode through the Mjolnir impl.
+- Fixture-generator notes (transformers 5.19): build the causal LM from
+  `Qwen4ExpTextConfig` (the composite does not forward attributes), ship a
+  composite-shaped `config.json` (`model_type: qwen4_exp` +
+  `text_config` — vLLM reads `hf_text_config`), and the dense tensors are
+  `mlp.gate_up_proj.weight` / `mlp.down_proj.weight` with the MoE router
+  `mlp.gate.weight` dropped.
+
 ## Release-day checklist
 
 0. **Base audit (done 2026-10-31, v0.32.0 cut 2026-10-17):** the MTP
    quantized-layer remap (#55513) and the PLE pinned-host UVA offload are
    **already in**; the post-cut QSA-naming and PLE-disk-offload PRs are out
    but non-blocking. The qwen4_exp custom ops carry **no sm_110 hard gates**
-   (HC glue, indexer top-k, QSA sparse, the `hc_down_silu` CuTe-DSL JIT and
-   the capability-keyed skinny-GEMM plans all fall back gracefully) — the
-   QSA sparse kernel and the skinny GEMM are just *untuned* on Thor (no
-   sm_110 entry anywhere upstream), which is exactly the gap the Mjolnir
-   probe targets. The `hc_down_silu` CuTe JIT is the one smoke item (runs
-   on every layer). Re-run this check against whatever base the release
-   image pins.
+   (HC glue, QSA sparse, the `hc_down_silu` CuTe-DSL JIT and the
+   capability-keyed skinny-GEMM plans all fall back gracefully) — **with one
+   device-proven exception** (see the smoke result below): the sparse-indexer
+   decode top-k `auto` chain leads with `cooperative_topk`, which is a hard
+   launch failure on Thor.
 1. **Fetch the config** and check the five unknowns: layer count, the
    GDN/full schedule, whether PLE exists, the MTP drafter depth, and the
    `model_type`.

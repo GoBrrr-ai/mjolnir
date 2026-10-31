@@ -30,7 +30,7 @@ import shutil
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer, Qwen4ExpConfig, Qwen4ExpForCausalLM
+from transformers import AutoTokenizer, Qwen4ExpConfig, Qwen4ExpForCausalLM, Qwen4ExpTextConfig
 
 # layer schedule: GDN, QSA, GDN, QSA (the family's 1-in-4 cadence, tiny)
 LAYER_TYPES = ["linear_attention", "indexed_attention", "linear_attention", "indexed_attention"]
@@ -82,14 +82,18 @@ def dense_swap(state_dict: dict, layers: int, hidden: int, ffn: int) -> dict:
     drop = []
     for i in range(layers):
         pre = f"model.layers.{i}.mlp."
-        drop += [k for k in state_dict if k.startswith((f"{pre}experts", f"{pre}shared_expert")) or k == f"{pre}gate"]
+        drop += [
+            k
+            for k in state_dict
+            if k.startswith((f"{pre}experts", f"{pre}shared_expert")) or k in (f"{pre}gate", f"{pre}gate.weight")
+        ]
     for k in drop:
         del state_dict[k]
     g = torch.Generator().manual_seed(0)
     for i in range(layers):
         pre = f"model.layers.{i}.mlp."
-        state_dict[f"{pre}gate_up_proj"] = (torch.randn(2 * ffn, hidden, generator=g) * 0.02).to(torch.bfloat16)
-        state_dict[f"{pre}down_proj"] = (torch.randn(hidden, ffn, generator=g) * 0.02).to(torch.bfloat16)
+        state_dict[f"{pre}gate_up_proj.weight"] = (torch.randn(2 * ffn, hidden, generator=g) * 0.02).to(torch.bfloat16)
+        state_dict[f"{pre}down_proj.weight"] = (torch.randn(hidden, ffn, generator=g) * 0.02).to(torch.bfloat16)
     return state_dict
 
 
@@ -103,9 +107,13 @@ def main() -> None:
     args = p.parse_args()
 
     text = build_config(args)
-    cfg = Qwen4ExpConfig(text_config=dict(text))  # validates: dense scenario C
+    # transformers 5.19: the composite Qwen4ExpConfig does NOT forward attrs
+    # to text_config (no heterogeneity proxy) — the causal LM must be built
+    # from the TEXT config; the composite shape goes only into config.json
+    # (vLLM reads hf_text_config = hf_config.text_config).
+    cfg_text = Qwen4ExpTextConfig(**text)  # validates: dense scenario C
     print("config validation OK; initializing (random, CPU)…")
-    model = Qwen4ExpForCausalLM(cfg)
+    model = Qwen4ExpForCausalLM(cfg_text)
     model = model.to(torch.bfloat16)
     model.eval()
 
@@ -113,10 +121,13 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(args.out, state_dict=sd, safe_serialization=True)
 
-    # pin config.json: guarantee the dense markers survive serialization
-    cfg_dict = json.loads((args.out / "config.json").read_text())
-    cfg_dict["text_config"].update(text)
-    cfg_dict["architectures"] = ["Qwen4ExpForCausalLM"]
+    # pin config.json to the COMPOSITE shape vLLM resolves (hf_text_config =
+    # text_config) with the dense markers guaranteed present
+    cfg_dict = {
+        "model_type": "qwen4_exp",
+        "text_config": text,
+        "architectures": ["Qwen4ExpForCausalLM"],
+    }
     (args.out / "config.json").write_text(json.dumps(cfg_dict, indent=2))
 
     tok_dir = Path(args.tokenizer)
