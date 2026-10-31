@@ -117,6 +117,12 @@ PATCH_ORDER = [
     # the gate falls through to persistent_topk. Probe-gated: inert on every
     # other arch.
     "thor-qwen4-topk-sm110.patch",
+    # The Mjolnir QSA decode: probe-gated (MJOLNIR_ATTN_QSA) impl swap inside
+    # Qwen4ExpQSAAttention — wraps the stock impl and routes pure-decode steps
+    # through the kernel package's scratch-gather (mjolnir.qsa_impl, which
+    # ships in mjolnir-kernel and degrades to the stock Triton path whenever
+    # a guard fails). INERT unless the env var is set.
+    "thor-qwen4-qsa-mjolnir.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

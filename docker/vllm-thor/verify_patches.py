@@ -299,6 +299,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "THOR_QWEN4_TOPK_SM110",
         ),
     ],
+    "thor qwen4 qsa mjolnir: probe-gated Mjolnir decode impl (THOR_QWEN4_QSA_MJOLNIR)": [
+        # MJOLNIR_ATTN_QSA swaps Qwen4ExpQSAAttention's impl for the kernel
+        # package's scratch-gather decode (mjolnir.qsa_impl) — pure-decode
+        # steps only, everything else falls back to the stock Triton path
+        # inside the impl. INERT without the env var (the try/except keeps
+        # stock even when the kernel package is absent).
+        (
+            "models/qwen4_exp/nvidia/qsa.py",
+            "THOR_QWEN4_QSA_MJOLNIR",
+        ),
+    ],
 }
 
 
