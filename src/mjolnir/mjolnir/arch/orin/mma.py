@@ -163,13 +163,6 @@ class MMADecodeKernel:
         # + its writeback (−16 KB smem; the E16's prerequisite).
         # MJOLNIR_VERIFY_FD=1 opts in.
         self.verify_fd = os.environ.get("MJOLNIR_VERIFY_FD", "") == "1"
-        # E17: the KV cp.async marks its L2 lines evict-first
-        # (createpolicy.fractional.L2::evict_first + the L2::cache_hint
-        # cp.async form) so the streaming KV stops evicting the drafter's
-        # hot lines from L2 — E2E-only value (the drafter protection). The
-        # bytes moved are identical (the numerics unchanged).
-        # MJOLNIR_EVICTION=1 opts in.
-        self.eviction = os.environ.get("MJOLNIR_EVICTION", "") == "1"
         # The raw-S dump (the falsification loop): the softmax writes the
         # UNNORMALIZED acc_S into the PV instead of exp2(...) — the output
         # becomes (S @ V) / sum_n S[m, n], pinpointing the wrong S entries.
@@ -376,27 +369,8 @@ class MMADecodeKernel:
                 ),
                 cute.make_layout(16),
             )
-            if const_expr(self.eviction):
-                # E17: the cache-hint cp.async — identical bytes, the L2
-                # lines land evict-first so the KV stream stops evicting
-                # the drafter's hot lines. The policy register is declared
-                # inside the asm block (the DSL re-typed the plumbed
-                # policy value to 32-bit; the local .b64 is immune).
-                cute.arch.inline_ptx(
-                    "{ .reg .b64 %%p1;\n"
-                    "createpolicy.fractional.L2::evict_first.b64 %%p1, 1.0;\n"
-                    "cp.async.cg.shared.global.L2::cache_hint [$0], [$1], 16, %%p1; }",
-                    read_only_args=[k_dst.iterator, k_src.iterator],
-                )
-                cute.arch.inline_ptx(
-                    "{ .reg .b64 %%p1;\n"
-                    "createpolicy.fractional.L2::evict_first.b64 %%p1, 1.0;\n"
-                    "cp.async.cg.shared.global.L2::cache_hint [$0], [$1], 16, %%p1; }",
-                    read_only_args=[v_dst.iterator, v_src.iterator],
-                )
-            else:
-                cute.copy(g2s_atom, k_src, k_dst)
-                cute.copy(g2s_atom, v_src, v_dst)
+            cute.copy(g2s_atom, k_src, k_dst)
+            cute.copy(g2s_atom, v_src, v_dst)
 
     # ------------------------------------------------------------------
     @cute.jit
