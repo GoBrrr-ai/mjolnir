@@ -49,6 +49,16 @@ does not shrink" observation.
   gather decode (reading only the *selected* main-KV rows) is the follow-up
   kernel change, still behind the probe.
 
+One structural fact to know: **`--attention-backend` does not route the QSA
+layers.** `Qwen4ExpQSAAttention` hardcodes its own backend and impl
+(v0.32.0: a Triton sparse kernel over the `logical_indices` buffer, with
+FlashAttention used only as interface scaffolding — flash-attn itself never
+runs over the QSA cache), and the GDN layers are linear attention. So
+Mjolnir's QSA integration is a **probe-gated impl swap inside
+`Qwen4ExpQSAAttention`** (our tcgen05 gather + d=128 indexer decode behind
+`MJOLNIR_ATTN_QSA`), not a backend-registry change. The v0.32.0 Triton
+kernels stay the correctness reference.
+
 ## What QSA changes for serving
 
 - **Main KV per token is unchanged** (same full-attention heads) — the fp6
@@ -70,6 +80,11 @@ does not shrink" observation.
 
 ## Release-day checklist
 
+0. **Base audit (done 2026-10-31, v0.32.0 cut 2026-10-17):** the MTP
+   quantized-layer remap (#55513) and the PLE pinned-host UVA offload are
+   **already in**; the post-cut QSA-naming and PLE-disk-offload PRs are out
+   but non-blocking. Re-run this check against whatever base the release
+   image pins.
 1. **Fetch the config** and check the five unknowns: layer count, the
    GDN/full schedule, whether PLE exists, the MTP drafter depth, and the
    `model_type`.
