@@ -445,6 +445,55 @@ def stage_qsa(ctx: Ctx, variants: str = "fp8 e2m3", batches: int = 2, q_len: int
     return {"rows": rows, "params": {"variants": variants, "batches": batches, "q_len": q_len}}
 
 
+# ── qsagain (the scratch-gather decision experiment) ────────────────────────
+
+
+def stage_qsagain(ctx: Ctx, batches: int = 2, q_len: int = 1, variants: str = "") -> dict:
+    """Dense decode vs COPY-selected-rows + the same kernel on the scratch,
+    at every L — the go/no-go for the QSA gather path on sm_110. Zero
+    traced-body changes (the in-loader per-block TMA gather is the P2
+    refinement if the copy share ever shows up in ncu). Runs the harness's
+    ``--qsa_gather`` mode: correctness vs the selection oracle first, then
+    cuda-event medians; the stage records the dense/gather ratio per L."""
+    rows = []
+    for L in ctx.ls:
+        ctx.wait_clean()
+        log = ctx.logdir / "qsagain" / f"L{L}.log"
+        flags = f"--qsa_gather --batches {batches} --seqlen {L} --q_len {q_len} --iterations {ctx.iters}"
+        rc, text = ctx.runner.harness(log, "bf16", flags, timeout=900 if L <= 32768 else 2400)
+        medians = {m: _median_of(text, m) for m in ("dense", "gather", "copy")}
+        ratio = re.search(r"dense/gather = ([0-9.]+)", text)
+        copy_share = re.search(r"copy share ([0-9.]+)", text)
+        passed = rc == 0 and bool(re.search(r"^PASS$", text, re.MULTILINE))
+        rows.append(
+            {
+                "L": L,
+                "batches": batches,
+                "q_len": q_len,
+                "median_us": medians["gather"],
+                "dense_us": medians["dense"],
+                "copy_us": medians["copy"],
+                "ratio": float(ratio.group(1)) if ratio else None,
+                "copy_share": float(copy_share.group(1)) if copy_share else None,
+                "pass": passed,
+                "ok": passed and medians["gather"] is not None,
+            }
+        )
+        if medians["gather"]:
+            ctx.out(
+                f"   L={L:>7,}  dense {medians['dense']:>10.1f} µs  gather {medians['gather']:>10.1f} µs"
+                f"  (copy {medians['copy']:>8.1f} µs)  ratio {rows[-1]['ratio']}"
+            )
+        elif not ctx.runner.dry_run:
+            ctx.out(f"   L={L:>7,} FAILED (exit {rc}) — {log}")
+    return {"rows": rows, "params": {"batches": batches, "q_len": q_len, "variants": variants}}
+
+
+def _median_of(text: str, name: str) -> float | None:
+    m = re.search(rf"median {name} ([0-9.]+) us", text or "")
+    return float(m.group(1)) if m else None
+
+
 # ── fp6prof (full ncu profiles) ─────────────────────────────────────────────
 
 # The metrics kept per profile (the full set is ~1000 metrics x launches —
@@ -689,6 +738,13 @@ STAGES: dict[str, Stage] = {
             stage_qsa,
         ),
         Stage(
+            "qsagain",
+            "QSA gather decision",
+            "harness",
+            "dense decode vs scratch-gather (copy selected rows + the same kernel) per L — the go/no-go for the gather path",
+            stage_qsagain,
+        ),
+        Stage(
             "ring",
             "KV ring depth",
             "ncu",
@@ -805,6 +861,17 @@ def summarize(stage: str, doc: dict) -> dict:
     if stage == "qsa":
         rs = doc.get("rows", [])
         out = {"passed": sum(1 for r in rs if r.get("pass")), "failed": sum(1 for r in rs if not r.get("pass"))}
+    if stage == "qsagain":
+        rs = [r for r in doc.get("rows", []) if r.get("ratio")]
+        out = (
+            {
+                "geomean_ratio": round(results.geomean({r["L"]: r["ratio"] for r in rs}) or 0, 4),
+                "min_ratio": round(min((r["ratio"] for r in rs), default=0), 4),
+                "max_copy_share": round(max((r.get("copy_share") or 0 for r in rs), default=0), 4),
+            }
+            if rs
+            else {}
+        )
     return out
 
 

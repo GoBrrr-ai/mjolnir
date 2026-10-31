@@ -510,6 +510,36 @@ def qsa(
 
 
 @app.command()
+def qsagain(
+    batches: int = typer.Option(2, "--batches"),
+    q_len: int = typer.Option(1, "--q-len", help="1 for the identity-comparable sweep; 5 for the MTP shape"),
+    image: str | None = IMAGE,
+    ls: str | None = LS,
+    iters: int = ITERS,
+    gate: bool = GATE,
+    dry_run: bool = DRY,
+    timeout: float = TIMEOUT,
+    save: bool = SAVE,
+    plot: bool = PLOT,
+):
+    """QSA gather decision experiment: dense decode vs copy-selected-rows +
+    the same kernel on the scratch, per L (the go/no-go for the gather path)."""
+    _run(
+        "qsagain",
+        {"batches": batches, "q_len": q_len},
+        {"batches": 2, "q_len": 1},
+        image,
+        ls,
+        iters,
+        gate,
+        dry_run,
+        timeout,
+        save,
+        plot,
+    )
+
+
+@app.command()
 def pdl(
     batches: str = typer.Option("1 8", "--batches"),
     dtypes: str = typer.Option("fp8", "--dtypes"),
