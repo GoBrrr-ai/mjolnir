@@ -90,6 +90,7 @@ def _mma_variant() -> str:
             "MJOLNIR_SLICEQ",
             "MJOLNIR_VERIFY_FD",
             "MJOLNIR_DUMP_S",
+            "MJOLNIR_EVICTION",
         )
     )
 
