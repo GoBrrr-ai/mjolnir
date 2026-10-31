@@ -108,6 +108,15 @@ PATCH_ORDER = [
     # sufficient (a new architectures registration is also needed) — see
     # task/research/qwen4-27b-upstream-prep/ (release-day checklist).
     "thor-qwen4-dense-model.patch",
+    # Sparse-indexer decode top-k on sm_110: v0.32.0's auto chain leads with
+    # cooperative_topk, whose thread-block-cluster launch is REJECTED on
+    # Thor (device-proven 2026-10-31: "cluster misconfiguration" ->
+    # EngineDeadError at the first decode top-k; the upstream SM120 report
+    # vllm-project/vllm#47266 Issue 8 is the same failure class and its fix
+    # excludes the family). The patch extends the exclusion to family 110 —
+    # the gate falls through to persistent_topk. Probe-gated: inert on every
+    # other arch.
+    "thor-qwen4-topk-sm110.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

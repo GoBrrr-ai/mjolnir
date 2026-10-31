@@ -287,6 +287,18 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "THOR_QWEN4_DENSE",
         ),
     ],
+    "thor qwen4 topk sm110: cooperative_topk excluded on Thor (THOR_QWEN4_TOPK_SM110)": [
+        # Device-proven 2026-10-31: v0.32.0's sparse-indexer auto chain leads
+        # with cooperative_topk, whose cluster launch is rejected on sm_110
+        # ("cluster misconfiguration" -> EngineDeadError at the first decode
+        # top-k). Same failure class as the upstream SM120 report #47266
+        # Issue 8. The patch extends the family exclusion to 110 so the gate
+        # falls through to persistent_topk; inert on every other arch.
+        (
+            "models/qwen4_exp/nvidia/ops/qsa_indexer.py",
+            "THOR_QWEN4_TOPK_SM110",
+        ),
+    ],
 }
 
 
