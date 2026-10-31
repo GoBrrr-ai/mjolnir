@@ -205,13 +205,14 @@ def run_qsa_gather(
     block_table = block_table.to(dev)
     seq_lens = torch.full((batches,), seqlen, dtype=torch.int32, device=dev)
 
-    # deterministic budget-limited selection: evenly spaced blocks + the tail
-    n_sel = min(spec.budget_blocks, n_blocks)
-    if n_blocks > spec.budget_blocks:
-        ids = torch.linspace(0, n_blocks - 17, n_sel - 16).round().long()
-        ids = torch.cat([ids, torch.arange(n_blocks - 16, n_blocks)])
+    # deterministic budget-limited selection over RATIO blocks (4 tokens each,
+    # NOT pages): evenly spaced + the local tail when over budget
+    n_blocks_total = math.ceil(seqlen / spec.ratio)
+    if n_blocks_total > spec.budget_blocks:
+        ids = torch.linspace(0, n_blocks_total - 17, spec.budget_blocks - 16).round().long()
+        ids = torch.cat([ids, torch.arange(n_blocks_total - 16, n_blocks_total)])
     else:
-        ids = torch.arange(n_blocks)
+        ids = torch.arange(n_blocks_total)
     selection = torch.full((batches, spec.budget_blocks), -1, dtype=torch.int32, device=dev)
     selection[:, : len(ids)] = ids.to(dev)
 
@@ -246,9 +247,13 @@ def run_qsa_gather(
     # run() below is immediately preceded by its own plan().
 
     # ---- correctness (a): full selection == dense, same kernel ----
-    sel_full = qsa.identity_selection(seq_lens.cpu(), spec).to(dev)
-    eff_full = qsa.effective_seq_lens(sel_full, seq_lens.cpu(), spec)
-    src_f, dst_f, sbt_f, pages_f = qsa.scratch_plan(sel_full.cpu(), seq_lens.cpu(), block_table.cpu(), spec, PS)
+    # only meaningful at L <= budget (a "full" selection cannot exceed it)
+    L1 = min(seqlen, spec.budget_tokens)
+    pages1 = math.ceil(L1 / PS)
+    sel_full = qsa.identity_selection(torch.full((batches,), L1, dtype=torch.int32), spec).to(dev)
+    src_f, dst_f, sbt_f, pages_f = qsa.scratch_plan(
+        sel_full.cpu(), torch.full((batches,), L1, dtype=torch.int32), block_table[:, :pages1].cpu(), spec, PS
+    )
     full_k = torch.empty(pages_f * batches + 2, PS, heads_k, headdim, dtype=torch.float8_e4m3fn, device=dev)
     full_v = torch.empty_like(full_k)
     qsa.scratch_copy(k_pool, full_k, src_f.to(dev), dst_f.to(dev))
@@ -256,15 +261,16 @@ def run_qsa_gather(
     full_bt = torch.zeros(batches, sbt_f.shape[1], dtype=torch.int32, device=dev)
     full_bt[:, : sbt_f.shape[1]] = sbt_f.to(dev)
     out_full = torch.empty_like(out)
-    plan = runner.plan(eff_full.tolist(), batches, q_len, full_bt, eff_full.to(dev), causal=False)
+    seqs1 = torch.full((batches,), L1, dtype=torch.int32, device=dev)
+    plan = runner.plan([L1] * batches, batches, q_len, full_bt, seqs1, causal=False)
     runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
     runner.run(plan, query, out_full, full_k, full_v, one, one, softmax_scale)
-    plan = runner.plan(seq_lens.tolist(), batches, q_len, block_table, seq_lens)
+    plan = runner.plan([L1] * batches, batches, q_len, block_table[:, :pages1], seqs1)
     runner.ensure_compiled(q_len, plan.with_reduction)
     runner.run(plan, query, out, k_pool, v_pool, one, one, softmax_scale)
     torch.cuda.synchronize()
     err_full = (out.float() - out_full.float()).abs().max().item()
-    print(f"qsa gather: full-selection vs dense max|err| = {err_full:.3g} (expect ~0)")
+    print(f"qsa gather: full-selection vs dense (L={L1}) max|err| = {err_full:.3g} (expect ~0)")
     assert err_full == 0.0, "full-selection scratch decode diverged from dense"
 
     # ---- correctness (b): partial selection vs the selection oracle ----
@@ -322,9 +328,11 @@ def run_qsa_gather(
         times.sort()
         return times[len(times) // 2]
 
+    src_dev, dst_dev = src.to(dev), dst.to(dev)
+
     def copy():
-        qsa.scratch_copy(k_pool, scratch_k, src.to(dev), dst.to(dev))
-        qsa.scratch_copy(v_pool, scratch_v, src.to(dev), dst.to(dev))
+        qsa.scratch_copy(k_pool, scratch_k, src_dev, dst_dev)
+        qsa.scratch_copy(v_pool, scratch_v, src_dev, dst_dev)
 
     def gather_step():
         # re-plan every step: the honest per-step cost (serving rebuilds
