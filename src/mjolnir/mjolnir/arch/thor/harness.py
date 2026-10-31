@@ -226,6 +226,27 @@ def run_qsa_gather(
     src_dev, dst_dev = src.to(dev), dst.to(dev)
     eff_cpu = eff.cpu()
 
+    # the copy path: fused Triton when available, torch indexing otherwise.
+    # BOTH paths feed correctness (b) — the timed path is the checked path.
+    from mjolnir import qsa_gather
+
+    if qsa_gather.available():
+
+        def copy():
+            # one Triton launch per K/V; strides in bytes of the flat row view
+            kb, vb = k_pool.view(torch.uint8), v_pool.view(torch.uint8)
+            qsa_gather.gather_rows(kb, scratch_k.view(torch.uint8), src_dev, dst_dev, eff, kb.stride(1), kb.stride(2))
+            qsa_gather.gather_rows(vb, scratch_v.view(torch.uint8), src_dev, dst_dev, eff, vb.stride(1), vb.stride(2))
+
+        print("qsa copy path: triton (fused)")
+    else:
+
+        def copy():
+            qsa.scratch_copy(k_pool, scratch_k, src_dev, dst_dev, eff_cpu)
+            qsa.scratch_copy(v_pool, scratch_v, src_dev, dst_dev, eff_cpu)
+
+        print("qsa copy path: torch (no Triton)")
+
     tokens = batches * q_len
     query = (torch.randn(tokens, heads_q, headdim, generator=gen) * 0.5).to(torch.bfloat16).to(dev)
     out = torch.empty(tokens, heads_q, headdim, dtype=torch.bfloat16, device=dev)
@@ -278,8 +299,7 @@ def run_qsa_gather(
     assert err_full == 0.0, "full-selection scratch decode diverged from dense"
 
     # ---- correctness (b): partial selection vs the selection oracle ----
-    qsa.scratch_copy(k_pool, scratch_k, src_dev, dst_dev, eff_cpu)
-    qsa.scratch_copy(v_pool, scratch_v, src_dev, dst_dev, eff_cpu)
+    copy()
     plan = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
     runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
     runner.run(plan, query, out, scratch_k, scratch_v, one, one, softmax_scale)
@@ -331,10 +351,6 @@ def run_qsa_gather(
             times.append(s.elapsed_time(e) * 1000.0)
         times.sort()
         return times[len(times) // 2]
-
-    def copy():
-        qsa.scratch_copy(k_pool, scratch_k, src_dev, dst_dev, eff_cpu)
-        qsa.scratch_copy(v_pool, scratch_v, src_dev, dst_dev, eff_cpu)
 
     def gather_step():
         # re-plan every step: the honest per-step cost (serving rebuilds
