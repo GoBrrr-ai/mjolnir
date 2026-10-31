@@ -92,7 +92,9 @@ class MMADecodeKernel:
     """The traced CuTe kernel. The arg surface follows the shared runner
     packing."""
 
-    HEAD_DIM = 256  # Qwen3.8-27B's head size
+    HEAD_DIM = 256  # the default (Qwen3.8-27B's head size); the instance
+    # attr overrides per runner — hd128 supported (fp8), hd256 for fp6.
+    SUPPORTED_HEAD_SIZES = (128, 256)  # fp8; the e2m3 asserts 256 in __init__
     # The row capacity of the small (MT16/MT32) kernel: the dispatch serves
     # seqlen_q * g <= SMALL_ROWS and REFUSES beyond — the 64-row big kernel
     # is retired (Option C, 2026-10-30): the vLLM builder routes those steps
@@ -111,12 +113,22 @@ class MMADecodeKernel:
         page_size: int = 0,
         causal: bool = True,
         kv_format: str = "fp8",
+        head_size: int = 256,
     ):
         assert kv_format in ("fp8", "e2m3"), f"the MMA kernel takes fp8 or e2m3 KV, got {kv_format!r}"
         assert qhead_per_kvhead >= 1
+        # hd128 and hd256 are traced from the same D-parameterized body
+        # (the staging, the fragment counts and the PV ranges all read
+        # self.HEAD_DIM). fp6 stays hd256: the e2m3 D2 recipe's byte-lane
+        # phase is static per thread and assumes 64 groups per row.
+        if kv_format == "e2m3":
+            assert head_size == 256, f"the e2m3 KV serves head_size 256 only, got {head_size}"
+        else:
+            assert head_size in (128, 256), f"the Orin MMA kernel serves head_size 128/256, got {head_size}"
         self.g = qhead_per_kvhead
         self.page_size = page_size
         self.causal = bool(causal)
+        self.HEAD_DIM = head_size
         # fp6 e2m3: the rows are d*3/4 packed bytes (4 codes per 3 bytes,
         # LE); the values come from the 64-entry code->value LUT at the
         # dequant. Scales stay per (batch, kv_head) at the accumulator

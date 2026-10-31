@@ -63,6 +63,7 @@ class KernelKey:
     causal: bool
     q_descale: bool  # fp8 Q with per-(seq, head) descales
     kv_format: str = "fp8"  # fp8 | e2m3 (adds the code LUT arg)
+    head_size: int = 256  # the binary differs per D (the TVM-FFI dims bake it)
     # The TVM-FFI signature bakes every tensor dim, so the shapes the launch
     # will use are part of the key: one binary per (pool size, batch, table
     # stride). vLLM has one pool + a handful of capture sizes; the disk cache
@@ -134,8 +135,8 @@ class OrinDecodeRunner:
         self._variant = _mma_variant() + "+s5"  # the capacity joins below
         from mjolnir.arch.orin import mma as mma_kernel
 
-        assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
-            f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.HEAD_DIM} only"
+        assert head_size in mma_kernel.MMADecodeKernel.SUPPORTED_HEAD_SIZES, (
+            f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.SUPPORTED_HEAD_SIZES}, got {head_size}"
         )
         self._kernel_mod, self._kernel_cls = mma_kernel, mma_kernel.MMADecodeKernel
         assert num_heads % num_kv_heads == 0
@@ -315,6 +316,7 @@ class OrinDecodeRunner:
             causal=causal,
             q_descale=self.fp8_q,
             kv_format=self.kv_format,
+            head_size=self.d,
             num_pages=num_pages,
             batch=batch,
             max_blocks=max_blocks,
@@ -446,6 +448,7 @@ class OrinDecodeRunner:
                     page_size=self.page_size,
                     causal=key.causal,
                     kv_format=key.kv_format,
+                    head_size=key.head_size,
                 )
                 fn = cute.compile(kernel, *compile_args, options="--opt-level 2 --enable-tvm-ffi")
                 CACHE_STATS["compiled"] += 1
@@ -574,6 +577,7 @@ class OrinDecodeRunner:
                 self._cute(self._o_part, assumed_align=4),
                 self._cute(self._lse_part, assumed_align=4),
                 self._cute(out.view(-1), assumed_align=4),
+                self.d,  # the head size: the elements/thread = d/NUM_THREADS
                 Int32(ns),  # max_ns: the unroll bound (= ns_cap, runner-fixed)
                 Int32(ns),
                 Int32(rows),
