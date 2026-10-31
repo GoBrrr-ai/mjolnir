@@ -121,9 +121,12 @@ on sm_110 with stock vLLM 0.32.0 paths (Mjolnir image, `--enforce-eager`):
   `mjolnir.qsa_impl`): `MJOLNIR_ATTN_QSA=1` routes pure-decode steps
   through the tcgen05 scratch-gather (the measured 13.5×/11.7× path) and
   falls back to the stock Triton path for prefill/verify/mixed batches,
-  bf16 caches, or anything unexpected — announcing both. Device
-  validation of the swapped path is the remaining item (the stock-path
-  smoke above is the baseline it must reproduce).
+  bf16 caches, or anything unexpected — announcing both. **Device-validated
+  2026-10-31**: the fp8-cache fixture smoke shows the scratch-gather live in
+  real serving (`scratch-gather active (fp8, q_len=1, PS=800, …)` — note the
+  GDN hybrid forces the attention page size to the mamba page size, 800;
+  the gather reads it through the pool's own strides and lands the rows in
+  a 128-row scratch), byte-deterministic greedy output, zero engine errors.
 
 ## Release-day checklist
 
