@@ -148,6 +148,13 @@ class MMADecodeKernel:
         # the sV16 alias over the dead sQ, the 2-pair ring. The M=1-2
         # configuration of the dispatch above. MJOLNIR_REGPATH=0 opts out.
         self.regpath = os.environ.get("MJOLNIR_REGPATH", "1") != "0"
+        # The accumulator-chain re-economy (task/plan/fp8-longL-20261030/
+        # e10-acc2-design.md): drop the 64-reg Q-fragment hoist (re-extract
+        # Q from smem per stage), run the even/odd QK passes on TWO
+        # independent accumulators — the reference kernels' ILP pattern
+        # (FI FA2-TC, FA2-Ampere). Costs +16 KB smem (a real sV16; sQ must
+        # persist), saves ~48 regs. MJOLNIR_ACC2=1 opts in.
+        self.acc_split = os.environ.get("MJOLNIR_ACC2", "") == "1"
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -1027,7 +1034,14 @@ class MMADecodeKernel:
             # 49.5 KB dynamic; the fp8 stagings read through SWIZZLED
             # u16-pair views (the plain row-major view made every ldmatrix
             # an 8-way bank conflict at the 256B row stride).
-            sPad = smem.allocate_tensor(cutlass.BFloat16, cute.make_layout(SR * D // 2), byte_alignment=16)  # noqa: F841
+            # MJOLNIR_ACC2 (the accumulator-chain re-economy): the Q
+            # fragments are re-extracted per stage, so sQ must PERSIST —
+            # the sV16 becomes a real 16 KB tile and the sPad dies
+            # (57.5 KB dynamic; the freed ~48 regs fund the second
+            # accumulator chain). See task/plan/fp8-longL-20261030/
+            # e10-acc2-design.md.
+            if const_expr(not self.acc_split):
+                sPad = smem.allocate_tensor(cutlass.BFloat16, cute.make_layout(SR * D // 2), byte_alignment=16)  # noqa: F841
             sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
             sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
             sK8c = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
@@ -1048,7 +1062,14 @@ class MMADecodeKernel:
                 cute.recast_ptr(sK8.iterator, dtype=cutlass.BFloat16),
                 cute.tile_to_shape(bf16_atom, (SR, D // 2), (0, 1)),
             )
-            sV16 = cute.make_tensor(sQ.iterator, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)))
+            if const_expr(self.acc_split):
+                # ACC2: sQ persists (the per-stage Q re-extraction), so the
+                # V bf16 tile gets its own storage instead of the overlay.
+                sV16 = smem.allocate_tensor(
+                    cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)), byte_alignment=16
+                )
+            else:
+                sV16 = cute.make_tensor(sQ.iterator, cute.tile_to_shape(bf16_atom, (SR, D), (0, 1)))
             sV16u = cute.make_tensor(
                 cute.recast_ptr(sV16.iterator, dtype=cutlass.Uint32),
                 cute.tile_to_shape(u32_atom, (SR, D // 2), (0, 1)),
@@ -1207,7 +1228,7 @@ class MMADecodeKernel:
             tSrK = thr_mma.make_fragment_B(thr_mma.partition_B(sK16))
         tOrVt = thr_mma.make_fragment_B(thr_mma.partition_B(sVt))
         acc_S = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
-        if const_expr(not (rp)):
+        if const_expr(not (rp) or self.acc_split):
             acc_S2 = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, SR)), cutlass.Float32)
         acc_O = cute.make_rmem_tensor(thr_mma.partition_shape_C((MT, D)), cutlass.Float32)
         acc_O.fill(0.0)
@@ -1266,11 +1287,27 @@ class MMADecodeKernel:
         if const_expr(rp):
             # the u32 view of the K fragment: the even/odd dequant operates
             # on the register pairs (each = 2 fragment elements = 4 fp8 =
-            # 4 consecutive d of the pair's 2 view columns).
-            tSrKu = cute.make_tensor(
-                cute.recast_ptr(tSrK.iterator, dtype=cutlass.Uint32),
-                cute.make_layout(cute.size(tSrK) // 2),
-            )
+            # 4 consecutive d of the pair's 2 view columns). ACC2: the raw
+            # u32 gets its OWN storage (both dequant passes read it), plus
+            # a second fragment set for the odd pass and a u32 view onto it
+            # — the two accumulator chains' operands.
+            if const_expr(self.acc_split):
+                # tSrK holds the raw ldmatrix (its u32 view reads it); the
+                # odd pass gets a second fragment set + its u32 view.
+                tSrK2 = thr_mma.make_fragment_B(thr_mma.partition_B(sK8v))
+                tSrKeu = cute.make_tensor(
+                    cute.recast_ptr(tSrK.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(cute.size(tSrK) // 2),
+                )
+                tSrKu2 = cute.make_tensor(
+                    cute.recast_ptr(tSrK2.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(cute.size(tSrK2) // 2),
+                )
+            else:
+                tSrKu = cute.make_tensor(
+                    cute.recast_ptr(tSrK.iterator, dtype=cutlass.Uint32),
+                    cute.make_layout(cute.size(tSrK) // 2),
+                )
         else:
             tSrQ_copy = smem_thr_Q.retile(tSrQ)
         tSrK_copy = smem_thr_K.retile(tSrK)
@@ -1284,15 +1321,19 @@ class MMADecodeKernel:
             # the decoded m16k16 A map (the dbg36 recipe minus the warp
             # term: the (1,4,1) keeps every warp on m-atom 0). A generic
             # S2R copy atom's per-lane layout does not match the mma
-            # A-fragment, so the fill is manual.
+            # A-fragment, so the fill is manual. ACC2 re-runs this per
+            # stage (the fill body is emitted inside the stage loop; sQ
+            # persists there) — the DSL cannot trace a range_constexpr in
+            # a helper method, so the body is duplicated, not shared.
             tSrQ_even = cute.make_rmem_tensor(thr_mma.partition_shape_A((MT, D // 2)), cutlass.BFloat16)
             tSrQ_odd = cute.make_rmem_tensor(thr_mma.partition_shape_A((MT, D // 2)), cutlass.BFloat16)
-            for ks in cutlass.range_constexpr(D // 32):
-                for e in cutlass.range_constexpr(8):
-                    m = tidx % 32 // 4 + 8 * ((e // 2) % 2)
-                    j = 16 * ks + 2 * (tidx % 4) + (e % 2) + 8 * (e // 4)
-                    tSrQ_even[None, None, ks][e] = sQ[m, Int32(2) * j]
-                    tSrQ_odd[None, None, ks][e] = sQ[m, Int32(2) * j + 1]
+            if const_expr(not self.acc_split):
+                for ks in cutlass.range_constexpr(D // 32):
+                    for e in cutlass.range_constexpr(8):
+                        m = tidx % 32 // 4 + 8 * ((e // 2) % 2)
+                        j = 16 * ks + 2 * (tidx % 4) + (e % 2) + 8 * (e // 4)
+                        tSrQ_even[None, None, ks][e] = sQ[m, Int32(2) * j]
+                        tSrQ_odd[None, None, ks][e] = sQ[m, Int32(2) * j + 1]
         else:
             for k in cutlass.range_constexpr(D // 16):
                 cute.copy(smem_copy_Q, tSsQ[None, None, k], tSrQ_copy[None, None, k])
@@ -1366,6 +1407,20 @@ class MMADecodeKernel:
                 # the loop bottom.
                 par = 2 * (stage % 2)
                 cute.arch.cp_async_wait_group(1)
+                if const_expr(self.acc_split):
+                    # ACC2: rebuild the Q fragments for this stage — sQ is
+                    # persistent here (no ring aliasing), the fill is
+                    # stage-invariant work moved off the register budget.
+                    # (Duplicated body: the DSL cannot trace a
+                    # range_constexpr inside a helper method; the fresh
+                    # variable names avoid a type-unstable join against the
+                    # sQ fill's `m`/`e` at the dynamic-loop header.)
+                    for ks2 in cutlass.range_constexpr(D // 32):
+                        for e2 in cutlass.range_constexpr(8):
+                            mm = tidx % 32 // 4 + 8 * ((e2 // 2) % 2)
+                            jj = 16 * ks2 + 2 * (tidx % 4) + (e2 % 2) + 8 * (e2 // 4)
+                            tSrQ_even[None, None, ks2][e2] = sQ[mm, Int32(2) * jj]
+                            tSrQ_odd[None, None, ks2][e2] = sQ[mm, Int32(2) * jj + 1]
             else:
                 par = stage % 3
                 row0_next = cutlass.min((stage + 2) * SR, kv_len_c - 1)
@@ -1472,7 +1527,7 @@ class MMADecodeKernel:
                 tOsVt_sel = tOsVt
 
             acc_S.fill(0.0)
-            if const_expr(rp):
+            if const_expr(rp and not self.acc_split):
                 # the fragment ldmatrix follows the ring parity — this
                 # stage's fp8 K lives in buffer `par`; the partition is
                 # bound to a base pointer, so the source rotates too.
@@ -1499,6 +1554,31 @@ class MMADecodeKernel:
                     tSrKu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
                 for k in cutlass.range_constexpr(D // 32):
                     cute.gemm(tiled_mma, acc_S, tSrQ_odd[None, None, k], tSrK[None, None, k], acc_S)
+            elif const_expr(rp and self.acc_split):
+                # ACC2: ONE ldmatrix per chunk into tSrK; per element, the
+                # raw u32 feeds BOTH dequant recipes (read before the even
+                # overwrite) — the odd values land in the second fragment
+                # set. The two gemm chains then alternate per k-slice on
+                # INDEPENDENT accumulators — the same-chain spacing doubles.
+                # The fragment ldmatrix follows the ring parity (as above).
+                tSsK_cur = tSsK
+                if par == 2:
+                    tSsK_cur = tSsK_c
+                acc_S2.fill(0.0)
+                for k in cutlass.range_constexpr(D // 32):
+                    cute.copy(smem_copy_K, tSsK_cur[None, None, k], tSrK_copy[None, None, k])
+                for i in cutlass.range_constexpr(cute.size(tSrK) // 2):
+                    raw = tSrKeu[i]
+                    qp = (raw & 0x00FF00FF) << 8
+                    out = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                    tSrKeu[i] = cute.arch.fma_packed_bf16x2(out, _DEQ_BIAS, cutlass.Int32(0))
+                    out2 = (raw & _DEQ_MASK_SIGN) | ((raw & _DEQ_MASK_LSB) >> 4)
+                    tSrKu2[i] = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                for k in cutlass.range_constexpr(D // 32):
+                    cute.gemm(tiled_mma, acc_S, tSrQ_even[None, None, k], tSrK[None, None, k], acc_S)
+                    cute.gemm(tiled_mma, acc_S2, tSrQ_odd[None, None, k], tSrK2[None, None, k], acc_S2)
+                for i in cutlass.range_constexpr(cute.size(acc_S)):
+                    acc_S[i] = acc_S[i] + acc_S2[i]
             else:
                 acc_S2.fill(0.0)
                 for k in cutlass.range_constexpr(D // 16):

@@ -81,7 +81,10 @@ def _mma_variant() -> str:
 
     # MJOLNIR_MMA16 left the key with the big kernel's retirement (Option C):
     # the dispatch no longer reads it, so it cannot fork the generated code.
-    return ",".join(f"{k}={os.environ.get(k, '')}" for k in ("MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC"))
+    return ",".join(
+        f"{k}={os.environ.get(k, '')}"
+        for k in ("MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC", "MJOLNIR_ACC2")
+    )
 
 
 FP8_MAX = 448.0  # the e4m3 max — the dynamic Q quantization's scale divisor
