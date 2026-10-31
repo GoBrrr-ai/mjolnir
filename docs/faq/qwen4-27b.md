@@ -48,6 +48,12 @@ does not shrink" observation.
   proves that geometry kernel-vs-emulator at every context length. The
   gather decode (reading only the *selected* main-KV rows) is the follow-up
   kernel change, still behind the probe.
+- **`thor-qwen4-topk-sm110.patch`** — device-proven 2026-10-31: stock
+  v0.32.0's sparse-indexer decode top-k leads with `cooperative_topk`,
+  which **hard-fails on Thor** (16-block cluster vs max 8 → `EngineDeadError`
+  at the first decode step). The patch excludes sm_110 from that gate
+  (→ `persistent_topk`), same fix upstream applied for SM120. See
+  `docker/vllm-thor/PATCHES.md` ("Thor qwen4 topk sm110").
 
 One structural fact to know: **`--attention-backend` does not route the QSA
 layers.** `Qwen4ExpQSAAttention` hardcodes its own backend and impl
