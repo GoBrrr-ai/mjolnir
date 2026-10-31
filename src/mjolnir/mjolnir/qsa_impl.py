@@ -27,7 +27,7 @@ from __future__ import annotations
 import torch
 
 from mjolnir.arch.thor import qsa
-from mjolnir.arch.thor.runner import SUPPORTED_PAGE_SIZES, T5DecodeRunner
+from mjolnir.arch.thor.runner import T5DecodeRunner
 
 try:  # Triton ships with vLLM / torch on CUDA; the torch path is the fallback
     from mjolnir import qsa_gather
@@ -108,7 +108,7 @@ def build_impl_class() -> type:
                 """The stock derivation: (2, pages, PS, h_kv, 2d)-ish -> K, V
                 as (pages, PS, h_kv, d). Whatever the upstream layout, this is
                 the exact expression the stock Triton kernel consumes."""
-                key_cache, value_cache = kv_cache.transpose(1, 2).split(self.head_dim, dim=-1)
+                key_cache, value_cache = kv_cache.transpose(1, 2).split(self.head_size, dim=-1)
                 return key_cache, value_cache
 
             def _scale_bufs_for(self, layer, device: torch.device):
@@ -170,6 +170,9 @@ def build_impl_class() -> type:
                 output_block_scale=None,
             ) -> torch.Tensor:
                 num_tokens = attn_metadata.num_actual_tokens
+                # len(seq_lens) is the request count (the decode/prefill
+                # counters are QSA-builder-specific and unset here)
+                num_reqs = int(attn_metadata.seq_lens.shape[0])
                 # Guards → the stock Triton path. Prefill/verify/mixed batches
                 # have per-row selections the single scratch plan can't express;
                 # bf16 caches are not a kernel format.
@@ -182,7 +185,7 @@ def build_impl_class() -> type:
                     reason = f"cache dtype {self.kv_cache_dtype}"
                 elif query.dtype != torch.bfloat16:
                     reason = f"query dtype {query.dtype}"
-                elif num_tokens != attn_metadata.num_reqs:
+                elif num_tokens != num_reqs:
                     reason = "verify/mixed batch (per-row selections)"
                 elif num_tokens == 0:
                     reason = "empty batch"
@@ -202,7 +205,6 @@ def build_impl_class() -> type:
                         output_scale,
                         output_block_scale,
                     )
-                num_reqs = attn_metadata.num_reqs
                 key_cache, value_cache = self._split_cache(kv_cache)
                 if key_cache.ndim != 4 or value_cache.shape != key_cache.shape:
                     _note_fallback(f"unexpected cache layout {tuple(kv_cache.shape)}")
@@ -222,8 +224,16 @@ def build_impl_class() -> type:
                     key_cache = key_cache.view(torch.float8_e4m3fn)
                     value_cache = value_cache.view(torch.float8_e4m3fn)
                 page_size = key_cache.shape[1]
-                if page_size not in SUPPORTED_PAGE_SIZES or page_size % self._spec.ratio:
-                    _note_fallback(f"page size {page_size} unsupported")
+                # the POOL page size is free (the gather reads it through its
+                # own byte strides) — only ratio-divisibility matters, so a
+                # selected block never crosses a page. A GDN-hybrid stack
+                # forces this to the mamba page size (800 on the fixture),
+                # NOT a kernel size. The scratch stays at the kernel's 128.
+                if page_size % self._spec.ratio:
+                    _note_fallback(
+                        f"pool page size {page_size} not a multiple of the ratio"
+                        f" (kv_cache {tuple(kv_cache.shape)}, key {tuple(key_cache.shape)})"
+                    )
                     return super().forward_qsa(
                         layer,
                         query,
@@ -274,14 +284,17 @@ def build_impl_class() -> type:
                     )
 
                 # ---- runner + scratch (shared across layers, grow-on-demand) --
-                gkey = _geometry_key(layer, page_size, dev)
+                # the SCRATCH and the runner live at the kernel's page size
+                # (128); the POOL keeps its own (800 on a GDN hybrid)
+                kernel_ps = 128
+                gkey = _geometry_key(layer, kernel_ps, dev)
                 runner = _RUNNERS.get(gkey)
                 if runner is None:
                     runner = _RUNNERS[gkey] = T5DecodeRunner(
                         num_heads=self.num_heads,
                         num_kv_heads=self.num_kv_heads,
-                        head_size=self.head_dim,
-                        page_size=page_size,
+                        head_size=self.head_size,
+                        page_size=kernel_ps,
                         out_dtype=torch.bfloat16,
                         max_num_seqs=self._max_num_seqs,
                         max_q_len=1,
@@ -290,20 +303,20 @@ def build_impl_class() -> type:
                         device=dev,
                     )
                 scratch = _SCRATCHES.get(gkey)
-                pages_needed = int(((eff.to(torch.int64) + page_size - 1) // page_size).sum()) + 2
+                pages_needed = int(((eff.to(torch.int64) + kernel_ps - 1) // kernel_ps).sum()) + 2
                 if scratch is None or scratch.shape[0] < pages_needed:
                     # grow to the observed need (never shrinks); fp8 rows
                     scratch = _SCRATCHES[gkey] = torch.empty(
                         pages_needed,
-                        page_size,
+                        kernel_ps,
                         self.num_kv_heads,
-                        self.head_dim,
+                        self.head_size,
                         dtype=torch.float8_e4m3fn,
                         device=dev,
                     )
 
                 # ---- plan the scratch layout and the decode -------------------
-                # rows this step actually touches: sum(ceil(eff_i / PS)) pages
+                # rows this step actually touches: sum(ceil(eff_i / kernel_ps)) pages
                 pages_used = pages_needed - 2
                 scratch_k = scratch[:pages_used]
                 vkey = ("v", *gkey)
@@ -311,16 +324,18 @@ def build_impl_class() -> type:
                 if scratch_v is None or scratch_v.shape[0] < pages_needed:
                     scratch_v = _SCRATCHES[vkey] = torch.empty(
                         pages_needed,
-                        page_size,
+                        kernel_ps,
                         self.num_kv_heads,
-                        self.head_dim,
+                        self.head_size,
                         dtype=torch.float8_e4m3fn,
                         device=dev,
                     )
                 scratch_v = scratch_v[:pages_used]
 
                 bt_host = attn_metadata.block_table[:num_reqs].cpu()
-                src, dst, sbt, _pages_max = qsa.scratch_plan(sel, seq_lens_cpu, bt_host, spec, page_size)
+                src, dst, sbt, _pages_max = qsa.scratch_plan(
+                    sel, seq_lens_cpu, bt_host, spec, page_size, scratch_page_size=kernel_ps
+                )
                 src_dev, dst_dev = src.to(dev, non_blocking=True), dst.to(dev, non_blocking=True)
                 eff_dev = eff.to(dev, non_blocking=True)
                 sbt_dev = torch.zeros(num_reqs, sbt.shape[1], dtype=torch.int32, device=dev)
@@ -372,12 +387,12 @@ def build_impl_class() -> type:
                     scratch_v,
                     k_buf,
                     v_buf,
-                    self.head_dim**-0.5,
+                    self.head_size**-0.5,
                 )
 
                 # the stock Triton kernel applies the sigmoid output gate; the
                 # dense kernel does not — apply it here (fp32, like the kernel)
-                g = output_gate[:num_tokens].view(num_tokens, self.num_heads, self.head_dim)
+                g = output_gate[:num_tokens].view(num_tokens, self.num_heads, self.head_size)
                 output[:num_tokens].mul_(torch.sigmoid(g.to(torch.float32)).to(output.dtype))
                 return output
 

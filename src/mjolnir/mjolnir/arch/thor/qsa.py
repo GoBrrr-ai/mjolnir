@@ -115,6 +115,7 @@ def scratch_plan(
     block_table: torch.Tensor,
     spec: IndexerSpec,
     main_page_size: int,
+    scratch_page_size: int | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
     """Everything the scratch-gather copy and the follow-up dense decode need.
 
@@ -123,13 +124,17 @@ def scratch_plan(
     the scratch unchanged (zero traced-body changes for P0; the in-loader
     per-block TMA gather is the P2 refinement if ncu ever shows the copy).
 
-    Returns ``(src_rows, dst_rows, scratch_block_table, pages_per_seq_max)``:
+    ``main_page_size`` is the POOL's page size (a hybrid stack may force it
+    large — GDN mamba pages set the floor); ``scratch_page_size`` is the
+    kernel's (default: same as the pool). Returns
+    ``(src_rows, dst_rows, scratch_block_table, pages_per_seq_max)``:
     src_rows/dst_rows are (b, max_rows) int64 gather/scatter indices into
     the pool's and scratch's flat ``(pages * PS, ...)`` row space (rows
     beyond a sequence's count are -1: skip), and scratch_block_table is the
     (b, max_pages) int32 page table of the scratch pool.
     """
     spec.check_main_page_size(main_page_size)
+    sps = scratch_page_size or main_page_size
     b = selection_blocks.shape[0]
     srcs, dsts, pages_max = [], [], 0
     for i in range(b):
@@ -149,7 +154,7 @@ def scratch_plan(
                 src.append(page * main_page_size + tok0 % main_page_size + torch.arange(n_rows, dtype=torch.int64))
         src = torch.cat(src) if src else torch.empty(0, dtype=torch.int64)
         dst = torch.arange(len(src), dtype=torch.int64)
-        pages_max = max(pages_max, (len(src) + main_page_size - 1) // main_page_size)
+        pages_max = max(pages_max, (len(src) + sps - 1) // sps)
         srcs.append(src)
         dsts.append(dst)
     max_rows = max(1, max(len(s) for s in srcs))
@@ -160,8 +165,8 @@ def scratch_plan(
     for i in range(b):
         n = len(srcs[i])
         src_rows[i, :n] = srcs[i]
-        dst_rows[i, :n] = dsts[i] + start * main_page_size
-        n_pages = (n + main_page_size - 1) // main_page_size
+        dst_rows[i, :n] = dsts[i] + start * sps
+        n_pages = (n + sps - 1) // sps
         scratch_bt[i, :n_pages] = torch.arange(start, start + n_pages, dtype=torch.int32)
         start += n_pages
     return src_rows, dst_rows, scratch_bt, pages_max
