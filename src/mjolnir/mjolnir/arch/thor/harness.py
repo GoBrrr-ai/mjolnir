@@ -97,7 +97,9 @@ def emulate_decode(
                 or [torch.empty(0, dtype=torch.long)]
             )
             n_cols = len(rows)
-            pages_of_row, rows_in_page = rows // PS, rows % PS
+            # token row r of the sequence lives at pool page block_table[bi, r // PS]
+            pages_of_row = block_table[bi][rows // PS].long()
+            rows_in_page = rows % PS
             Kb = k_pool[pages_of_row, rows_in_page].permute(1, 0, 2)  # (h_k, n_cols, d)
             Vb = v_pool[pages_of_row, rows_in_page].permute(1, 0, 2)
             S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
