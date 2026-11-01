@@ -113,6 +113,21 @@ def make_case(
     kd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device)
     vd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device)
     qd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device) if fp8_q else None
+    if kv_dtype == "nvfp4":
+        # The per-token-head nvfp4 rows: [128 B data | 16 B e4m3 scales] =
+        # 144 B (hd 256). The scale is e4m3 BEFORE the code pick (the
+        # decode only ever sees the e4m3 scale — the kvfp4 reference
+        # rule); kd/vd stay 1.0, the scales ride the rows.
+        from mjolnir.kvfp4 import pack_rows, quantize_rows_reference
+
+        codes, gs = quantize_rows_reference(raw)
+        kv = pack_rows(codes, gs).to(torch.uint8).to(device)
+        kd = torch.ones(b, h_k, device=device)
+        vd = torch.ones(b, h_k, device=device)
+        if layout == "hnd":
+            kv = kv.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+            raw = raw.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+        return q, kv, table, seq_lens, qd, kd, vd, raw
     if kv_dtype == "e2m3":
         # Per-head scale = amax/7.5 (the kvfp6 calibration rule); the codes
         # pack 4-per-3-bytes LE. The ref dequantizes code_value * scale.
@@ -172,7 +187,7 @@ def check(args) -> bool:
         args.headdim,
         args.page_size,
         args.kv_dtype
-        if args.kv_dtype == "e2m3"
+        if args.kv_dtype in ("e2m3", "nvfp4")
         else (torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16),
         args.q_dtype == "fp8",
         seed=args.seed,
@@ -201,8 +216,16 @@ def check(args) -> bool:
     got = out.view(b, args.q_len, args.heads_q, args.headdim).float().cpu()
     # e2m3: the dequantized pool already carries the per-head scale, so the
     # ref sees identity descales (the kernel folds the scale via kd/vd).
+    # nvfp4: the same — the scales ride the 144-B rows; the ref dequantizes
+    # them with the exact pair semantics.
     if args.kv_dtype == "e2m3":
         pool_ref = _e2m3_dequant(kv.cpu(), args.headdim, kd.cpu()[0])
+        ref_kd = torch.ones_like(kd).cpu()
+        ref_vd = torch.ones_like(vd).cpu()
+    elif args.kv_dtype == "nvfp4":
+        from mjolnir.kvfp4 import decode_rows_reference
+
+        pool_ref = decode_rows_reference(kv.cpu(), args.headdim)
         ref_kd = torch.ones_like(kd).cpu()
         ref_vd = torch.ones_like(vd).cpu()
     else:
@@ -231,8 +254,8 @@ def check(args) -> bool:
     # the kernel vs attention over the UNQUANTIZED float pool. fp8 reports it
     # under --kv_from_float; e2m3 always (its pool is built from float);
     # bf16 is float — no error to report.
-    if args.kv_dtype == "e2m3" or (args.kv_dtype == "fp8" and args.kv_from_float):
-        if args.kv_dtype == "e2m3":
+    if args.kv_dtype in ("e2m3", "nvfp4") or (args.kv_dtype == "fp8" and args.kv_from_float):
+        if args.kv_dtype in ("e2m3", "nvfp4"):
             float_pool, f_kd, f_vd = raw.cpu(), torch.ones_like(kd).cpu(), torch.ones_like(vd).cpu()
         else:  # fp8: the random descales stay — the kernel sees dequant(kv) * kd
             float_pool, f_kd, f_vd = raw.cpu(), kd.cpu(), vd.cpu()
@@ -269,7 +292,7 @@ def bench(args) -> None:
         args.headdim,
         args.page_size,
         args.kv_dtype
-        if args.kv_dtype == "e2m3"
+        if args.kv_dtype in ("e2m3", "nvfp4")
         else (torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16),
         args.q_dtype == "fp8",
         seed=args.seed,
@@ -323,7 +346,11 @@ def bench(args) -> None:
             times.append(s.elapsed_time(e) / args.inner * 1000)  # us
     times.sort()
     med = times[len(times) // 2]
-    bytes_per_elem = 0.75 if args.kv_dtype == "e2m3" else (1 if args.kv_dtype == "fp8" else 2)
+    bytes_per_elem = (
+        0.5625
+        if args.kv_dtype == "nvfp4"
+        else (0.75 if args.kv_dtype == "e2m3" else (1 if args.kv_dtype == "fp8" else 2))
+    )
     kv_gb = seq_lens.sum().item() * 2 * args.heads_k * args.headdim * bytes_per_elem / 1e9
     gbps = kv_gb / (med / 1e6)
     print(
@@ -407,7 +434,7 @@ def main() -> int:
     p.add_argument("--heads_k", type=int, default=4)
     p.add_argument("--headdim", "--d", type=int, default=256)
     p.add_argument("--page_size", "--ps", type=int, default=16, choices=(16, 32, 64, 128))
-    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "e2m3"))
+    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "e2m3", "nvfp4"))
     p.add_argument(
         "--kv_layout",
         default="nhd",
