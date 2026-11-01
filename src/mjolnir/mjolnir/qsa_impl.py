@@ -106,9 +106,15 @@ def build_impl_class() -> type:
             # ---- helpers ----------------------------------------------------
 
             def _split_cache(self, kv_cache: torch.Tensor):
-                """The stock derivation: (2, pages, PS, h_kv, 2d)-ish -> K, V
-                as (pages, PS, h_kv, d). Whatever the upstream layout, this is
-                the exact expression the stock Triton kernel consumes."""
+                """The stock derivation: the pool (HND: (pages, h_kv, PS, 2d))
+                -> K, V views as (pages, PS, h_kv, d). NOTE the result is a
+                TRANSPOSE VIEW, not a contiguous (pages, PS, h_kv, d) tensor:
+                its stride(page) is h_kv * PS * stride(row), so a flat-row
+                index (page * PS + row) must NOT be multiplied by stride(row)
+                alone — pages >= 1 would read the wrong bytes when h_kv > 1
+                (the day-0 gather bug). The gather kernel takes the page
+                stride explicitly and decomposes; scratch_copy demands a
+                contiguous pool (tests/reference only)."""
                 key_cache, value_cache = kv_cache.transpose(1, 2).split(self.head_size, dim=-1)
                 return key_cache, value_cache
 
