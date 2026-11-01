@@ -69,7 +69,7 @@ def _retarget_flashinfer_arch() -> None:
     baked = os.environ.get("FLASHINFER_CUDA_ARCH_LIST")
     if baked is None:
         return  # nothing baked: FI already targets the device
-    for entry in baked.replace(",", " ").split():
+    for entry in baked.replace(",", " ").replace(";", " ").split():
         try:
             bm, bminor = entry.strip().split(".", 1)
         except ValueError:
