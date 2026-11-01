@@ -192,27 +192,6 @@ def scratch_copy(
             sf[dst_rows[i, :n].long()] = pf[src_rows[i, :n].long()]
 
 
-def indexer_seq_lens(seq_lens: torch.Tensor, spec: IndexerSpec) -> torch.Tensor:
-    """The indexer decode's ``seq_lens``: one KV row per compressed slot."""
-    return (seq_lens.to(torch.int64) + spec.ratio - 1).div(spec.ratio).to(torch.int32)
-
-
-def indexer_block_table(seq_lens: torch.Tensor, spec: IndexerSpec) -> torch.Tensor:
-    """(b, max_pages) int32 block table of a CONTIGUOUSLY appended indexer
-    pool: slots append in token order, so page ids are dense per sequence.
-    The real pool reuses freed pages; a device-side table replaces this in
-    the vLLM wiring (same shape contract)."""
-    pages_per_seq = [(spec.slots(int(L)) + spec.page_size - 1) // spec.page_size for L in seq_lens.tolist()]
-    max_pages = max(1, max(pages_per_seq))
-    out = torch.zeros(len(seq_lens), max_pages, dtype=torch.int32)
-    start = 0
-    for i, n in enumerate(pages_per_seq):
-        if n:
-            out[i, :n] = torch.arange(start, start + n, dtype=torch.int32)
-        start += n
-    return out
-
-
 def selection_runs(
     selected_blocks: torch.Tensor,
     seq_lens: torch.Tensor,

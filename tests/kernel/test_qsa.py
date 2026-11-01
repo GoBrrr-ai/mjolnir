@@ -121,15 +121,6 @@ def test_selection_runs_rejects_over_budget():
     raise AssertionError("selection over budget accepted")
 
 
-def test_indexer_shapes():
-    seq_lens = torch.tensor([128, 10, 2048])
-    assert qsa.indexer_seq_lens(seq_lens, SPEC).tolist() == [32, 3, 512]
-    bt = qsa.indexer_block_table(seq_lens, SPEC)
-    # contiguously appended pool: dense page ids per sequence
-    assert bt[0, 0].item() == 0 and bt[1, 0].item() == 1 and bt[2, 0].item() == 2
-    assert bt.shape[0] == 3 and bt.shape[1] >= SPEC.pool_pages(2048)
-
-
 def test_gate_defaults_off():
     saved = os.environ.pop("MJOLNIR_ATTN_QSA", None)
     try:
