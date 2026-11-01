@@ -76,7 +76,7 @@ mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3"
 ## Ideas to try
 
 - fp6 hd128: the e2m3 D2 recipe's byte-lane phase is static per thread (64 groups/row); a per-iteration phase would serve hd128's 32.
-- fp4 (e2m1) KV through the same LUT path — half the bytes of fp6 again; the accuracy needs finer scales (per-channel K folded into Q, per-token V into P).
+- fp4 (e2m1) KV — measured and refuted on this board (2026-11-01): the 4-bit dequant cost exceeds the byte cut in every arrangement (tile, fragment, and the mixed fp8-K/fp4-V); the formats shipped in `4b3ace5`/`fe84d72` and were removed in `6163b85`. A revival needs hardware fp4 (sm_110+) or a vLLM cache-format change.
 
 Found something? Open a PR with the raw JSON from `benchmarks/raw/verify/` — see [CONTRIBUTING](../../../../.github/CONTRIBUTING.md).
 
