@@ -301,10 +301,15 @@ def bench(args) -> None:
     # at small L; the kernel number needs back-to-back replays.
     from mjolnir.arch.orin import runner as _R
 
+    from mjolnir.arch.orin.runner import _stream
+
     key = runner._key(args.q_len, not args.non_causal, kv.shape[0], b, table.shape[1])
     fn = _R._COMPILED[key]
     ns = runner.ns_cap if runner.split else 1
-    launch = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns)
+    # the trailing stream arg is part of the launch contract (run() appends
+    # it); a 15-arg call rides a TVM-FFI fallback whose arity differs per
+    # binary — one geometry accepted it, another raised "Expects 16".
+    launch = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns, _stream())
     times = []
     for i in range(args.warmup + args.iters):
         torch.cuda.synchronize()
@@ -328,6 +333,49 @@ def bench(args) -> None:
     )
     # The shared verify stage code parses this canonical line (stages._MEDIAN).
     print(f"median {med:.2f} us, {gbps:.3g} GB/s (prebuilt launches, b={b}, M={args.q_len})")
+
+    # The device truth: the graphed pipeline (fill_cu + decode + combine)
+    # captured K launches deep and replayed back-to-back — the per-launch
+    # cost vLLM's CUDA graphs actually pay. The prebuilt line above brackets
+    # ONE eager launch per window, so it carries the host submit floor
+    # (~30 us on this board) on top of the kernel; the eager `full` line
+    # adds the python arg packing. Neither is the serving number.
+
+    key = runner._key(args.q_len, not args.non_causal, kv.shape[0], b, table.shape[1])
+    gfn = _R._COMPILED[key]
+    gbase = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns)
+    plan_seq = plan.seq_lens
+
+    def graphed_step():
+        runner._fill_cu(plan_seq, b)
+        gfn(*gbase, _stream())
+        if runner.split:
+            runner._combine(b, args.q_len, out)
+
+    KG = 32
+    for _ in range(3):
+        graphed_step()
+    torch.cuda.synchronize()
+    g = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(g):
+        for _ in range(KG):
+            graphed_step()
+    for _ in range(args.warmup):
+        g.replay()
+    torch.cuda.synchronize()
+    gt = []
+    for _ in range(args.iters):
+        s, e = torch.cuda.Event(True), torch.cuda.Event(True)
+        s.record()
+        g.replay()
+        e.record()
+        torch.cuda.synchronize()
+        gt.append(s.elapsed_time(e) * 1000 / KG)
+    gt.sort()
+    print(
+        f"graphed median {gt[len(gt) // 2]:.2f} us, {kv_gb / (gt[len(gt) // 2] / 1e6):.3g} GB/s "
+        f"(graphed pipeline x{KG}, b={b}, M={args.q_len})"
+    )
 
     # The full serving path (arg packing + the LSE combine): back-to-back
     # runner.run() calls, one event pair each -- the honest per-call cost
@@ -395,6 +443,20 @@ def main() -> int:
     args = p.parse_args()
     assert args.q_dtype == "bf16", "the mma kernel takes a bf16 query (the fp8-Q pack path is not wired; M3)"
     assert args.ctas_per_sm == 2, "the Orin mma grid is pinned at 2 CTAs/SM (255 regs + the smem bind)"
+    from mjolnir.arch.orin import mma as _mma
+
+    rows = args.q_len * (args.heads_q // args.heads_k)
+    if rows > _mma.MMADecodeKernel.SMALL_ROWS:
+        # Option C: the big kernel is retired — a direct kernel call at this
+        # shape is unsupported BY DESIGN. Serving routes the step to the
+        # fallback backend (FlashInfer) with NO error; the harness has no
+        # fallback to drive, so report the routing and exit clean.
+        print(
+            f"skipped: q_len {args.q_len} x g {args.heads_q // args.heads_k} = {rows} rows > "
+            f"{_mma.MMADecodeKernel.SMALL_ROWS} — the big kernel is retired; serving routes "
+            f"this shape to the fallback backend (MJOLNIR_ATTN_FALLBACK) with no error"
+        )
+        return 0
     ok = True
     if args.sweep:
         for ps in (16, 32, 64, 128):

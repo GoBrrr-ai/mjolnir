@@ -63,6 +63,7 @@ class KernelKey:
     causal: bool
     q_descale: bool  # fp8 Q with per-(seq, head) descales
     kv_format: str = "fp8"  # fp8 | e2m3 (adds the code LUT arg)
+    head_size: int = 256  # the binary differs per D (the TVM-FFI dims bake it)
     # The TVM-FFI signature bakes every tensor dim, so the shapes the launch
     # will use are part of the key: one binary per (pool size, batch, table
     # stride). vLLM has one pool + a handful of capture sizes; the disk cache
@@ -79,9 +80,18 @@ class KernelKey:
 def _mma_variant() -> str:
     import os
 
+    # MJOLNIR_MMA16 left the key with the big kernel's retirement (Option C):
+    # the dispatch no longer reads it, so it cannot fork the generated code.
     return ",".join(
         f"{k}={os.environ.get(k, '')}"
-        for k in ("MJOLNIR_MMA16", "MJOLNIR_REGCAP", "MJOLNIR_REGPATH", "MJOLNIR_WARPSPEC")
+        for k in (
+            "MJOLNIR_REGCAP",
+            "MJOLNIR_REGPATH",
+            "MJOLNIR_WARPSPEC",
+            "MJOLNIR_SLICEQ",
+            "MJOLNIR_DUMP_S",
+            "MJOLNIR_S_PP",
+        )
     )
 
 
@@ -117,16 +127,23 @@ class OrinDecodeRunner:
         # gathers read the pool through the view's own (dynamic) strides --
         # the pre-s2 binaries hardcoded the flat contiguous layout and read
         # garbage from vLLM's interleaved pool (orin1, the stride probe).
-        # s3: the M-tile dispatch defaults ON (mma.py reads MJOLNIR_MMA16 /
-        # MJOLNIR_REGPATH as opt-OUT now) -- same env string, different
-        # code, so the pre-s3 binaries are orphaned too.
-        self._variant = _mma_variant() + "+s4"  # read once: _key() is per call
+        # s3: the M-tile dispatch defaults ON (the small tiles) -- same env
+        # string, different code, so the pre-s3 binaries are orphaned too.
         # s4: MJOLNIR_WARPSPEC joined the variant key (the B1 warp-spec
-        # kernels must not reuse the pre-s4 binaries).
+        # kernels must not reuse the pre-s4 binaries). s5: the big kernel
+        # RETIRED (Option C) — the dispatch refuses rows > SMALL_ROWS and
+        # MJOLNIR_MMA16 left the variant key; same-env pre-s5 entries must
+        # not resurface. The split CAPACITY rides the key too (appended
+        # once ns_cap is resolved below): it is baked into the TVM-FFI
+        # signature (the partial shapes, the grid.y) but is not a KernelKey
+        # field — without it, two configs with different
+        # MJOLNIR_ATTN_MAX_SPLITS sharing a cache dir would silently load
+        # each other's wrong-capacity binary.
+        self._variant = _mma_variant() + "+s5"  # the capacity joins below
         from mjolnir.arch.orin import mma as mma_kernel
 
-        assert head_size == mma_kernel.MMADecodeKernel.HEAD_DIM, (
-            f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.HEAD_DIM} only"
+        assert head_size in mma_kernel.MMADecodeKernel.SUPPORTED_HEAD_SIZES, (
+            f"the Orin MMA kernel serves head_size {mma_kernel.MMADecodeKernel.SUPPORTED_HEAD_SIZES}, got {head_size}"
         )
         self._kernel_mod, self._kernel_cls = mma_kernel, mma_kernel.MMADecodeKernel
         assert num_heads % num_kv_heads == 0
@@ -181,6 +198,7 @@ class OrinDecodeRunner:
         if split_cap > 0:
             auto = min(auto, split_cap)
         self.ns_cap = max_splits if max_splits > 0 else max(1, auto)
+        self._variant = self._variant + f"+ns{self.ns_cap}"  # read once: _key() is per call
         # The mma kernel always uses the fixed split-KV grid and writes
         # partials, so the combine must ALWAYS run -- it is exact at ns=1
         # (one partial merges to itself). With split tied to ns_cap>1 the
@@ -216,6 +234,16 @@ class OrinDecodeRunner:
         self._combine_fns: dict = {}  # (b, ql) -> the fused combine (combine.py)
 
     # ------------------------------------------------------------------ plan
+    def can_implement(self, q_len: int) -> bool:
+        """The builder's kernel-step gate: the small kernel serves
+        ``seqlen_q * g`` rows up to :attr:`MMADecodeKernel.SMALL_ROWS` (32);
+        larger verify shapes (K>=5 drafts on the g=6 model) REFUSE and the
+        vLLM backend routes the step to the fallback backend — the 64-row
+        big kernel is retired (Option C, 2026-10-30). Duck-typed by the
+        shared builder (``getattr(runner, "can_implement", None)``): the
+        Thor runner has no such cap."""
+        return q_len * self.h_r <= self._kernel_cls.SMALL_ROWS
+
     def n_tiles(self, q_len: int) -> int:
         """The t5 runner's tile count has no meaning here; 1 CTA covers all
         M rows of a (kv_head, chunk). Kept for surface parity."""
@@ -295,6 +323,7 @@ class OrinDecodeRunner:
             causal=causal,
             q_descale=self.fp8_q,
             kv_format=self.kv_format,
+            head_size=self.d,
             num_pages=num_pages,
             batch=batch,
             max_blocks=max_blocks,
@@ -426,6 +455,7 @@ class OrinDecodeRunner:
                     page_size=self.page_size,
                     causal=key.causal,
                     kv_format=key.kv_format,
+                    head_size=key.head_size,
                 )
                 fn = cute.compile(kernel, *compile_args, options="--opt-level 2 --enable-tvm-ffi")
                 CACHE_STATS["compiled"] += 1
@@ -456,7 +486,17 @@ class OrinDecodeRunner:
         The TVM-FFI signature bakes tensor shapes, so the dummies must match
         the shapes the launch will use: pass the pool size, the batch (the
         graph-capture size) and the block-table stride. run() compiles on
-        miss for eager calls; capture paths must precompile per shape."""
+        miss for eager calls; capture paths must precompile per shape.
+
+        Refused shapes (``not can_implement(q_len)`` — the retired big
+        kernel) raise here: the builder must have routed the step to the
+        fallback before planning."""
+        if not self.can_implement(q_len):
+            raise NotImplementedError(
+                f"q_len {q_len} x g {self.h_r} = {q_len * self.h_r} rows > "
+                f"{self._kernel_cls.SMALL_ROWS}: the big kernel is retired — "
+                "the builder must route this step to the fallback backend"
+            )
         key = self._key(q_len, causal, num_pages, batch, max_blocks)
         if key in _COMPILED:
             return
@@ -478,22 +518,27 @@ class OrinDecodeRunner:
         torch.cuda.synchronize(dev)
 
     def precompile(self, q_lens=None):
-        """Compile every variant this runner can launch."""
+        """Compile every variant this runner can launch. Shapes the kernel
+        refuses (rows > SMALL_ROWS — the retired big kernel) are skipped:
+        the builder routes those steps to the fallback."""
         for ql in q_lens or range(1, self.max_q_len + 1):
-            self.ensure_compiled(ql)
+            if self.can_implement(ql):
+                self.ensure_compiled(ql)
         torch.cuda.synchronize(self.device)
 
     # ---------------------------------------------------------------- launch
     def _scale_buf(self, buf: torch.Tensor, b: int, scale: torch.Tensor) -> torch.Tensor:
         """vLLM's (1,)/(h_k,)/(b, h_k) descale -> the kernel's (b, h_k) view,
-        as one captured broadcast copy."""
+        as one captured broadcast copy. No intermediate allocs: a scalar
+        rides copy_'s broadcast directly (ones_like * scale allocated a
+        fresh device tensor every call)."""
         view = buf[:b]
         if scale.dim() == 0 or scale.numel() == 1:
-            view.copy_(torch.ones_like(view) * scale.reshape(()))
+            view.copy_(scale.detach().reshape(()).float())
         elif scale.dim() == 1 and scale.shape[0] == self.h_k:
-            view.copy_(scale.unsqueeze(0).expand(b, self.h_k))
+            view.copy_(scale.detach().float().unsqueeze(0).expand(b, self.h_k))
         else:
-            view.copy_(scale.reshape(b, self.h_k))
+            view.copy_(scale.detach().reshape(b, self.h_k).float())
         return view
 
     def _pack_q(self, q3: torch.Tensor, b: int, ql: int) -> torch.Tensor:
@@ -539,6 +584,7 @@ class OrinDecodeRunner:
                 self._cute(self._o_part, assumed_align=4),
                 self._cute(self._lse_part, assumed_align=4),
                 self._cute(out.view(-1), assumed_align=4),
+                self.d,  # the head size: the elements/thread = d/NUM_THREADS
                 Int32(ns),  # max_ns: the unroll bound (= ns_cap, runner-fixed)
                 Int32(ns),
                 Int32(rows),

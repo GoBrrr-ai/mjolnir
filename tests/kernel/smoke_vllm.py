@@ -197,7 +197,7 @@ def child(args) -> None:
         "dtype": "bfloat16",
         "enforce_eager": args.eager,
         "max_model_len": args.max_model_len,
-        "gpu_memory_utilization": args.gpu_mem,
+        "gpu_memory_utilization": _fit_gpu_mem(args.gpu_mem),
         "max_num_seqs": max(16, len(PROMPTS)),
         "seed": 0,
     }
@@ -258,7 +258,7 @@ def calibrate(args, out: str) -> str:
         "--max-model-len",
         str(args.max_model_len),
         "--gpu-mem",
-        str(args.gpu_mem),
+        str(_fit_gpu_mem(args.gpu_mem)),
         "--prompts",
         "48",
         "--long",
@@ -312,13 +312,35 @@ def run_child(args, backend, out):
         return json.load(f)
 
 
+def _fit_gpu_mem(requested: float) -> float:
+    """The device-memory fraction vLLM may claim. A fixed fraction is a
+    board-shaped guess (0.15 assumed the Thor's 122 GiB), and one derived
+    in a parent process goes stale by the time a later child boots (the
+    co-tenant's allocation breathes; a sibling leg's teardown lags). 0
+    (the default) derives it FRESH IN EACH PROCESS from what is actually
+    free at boot — 60% of it, capped at 0.15 — so the desired budget can
+    never exceed the free pool the boot itself observes. An explicit
+    value wins."""
+    if requested > 0.0:
+        return requested
+    import torch
+
+    free, total = torch.cuda.mem_get_info()
+    return min(0.15, 0.6 * free / total)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3-0.6B")
     ap.add_argument("--reference", default="FLASHINFER")
     ap.add_argument("--max_tokens", type=int, default=128)
     ap.add_argument("--max_model_len", type=int, default=4096)
-    ap.add_argument("--gpu_mem", type=float, default=0.15)  # Thor: 0.15 x 122 GiB ~ 18 GiB
+    ap.add_argument(
+        "--gpu_mem",
+        type=float,
+        default=0.0,
+        help="vLLM gpu_memory_utilization; 0 = fit to the free VRAM (60%% of it, cap 0.15)",
+    )
     ap.add_argument("--eager", action="store_true")
     ap.add_argument("--spec", type=int, default=0, help="ngram speculative tokens (0 = off)")
     ap.add_argument("--kv", default="fp8", help="Mjolnir's KV cache dtype: fp8 | fp6_e2m3 (the reference stays fp8)")

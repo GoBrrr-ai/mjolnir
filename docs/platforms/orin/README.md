@@ -11,9 +11,11 @@ The `sm_87` mma kernel — a CuTe-DSL port of NVIDIA's Ampere FlashAttention-2
 example, restructured for paged decode — targets AGX Orin 64GB (16 SMs,
 204.8 GB/s of LPDDR5, 4 MB L2) and serves fp8 and fp6 (`e2m3`) KV; it is
 serving-validated and measured against the FlashInfer FA2-TC reference, with
-the chapters quantifying where it stands. Open: the mma serves head_size 256
-only (the hd128 gap is the top integration item), and PDL does not exist on
-Ampere.
+the chapters quantifying where it stands. hd128 shipped — the mma serves
+fp8 KV at head dim 128 and 256 from one D-parameterized body (kernel,
+runner, and the split-KV combine all take the head size). Open: fp6 stays
+hd256-only (the e2m3 recipe's static byte-lane phase assumes 64 groups per
+row), and PDL does not exist on Ampere.
 
 
 
@@ -33,7 +35,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
     <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
   </thead>
   <tbody>
-    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.0 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">448.7 t/s</span></td></tr>
+    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.5 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">449.3 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
@@ -47,7 +49,7 @@ from raw results in [`benchmarks/raw/verify/`](../../../benchmarks/raw/verify/)
 by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
-**Where it stands:** 1.14× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261030-162038`.
+**Where it stands:** 1.18× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261031-200707`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -63,8 +65,8 @@ reproduces it.
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261030-140528` |
-| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261030-162038` |
+| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261031-200054` |
+| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261031-200707` |
 | 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261030-141453` |
 | 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261030-151506` |
 | 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261030-153729` |
@@ -95,15 +97,15 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 
 | L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
 |---|--:|--:|--:|
-| **128** | **69.2&nbsp;µs** | 106.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.54\times}}$ |
-| **4K** | **87.4&nbsp;µs** | 131.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.50\times}}$ |
-| **8K** | 136.3&nbsp;µs | **135.7&nbsp;µs** | $\color{grey}{1.00\times}$ |
-| **16K** | **229.2&nbsp;µs** | 229.7&nbsp;µs | $\color{grey}{1.00\times}$ |
-| **32K** | **417.6&nbsp;µs** | 434.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.04\times}}$ |
-| **64K** | **791.3&nbsp;µs** | 838.9&nbsp;µs | $\color{#16a34a}{\mathbf{1.06\times}}$ |
-| **128K** | **1.54&nbsp;ms** | 1.64&nbsp;ms | $\color{#16a34a}{\mathbf{1.07\times}}$ |
-| **256K** | **3.04&nbsp;ms** | 3.31&nbsp;ms | $\color{#16a34a}{\mathbf{1.09\times}}$ |
-| geomean |  |  | $\color{#16a34a}{\mathbf{1.14\times}}$ |
+| **128** | **66.6&nbsp;µs** | 118.2&nbsp;µs | $\color{#16a34a}{\mathbf{1.78\times}}$ |
+| **4K** | **88.7&nbsp;µs** | 130.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.47\times}}$ |
+| **8K** | **137.0&nbsp;µs** | 144.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.05\times}}$ |
+| **16K** | 231.0&nbsp;µs | **230.0&nbsp;µs** | $\color{grey}{1.00\times}$ |
+| **32K** | **416.5&nbsp;µs** | 431.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.03\times}}$ |
+| **64K** | **790.5&nbsp;µs** | 860.5&nbsp;µs | $\color{#16a34a}{\mathbf{1.09\times}}$ |
+| **128K** | **1.54&nbsp;ms** | 1.66&nbsp;ms | $\color{#16a34a}{\mathbf{1.08\times}}$ |
+| **256K** | **3.03&nbsp;ms** | 3.37&nbsp;ms | $\color{#16a34a}{\mathbf{1.11\times}}$ |
+| geomean |  |  | $\color{#16a34a}{\mathbf{1.18\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
@@ -128,9 +130,9 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 18.4 → **23.0** $\color{#16a34a}{\text{+24.6\\%}}$ | — | 4,713 → **4,628** $\color{grey}{\text{−1.8\\%}}$ | 54.5 → **43.8** $\color{#16a34a}{\text{−19.7\\%}}$ |
+| no ctx | 1 | 18.4 → **23.5** $\color{#16a34a}{\text{+27.4\\%}}$ | — | 4,713 → **4,647** $\color{grey}{\text{−1.4\\%}}$ | 54.5 → **43.2** $\color{#16a34a}{\text{−20.8\\%}}$ |
 | 4K | 1 | 17.7 → **21.2** $\color{#16a34a}{\text{+19.7\\%}}$ | 469 → **472** $\color{grey}{\text{+0.6\\%}}$ | 13,320 → **13,255** $\color{grey}{\text{−0.5\\%}}$ | 57.1 → **47.9** $\color{#16a34a}{\text{−16.1\\%}}$ |
-| 8K | 1 | 18.6 → **23.6** $\color{#16a34a}{\text{+26.9\\%}}$ | 448 → **449** $\color{grey}{\text{+0.2\\%}}$ | 23,072 → **23,047** $\color{grey}{\text{−0.1\\%}}$ | 54.4 → **42.7** $\color{#16a34a}{\text{−21.6\\%}}$ |
+| 8K | 1 | 18.6 → **24.1** $\color{#16a34a}{\text{+30.0\\%}}$ | 448 → **449** $\color{grey}{\text{+0.3\\%}}$ | 23,072 → **23,015** $\color{grey}{\text{−0.2\\%}}$ | 54.4 → **42.1** $\color{#16a34a}{\text{−22.8\\%}}$ |
 | 16K | 1 | 17.3 → **22.3** $\color{#16a34a}{\text{+28.3\\%}}$ | 428 → **428** $\color{grey}{\text{−0.0\\%}}$ | 43,274 → **43,305** $\color{grey}{\text{+0.1\\%}}$ | 58.3 → **45.4** $\color{#16a34a}{\text{−22.1\\%}}$ |
 | 32K | 1 | 16.6 → **22.4** $\color{#16a34a}{\text{+34.7\\%}}$ | 395 → **393** $\color{grey}{\text{−0.4\\%}}$ | 88,381 → **88,742** $\color{grey}{\text{+0.4\\%}}$ | 60.5 → **44.7** $\color{#16a34a}{\text{−26.1\\%}}$ |
 | no ctx | 2 | 32.2 → **37.7** $\color{#16a34a}{\text{+17.1\\%}}$ | — | 8,981 → **8,810** $\color{grey}{\text{−1.9\\%}}$ | 59.2 → **48.3** $\color{#16a34a}{\text{−18.4\\%}}$ |
