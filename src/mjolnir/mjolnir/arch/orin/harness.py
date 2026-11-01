@@ -113,6 +113,23 @@ def make_case(
     kd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device)
     vd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device)
     qd = (1.0 + torch.rand(b, h_k, generator=gen)).to(device) if fp8_q else None
+    if kv_dtype == "mjfp8fp4":
+        # the MIXED: the K rows are fp8 e4m3 (256 B), the V rows nvfp4
+        # ([128 B data | 16 B e4m3 scales] = 144 B). The returned kv is a
+        # (kv_k, kv_v) pair — the callers unpack. The K's descales keep
+        # the random values (the fp8 semantics: the kernel folds them);
+        # the V's stay 1.0 (the scales ride the 144-B rows).
+        from mjolnir.kvfp4 import pack_rows, quantize_rows_reference
+
+        codes, gs = quantize_rows_reference(raw)
+        kv_v = pack_rows(codes, gs).to(torch.uint8).to(device)
+        kv_k = raw.to(torch.float8_e4m3fn).to(device)
+        vd = torch.ones(b, h_k, device=device)  # the V's scales ride the 144-B rows
+        if layout == "hnd":
+            kv_k = kv_k.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+            kv_v = kv_v.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+            raw = raw.permute(0, 2, 1, 3).contiguous().permute(0, 2, 1, 3)
+        return q, (kv_k, kv_v), table, seq_lens, qd, kd, vd, raw
     if kv_dtype == "nvfp4":
         # The per-token-head nvfp4 rows: [128 B data | 16 B e4m3 scales] =
         # 144 B (hd 256). The scale is e4m3 BEFORE the code pick (the
@@ -187,13 +204,17 @@ def check(args) -> bool:
         args.headdim,
         args.page_size,
         args.kv_dtype
-        if args.kv_dtype in ("e2m3", "nvfp4")
+        if args.kv_dtype in ("e2m3", "nvfp4", "mjfp8fp4")
         else (torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16),
         args.q_dtype == "fp8",
         seed=args.seed,
         device=dev,
         layout=args.kv_layout,
     )
+    if args.kv_dtype == "mjfp8fp4":
+        kv_k, kv_v = kv  # the mixed returns the (kv_k, kv_v) pair
+    else:
+        kv_k = kv_v = kv
     b = args.batches
     scale = 1.0 / math.sqrt(args.headdim)
     runner = OrinDecodeRunner(
@@ -212,30 +233,42 @@ def check(args) -> bool:
     plan = runner.plan(seq_lens.tolist(), b, args.q_len, table, seq_lens, causal=not args.non_causal)
     q_tokens = q.view(b * args.q_len, args.heads_q, args.headdim)
     out = torch.empty_like(q_tokens, dtype=torch.bfloat16)
-    runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)
+    runner.run(plan, q_tokens, out, kv_k, kv_v, kd, vd, scale, q_scale=qd)
     got = out.view(b, args.q_len, args.heads_q, args.headdim).float().cpu()
     # e2m3: the dequantized pool already carries the per-head scale, so the
     # ref sees identity descales (the kernel folds the scale via kd/vd).
     # nvfp4: the same — the scales ride the 144-B rows; the ref dequantizes
-    # them with the exact pair semantics.
+    # them with the exact pair semantics. mjfp8fp4: the K keeps the fp8
+    # semantics (the random kd; the ref sees the e4m3 pool), the V the
+    # nvfp4 ones (the identity vd; the ref sees the dequantized rows).
     if args.kv_dtype == "e2m3":
         pool_ref = _e2m3_dequant(kv.cpu(), args.headdim, kd.cpu()[0])
         ref_kd = torch.ones_like(kd).cpu()
         ref_vd = torch.ones_like(vd).cpu()
+        pool_k_ref = pool_v_ref = pool_ref
     elif args.kv_dtype == "nvfp4":
         from mjolnir.kvfp4 import decode_rows_reference
 
         pool_ref = decode_rows_reference(kv.cpu(), args.headdim)
         ref_kd = torch.ones_like(kd).cpu()
         ref_vd = torch.ones_like(vd).cpu()
+        pool_k_ref = pool_v_ref = pool_ref
+    elif args.kv_dtype == "mjfp8fp4":
+        from mjolnir.kvfp4 import decode_rows_reference
+
+        pool_k_ref = kv_k.cpu()
+        pool_v_ref = decode_rows_reference(kv_v.cpu(), args.headdim)
+        ref_kd = kd.cpu()
+        ref_vd = torch.ones_like(vd).cpu()
     else:
         pool_ref = kv.cpu()
         ref_kd = kd.cpu()
         ref_vd = vd.cpu()
+        pool_k_ref = pool_v_ref = pool_ref
     ref = ref_decode(
         q.float().cpu(),
-        pool_ref,
-        pool_ref,
+        pool_k_ref,
+        pool_v_ref,
         table.cpu(),
         seq_lens.cpu(),
         qd.cpu() if qd is not None else None,  # fp8 Q: the kernel's scale_eff folds it
@@ -254,15 +287,19 @@ def check(args) -> bool:
     # the kernel vs attention over the UNQUANTIZED float pool. fp8 reports it
     # under --kv_from_float; e2m3 always (its pool is built from float);
     # bf16 is float — no error to report.
-    if args.kv_dtype in ("e2m3", "nvfp4") or (args.kv_dtype == "fp8" and args.kv_from_float):
-        if args.kv_dtype in ("e2m3", "nvfp4"):
+    if args.kv_dtype in ("e2m3", "nvfp4", "mjfp8fp4") or (args.kv_dtype == "fp8" and args.kv_from_float):
+        if args.kv_dtype in ("e2m3", "nvfp4", "mjfp8fp4"):
             float_pool, f_kd, f_vd = raw.cpu(), torch.ones_like(kd).cpu(), torch.ones_like(vd).cpu()
+            float_k, float_v = float_pool, float_pool
+            if args.kv_dtype == "mjfp8fp4":
+                f_kd = kd.cpu()  # the K's fp8 descales stay; the V's rows carry the scales
         else:  # fp8: the random descales stay — the kernel sees dequant(kv) * kd
             float_pool, f_kd, f_vd = raw.cpu(), kd.cpu(), vd.cpu()
+            float_k = float_v = float_pool
         ref_true = ref_decode(
             q.float().cpu(),
-            float_pool,
-            float_pool,
+            float_k,
+            float_v,
             table.cpu(),
             seq_lens.cpu(),
             None,
@@ -292,13 +329,17 @@ def bench(args) -> None:
         args.headdim,
         args.page_size,
         args.kv_dtype
-        if args.kv_dtype in ("e2m3", "nvfp4")
+        if args.kv_dtype in ("e2m3", "nvfp4", "mjfp8fp4")
         else (torch.float8_e4m3fn if args.kv_dtype == "fp8" else torch.bfloat16),
         args.q_dtype == "fp8",
         seed=args.seed,
         device=dev,
         layout=args.kv_layout,
     )
+    if args.kv_dtype == "mjfp8fp4":
+        kv_k, kv_v = kv  # the mixed returns the (kv_k, kv_v) pair
+    else:
+        kv_k = kv_v = kv
     b = args.batches
     scale = 1.0 / math.sqrt(args.headdim)
     runner = OrinDecodeRunner(
@@ -317,7 +358,7 @@ def bench(args) -> None:
     plan = runner.plan(seq_lens.tolist(), b, args.q_len, table, seq_lens)
     q_tokens = q.view(b * args.q_len, args.heads_q, args.headdim)
     out = torch.empty_like(q_tokens, dtype=torch.bfloat16)
-    runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)  # compile
+    runner.run(plan, q_tokens, out, kv_k, kv_v, kd, vd, scale, q_scale=qd)  # compile
     torch.cuda.synchronize()
     # Time the compiled launch with PREBUILT args: the serving path's python
     # (arg packing, the combine) is real cost but dominates the measurement
@@ -326,13 +367,13 @@ def bench(args) -> None:
 
     from mjolnir.arch.orin.runner import _stream
 
-    key = runner._key(args.q_len, not args.non_causal, kv.shape[0], b, table.shape[1])
+    key = runner._key(args.q_len, not args.non_causal, kv_k.shape[0], b, table.shape[1])
     fn = _R._COMPILED[key]
     ns = runner.ns_cap if runner.split else 1
     # the trailing stream arg is part of the launch contract (run() appends
     # it); a 15-arg call rides a TVM-FFI fallback whose arity differs per
     # binary — one geometry accepted it, another raised "Expects 16".
-    launch = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns, _stream())
+    launch = (*runner._torch_args(key, b, q_tokens, out, kv_k, kv_v, table), scale * math.log2(math.e), ns, _stream())
     times = []
     for i in range(args.warmup + args.iters):
         torch.cuda.synchronize()
@@ -346,11 +387,12 @@ def bench(args) -> None:
             times.append(s.elapsed_time(e) / args.inner * 1000)  # us
     times.sort()
     med = times[len(times) // 2]
-    bytes_per_elem = (
-        0.5625
-        if args.kv_dtype == "nvfp4"
-        else (0.75 if args.kv_dtype == "e2m3" else (1 if args.kv_dtype == "fp8" else 2))
-    )
+    bytes_per_elem = {
+        "nvfp4": 0.5625,
+        "mjfp8fp4": 0.78125,  # (256 K + 144 V) / 2 tensors / 256 ch
+        "e2m3": 0.75,
+        "fp8": 1.0,
+    }.get(args.kv_dtype, 2.0)
     kv_gb = seq_lens.sum().item() * 2 * args.heads_k * args.headdim * bytes_per_elem / 1e9
     gbps = kv_gb / (med / 1e6)
     print(
@@ -368,9 +410,9 @@ def bench(args) -> None:
     # (~30 us on this board) on top of the kernel; the eager `full` line
     # adds the python arg packing. Neither is the serving number.
 
-    key = runner._key(args.q_len, not args.non_causal, kv.shape[0], b, table.shape[1])
+    key = runner._key(args.q_len, not args.non_causal, kv_k.shape[0], b, table.shape[1])
     gfn = _R._COMPILED[key]
-    gbase = (*runner._torch_args(key, b, q_tokens, out, kv, kv, table), scale * math.log2(math.e), ns)
+    gbase = (*runner._torch_args(key, b, q_tokens, out, kv_k, kv_v, table), scale * math.log2(math.e), ns)
     plan_seq = plan.seq_lens
 
     def graphed_step():
@@ -408,13 +450,13 @@ def bench(args) -> None:
     # runner.run() calls, one event pair each -- the honest per-call cost
     # vLLM would pay, python included. Parsed by stages._FULL_MEDIAN.
     for _ in range(args.warmup):
-        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)
+        runner.run(plan, q_tokens, out, kv_k, kv_v, kd, vd, scale, q_scale=qd)
     torch.cuda.synchronize()
     full_times = []
     for _ in range(args.iters):
         s, e = torch.cuda.Event(True), torch.cuda.Event(True)
         s.record()
-        runner.run(plan, q_tokens, out, kv, kv, kd, vd, scale, q_scale=qd)
+        runner.run(plan, q_tokens, out, kv_k, kv_v, kd, vd, scale, q_scale=qd)
         e.record()
         torch.cuda.synchronize()
         full_times.append(s.elapsed_time(e) * 1000)
@@ -434,7 +476,7 @@ def main() -> int:
     p.add_argument("--heads_k", type=int, default=4)
     p.add_argument("--headdim", "--d", type=int, default=256)
     p.add_argument("--page_size", "--ps", type=int, default=16, choices=(16, 32, 64, 128))
-    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "e2m3", "nvfp4"))
+    p.add_argument("--kv_dtype", "--kv_format", default="fp8", choices=("fp8", "e2m3", "nvfp4", "mjfp8fp4"))
     p.add_argument(
         "--kv_layout",
         default="nhd",

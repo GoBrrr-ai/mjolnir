@@ -86,6 +86,10 @@ class DescaleTensors(NamedTuple):
 _DEQ_MASK_LSB = cutlass.Int32(0x7F007F00)
 _DEQ_MASK_SIGN = cutlass.Int32(0x80008000)
 _DEQ_BIAS = cutlass.Int32(0x7B807B80)
+# the marlin kFE2M1f bf16 denormal-bias: the pair of 2^126 (the bf16
+# 0x7E80) — the raw [s|em<<6] construction times this = the true e2m1
+# value (the P1 reference, fp4_reference.py decode_marlin).
+_BF16_2P126 = cutlass.Int32(0x7E807E80)
 
 
 class MMADecodeKernel:
@@ -115,7 +119,9 @@ class MMADecodeKernel:
         kv_format: str = "fp8",
         head_size: int = 256,
     ):
-        assert kv_format in ("fp8", "e2m3", "nvfp4"), f"the MMA kernel takes fp8/e2m3/nvfp4 KV, got {kv_format!r}"
+        assert kv_format in ("fp8", "e2m3", "nvfp4", "mjfp8fp4"), (
+            f"the MMA kernel takes fp8/e2m3/nvfp4/mjfp8fp4 KV, got {kv_format!r}"
+        )
         assert qhead_per_kvhead >= 1
         # hd128 and hd256 are traced from the same D-parameterized body
         # (the staging, the fragment counts and the PV ranges all read
@@ -143,11 +149,22 @@ class MMADecodeKernel:
         # kFE2M1f bf16 recipe (the P1 reference, fp4_reference.py) — pure
         # ALU, no LUT.
         self.fp4 = kv_format == "nvfp4"
+        # the MIXED format `mjfp8fp4` (the fp8 K + the nvfp4 V): the K rides
+        # the register path (the fragments — no L1 wall), the V rides the
+        # tile path (the proven session-1 kernel). The V's bytes halve;
+        # the K's stay. CAMPAIGN.md §9.
+        self.kfp8_vfp4 = kv_format == "mjfp8fp4"
+        # the tensors carrying the nvfp4 row layout (the 144-B rows, the
+        # scale plane riding the row's last 16 B)
+        self.v_fp4 = self.fp4 or self.kfp8_vfp4
         self.row_bytes = (
             self.HEAD_DIM * 3 // 4
             if self.fp6
             else (self.HEAD_DIM // 2 + self.HEAD_DIM // 16 if self.fp4 else self.HEAD_DIM)
         )
+        # the V's row bytes: the fp4 tensors carry 144 (hd 256); the K's
+        # row_bytes above is the K-side width (256 for the fp8/mixed).
+        self.row_bytes_v = self.HEAD_DIM // 2 + self.HEAD_DIM // 16 if self.v_fp4 else self.row_bytes
         # The M-tile dispatch: MT=16 (the (1,4,1) N-split arrangement) for
         # q_len <= 2 and MT=32 for q_len <= 5. The 64-row tile made the
         # P/softmax/HMMA work per KV byte 4x FlashInfer's at M=1 (the
@@ -197,9 +214,10 @@ class MMADecodeKernel:
         self.s_pp = os.environ.get("MJOLNIR_S_PP", "") == "1" and self.regpath and not self.fp6 and not self.slice_q
         # The fp4 guards: hd 256 only (the 144-B row = 9 g2s chunks; hd 128
         # gives 72 = 4.5 chunks — the 16-B cp.async chunking breaks), and
-        # the warp-spec bank is P4 (the V-only bank on the fp4 base).
-        assert not self.fp4 or self.HEAD_DIM == 256, "nvfp4 serves head_size 256 only (the 144-B row)"
-        assert not (self.fp4 and self.warpspec), "the fp4 warp-spec bank is P4 (the V-only bank)"
+        # the warp-spec bank is P4 (the V-only bank on the fp4 base). The
+        # mixed mjfp8fp4 carries fp4 V rows — both guards apply to it too.
+        assert not self.v_fp4 or self.HEAD_DIM == 256, "nvfp4 serves head_size 256 only (the 144-B row)"
+        assert not (self.v_fp4 and self.warpspec), "the fp4 warp-spec bank is P4 (the V-only bank)"
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -225,7 +243,7 @@ class MMADecodeKernel:
     ):
         # e2m3: the 64-entry code -> value LUT is required (the dequant);
         # fp8 needs none.
-        assert const_expr(mCodeLUT is not None) == (self.fp6 or self.fp4), (
+        assert const_expr(mCodeLUT is not None) == (self.fp6 or self.v_fp4), (
             "mCodeLUT is the e2m3/nvfp4 marker (the fp4 pair-LUT: the data pairs 0-255, the scale pairs 256-511)"
         )
         assert const_expr(1 <= seqlen_q <= self.MAX_Q_LEN), (
@@ -339,7 +357,13 @@ class MMADecodeKernel:
         # the scale plane rides the row verbatim) — the cp.async chunks are
         # byte-addressed either way, and every format's row % 16 == 0.
         row_ck = self.row_bytes // 16
-        if const_expr(self.fp4):  # noqa: SIM108 -- the comment rides the branch
+        if const_expr(self.kfp8_vfp4):
+            # mjfp8fp4: the single-format loop below is skipped (dck = 0);
+            # the dedicated K and V passes run instead — the K rows are
+            # fp8 (16 chunks/row, 512 = 128 x 4 exact) and the V rows are
+            # nvfp4 (8 data chunks + the 32-chunk scale tail).
+            dck = 0
+        elif const_expr(self.fp4):
             # nvfp4: 32 rows x 9 chunks is not divisible by the 128
             # threads (2.25) — the 8 data chunks per row (256 = 128 x 2)
             # loop exactly and the 32 scale chunks go one per thread in
@@ -420,7 +444,131 @@ class MMADecodeKernel:
                 cute.copy(g2s_atom, k_src, k_dst)
             if const_expr(with_v):
                 cute.copy(g2s_atom, v_src, v_dst)
-        if const_expr(self.fp4):  # noqa: SIM102 -- the dynamic tidx guard nests
+        if const_expr(self.kfp8_vfp4):
+            # mjfp8fp4 passes (the copy bodies duplicated per the ACC2
+            # rule — the DSL cannot trace a range_constexpr inside a
+            # helper method). K: the fp8 rows, 16 chunks each, the flat
+            # chunk index = e16 (the divisible identity). V: the nvfp4
+            # rows, 8 data chunks each at the 144-B stride, then the
+            # scale-plane tail.
+            dck_k = self.row_bytes // 16  # 16 — the fp8 row, no scale plane
+            dck_v = self.row_bytes_v // 16 - 1  # 8 — the nvfp4 data chunks
+            for i in cutlass.range_constexpr(SR * dck_k // NT):
+                e16 = tidx + i * NT
+                r = e16 // dck_k
+                ck = (e16 % dck_k) * 16
+                gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
+                if const_expr(mPageTable is not None):
+                    page = mPageTable[batch_idx, gk_row // self.page_size]
+                    rowin = gk_row % self.page_size
+                    kv_base = cute.crd2idx((page, rowin, kv_head, 0), mK.layout)
+                else:
+                    kv_base = (kv_row0 + gk_row) * num_head_kv + kv_head
+                kdst = sK8a.iterator
+                if buf == 1:
+                    kdst = sK8b.iterator
+                if buf == 2:
+                    kdst = sK8c.iterator
+                if const_expr(k_dst_view is None):
+                    koff = (kdst + e16 * 16).toint()
+                else:
+                    koff = (kdst + Int32(2) * cute.crd2idx((r, ck // 2), k_dst_view.layout)).toint()
+                k_src = cute.make_tensor(
+                    cute.make_ptr(
+                        mK.element_type,
+                        (mK.iterator + kv_base + ck).toint(),
+                        cute.AddressSpace.gmem,
+                        assumed_align=16,
+                    ),
+                    cute.make_layout(16),
+                )
+                k_dst = cute.make_tensor(
+                    cute.make_ptr(
+                        mK.element_type,
+                        koff,
+                        cute.AddressSpace.smem,
+                        assumed_align=16,
+                    ),
+                    cute.make_layout(16),
+                )
+                if const_expr(with_k):
+                    cute.copy(g2s_atom, k_src, k_dst)
+            for i in cutlass.range_constexpr(SR * dck_v // NT):
+                e16 = tidx + i * NT
+                r = e16 // dck_v
+                ck = (e16 % dck_v) * 16
+                e16s = r * (dck_v + 1) + e16 % dck_v
+                gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
+                if const_expr(mPageTable is not None):
+                    page = mPageTable[batch_idx, gk_row // self.page_size]
+                    rowin = gk_row % self.page_size
+                    kv_base_v = cute.crd2idx((page, rowin, kv_head, 0), mV.layout)
+                else:
+                    kv_base_v = (kv_row0 + gk_row) * num_head_kv + kv_head
+                vdst = sV8a.iterator
+                if buf == 1:
+                    vdst = sV8b.iterator
+                if buf == 2:
+                    vdst = sV8c.iterator
+                v_src = cute.make_tensor(
+                    cute.make_ptr(
+                        mV.element_type,
+                        (mV.iterator + kv_base_v + ck).toint(),
+                        cute.AddressSpace.gmem,
+                        assumed_align=16,
+                    ),
+                    cute.make_layout(16),
+                )
+                v_dst = cute.make_tensor(
+                    cute.make_ptr(
+                        mV.element_type,
+                        (vdst + e16s * 16).toint(),
+                        cute.AddressSpace.smem,
+                        assumed_align=16,
+                    ),
+                    cute.make_layout(16),
+                )
+                if const_expr(with_v):
+                    cute.copy(g2s_atom, v_src, v_dst)
+            if tidx < SR:
+                # the V's scale-plane tail: the row tidx's bytes [128, 144)
+                # -> the flat chunk (dck_v+1)*tidx + dck_v.
+                e16 = tidx * (dck_v + 1) + dck_v
+                r = tidx
+                ck = dck_v * 16
+                gk_row = cutlass.min(kv_start + row0 + r, kv_start + kv_len_c - 1)
+                if const_expr(mPageTable is not None):
+                    page = mPageTable[batch_idx, gk_row // self.page_size]
+                    rowin = gk_row % self.page_size
+                    kv_base_v = cute.crd2idx((page, rowin, kv_head, 0), mV.layout)
+                else:
+                    kv_base_v = (kv_row0 + gk_row) * num_head_kv + kv_head
+                vdst = sV8a.iterator
+                if buf == 1:
+                    vdst = sV8b.iterator
+                if buf == 2:
+                    vdst = sV8c.iterator
+                v_src = cute.make_tensor(
+                    cute.make_ptr(
+                        mV.element_type,
+                        (mV.iterator + kv_base_v + ck).toint(),
+                        cute.AddressSpace.gmem,
+                        assumed_align=16,
+                    ),
+                    cute.make_layout(16),
+                )
+                v_dst = cute.make_tensor(
+                    cute.make_ptr(
+                        mV.element_type,
+                        (vdst + e16 * 16).toint(),
+                        cute.AddressSpace.smem,
+                        assumed_align=16,
+                    ),
+                    cute.make_layout(16),
+                )
+                if const_expr(with_v):
+                    cute.copy(g2s_atom, v_src, v_dst)
+        elif const_expr(self.fp4):
             # the nvfp4 scale-plane tail pass: one 16-B chunk per thread —
             # the row tidx's bytes [128, 144) land at the staging's flat
             # chunk 9*tidx + 8 (the byte 144*tidx + 128). Same clamp and
@@ -587,6 +735,48 @@ class MMADecodeKernel:
                     v1 = mCodeLUT[(b >> 4) & 0xF]
                     pair = cute.arch.prmt(v0, v1, 0x5410)
                     dst_v[r, 4 * w + p] = cute.arch.fma_packed_bf16x2(pair, scale_v, cutlass.Int32(0)).bitcast(
+                        cutlass.Uint32
+                    )
+        elif const_expr(self.kfp8_vfp4):
+            # mjfp8fp4: the K dequantizes via the fp8 recipe (srcu_k — the
+            # register path reads the fragments, no sK16 store when rp),
+            # the V via the nvfp4 pair-LUT (srcw_v, the sLut4 smem table).
+            # Two dedicated loops (the different unit sizes: the fp8's
+            # 4-value units vs the fp4's 8-code words); the bodies
+            # duplicated per the ACC2 rule.
+            for i in cutlass.range_constexpr(self.STAGE_ROWS * self.HEAD_DIM // ntd // 4):
+                e4 = (tidx + i * ntd) * 4
+                r = e4 // self.HEAD_DIM
+                c = e4 % self.HEAD_DIM
+                if const_expr(not rp):
+                    qk = srcu_k[e4 // 4]
+                    qp = cute.arch.prmt(qk, qk, 0x1302)
+                    out1 = (qp & _DEQ_MASK_SIGN) | ((qp & _DEQ_MASK_LSB) >> 4)
+                    out2 = ((qp << 8) & _DEQ_MASK_SIGN) | (((qp << 8) & _DEQ_MASK_LSB) >> 4)
+                    out1 = cute.arch.fma_packed_bf16x2(out1, _DEQ_BIAS, cutlass.Int32(0))
+                    out2 = cute.arch.fma_packed_bf16x2(out2, _DEQ_BIAS, cutlass.Int32(0))
+                    dst_k[r, c // 2] = out1.bitcast(cutlass.Uint32)
+                    dst_k[r, c // 2 + 1] = out2.bitcast(cutlass.Uint32)
+            WPR = self.HEAD_DIM // 8  # the data words per V row (32 at hd 256)
+            for i in cutlass.range_constexpr(self.STAGE_ROWS * WPR // ntd):
+                fw = tidx + i * ntd
+                r = fw // WPR
+                w = fw % WPR  # the in-row word — static per thread
+                wk = r * (self.row_bytes_v // 4) + w
+                ws = r * (self.row_bytes_v // 4) + WPR + w // 8
+                xv = srcw_v[wk]
+                qv_s = cute.arch.prmt(srcw_v[ws], srcw_v[ws], ((w // 2) % 4) * 0x1010)
+                s_outv = (qv_s & _DEQ_MASK_SIGN) | ((qv_s & _DEQ_MASK_LSB) >> 4)
+                scale_v = cute.arch.fma_packed_bf16x2(s_outv, _DEQ_BIAS, cutlass.Int32(0))
+                # the pure-ALU marlin construction (no LUT gathers — they
+                # were the mixed's entire L1 delta): per byte, the raw
+                # [s<<15 | em<<6] pair build, the 2^126 bias HMUL2, then
+                # the scale HMUL2 (the P1-verified two-multiply form).
+                for p in cutlass.range_constexpr(4):
+                    b = cute.arch.prmt(xv, xv, p * 0x1111)
+                    out = ((b & 0x8) << 12) | ((b & 0x7) << 6) | ((b & 0x80) << 24) | (((b >> 4) & 0x7) << 22)
+                    out = cute.arch.fma_packed_bf16x2(out, _BF16_2P126, cutlass.Int32(0))
+                    dst_v[r, 4 * w + p] = cute.arch.fma_packed_bf16x2(out, scale_v, cutlass.Int32(0)).bitcast(
                         cutlass.Uint32
                     )
         else:
@@ -1272,6 +1462,22 @@ class MMADecodeKernel:
                 cutlass.BFloat16, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)), byte_alignment=16
             )
             sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
+            if const_expr(self.v_fp4):
+                # the mjfp8fp4 register path: the K fragments dequant via
+                # the fp8 recipe (format-free), the V via the nvfp4 tile
+                # path — the smem LUT (the prologue fill; the stage loop's
+                # first barrier orders it) + the V word views (36 words/
+                # row over the SR*D tile — the reads stay bounded by the
+                # dequant's wk/ws).
+                sLut4 = smem.allocate_tensor(cutlass.Int32, cute.make_layout(16), byte_alignment=16)
+                if tidx < 16:
+                    sLut4[tidx] = mCodeLUT[tidx]
+                sV8w = cute.make_tensor(
+                    cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes_v // 4)
+                )
+                sV8bw = sV8cw = cute.make_tensor(
+                    cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32), cute.make_layout(SR * self.row_bytes_v // 4)
+                )
         else:
             sK8 = smem.allocate_tensor(mK.element_type, cute.make_layout(SR * D), byte_alignment=16)
             sV8 = smem.allocate_tensor(mV.element_type, cute.make_layout(SR * D), byte_alignment=16)
@@ -1350,7 +1556,7 @@ class MMADecodeKernel:
                 # follow it, and the next dequant waits behind the post-PV barrier.
                 sP = cute.make_tensor(sK16.iterator, cute.tile_to_shape(bf16_atom, (MT, SR), (0, 1)))
             sStat = smem.allocate_tensor(cutlass.Float32, cute.make_layout(4 * MT * 2), byte_alignment=16)
-            if const_expr(self.fp4):
+            if const_expr(self.v_fp4):
                 # the 16-entry true-value e2m1 LUT in smem: 64 B (the u32
                 # slots, the value in the low half — the 4-B stride keeps
                 # the gather at a 2-way bank conflict worst case). Filled
@@ -1360,18 +1566,19 @@ class MMADecodeKernel:
                 sLut4 = smem.allocate_tensor(cutlass.Int32, cute.make_layout(16), byte_alignment=16)
                 if tidx < 16:
                     sLut4[tidx] = mCodeLUT[tidx]
-            if const_expr(self.fp4):
+            if const_expr(self.v_fp4):
                 # the nvfp4 word views: the dequant reads the staging as
                 # u32 words — 36 per row (32 data + 4 scale, the scale
-                # plane rides the row's last 16 B). Same shape contract
-                # as the fp6 views.
+                # plane rides the row's last 16 B). The K-side views use
+                # self.row_bytes (the fp4 rows); the mixed's K is fp8 and
+                # never reads them. Same shape contract as the fp6 views.
                 sK8w = cute.make_tensor(
                     cute.recast_ptr(sK8.iterator, dtype=cutlass.Uint32),
                     cute.make_layout(SR * self.row_bytes // 4),
                 )
                 sV8w = cute.make_tensor(
                     cute.recast_ptr(sV8.iterator, dtype=cutlass.Uint32),
-                    cute.make_layout(SR * self.row_bytes // 4),
+                    cute.make_layout(SR * self.row_bytes_v // 4),
                 )
                 sK8bw = cute.make_tensor(
                     cute.recast_ptr(sK8b.iterator, dtype=cutlass.Uint32),
@@ -1379,7 +1586,7 @@ class MMADecodeKernel:
                 )
                 sV8bw = cute.make_tensor(
                     cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32),
-                    cute.make_layout(SR * self.row_bytes // 4),
+                    cute.make_layout(SR * self.row_bytes_v // 4),
                 )
                 sK8cw = cute.make_tensor(
                     cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32),
@@ -1387,7 +1594,7 @@ class MMADecodeKernel:
                 )
                 sV8cw = cute.make_tensor(
                     cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32),
-                    cute.make_layout(SR * self.row_bytes // 4),
+                    cute.make_layout(SR * self.row_bytes_v // 4),
                 )
             elif const_expr(self.fp6):
                 # the D1 word views: the group's 3 packed bytes always sit
@@ -1409,7 +1616,7 @@ class MMADecodeKernel:
                 )
                 sV8bw = cute.make_tensor(
                     cute.recast_ptr(sV8b.iterator, dtype=cutlass.Uint32),
-                    cute.make_layout(SR * self.row_bytes // 4),
+                    cute.make_layout(SR * self.row_bytes_v // 4),
                 )
                 sK8cw = cute.make_tensor(
                     cute.recast_ptr(sK8c.iterator, dtype=cutlass.Uint32),
@@ -1417,7 +1624,7 @@ class MMADecodeKernel:
                 )
                 sV8cw = cute.make_tensor(
                     cute.recast_ptr(sV8c.iterator, dtype=cutlass.Uint32),
-                    cute.make_layout(SR * self.row_bytes // 4),
+                    cute.make_layout(SR * self.row_bytes_v // 4),
                 )
         sVt = cute.composition(sV16, cute.make_layout((D, SR), stride=(SR, 1)))
         if const_expr(ws):
@@ -1839,6 +2046,19 @@ class MMADecodeKernel:
                     if par == 2:
                         srcw_k, srcw_v = sK8cw, sV8cw
                     self._dequant_tile(srcw_k, srcw_v, None, None, sK16u, sV16u, tidx, NT, rp, sLut4)
+                elif const_expr(self.kfp8_vfp4):
+                    # mjfp8fp4: the K via the fp8 u32 views (the register
+                    # path reads the fragments at MT=16), the V via the
+                    # nvfp4 word views + the smem LUT.
+                    srcu_k = sK8u
+                    srcw_v = sV8w
+                    if par == 1:
+                        srcu_k = sK8bu
+                        srcw_v = sV8bw
+                    if par == 2:
+                        srcu_k = sK8cu
+                        srcw_v = sV8cw
+                    self._dequant_tile(None, srcw_v, srcu_k, None, None if rp else sK16u, sV16u, tidx, NT, rp, sLut4)
                 else:
                     # rp: no bf16 K tile exists (the register-K) — dst_k is
                     # never touched (the method's const_expr(not rp) guard).
