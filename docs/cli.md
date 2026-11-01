@@ -42,6 +42,8 @@
 | [`mjolnir verify quant`](#mjolnir-verify-quant) | Accuracy per KV format: relative L2 error vs attention over unquantized KV. |
 | [`mjolnir verify ring`](#mjolnir-verify-ring) | KV ring depth (TMA → MMA stages) at every L. |
 | [`mjolnir verify prefetch`](#mjolnir-verify-prefetch) | TMA L2-prefetch distance sweep. |
+| [`mjolnir verify qsa`](#mjolnir-verify-qsa) | Qwen4 QSA readiness: the indexer decode (MQA 4x128 over the compressed pool) kernel-vs-emulator at every L — the MJOLNIR_ATTN_QSA probe. |
+| [`mjolnir verify qsagain`](#mjolnir-verify-qsagain) | QSA gather decision experiment: dense decode vs copy-selected-rows + the same kernel on the scratch, per L (the go/no-go for the gather path). |
 | [`mjolnir verify pdl`](#mjolnir-verify-pdl) | Programmatic dependent launch on/off (wall clock). |
 | [`mjolnir verify ab`](#mjolnir-verify-ab) | A/B any harness flag sets (ncu + wall clock). Default: the platform's own A/B — the Thor launch knobs (evict-first × PDL) / the Orin KV formats. |
 | [`mjolnir verify fp6prof`](#mjolnir-verify-fp6prof) | Full ncu profiles per KV format (bytes vs requests vs time, warp stalls). |
@@ -536,7 +538,7 @@ detection confidence and one provenance line per source that probed.
 
 Kernel correctness + benchmarks (Mjolnir vs FlashInfer vs FA4 hd256), saved as raw data for the charts.
 
-Sub-commands: [`mjolnir verify correctness`](#mjolnir-verify-correctness), [`mjolnir verify sweep`](#mjolnir-verify-sweep), [`mjolnir verify hndsweep`](#mjolnir-verify-hndsweep), [`mjolnir verify kvfmt`](#mjolnir-verify-kvfmt), [`mjolnir verify quant`](#mjolnir-verify-quant), [`mjolnir verify ring`](#mjolnir-verify-ring), [`mjolnir verify prefetch`](#mjolnir-verify-prefetch), [`mjolnir verify pdl`](#mjolnir-verify-pdl), [`mjolnir verify ab`](#mjolnir-verify-ab), [`mjolnir verify fp6prof`](#mjolnir-verify-fp6prof), [`mjolnir verify timing`](#mjolnir-verify-timing), [`mjolnir verify profile`](#mjolnir-verify-profile), [`mjolnir verify spec`](#mjolnir-verify-spec), [`mjolnir verify kv-cache-size`](#mjolnir-verify-kv-cache-size), [`mjolnir verify vllm`](#mjolnir-verify-vllm), [`mjolnir verify bench`](#mjolnir-verify-bench), [`mjolnir verify all`](#mjolnir-verify-all), [`mjolnir verify show`](#mjolnir-verify-show), [`mjolnir verify list`](#mjolnir-verify-list).
+Sub-commands: [`mjolnir verify correctness`](#mjolnir-verify-correctness), [`mjolnir verify sweep`](#mjolnir-verify-sweep), [`mjolnir verify hndsweep`](#mjolnir-verify-hndsweep), [`mjolnir verify kvfmt`](#mjolnir-verify-kvfmt), [`mjolnir verify quant`](#mjolnir-verify-quant), [`mjolnir verify ring`](#mjolnir-verify-ring), [`mjolnir verify prefetch`](#mjolnir-verify-prefetch), [`mjolnir verify qsa`](#mjolnir-verify-qsa), [`mjolnir verify qsagain`](#mjolnir-verify-qsagain), [`mjolnir verify pdl`](#mjolnir-verify-pdl), [`mjolnir verify ab`](#mjolnir-verify-ab), [`mjolnir verify fp6prof`](#mjolnir-verify-fp6prof), [`mjolnir verify timing`](#mjolnir-verify-timing), [`mjolnir verify profile`](#mjolnir-verify-profile), [`mjolnir verify spec`](#mjolnir-verify-spec), [`mjolnir verify kv-cache-size`](#mjolnir-verify-kv-cache-size), [`mjolnir verify vllm`](#mjolnir-verify-vllm), [`mjolnir verify bench`](#mjolnir-verify-bench), [`mjolnir verify all`](#mjolnir-verify-all), [`mjolnir verify show`](#mjolnir-verify-show), [`mjolnir verify list`](#mjolnir-verify-list).
 
 
 <a id="mjolnir-verify-correctness"></a>
@@ -673,6 +675,47 @@ TMA L2-prefetch distance sweep.
 | `--distances` | --l2_prefetch tiles ahead | `0 1 2 4` |
 | `--base` |  | `--kv_format fp8` |
 | `--refs` |  | `fi` |
+| `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
+| `--ls` | L values (default: 128 4096 8192 16384 32768 65536 131072 262144) |  |
+| `--iters` | profiled iterations per point (ncu stages) | `50` |
+| `--gate` / `--no-gate` | wait for a clean window when the live vLLM server is up | --gate |
+| `--dry-run` | print the docker commands, run nothing | off |
+| `--timeout` | per-container timeout (s); a hung kernel's container is killed | `180.0` |
+| `--save` / `--no-save` | write the raw result JSON | --save |
+| `--plot` / `--no-plot` | re-render charts + README after saving (checkout only) | --no-plot |
+
+
+<a id="mjolnir-verify-qsa"></a>
+
+## `mjolnir verify qsa`
+
+Qwen4 QSA readiness: the indexer decode (MQA 4x128 over the
+compressed pool) kernel-vs-emulator at every L — the MJOLNIR_ATTN_QSA probe.
+
+| option | description | default |
+|---|---|---|
+| `--variants` | indexer KV formats to prove | `fp8 e2m3` |
+| `--batches` |  | `2` |
+| `--q-len` | MTP verify shape: 1 + drafts (ring caps at 4) | `5` |
+| `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
+| `--ls` | L values (default: 128 4096 8192 16384 32768 65536 131072 262144) |  |
+| `--dry-run` | print the docker commands, run nothing | off |
+| `--timeout` | per-container timeout (s); a hung kernel's container is killed | `180.0` |
+| `--save` / `--no-save` | write the raw result JSON | --save |
+| `--plot` / `--no-plot` | re-render charts + README after saving (checkout only) | --no-plot |
+
+
+<a id="mjolnir-verify-qsagain"></a>
+
+## `mjolnir verify qsagain`
+
+QSA gather decision experiment: dense decode vs copy-selected-rows +
+the same kernel on the scratch, per L (the go/no-go for the gather path).
+
+| option | description | default |
+|---|---|---|
+| `--batches` |  | `2` |
+| `--q-len` | 1 for the identity-comparable sweep; 5 for the MTP shape | `1` |
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
 | `--ls` | L values (default: 128 4096 8192 16384 32768 65536 131072 262144) |  |
 | `--iters` | profiled iterations per point (ncu stages) | `50` |

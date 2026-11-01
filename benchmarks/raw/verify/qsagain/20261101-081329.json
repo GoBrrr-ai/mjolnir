@@ -1,0 +1,145 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "qsagain",
+ "run_id": "20261101-081329",
+ "ts": "2026-11-01T08:15:43+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "0a198e7",
+  "dirty": true
+ },
+ "gate": {
+  "gated": true,
+  "clean": true,
+  "server": "up"
+ },
+ "params": {
+  "batches": 2,
+  "q_len": 1,
+  "variants": "",
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "thor",
+ "gpu": "NVIDIA Thor",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "rows": [
+  {
+   "L": 128,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 334.56,
+   "dense_us": 258.37,
+   "copy_us": 52.42,
+   "ratio": 0.772,
+   "copy_share": 0.16,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 4096,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 456.86,
+   "dense_us": 298.46,
+   "copy_us": 134.46,
+   "ratio": 0.653,
+   "copy_share": 0.29,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 8192,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 451.23,
+   "dense_us": 307.87,
+   "copy_us": 122.11,
+   "ratio": 0.682,
+   "copy_share": 0.27,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 16384,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 448.86,
+   "dense_us": 633.76,
+   "copy_us": 121.34,
+   "ratio": 1.412,
+   "copy_share": 0.27,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 32768,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 445.25,
+   "dense_us": 1042.46,
+   "copy_us": 121.76,
+   "ratio": 2.341,
+   "copy_share": 0.27,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 65536,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 533.54,
+   "dense_us": 2075.74,
+   "copy_us": 121.47,
+   "ratio": 3.891,
+   "copy_share": 0.23,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 131072,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 445.15,
+   "dense_us": 3603.26,
+   "copy_us": 121.57,
+   "ratio": 8.094,
+   "copy_share": 0.27,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "L": 262144,
+   "batches": 2,
+   "q_len": 1,
+   "median_us": 4884.42,
+   "dense_us": 19352.86,
+   "copy_us": 114.02,
+   "ratio": 3.962,
+   "copy_share": 0.02,
+   "pass": true,
+   "ok": true
+  }
+ ],
+ "summary": {
+  "geomean_ratio": 1.8576,
+  "min_ratio": 0.653,
+  "max_copy_share": 0.29
+ }
+}

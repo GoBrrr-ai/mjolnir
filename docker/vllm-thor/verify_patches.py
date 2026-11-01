@@ -274,6 +274,42 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "keep = (prob > pivot) | (x == M)  # THOR_SPEC_SPLIT_TOPP",
         ),
     ],
+    "thor qwen4 dense decoder: mlp_only_layers hybrid rule (THOR_QWEN4_DENSE)": [
+        # v0.32.0's Qwen4ExpDecoderLayer builds a sparse MoE block for every
+        # layer and transformers rejects num_experts <= 0, so a dense Qwen4
+        # checkpoint cannot load. The patch mirrors qwen3_next's own hybrid
+        # rule (mlp_only_layers + (layer_idx+1) % decoder_sparse_step): a
+        # dense checkpoint lists EVERY layer in mlp_only_layers and gets
+        # Qwen3NextMLP. Inert for every existing qwen4_exp checkpoint (none
+        # set mlp_only_layers) — and inert for all other model families.
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_DENSE",
+        ),
+    ],
+    "thor qwen4 topk sm110: cooperative_topk excluded on Thor (THOR_QWEN4_TOPK_SM110)": [
+        # Device-proven 2026-10-31: v0.32.0's sparse-indexer auto chain leads
+        # with cooperative_topk, whose cluster launch is rejected on sm_110
+        # ("cluster misconfiguration" -> EngineDeadError at the first decode
+        # top-k). Same failure class as the upstream SM120 report #47266
+        # Issue 8. The patch extends the family exclusion to 110 so the gate
+        # falls through to persistent_topk; inert on every other arch.
+        (
+            "models/qwen4_exp/nvidia/ops/qsa_indexer.py",
+            "THOR_QWEN4_TOPK_SM110",
+        ),
+    ],
+    "thor qwen4 qsa mjolnir: probe-gated Mjolnir decode impl (THOR_QWEN4_QSA_MJOLNIR)": [
+        # MJOLNIR_ATTN_QSA swaps Qwen4ExpQSAAttention's impl for the kernel
+        # package's scratch-gather decode (mjolnir.qsa_impl) — pure-decode
+        # steps only, everything else falls back to the stock Triton path
+        # inside the impl. INERT without the env var (the try/except keeps
+        # stock even when the kernel package is absent).
+        (
+            "models/qwen4_exp/nvidia/qsa.py",
+            "THOR_QWEN4_QSA_MJOLNIR",
+        ),
+    ],
 }
 
 

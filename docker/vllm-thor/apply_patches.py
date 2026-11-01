@@ -96,6 +96,33 @@ PATCH_ORDER = [
     "thor-sm110-mxfp4-moe-gate.patch",
     "thor-sm110-cutlass-fp4-moe-guard.patch",
     "thor-spec-decode-split-topp.patch",
+    # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
+    # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
+    # MoE block for every layer and transformers rejects num_experts <= 0, so
+    # the patch mirrors qwen3_next's own hybrid rule — a checkpoint that lists
+    # every layer in mlp_only_layers gets Qwen3NextMLP. INERT for every
+    # existing checkpoint (none set mlp_only_layers on qwen4_exp) and for all
+    # other model families; config-driven, so no sm_110 gate. Touches only
+    # models/qwen4_exp/nvidia/model.py — order-independent. If the released
+    # 27B arrives under a NEW model_type instead, this is necessary but not
+    # sufficient (a new architectures registration is also needed) — see
+    # task/research/qwen4-27b-upstream-prep/ (release-day checklist).
+    "thor-qwen4-dense-model.patch",
+    # Sparse-indexer decode top-k on sm_110: v0.32.0's auto chain leads with
+    # cooperative_topk, whose thread-block-cluster launch is REJECTED on
+    # Thor (device-proven 2026-10-31: "cluster misconfiguration" ->
+    # EngineDeadError at the first decode top-k; the upstream SM120 report
+    # vllm-project/vllm#47266 Issue 8 is the same failure class and its fix
+    # excludes the family). The patch extends the exclusion to family 110 —
+    # the gate falls through to persistent_topk. Probe-gated: inert on every
+    # other arch.
+    "thor-qwen4-topk-sm110.patch",
+    # The Mjolnir QSA decode: probe-gated (MJOLNIR_ATTN_QSA) impl swap inside
+    # Qwen4ExpQSAAttention — wraps the stock impl and routes pure-decode steps
+    # through the kernel package's scratch-gather (mjolnir.qsa_impl, which
+    # ships in mjolnir-kernel and degrades to the stock Triton path whenever
+    # a guard fails). INERT unless the env var is set.
+    "thor-qwen4-qsa-mjolnir.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

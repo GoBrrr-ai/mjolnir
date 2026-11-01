@@ -1,0 +1,224 @@
+{
+ "schema": "mjolnir.verify/1",
+ "stage": "qsa",
+ "run_id": "20261031-021544",
+ "ts": "2026-10-31T02:18:09+00:00",
+ "default": true,
+ "host": "jetsonthor",
+ "image": "narandill/mjolnir-vllm:v0.32.0",
+ "kernel": {
+  "version": "0.1.0",
+  "git": "164327a",
+  "dirty": false
+ },
+ "gate": {
+  "gated": false,
+  "clean": null,
+  "server": "unknown"
+ },
+ "params": {
+  "variants": "fp8 e2m3",
+  "batches": 2,
+  "q_len": 5,
+  "ls": [
+   128,
+   4096,
+   8192,
+   16384,
+   32768,
+   65536,
+   131072,
+   262144
+  ],
+  "iters": 50,
+  "page": 128,
+  "hq": 24,
+  "hk": 4,
+  "d": 256
+ },
+ "platform": "thor",
+ "gpu": "NVIDIA Thor",
+ "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "rows": [
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 128,
+   "slots": 32,
+   "q_len": 5,
+   "median_us": 16.22,
+   "gbps": 1.96,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 4096,
+   "slots": 1024,
+   "q_len": 5,
+   "median_us": 25.54,
+   "gbps": 21.1,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 8192,
+   "slots": 2048,
+   "q_len": 5,
+   "median_us": 40.61,
+   "gbps": 26.2,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 16384,
+   "slots": 4096,
+   "q_len": 5,
+   "median_us": 57.18,
+   "gbps": 36.9,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 32768,
+   "slots": 8192,
+   "q_len": 5,
+   "median_us": 78.69,
+   "gbps": 53.5,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 65536,
+   "slots": 16384,
+   "q_len": 5,
+   "median_us": 110.62,
+   "gbps": 76.0,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 131072,
+   "slots": 32768,
+   "q_len": 5,
+   "median_us": 158.43,
+   "gbps": 106.0,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-fp8",
+   "role": "indexer",
+   "L": 262144,
+   "slots": 65536,
+   "q_len": 5,
+   "median_us": 240.26,
+   "gbps": 140.0,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 128,
+   "slots": 32,
+   "q_len": 5,
+   "median_us": 16.19,
+   "gbps": 1.96,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 4096,
+   "slots": 1024,
+   "q_len": 5,
+   "median_us": 25.44,
+   "gbps": 21.2,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 8192,
+   "slots": 2048,
+   "q_len": 5,
+   "median_us": 39.68,
+   "gbps": 26.8,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 16384,
+   "slots": 4096,
+   "q_len": 5,
+   "median_us": 51.17,
+   "gbps": 41.3,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 32768,
+   "slots": 8192,
+   "q_len": 5,
+   "median_us": 73.57,
+   "gbps": 57.2,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 65536,
+   "slots": 16384,
+   "q_len": 5,
+   "median_us": 106.34,
+   "gbps": 79.0,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 131072,
+   "slots": 32768,
+   "q_len": 5,
+   "median_us": 147.3,
+   "gbps": 114.0,
+   "pass": true,
+   "ok": true
+  },
+  {
+   "variant": "idx-e2m3",
+   "role": "indexer",
+   "L": 262144,
+   "slots": 65536,
+   "q_len": 5,
+   "median_us": 218.94,
+   "gbps": 153.0,
+   "pass": true,
+   "ok": true
+  }
+ ],
+ "summary": {
+  "passed": 16,
+  "failed": 0
+ }
+}

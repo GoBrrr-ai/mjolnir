@@ -1,6 +1,6 @@
 # Headline L-sweep
 
-> Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians · `mjolnir verify sweep` · run `20261028-003028`
+> Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians · `mjolnir verify sweep` · run `20261031-104421`
 
 ## The question
 
@@ -21,21 +21,21 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 <img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the platform's memory peak" width="100%">
 
-- **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.25×**, from 1.05× (L=16K) to 1.79× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
-- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.16×**, from 1.03× (L=32K) to 1.81× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
-- **FlashAttention 4 hd256 (fp8 Q+KV)** vs FlashInfer (fp8 KV, NHD): geomean **0.57×**, from 0.49× (L=16K) to 1.01× (L=128); faster beyond the ±3% noise band at 0 of 8 context lengths.
+- **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.24×**, from 0.98× (L=16K) to 1.83× (L=128); faster beyond the ±3% noise band at 7 of 8 context lengths.
+- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.15×**, from 1.02× (L=16K) to 1.71× (L=128); faster beyond the ±3% noise band at 7 of 8 context lengths.
+- **FlashAttention 4 hd256 (fp8 Q+KV)** vs FlashInfer (fp8 KV, NHD): geomean **0.56×**, from 0.47× (L=16K) to 0.93× (L=128); faster beyond the ±3% noise band at 0 of 8 context lengths.
 
 | L | FlashInfer | FA4 hd256 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA4 | e2m3 vs FA4 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 23.9&nbsp;µs | 23.6&nbsp;µs | **13.2&nbsp;µs** | 13.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.81\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.77\times}}$ |
-| **4K** | 60.5&nbsp;µs | 104.6&nbsp;µs | 55.6&nbsp;µs | **49.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.88\times}}$ | $\color{#16a34a}{\mathbf{2.11\times}}$ |
-| **8K** | 94.5&nbsp;µs | 190.2&nbsp;µs | 88.5&nbsp;µs | **87.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
-| **16K** | 180.8&nbsp;µs | 370.4&nbsp;µs | 174.1&nbsp;µs | **171.6&nbsp;µs** | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ | $\color{#16a34a}{\mathbf{2.16\times}}$ |
-| **32K** | 363.1&nbsp;µs | 708.4&nbsp;µs | 350.9&nbsp;µs | **329.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ |
-| **64K** | 764.8&nbsp;µs | 1.37&nbsp;ms | 671.5&nbsp;µs | **600.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.28\times}}$ |
-| **128K** | 1.38&nbsp;ms | 2.69&nbsp;ms | 1.26&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.50\times}}$ |
-| **256K** | 2.71&nbsp;ms | 5.29&nbsp;ms | 2.39&nbsp;ms | **2.07&nbsp;ms** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.56\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
+| **128** | 22.6&nbsp;µs | 24.2&nbsp;µs | 13.2&nbsp;µs | **12.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.71\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ | $\color{#16a34a}{\mathbf{1.83\times}}$ | $\color{#16a34a}{\mathbf{1.96\times}}$ |
+| **4K** | 60.5&nbsp;µs | 104.1&nbsp;µs | 56.0&nbsp;µs | **50.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{1.19\times}}$ | $\color{#16a34a}{\mathbf{1.86\times}}$ | $\color{#16a34a}{\mathbf{2.05\times}}$ |
+| **8K** | 95.8&nbsp;µs | 195.0&nbsp;µs | **90.0&nbsp;µs** | 90.4&nbsp;µs | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ | $\color{#16a34a}{\mathbf{2.16\times}}$ |
+| **16K** | 175.5&nbsp;µs | 370.2&nbsp;µs | **172.6&nbsp;µs** | 178.3&nbsp;µs | $\color{grey}{1.02\times}$ | $\color{grey}{0.98\times}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.08\times}}$ |
+| **32K** | 374.7&nbsp;µs | 713.7&nbsp;µs | 343.6&nbsp;µs | **333.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{2.08\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ |
+| **64K** | 769.4&nbsp;µs | 1.37&nbsp;ms | 663.5&nbsp;µs | **605.9&nbsp;µs** | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.06\times}}$ | $\color{#16a34a}{\mathbf{2.26\times}}$ |
+| **128K** | 1.41&nbsp;ms | 2.69&nbsp;ms | 1.27&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{2.12\times}}$ | $\color{#16a34a}{\mathbf{2.50\times}}$ |
+| **256K** | 2.69&nbsp;ms | 5.31&nbsp;ms | 2.39&nbsp;ms | **2.06&nbsp;ms** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.58\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.15\times}}$ | $\color{#16a34a}{\mathbf{1.24\times}}$ | $\color{#16a34a}{\mathbf{2.06\times}}$ | $\color{#16a34a}{\mathbf{2.21\times}}$ |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -47,7 +47,7 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/sweep/20261028-003028.json`](../../../../benchmarks/raw/verify/sweep/20261028-003028.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/sweep/20261031-104421.json`](../../../../benchmarks/raw/verify/sweep/20261031-104421.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
