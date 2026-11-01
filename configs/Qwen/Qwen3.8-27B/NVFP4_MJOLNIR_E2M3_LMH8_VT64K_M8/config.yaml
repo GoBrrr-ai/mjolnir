@@ -1,12 +1,12 @@
 # NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8 — EXPERIMENT (opt-in): NVFP4_MJOLNIR_E2M3_LMH8_VT64K
-# plus MJOLNIR_MTP_LAYER=fp8 — the drafter's own Linear weights (the MTP layer + its
-# eh_proj fc, ~0.9 GB bf16 re-read on EVERY draft step) quantized to e4m3 per row at
-# load: −2.25 GB/step of weight traffic at K=5 (≈ −10% step time). Drafter-only, so
-# verification stays lossless; acceptance may shift a little — measure before adopting:
-#   mjolnir verify spec --legs mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K,mjolnir:NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8 \
-#     --drafts 5 --concurrency 1
-# The batch→K schedule below is INERT at B≤2 (K stays 5) so that A/B is clean; it only
-# engages at B≥3, where its own effect is a `bench ab` question.
+# plus MJOLNIR_MTP_LAYER=fp8. **MEASURED NEGATIVE — do not adopt**: across three
+# gated, same-window paired A/Bs (spec K=5, B=1, 13 reqs; flagship stable at
+# 38.0/39.2/39.1 t/s) the fp8 drafter layer decodes 16-22% SLOWER — the 2.25 GB/step
+# byte saving is eaten by cuBLASLt's fp8 GEMM running at ~60% of fp8-peak on layer
+# shapes (sm_110), while the bf16 baseline GEMMs are already near bandwidth-peak.
+# Acceptance is CONFIRMED SAFE (+0.11..+0.14 vs flagship in all three runs) — the
+# lever dies on kernel speed, not precision. Revisit only with a materially faster
+# skinny-shape fp8 GEMM (e.g. vLLM's cutlass w8a8 blockwise on sm_110).
 # YAML is otherwise identical to NVFP4_MJOLNIR_E2M3_LMH8_VT64K; the switches are env
 # vars in the .env sidecar (MJOLNIR_LM_HEAD / MJOLNIR_DRAFT_VOCAB[_SIZE] as there,
 # plus MJOLNIR_MTP_LAYER).
