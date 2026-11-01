@@ -153,7 +153,7 @@ class OrinDecodeRunner:
         assert max_q_len <= mma_kernel.MMADecodeKernel.MAX_Q_LEN, (
             f"the mma kernel serves M <= {mma_kernel.MMADecodeKernel.MAX_Q_LEN} (the MTP verify shape)"
         )
-        assert kv_format in ("fp8", "e2m3", "nvfp4", "mjfp8fp4"), kv_format
+        assert kv_format in ("fp8", "e2m3"), kv_format
         self.h_q, self.h_k, self.d = num_heads, num_kv_heads, head_size
         self.h_r = num_heads // num_kv_heads
         self.page_size = page_size
@@ -164,24 +164,12 @@ class OrinDecodeRunner:
         self.kv_format = kv_format
         # bytes of one K (or V) row -- the shared backend's _kv_views splits
         # the fused cache into the K/V views with it (the thor runner carries
-        # the same attribute). fp6 e2m3 packs 4 values per 3 bytes; nvfp4 is
-        # d/2 data bytes (2 codes/byte) + d/16 e4m3 scale bytes. The MIXED
-        # mjfp8fp4 carries the fp8 K rows and the nvfp4 V rows — the two
-        # widths differ, so kv_row_bytes is the K's and kv_row_bytes_v the
-        # V's (the backend's per-tensor split is the serving-phase work).
-        self.kv_row_bytes = (
-            self.d
-            if kv_format in ("fp8", "mjfp8fp4")
-            else (self.d * 3 // 4 if kv_format == "e2m3" else self.d // 2 + self.d // 16)
-        )
-        self.kv_row_bytes_v = self.d // 2 + self.d // 16 if kv_format == "mjfp8fp4" else self.kv_row_bytes
+        # the same attribute). fp6 e2m3 packs 4 values per 3 bytes.
+        self.kv_row_bytes = self.d * 3 // 4 if kv_format == "e2m3" else self.d  # fp8: 1 byte/value
         self.kv_evict_first = bool(kv_evict_first)
         self.device = torch.device(device)
         # e2m3: the 64-entry code -> value table (exact for every code,
         # subnormals included), passed to the kernel as a gmem tensor.
-        # nvfp4 (and the mixed mjfp8fp4's V): the 16-entry true-value
-        # e2m1 table the kernel stages into smem (the gmem gathers wall
-        # the dequant at 28% DRAM SOL — see CAMPAIGN.md §6).
         self._lut = None
         if kv_format == "e2m3":
             from mjolnir.kvfp6 import e2m3_values
@@ -193,10 +181,6 @@ class OrinDecodeRunner:
             # tried and is WRONG: the 4 codes of a group are arbitrary —
             # {c0, c1} is not a {2j, 2j+1} table pair.)
             self._lut = e2m3_values(self.device).to(torch.bfloat16).view(torch.uint16)
-        elif kv_format in ("nvfp4", "mjfp8fp4"):
-            from mjolnir.kvfp4 import dequant_lut
-
-            self._lut = dequant_lut().to(self.device)
         if sm_count is None:
             sm_count = torch.cuda.get_device_properties(self.device).multi_processor_count
         self.sm_count = sm_count
@@ -521,18 +505,8 @@ class OrinDecodeRunner:
         np_ = num_pages or ps  # one page worth of pool at minimum
         q = torch.zeros(b * q_len, self.h_q, self.d, device=dev, dtype=key.q_dtype)
         o = torch.empty(b * q_len, self.h_q, self.d, device=dev, dtype=key.out_dtype)
-        kv_dtype = {"fp8": torch.float8_e4m3fn, "e2m3": torch.uint8, "nvfp4": torch.uint8, "mjfp8fp4": torch.uint8}[
-            key.kv_format
-        ]
-        if key.kv_format == "mjfp8fp4":
-            # the mixed: the K and the V dummies carry their own dtypes and
-            # row widths (the e4m3 K vs the uint8 nvfp4 V) — one tensor
-            # cannot stand in for both at the TVM-FFI signature.
-            kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=torch.float8_e4m3fn)
-            kv_v = torch.zeros(np_, ps, self.h_k, self.kv_row_bytes_v, device=dev, dtype=torch.uint8)
-        else:
-            kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=kv_dtype)
-            kv_v = kv
+        kv_dtype = {"fp8": torch.float8_e4m3fn, "e2m3": torch.uint8, "bf16": torch.bfloat16}[key.kv_format]
+        kv = torch.zeros(np_, ps, self.h_k, self.d, device=dev, dtype=kv_dtype)
         bt = torch.zeros(b, max_blocks, dtype=torch.int32, device=dev)
         # LOCAL dummy cu_seqlens — never the live staging. Writing
         # self._cu[1] here clobbered the real boundaries the next launch
@@ -540,7 +514,7 @@ class OrinDecodeRunner:
         # recompiles eagerly and this used to poison the very next call).
         cu = torch.zeros(b + 1, dtype=torch.int32, device=dev)
         cu[1] = q_len  # one sequence of q_len tokens
-        self._get_compiled(key, self._compile_args(key, b, q, o, kv, kv_v, bt, cu=cu))
+        self._get_compiled(key, self._compile_args(key, b, q, o, kv, kv, bt, cu=cu))
         torch.cuda.synchronize(dev)
 
     def precompile(self, q_lens=None):

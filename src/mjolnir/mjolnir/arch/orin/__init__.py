@@ -30,7 +30,7 @@ __all__ = ["OrinDecodeRunner", "Runner"]
 _log = logging.getLogger("vllm.mjolnir")
 
 MMA_MAX_Q_LEN = 8  # mma.MMADecodeKernel.MAX_Q_LEN
-MMA_KV_FORMATS = ("fp8", "e2m3", "nvfp4", "mjfp8fp4")  # the mma kernel's KV formats
+MMA_KV_FORMATS = ("fp8", "e2m3")  # the mma kernel's KV formats
 
 
 class Runner(OrinDecodeRunner):
@@ -63,7 +63,7 @@ class Runner(OrinDecodeRunner):
         head_size = kw["head_size"]
         kv_format = kw.get("kv_format", "fp8")
         max_q_len = kw.get("max_q_len", 1)
-        supported = (256,) if kv_format in ("e2m3", "nvfp4", "mjfp8fp4") else (128, 256)
+        supported = (256,) if kv_format == "e2m3" else (128, 256)
         if head_size not in supported:
             raise ValueError(
                 f"the Orin mma kernel serves head_size {'/'.join(map(str, supported))} for {kv_format} KV (got {head_size})"
