@@ -150,6 +150,47 @@ def test_effective_seq_lens():
     assert eff.tolist() == [10, 8], eff
 
 
+def test_gather_hnd_pool_pages_beyond_first():
+    """REGRESSION (day-0 CR): the gather indexed the pool through a flat-row
+    contract (stride(page) == PS * stride(row)) that the PRODUCTION HND
+    transpose view violates by H_kv on the page term — every page >= 1 read
+    wrong bytes, silently (random-weight smokes cannot see it; the harness
+    oracle built PSH-contiguous pools where the contract holds). The kernel
+    now takes the page stride explicitly; this pins the exact production
+    derivation: kv HND -> transpose+split views -> the impl's stride args."""
+    if not torch.cuda.is_available():
+        return  # device-first; the host CI runs the math tests above
+    from mjolnir import qsa_gather
+
+    if not qsa_gather.available():
+        return
+    dev = torch.device("cuda")
+    P, H, ps, d2 = 8, HEADS_K, PS, 2 * D
+    g = torch.Generator().manual_seed(11)
+    kv = (torch.randn(P, H, ps, d2, generator=g) * 0.3).to(torch.float8_e4m3fn).to(dev)
+    key, value = kv.transpose(1, 2).split(D, dim=-1)  # qsa_impl._split_cache
+    sel = torch.full((1, SPEC.budget_blocks), -1, dtype=torch.int32)
+    sel[0, :3] = torch.tensor([0, 33, 66])  # ratio blocks landing on pages 0, 1, 2
+    sl = torch.tensor([P * ps])
+    bt = torch.arange(P, dtype=torch.int32).view(1, P)
+    src, dst, _sbt, _pmax = qsa.scratch_plan(sel, sl, bt, SPEC, ps)
+    eff = qsa.effective_seq_lens(sel, sl, SPEC)
+    scratch = torch.zeros(2, ps, H, D, dtype=torch.float8_e4m3fn, device=dev)
+    for kb, sk in (
+        (key.view(torch.uint8), scratch[0:1].view(torch.uint8)),
+        (value.view(torch.uint8), scratch[1:2].view(torch.uint8)),
+    ):
+        qsa_gather.gather_rows(
+            kb, sk, src.to(dev), dst.to(dev), eff.to(dev), ps, kb.stride(0), kb.stride(1), kb.stride(2)
+        )
+    for kb, sk in ((key.contiguous(), scratch[0:1]), (value.contiguous(), scratch[1:2])):
+        ref = torch.zeros_like(sk)
+        qsa.scratch_copy(kb, ref, src.cpu(), dst.cpu(), eff)  # the reference
+        assert torch.equal(sk.view(torch.uint8), ref.view(torch.uint8)), (
+            "gather != scratch_copy on the HND pool (pages >= 1 misread)"
+        )
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

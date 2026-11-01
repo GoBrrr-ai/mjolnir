@@ -233,10 +233,14 @@ def run_qsa_gather(
     if qsa_gather.available():
 
         def copy():
-            # one Triton launch per K/V; strides in bytes of the flat row view
+            # one Triton launch per K/V; strides in bytes of the logical layout
             kb, vb = k_pool.view(torch.uint8), v_pool.view(torch.uint8)
-            qsa_gather.gather_rows(kb, scratch_k.view(torch.uint8), src_dev, dst_dev, eff, kb.stride(1), kb.stride(2))
-            qsa_gather.gather_rows(vb, scratch_v.view(torch.uint8), src_dev, dst_dev, eff, vb.stride(1), vb.stride(2))
+            qsa_gather.gather_rows(
+                kb, scratch_k.view(torch.uint8), src_dev, dst_dev, eff, PS, kb.stride(0), kb.stride(1), kb.stride(2)
+            )
+            qsa_gather.gather_rows(
+                vb, scratch_v.view(torch.uint8), src_dev, dst_dev, eff, PS, vb.stride(0), vb.stride(1), vb.stride(2)
+            )
 
         print("qsa copy path: triton (fused)")
     else:

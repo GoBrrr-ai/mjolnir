@@ -145,6 +145,31 @@ def test_gate_defaults_off():
             os.environ.pop("MJOLNIR_ATTN_QSA", None)
 
 
+def test_scratch_plan_pool_scratch_page_split():
+    """The pool's page size is decoupled from the scratch's (a GDN hybrid
+    forces the attention page to the mamba size): src maps through the
+    POOL's PS, dst/sbt through the SCRATCH's PS. Regression for the day-0
+    page-size decoupling."""
+    sel = torch.full((2, SPEC.budget_blocks), -1, dtype=torch.int32)
+    sel[0, :2] = torch.tensor([0, 1])  # tokens 0..7
+    sel[1, :1] = torch.tensor([100])  # tokens 400..403
+    sl = torch.tensor([10, 500])
+    bt = torch.zeros(2, 8, dtype=torch.int32)
+    bt[0, 0] = 3
+    bt[1, 0] = 7
+    src, dst, sbt, pmax = qsa.scratch_plan(sel, sl, bt, SPEC, 800, scratch_page_size=128)
+    assert src[0][:8].tolist() == [3 * 800 + i for i in range(8)]  # pool rows via 800
+    assert src[1][:4].tolist() == [7 * 800 + 400 + i for i in range(4)]
+    assert dst[0][:8].tolist() == list(range(8))  # scratch rows via 128
+    assert dst[1][:4].tolist() == [128 + i for i in range(4)]  # seq 1 starts at scratch page 1
+    assert sbt.shape[1] == 1 and pmax == 1
+    assert int(sbt[0][0]) == 0 and int(sbt[1][0]) == 1
+    # backward-compat: one page size for both
+    src2, dst2, _sbt2, _pmax2 = qsa.scratch_plan(sel, sl, bt, SPEC, 128)
+    assert src2[0][:8].tolist() == [3 * 128 + i for i in range(8)]
+    assert dst2[0][:8].tolist() == list(range(8))
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover
 # plan buffers are never overwritten mid-flight.
 _RUNNERS: dict[tuple, T5DecodeRunner] = {}
 _SCRATCHES: dict[tuple, torch.Tensor] = {}
+_SCRATCH_SLACK_PAGES = 2  # scratch pages over the exact plan: headroom for the next step's growth
 _ANNOUNCED = [False]  # one-time "the Mjolnir path is live" marker
 _FALLBACKS: set[str] = set()
 
@@ -206,7 +207,7 @@ def build_impl_class() -> type:
                         output_block_scale,
                     )
                 key_cache, value_cache = self._split_cache(kv_cache)
-                if key_cache.ndim != 4 or value_cache.shape != key_cache.shape:
+                if key_cache.ndim != 4:
                     _note_fallback(f"unexpected cache layout {tuple(kv_cache.shape)}")
                     return super().forward_qsa(
                         layer,
@@ -251,6 +252,13 @@ def build_impl_class() -> type:
                 spec.check_main_page_size(page_size)
 
                 # ---- selection + lens (host, one sync per step; eager v1) ----
+                # the selection indices are host-derived per step and would
+                # bake into a captured graph — this path is eager-only by design
+                if torch.cuda.is_current_stream_capturing():
+                    _note_fallback("cuda graph capture (per-step selection indices)")
+                    return super().forward_qsa(
+                        layer, query, key, value, kv_cache, attn_metadata, output, token_to_req, use_prefill_config
+                    )
                 sel = self._selection_blocks(layer, num_tokens, num_reqs, token_to_req)
                 seq_lens_cpu = attn_metadata.seq_lens.cpu()
                 if sel is None:
@@ -303,7 +311,7 @@ def build_impl_class() -> type:
                         device=dev,
                     )
                 scratch = _SCRATCHES.get(gkey)
-                pages_needed = int(((eff.to(torch.int64) + kernel_ps - 1) // kernel_ps).sum()) + 2
+                pages_needed = int(((eff.to(torch.int64) + kernel_ps - 1) // kernel_ps).sum()) + _SCRATCH_SLACK_PAGES
                 if scratch is None or scratch.shape[0] < pages_needed:
                     # grow to the observed need (never shrinks); fp8 rows
                     scratch = _SCRATCHES[gkey] = torch.empty(
@@ -316,8 +324,11 @@ def build_impl_class() -> type:
                     )
 
                 # ---- plan the scratch layout and the decode -------------------
+                # pairing: a pure-decode batch has one query row per request in
+                # request order (the V1 decode contract), so scratch sequence i
+                # serves query row i — the same order eff/selection are built in.
                 # rows this step actually touches: sum(ceil(eff_i / kernel_ps)) pages
-                pages_used = pages_needed - 2
+                pages_used = pages_needed - _SCRATCH_SLACK_PAGES
                 scratch_k = scratch[:pages_used]
                 vkey = ("v", *gkey)
                 scratch_v = _SCRATCHES.get(vkey)
@@ -358,6 +369,8 @@ def build_impl_class() -> type:
                         src_dev,
                         dst_dev,
                         eff_dev,
+                        page_size,
+                        kb.stride(0),
                         kb.stride(1),
                         kb.stride(2),
                     )
@@ -367,14 +380,16 @@ def build_impl_class() -> type:
                         src_dev,
                         dst_dev,
                         eff_dev,
+                        page_size,
+                        vb.stride(0),
                         vb.stride(1),
                         vb.stride(2),
                     )
-                else:  # pragma: no cover - torch fallback (correctness reference)
-                    _note_fallback("no triton gather; torch copy path")
-                    eff_cpu = eff
-                    qsa.scratch_copy(key_cache, scratch_k, src_dev, dst_dev, eff_cpu)
-                    qsa.scratch_copy(value_cache, scratch_v, src_dev, dst_dev, eff_cpu)
+                else:  # pragma: no cover - no triton: scratch_copy would need a
+                    _note_fallback("no triton gather; stock path")  # contiguous pool copy we refuse to materialize
+                    return super().forward_qsa(
+                        layer, query, key, value, kv_cache, attn_metadata, output, token_to_req, use_prefill_config
+                    )
 
                 k_buf, v_buf = self._scale_bufs_for(layer, dev)
                 plan = runner.plan(eff.tolist(), num_reqs, 1, sbt_dev, eff_dev, causal=False)
