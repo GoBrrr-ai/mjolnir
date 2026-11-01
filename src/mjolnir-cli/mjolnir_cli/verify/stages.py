@@ -866,7 +866,7 @@ def summarize(stage: str, doc: dict) -> dict:
         rs = [r for r in doc.get("rows", []) if r.get("ratio")]
         out = (
             {
-                "geomean_ratio": round(results.geomean({r["L"]: r["ratio"] for r in rs}) or 0, 4),
+                "geomean_ratio": round(results.geomean([r["ratio"] for r in rs]) or 0, 4),
                 "min_ratio": round(min((r["ratio"] for r in rs), default=0), 4),
                 "max_copy_share": round(max((r.get("copy_share") or 0 for r in rs), default=0), 4),
             }
