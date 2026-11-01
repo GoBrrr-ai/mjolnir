@@ -30,7 +30,7 @@ import shutil
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer, Qwen4ExpConfig, Qwen4ExpForCausalLM, Qwen4ExpTextConfig
+from transformers import AutoTokenizer, Qwen4ExpForCausalLM, Qwen4ExpTextConfig
 
 # layer schedule: GDN, QSA, GDN, QSA (the family's 1-in-4 cadence, tiny)
 LAYER_TYPES = ["linear_attention", "indexed_attention", "linear_attention", "indexed_attention"]
@@ -132,7 +132,14 @@ def main() -> None:
 
     tok_dir = Path(args.tokenizer)
     if tok_dir.is_dir():
-        shutil.copytree(tok_dir, args.out, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.safetensors", "*.bin"))
+        shutil.copytree(
+        tok_dir,
+        args.out,
+        dirs_exist_ok=True,
+        # config.json: the composite shape written above is load-bearing — a
+        # full checkout passed as --tokenizer must not clobber it
+        ignore=shutil.ignore_patterns("*.safetensors", "*.bin", "config.json"),
+    )
     else:
         AutoTokenizer.from_pretrained(args.tokenizer).save_pretrained(args.out)
     n = sum(1 for _ in args.out.rglob("*.safetensors"))

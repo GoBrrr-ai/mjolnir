@@ -765,7 +765,7 @@ def after_load(runner) -> None:
             install_fp8_mtp_layer(draft)
         except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
             _log.warning("Mjolnir mtp layer fp8: not installed (%r)", e)
-    elif os.environ.get(ENV_MTP_LAYER, "").strip() and draft is None:
+    elif os.environ.get(ENV_MTP_LAYER, "").strip().lower() == "fp8" and draft is None:
         _log.warning("Mjolnir mtp layer fp8: %s set but this config has no drafter", ENV_MTP_LAYER)
     if torch.cuda.is_available():
         # hand the quantization temporaries back before vLLM profiles memory
