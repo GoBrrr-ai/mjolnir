@@ -270,13 +270,14 @@ def test_thor_detection_stays_byte_identical(monkeypatch):
     assert s.image == DEFAULT_IMAGE
 
 
-def test_image_constants_are_unchanged_for_existing_consumers():
-    # contract for every consumer grep'd in task/explore/codebase.md §2: the
-    # constants may move (derived from the thor record) but never change value
+def test_image_constants_track_the_pinned_base():
+    # contract for every consumer of the constants: they are derived from the
+    # thor record and move together with it (the image build's own gate pins
+    # them to the Dockerfile's BASE_IMAGE — see docker-image.yml).
     assert config.IMAGE_REPO == "narandill/mjolnir-vllm"
-    assert config.VLLM_VERSION == "0.32.0"
-    assert config.DEFAULT_IMAGE == "narandill/mjolnir-vllm:v0.32.0"
-    assert config.STOCK_IMAGE == "vllm/vllm-openai:v0.32.0-ubuntu2404"
+    assert config.VLLM_VERSION == "0.33.0"
+    assert config.DEFAULT_IMAGE == "narandill/mjolnir-vllm:v0.33.0"
+    assert config.STOCK_IMAGE == "vllm/vllm-openai:v0.33.0"
 
 
 def test_config_reexports_the_platform_record_helpers():

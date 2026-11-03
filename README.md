@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/mjolnir-kernel/"><img src="https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834" alt="mjolnir-kernel on PyPI"></a>
   <a href="https://pypi.org/project/mjolnir-cli/"><img src="https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6" alt="mjolnir-cli on PyPI"></a>
   <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
-  <img src="https://img.shields.io/badge/vLLM-0.32.0-blue" alt="vLLM 0.32.0">
+  <img src="https://img.shields.io/badge/vLLM-0.33.0-blue" alt="vLLM 0.33.0">
   <img src="https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin%20%C2%B7%20DGX%20Spark-76b900" alt="Supported platforms: Jetson AGX Thor, Jetson Orin, DGX Spark">
   <a href="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
@@ -153,7 +153,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 
 ```bash
 docker run --rm -it --gpus all --ipc host -p 8000:8000 \
-  narandill/mjolnir-vllm:v0.32.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+  narandill/mjolnir-vllm:v0.33.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
 ## Supported Hardware

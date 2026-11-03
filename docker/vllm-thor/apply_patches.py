@@ -30,8 +30,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Order: 55519 is re-adapted onto upstream vLLM 0.31.0 (it touches
-# v1/core/kv_cache_utils.py + v1/core/sched/scheduler.py). The gdn-prefill
+# Order: re-based onto upstream vLLM 0.33.0 (2026-11 bump). 54165, 55519,
+# the fp6 e2m3 KV dtype and the split top-p sampler fix retired at this
+# bump — all four are in the base now (see PATCHES.md). The gdn-prefill
 # and fa4 sm_110 gate patches touch files disjoint from every other patch
 # (qwen_gdn_linear_attn.py; v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches
@@ -39,22 +40,21 @@ from pathlib import Path
 # among the middle patches is immaterial — except that the two fa4 sm_110
 # patches both touch v1/attention/backends/fa_utils.py, so the hd256 patch
 # (whose fa_utils hunks are diffed against the hd128-patched file) must
-# land after the hd128 one. The two Thor v1/attention/backends/flashinfer.py
-# patches land before the fa4 patches, in sequence: the fused-draft-decode
-# patch because its flashinfer.py context already includes 50885, then the
-# DSpark non-causal cudagraph patch (its flashinfer.py hunks sit on top of
-# the fused-draft-decode patch's changes).
+# land after the hd128 one. The three Thor v1/attention/backends/flashinfer.py
+# patches land in sequence: 50885 (the FI-native uniform-multi-token FULL
+# grant — on 0.33.0 slimmed to the probe + the two gates; the wrapper
+# plumbing itself is upstream), the fused-draft-decode patch (its hunks
+# sit on top of 50885's), then the DSpark non-causal cudagraph patch
+# (its get_cudagraph_support hunk is diffed against 50885's grant).
 PATCH_ORDER = [
-    "54165-mamba-spec-kv-restore.patch",
     "49652-draft-decode-capture.patch",
     "50885-flashinfer-full-cudagraph.patch",
-    "55519-no-warn-when-block-drop-off.patch",
     "thor-gdn-prefill-sm110.patch",
     "thor-fused-draft-decode-fi-native-update.patch",
     # Refreshes the T5 split-KV work plan when the fused draft loop replays
-    # its FULL cudagraph: 0.32.0's _fused_multi_step_decode returns before
-    # building the draft metadata on the FULL path, so a host-side per-cycle
-    # plan (ours) would stay baked at capture-time seq_lens. Same feature
+    # its FULL cudagraph: the _fused_multi_step_decode FULL branch returns
+    # before building the draft metadata, so a host-side per-cycle plan
+    # (ours) would stay baked at capture-time seq_lens. Same feature
     # family as the patch above; the speculator file is disjoint from it.
     "thor-fused-draft-t5-plan-refresh.patch",
     "thor-dspark-draft-fi-noncausal-cudagraph.patch",
@@ -79,23 +79,16 @@ PATCH_ORDER = [
     # package) to v1/attention/backends/registry.py, which no other patch
     # touches — order-independent. Makes `--attention-backend MJOLNIR` parse.
     "thor-mjolnir-attention-backend.patch",
-    # fp6 e2m3 KV cache dtype for the Mjolnir backend: config/cache.py,
-    # utils/torch_utils.py, v1/kv_cache_interface.py — files no other patch
-    # touches, order-independent. Inert unless a config asks for fp6_e2m3.
-    "thor-fp6-e2m3-kv-cache.patch",
-    # Three upstream fixes hand-adapted from post-0.32.0 main (drop each
-    # when its PR merges / the next release lands): two sm_110 MoE-backend
-    # gate fixes — the OAI Triton MXFP4 MoE selector keeps MARLIN as the
-    # default on SM110 (the OAI Triton path fails to compile matmul_ogs at
-    # engine init, #61374) and the CUTLASS FP4 MoE backend must not
-    # auto-select on sm_110 (faults in profile_run, TMA descriptor init) —
-    # plus #58231: the split top-p mask kernel masked every token for huge
-    # forced logits (thinking_token_budget + spec decode emits token 0).
-    # All five touched files are disjoint from every other patch —
-    # order-independent.
+    # Two sm_110 MoE-backend gate fixes (drop each when the PR lands in a
+    # release we track): the OAI Triton MXFP4 MoE selector keeps MARLIN as
+    # the default on SM110 (the OAI Triton path fails to compile matmul_ogs
+    # at engine init, #61374) and the CUTLASS FP4 MoE backend must not
+    # auto-select on sm_110 (faults in profile_run, TMA descriptor init).
+    # #62133 is merged upstream (2026-10-27) but NOT in the 0.33.0 release
+    # branch — re-check at every bump. All five touched files are disjoint
+    # from every other patch — order-independent.
     "thor-sm110-mxfp4-moe-gate.patch",
     "thor-sm110-cutlass-fp4-moe-guard.patch",
-    "thor-spec-decode-split-topp.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

@@ -652,28 +652,6 @@
      additional_scalar_names: List[str] = []
      additional_scalar_dtypes: List[str] = []
      variant_name = f"StandardAttention<{str(use_logits_soft_cap).lower()}>"
-@@ -1345,18 +1343,12 @@
-     if head_dim_qk > 256 or head_dim_vo > 256:
-         if dtype_kv.itemsize == 1:
-             if not (allow_nvfp4_sm8_large_head and _is_nvfp4_kv_dtype(dtype_kv)):
--                return current_compilation_context.get_nvcc_flags_list(
--                    supported_major_versions=[10, 11, 12]
--                )
--        return current_compilation_context.get_nvcc_flags_list(
--            supported_major_versions=[8, 9, 10, 11, 12]
--        )
-+                return current_compilation_context.get_nvcc_flags_list(supported_major_versions=[10, 11, 12])
-+        return current_compilation_context.get_nvcc_flags_list(supported_major_versions=[8, 9, 10, 11, 12])
-     return None
- 
- 
--def _fa2_prefill_head_dim_nvcc_flags(
--    head_dim_qk: int, head_dim_vo: int, dtype_kv: torch.dtype
--) -> Optional[List[str]]:
-+def _fa2_prefill_head_dim_nvcc_flags(head_dim_qk: int, head_dim_vo: int, dtype_kv: torch.dtype) -> Optional[List[str]]:
-     return _fa2_head_dim_nvcc_flags(
-         head_dim_qk,
-         head_dim_vo,
 @@ -1424,9 +1416,7 @@
          additional_scalar_dtypes,
      )

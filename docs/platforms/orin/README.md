@@ -90,7 +90,7 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 | leg | what runs | KV cache |
 |---|---|---|
 | **Mjolnir MMA** | the `sm_87` `mma.m16n8k16` decode kernel (a CuTe-DSL port of NVIDIA's Ampere FA2 example, restructured for paged decode): one CTA per (KV head, split, batch), `cp.async` staging, smem dequant, split-KV + fused LSE combine | fp8 e4m3, HND pages |
-| **FlashInfer FA2-TC** | the official vLLM 0.32.0 FlashInfer tensor-core decode path for `sm_87` | fp8 e4m3, NHD pages |
+| **FlashInfer FA2-TC** | the official vLLM 0.33.0 FlashInfer tensor-core decode path for `sm_87` | fp8 e4m3, NHD pages |
 
 
 <img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
