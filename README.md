@@ -58,7 +58,7 @@ Why any of this helps: **every generated token re-reads the whole KV cache** —
 
 - **Throughput** (decode, prefill — tokens/s, higher is better): change = (Mjolnir − official) ÷ official × 100. `+57%` = 1.57× the tokens per second. On the infographic a change of +100% or more is written as the multiple Mjolnir ÷ official (`+200%` = `3×`).
 - **Latency** (TTFT, ITL — milliseconds, lower is better): change = (Mjolnir − official) ÷ official × 100, so a negative value is a **latency reduction**: `−27%` = 27% fewer milliseconds. It is *not* the reciprocal speedup official ÷ Mjolnir − 1, which reads larger for the same pair.
-- **Worked example** (Jetson AGX Thor, 4K context, 1 request): TTFT 2,319 → 1,686 ms: (1,686 − 2,319) ÷ 2,319 × 100 = **−27.3%** (a latency reduction of 27.3%). The reciprocal speedup would be 2,319 ÷ 1,686 = 1.38× (+37.6%) — the same measurement, a different convention.
+- **Worked example** (Jetson AGX Thor, 4K context, 1 request): TTFT 2,357 → 1,773 ms: (1,773 − 2,357) ÷ 2,357 × 100 = **−24.8%** (a latency reduction of 24.8%). The reciprocal speedup would be 2,357 ÷ 1,773 = 1.33× (+33.0%) — the same measurement, a different convention.
 - **Values**: the mean over the measured runs per cell (6 measured after 2 warm-ups, llama-benchy): decode = generated tokens ÷ generation time per request (summed over requests at higher concurrency), prefill = prompt tokens ÷ prompt-processing time, TTFT = time to the first content token, ITL = 1000 ÷ the per-request decode rate.
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
@@ -69,13 +69,13 @@ Why any of this helps: **every generated token re-reads the whole KV cache** —
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🚀&nbsp;<a href="docs/platforms/thor/README.md#end-to-end">Faster decode</a></h3>
-      <p><b>+58% tokens/s</b> vs the official vLLM image. MTP with <b>5 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
+      <p><b>+54% tokens/s</b> vs the official vLLM image. MTP with <b>5 draft tokens</b>: an fp8 lm_head and a 64K draft vocabulary.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
       <br>
       <h3>⏱️&nbsp;<a href="docs/platforms/thor/README.md#end-to-end">Faster prompts</a></h3>
-      <p><b>+260%</b> prefill throughput, <b>−27%</b> time to first token.</p>
+      <p><b>+254%</b> prefill throughput, <b>−25%</b> time to first token.</p>
       <br>
     </td>
     <td width="33%" valign="top" align="center">
@@ -180,7 +180,7 @@ kernel results exist for its headline model — its own kernel case study.
     <tr><th align="left" width="25%">model</th><th align="center" width="25%"><center><a href="docs/platforms/thor/README.md"><img src="assets/emoji/mjolnir_thor_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson AGX Thor</strong></a></center></th><th align="center" width="25%"><center><a href="docs/platforms/spark/README.md"><img src="assets/emoji/mjolni_spark_emoji.png" alt="" width="20" align="absmiddle"> <strong>DGX Spark</strong></a></center></th><th align="center" width="25%"><center><a href="docs/platforms/orin/README.md"><img src="assets/emoji/mjolnir_orin_emoji.png" alt="" width="20" align="absmiddle"> <strong>Jetson Orin</strong></a></center></th></tr>
   </thead>
   <tbody>
-    <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.5 t/s</span></td></tr>
+    <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 33.7 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.5 t/s</span></td></tr>
     <tr><td align="left"><a href="configs/nvidia/Qwen3.6-35B-A3B/README.md">Qwen3.6-35B-A3B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span></td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>

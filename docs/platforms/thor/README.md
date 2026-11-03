@@ -33,7 +33,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
     <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
   </thead>
   <tbody>
-    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md"><code>NVFP4_MJOLNIR_E2M3_LMH8_VT64K</code></a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 39.2 t/s</span></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">5239.9 t/s</span></td></tr>
+    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md"><code>NVFP4_MJOLNIR_E2M3_LMH8_VT64K</code></a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 33.7 t/s</span></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">5158.4 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md"><code>NVFP4_MJOLNIR_E2M3_LMH8_VT64K</code></a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">7575.5 t/s</span></td></tr>
   </tbody>
 </table>
@@ -47,7 +47,7 @@ from raw results in [`benchmarks/raw/verify/`](../../../benchmarks/raw/verify/)
 by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
-**Where it stands:** 1.25× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.20× FlashAttention 4 hd256 (fp8 Q+KV, as the patched image serves it: 1-CTA decode, no SplitKV), 97 / 97 correctness checks — run `20261028-003028`.
+**Where it stands:** 1.21× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 2.17× FlashAttention 4 hd256 (fp8 Q+KV, as the patched image serves it: 1-CTA decode, no SplitKV), 97 / 97 correctness checks — run `20261103-022903`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -63,8 +63,8 @@ reproduces it.
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261028-001727` |
-| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261028-003028` |
+| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261103-023822` |
+| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261103-022903` |
 | 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261012-203356` |
 | 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261012-203801` |
 | 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261012-205732` |
@@ -98,15 +98,15 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 | L | FlashInfer | FA4 hd256 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA4 | e2m3 vs FA4 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 23.9&nbsp;µs | 23.6&nbsp;µs | **13.2&nbsp;µs** | 13.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.81\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.77\times}}$ |
-| **4K** | 60.5&nbsp;µs | 104.6&nbsp;µs | 55.6&nbsp;µs | **49.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.88\times}}$ | $\color{#16a34a}{\mathbf{2.11\times}}$ |
-| **8K** | 94.5&nbsp;µs | 190.2&nbsp;µs | 88.5&nbsp;µs | **87.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
-| **16K** | 180.8&nbsp;µs | 370.4&nbsp;µs | 174.1&nbsp;µs | **171.6&nbsp;µs** | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ | $\color{#16a34a}{\mathbf{2.16\times}}$ |
-| **32K** | 363.1&nbsp;µs | 708.4&nbsp;µs | 350.9&nbsp;µs | **329.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ |
-| **64K** | 764.8&nbsp;µs | 1.37&nbsp;ms | 671.5&nbsp;µs | **600.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.28\times}}$ |
-| **128K** | 1.38&nbsp;ms | 2.69&nbsp;ms | 1.26&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.50\times}}$ |
-| **256K** | 2.71&nbsp;ms | 5.29&nbsp;ms | 2.39&nbsp;ms | **2.07&nbsp;ms** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.56\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
+| **128** | 21.1&nbsp;µs | 21.6&nbsp;µs | 14.6&nbsp;µs | **14.1&nbsp;µs** | $\color{#16a34a}{\mathbf{1.44\times}}$ | $\color{#16a34a}{\mathbf{1.49\times}}$ | $\color{#16a34a}{\mathbf{1.48\times}}$ | $\color{#16a34a}{\mathbf{1.53\times}}$ |
+| **4K** | 60.6&nbsp;µs | 104.5&nbsp;µs | 54.7&nbsp;µs | **51.0&nbsp;µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.19\times}}$ | $\color{#16a34a}{\mathbf{1.91\times}}$ | $\color{#16a34a}{\mathbf{2.05\times}}$ |
+| **8K** | 99.0&nbsp;µs | 193.8&nbsp;µs | 89.2&nbsp;µs | **88.1&nbsp;µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
+| **16K** | 187.9&nbsp;µs | 370.0&nbsp;µs | **172.3&nbsp;µs** | 174.5&nbsp;µs | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.12\times}}$ |
+| **32K** | 355.7&nbsp;µs | 703.8&nbsp;µs | 347.2&nbsp;µs | **314.2&nbsp;µs** | $\color{grey}{1.02\times}$ | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{2.03\times}}$ | $\color{#16a34a}{\mathbf{2.24\times}}$ |
+| **64K** | 735.0&nbsp;µs | 1.37&nbsp;ms | 655.4&nbsp;µs | **590.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.24\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ | $\color{#16a34a}{\mathbf{2.32\times}}$ |
+| **128K** | 1.32&nbsp;ms | 2.72&nbsp;ms | 1.24&nbsp;ms | **1.10&nbsp;ms** | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.20\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ | $\color{#16a34a}{\mathbf{2.48\times}}$ |
+| **256K** | 2.56&nbsp;ms | 5.37&nbsp;ms | 2.44&nbsp;ms | **2.05&nbsp;ms** | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ | $\color{#16a34a}{\mathbf{2.62\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{2.01\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
@@ -120,7 +120,7 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 
 | official | Mjolnir | official t/s | Mjolnir t/s | change | at |
 |---|---|--:|--:|--:|---|
-| `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 24.8 | 32.2 | +29.9% | 32K |
+| `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 22.5 | 32.1 | +42.5% | 32K |
 
 <img src="../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
@@ -131,23 +131,23 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 23.9 → **39.2** $\color{#16a34a}{\text{+63.9\\%}}$ | — | 820 → **604** $\color{#16a34a}{\text{−26.3\\%}}$ | 42.0 → **26.5** $\color{#16a34a}{\text{−36.8\\%}}$ |
-| 4K | 1 | 23.2 → **36.6** $\color{#16a34a}{\text{+57.8\\%}}$ | 2,811 → **10,114** $\color{#16a34a}{\text{+259.8\\%}}$ | 2,319 → **1,686** $\color{#16a34a}{\text{−27.3\\%}}$ | 43.3 → **27.7** $\color{#16a34a}{\text{−35.9\\%}}$ |
-| 8K | 1 | 25.3 → **33.4** $\color{#16a34a}{\text{+32.2\\%}}$ | 2,560 → **5,240** $\color{#16a34a}{\text{+104.7\\%}}$ | 4,134 → **3,034** $\color{#16a34a}{\text{−26.6\\%}}$ | 39.7 → **30.6** $\color{#16a34a}{\text{−23.1\\%}}$ |
-| 16K | 1 | 24.7 → **34.8** $\color{#16a34a}{\text{+41.0\\%}}$ | 2,196 → **4,120** $\color{#16a34a}{\text{+87.6\\%}}$ | 8,526 → **5,553** $\color{#16a34a}{\text{−34.9\\%}}$ | 40.7 → **29.1** $\color{#16a34a}{\text{−28.6\\%}}$ |
-| 32K | 1 | 24.8 → **32.2** $\color{#16a34a}{\text{+29.9\\%}}$ | 1,756 → **3,433** $\color{#16a34a}{\text{+95.5\\%}}$ | 19,964 → **11,222** $\color{#16a34a}{\text{−43.8\\%}}$ | 40.6 → **31.3** $\color{#16a34a}{\text{−23.1\\%}}$ |
-| no ctx | 2 | 44.5 → **67.1** $\color{#16a34a}{\text{+50.6\\%}}$ | — | 1,443 → **1,065** $\color{#16a34a}{\text{−26.2\\%}}$ | 42.5 → **27.9** $\color{#16a34a}{\text{−34.4\\%}}$ |
-| 4K | 2 | 43.2 → **65.9** $\color{#16a34a}{\text{+52.4\\%}}$ | 2,707 → **3,497** $\color{#16a34a}{\text{+29.2\\%}}$ | 4,478 → **3,453** $\color{#16a34a}{\text{−22.9\\%}}$ | 44.2 → **28.1** $\color{#16a34a}{\text{−36.4\\%}}$ |
-| 8K | 2 | 44.6 → **60.7** $\color{#16a34a}{\text{+35.9\\%}}$ | 2,499 → **3,422** $\color{#16a34a}{\text{+37.0\\%}}$ | 8,135 → **5,803** $\color{#16a34a}{\text{−28.7\\%}}$ | 42.6 → **30.3** $\color{#16a34a}{\text{−29.0\\%}}$ |
-| 16K | 2 | 43.1 → **56.2** $\color{#16a34a}{\text{+30.5\\%}}$ | 2,180 → **3,345** $\color{#16a34a}{\text{+53.4\\%}}$ | 16,847 → **10,896** $\color{#16a34a}{\text{−35.3\\%}}$ | 43.7 → **32.2** $\color{#16a34a}{\text{−26.3\\%}}$ |
-| 32K | 2 | 34.6 → **48.1** $\color{#16a34a}{\text{+39.0\\%}}$ | 1,743 → **3,108** $\color{#16a34a}{\text{+78.3\\%}}$ | 39,253 → **21,777** $\color{#16a34a}{\text{−44.5\\%}}$ | 49.8 → **35.5** $\color{#16a34a}{\text{−28.7\\%}}$ |
-| no ctx | 4 | 83.3 → **100.2** $\color{#16a34a}{\text{+20.3\\%}}$ | — | 2,789 → **2,302** $\color{#16a34a}{\text{−17.5\\%}}$ | 43.3 → **32.3** $\color{#16a34a}{\text{−25.5\\%}}$ |
-| 4K | 4 | 82.0 → **103.6** $\color{#16a34a}{\text{+26.4\\%}}$ | 2,710 → **3,470** $\color{#16a34a}{\text{+28.0\\%}}$ | 9,035 → **6,895** $\color{#16a34a}{\text{−23.7\\%}}$ | 45.8 → **32.8** $\color{#16a34a}{\text{−28.3\\%}}$ |
-| 8K | 4 | 71.9 → **67.1** $\color{#dc2626}{\text{−6.7\\%}}$ | 2,461 → **3,372** $\color{#16a34a}{\text{+37.0\\%}}$ | 16,323 → **11,213** $\color{#16a34a}{\text{−31.3\\%}}$ | 46.7 → **39.9** $\color{#16a34a}{\text{−14.6\\%}}$ |
-| 16K | 4 | 42.9 → **49.7** $\color{#16a34a}{\text{+15.8\\%}}$ | 2,158 → **3,246** $\color{#16a34a}{\text{+50.4\\%}}$ | 32,532 → **20,887** $\color{#16a34a}{\text{−35.8\\%}}$ | 58.5 → **48.9** $\color{#16a34a}{\text{−16.4\\%}}$ |
-| 32K | 4 | 11.4 → **18.2** $\color{#16a34a}{\text{+58.9\\%}}$ | 1,726 → **3,030** $\color{#16a34a}{\text{+75.5\\%}}$ | 66,221 → **36,571** $\color{#16a34a}{\text{−44.8\\%}}$ | 161.7 → **109.7** $\color{#16a34a}{\text{−32.1\\%}}$ |
+| no ctx | 1 | 25.8 → **33.7** $\color{#16a34a}{\text{+30.8\\%}}$ | — | 823 → **608** $\color{#16a34a}{\text{−26.1\\%}}$ | 39.1 → **30.3** $\color{#16a34a}{\text{−22.5\\%}}$ |
+| 4K | 1 | 24.2 → **37.4** $\color{#16a34a}{\text{+54.3\\%}}$ | 2,723 → **9,628** $\color{#16a34a}{\text{+253.6\\%}}$ | 2,357 → **1,773** $\color{#16a34a}{\text{−24.8\\%}}$ | 41.5 → **27.3** $\color{#16a34a}{\text{−34.2\\%}}$ |
+| 8K | 1 | 25.0 → **35.5** $\color{#16a34a}{\text{+42.0\\%}}$ | 2,492 → **5,158** $\color{#16a34a}{\text{+107.0\\%}}$ | 4,211 → **3,120** $\color{#16a34a}{\text{−25.9\\%}}$ | 40.1 → **29.0** $\color{#16a34a}{\text{−27.6\\%}}$ |
+| 16K | 1 | 23.2 → **32.4** $\color{#16a34a}{\text{+39.7\\%}}$ | 2,180 → **4,086** $\color{#16a34a}{\text{+87.4\\%}}$ | 8,556 → **5,645** $\color{#16a34a}{\text{−34.0\\%}}$ | 43.3 → **31.2** $\color{#16a34a}{\text{−27.9\\%}}$ |
+| 32K | 1 | 22.5 → **32.1** $\color{#16a34a}{\text{+42.5\\%}}$ | 1,752 → **3,380** $\color{#16a34a}{\text{+92.9\\%}}$ | 19,970 → **11,434** $\color{#16a34a}{\text{−42.7\\%}}$ | 44.7 → **31.8** $\color{#16a34a}{\text{−28.9\\%}}$ |
+| no ctx | 2 | 45.8 → **59.6** $\color{#16a34a}{\text{+30.2\\%}}$ | — | 1,428 → **1,013** $\color{#16a34a}{\text{−29.0\\%}}$ | 42.7 → **29.5** $\color{#16a34a}{\text{−31.1\\%}}$ |
+| 4K | 2 | 46.5 → **58.6** $\color{#16a34a}{\text{+26.2\\%}}$ | 2,706 → **3,496** $\color{#16a34a}{\text{+29.2\\%}}$ | 4,490 → **3,175** $\color{#16a34a}{\text{−29.3\\%}}$ | 41.0 → **29.7** $\color{#16a34a}{\text{−27.6\\%}}$ |
+| 8K | 2 | 44.3 → **53.4** $\color{#16a34a}{\text{+20.5\\%}}$ | 2,483 → **3,294** $\color{#16a34a}{\text{+32.7\\%}}$ | 8,186 → **5,642** $\color{#16a34a}{\text{−31.1\\%}}$ | 43.1 → **31.8** $\color{#16a34a}{\text{−26.2\\%}}$ |
+| 16K | 2 | 44.9 → **56.0** $\color{#16a34a}{\text{+24.9\\%}}$ | 2,175 → **3,242** $\color{#16a34a}{\text{+49.1\\%}}$ | 16,886 → **11,004** $\color{#16a34a}{\text{−34.8\\%}}$ | 43.1 → **31.2** $\color{#16a34a}{\text{−27.6\\%}}$ |
+| 32K | 2 | 37.9 → **29.3** $\color{#dc2626}{\text{−22.5\\%}}$ | 1,739 → **2,989** $\color{#16a34a}{\text{+71.8\\%}}$ | 39,648 → **21,059** $\color{#16a34a}{\text{−46.9\\%}}$ | 47.8 → **48.7** $\color{grey}{\text{+1.9\\%}}$ |
+| no ctx | 4 | 82.6 → **103.0** $\color{#16a34a}{\text{+24.8\\%}}$ | — | 2,770 → **2,377** $\color{#16a34a}{\text{−14.2\\%}}$ | 44.2 → **32.5** $\color{#16a34a}{\text{−26.4\\%}}$ |
+| 4K | 4 | 81.2 → **71.6** $\color{#dc2626}{\text{−11.9\\%}}$ | 2,646 → **3,378** $\color{#16a34a}{\text{+27.6\\%}}$ | 9,133 → **6,350** $\color{#16a34a}{\text{−30.5\\%}}$ | 44.8 → **39.0** $\color{#16a34a}{\text{−12.9\\%}}$ |
+| 8K | 4 | 77.2 → **45.3** $\color{#dc2626}{\text{−41.3\\%}}$ | 2,454 → **3,251** $\color{#16a34a}{\text{+32.5\\%}}$ | 16,543 → **10,457** $\color{#16a34a}{\text{−36.8\\%}}$ | 46.6 → **50.7** $\color{#dc2626}{\text{+8.7\\%}}$ |
+| 16K | 4 | 40.3 → **32.4** $\color{#dc2626}{\text{−19.6\\%}}$ | 2,154 → **3,141** $\color{#16a34a}{\text{+45.8\\%}}$ | 32,695 → **19,141** $\color{#16a34a}{\text{−41.5\\%}}$ | 61.4 → **70.2** $\color{#dc2626}{\text{+14.3\\%}}$ |
+| 32K | 4 | 11.6 → **15.0** $\color{#16a34a}{\text{+30.0\\%}}$ | 1,722 → **2,971** $\color{#16a34a}{\text{+72.6\\%}}$ | 66,663 → **33,469** $\color{#16a34a}{\text{−49.8\\%}}$ | 159.3 → **141.8** $\color{#16a34a}{\text{−11.0\\%}}$ |
 
-> <sub>official: `vllm/vllm-openai:v0.32.0-ubuntu2404 · NVFP4 (FlashInfer)` · Mjolnir: `narandill/mjolnir-vllm:v0.32.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
+> <sub>official: `vllm/vllm-openai:v0.33.0 · NVFP4 (vLLM 0.33.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.33.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
