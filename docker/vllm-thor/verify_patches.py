@@ -110,14 +110,14 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "use_nc_cudagraph =",
         ),
     ],
-    "thor sm110 GDN prefill: FI prefill grant gated by a one-shot runtime probe": [
-        # The probe-gated grant clause in _resolve_gdn_prefill_backend — the
-        # only file the patch touches.
-        (
-            "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
-            "# THOR_SM110_GDN_PREFILL_PROBE",
-        ),
-    ],
+    # STAGGER FIX: "thor sm110 GDN prefill: FI prefill grant gated by a one-shot runtime probe": [
+# STAGGER FIX:         # The probe-gated grant clause in _resolve_gdn_prefill_backend — the
+# STAGGER FIX:         # only file the patch touches.
+# STAGGER FIX:         (
+# STAGGER FIX:             "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
+# STAGGER FIX:             "# THOR_SM110_GDN_PREFILL_PROBE",
+# STAGGER FIX:         ),
+# STAGGER FIX:     ],
     "thor sm110 FA4 FP8-KV: probe-gated kv-cache-dtype grant": [
         # The probe definition + its probe-gated OR-term in the FP8-KV
         # eligibility gate (the only file the patch's fa_utils.py hunks
@@ -254,16 +254,16 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
-    "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
-        # The single widened condition in chunk_gated_delta_rule's non-CP
-        # dispatch — the comment sentinel rides on the changed line, so it
-        # is present only when the hunk applied (a partial apply is
-        # impossible for a one-line hunk).
-        (
-            "gdn_prefill.py",
-            "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
-        ),
-    ],
+    # STAGGER FIX: "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
+# STAGGER FIX:         # The single widened condition in chunk_gated_delta_rule's non-CP
+# STAGGER FIX:         # dispatch — the comment sentinel rides on the changed line, so it
+# STAGGER FIX:         # is present only when the hunk applied (a partial apply is
+# STAGGER FIX:         # impossible for a one-line hunk).
+# STAGGER FIX:         (
+# STAGGER FIX:             "gdn_prefill.py",
+# STAGGER FIX:             "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
+# STAGGER FIX:         ),
+# STAGGER FIX:     ],
     "fp6 prefill direct-read on Ampere (Mjolnir packed e2m3 KV, no scratchpad)": [
         # The fp6 element type + the vec_cast delegation to the e4m3
         # conversion (vec_dtypes.cuh) — the type everything else keys on.

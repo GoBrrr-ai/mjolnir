@@ -49,7 +49,9 @@ from pathlib import Path
 PATCH_ORDER = [
     "49652-draft-decode-capture.patch",
     "50885-flashinfer-full-cudagraph.patch",
-    "thor-gdn-prefill-sm110.patch",
+    # STAGGER FIX (task/vllm-0.33.0-serving-regression.md §10): the GDN
+    # prefill pair carries the c4 aggregate stagger — removed. Stock GDN
+    # prefill path serves correctly on 0.33 (kernelonly A/B, acc 3.59).
     "thor-fused-draft-decode-fi-native-update.patch",
     # Refreshes the T5 split-KV work plan when the fused draft loop replays
     # its FULL cudagraph: the _fused_multi_step_decode FULL branch returns
@@ -99,7 +101,7 @@ PATCH_ORDER = [
 # (thor-gdn-prefill-sm110) stays probe-gated, so this hunk alone changes
 # no behavior on any device.
 FLASHINFER_PATCH_ORDER = [
-    "thor-gdn-prefill-fi-sm110.patch",
+    # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",
 ]
 
