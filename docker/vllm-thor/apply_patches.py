@@ -49,7 +49,7 @@ from pathlib import Path
 PATCH_ORDER = [
     "49652-draft-decode-capture.patch",
     "50885-flashinfer-full-cudagraph.patch",
-    # STAGGER FIX (task/vllm-0.33.0-serving-regression.md §10): the GDN
+    # STAGGER FIX (2026-11-04): the GDN
     # prefill pair carries the c4 aggregate stagger — removed. Stock GDN
     # prefill path serves correctly on 0.33 (kernelonly A/B, acc 3.59).
     "thor-fused-draft-decode-fi-native-update.patch",

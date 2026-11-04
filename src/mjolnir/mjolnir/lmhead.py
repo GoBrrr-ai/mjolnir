@@ -61,8 +61,7 @@ def _head_tiles() -> tuple[int, int, int, int]:
     """Launch config of the small-M head GEMV; ``MJOLNIR_LM_HEAD_TILES``
     overrides. The default is the 2026-11-04 serving A/B winner on Thor
     (BK=256 + deeper stages pipelines the cold weight stream; the old
-    BK=128 config under-pipelined it) — see
-    task/vllm-0.33.0-serving-regression.md."""
+    BK=128 config under-pipelined it)."""
     raw = os.environ.get(HEAD_TILES_ENV, "").strip()
     if raw:
         try:
@@ -281,7 +280,7 @@ def install_fp8_linears(model) -> int:
 
     The MTP draft loop re-runs the drafter's GEMMs 4-5x per verify step, and
     the 0.33 serving context runs weight-streaming GEMMs ~1.5-1.9x slower per
-    call (task/vllm-0.33.0-serving-regression.md) — halving the streamed
+    call (measured on Thor, 2026-11-04) — halving the streamed
     bytes buys back most of the loop on either version. The lm_head keeps its
     own path; every layer passes the same self-test as the head before it is
     touched, and the bf16 original is freed (the fp8 copy is the only
