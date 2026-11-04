@@ -52,10 +52,35 @@ ENV_DRAFT_VOCAB_SIZE = "MJOLNIR_DRAFT_VOCAB_SIZE"
 ENV_DRAFT_VOCAB_NATIVE = "MJOLNIR_DRAFT_VOCAB_NATIVE"
 FP8_MAX = 448.0
 SMALL_M = 64  # beyond this many rows (prompt logprobs) the dequantized chunks win
+HEAD_TILES_ENV = "MJOLNIR_LM_HEAD_TILES"  # "BN,BK,warps,stages" head-GEMV override
+ENV_MTP_FP8 = "MJOLNIR_MTP_FP8"  # fp8-row-quantize the drafter's big unquantized linears
+_MTP_FP8_MIN_NUMEL = 16 << 20  # skip routers / small projections
+
+
+def _head_tiles() -> tuple[int, int, int, int]:
+    """Launch config of the small-M head GEMV; ``MJOLNIR_LM_HEAD_TILES``
+    overrides. The default is the 2026-11-04 serving A/B winner on Thor
+    (BK=256 + deeper stages pipelines the cold weight stream; the old
+    BK=128 config under-pipelined it) — see
+    task/vllm-0.33.0-serving-regression.md."""
+    raw = os.environ.get(HEAD_TILES_ENV, "").strip()
+    if raw:
+        try:
+            bn, bk, warps, stages = (int(x) for x in raw.split(","))
+            if min(bn, bk, warps, stages) > 0:
+                return bn, bk, warps, stages
+        except ValueError:
+            pass
+        _log.warning("%s=%r ignored (want BN,BK,warps,stages)", HEAD_TILES_ENV, raw)
+    return 64, 256, 8, 5
 
 
 def wanted() -> bool:
-    return bool(os.environ.get(ENV_LM_HEAD, "").strip() or os.environ.get(ENV_DRAFT_VOCAB, "").strip())
+    return bool(
+        os.environ.get(ENV_LM_HEAD, "").strip()
+        or os.environ.get(ENV_DRAFT_VOCAB, "").strip()
+        or os.environ.get(ENV_MTP_FP8, "").strip()
+    )
 
 
 # ── fp8-weight GEMM ─────────────────────────────────────────────────────────
@@ -143,11 +168,12 @@ def fp8_linear(x: torch.Tensor, w8: torch.Tensor, scale: torch.Tensor, chunk: in
     N = w8.shape[0]
     out = torch.empty(M, N, dtype=x.dtype, device=x.device)
     if M <= SMALL_M and triton is not None:
-        BM, BN, BK = 16, 64, 128
+        BM = 16
+        BN, BK, num_warps, num_stages = _head_tiles()
         grid = (triton.cdiv(N, BN), triton.cdiv(M, BM))
         _fp8_head_kernel[grid](
             x2, w8, scale, out, M, N, K, x2.stride(0), out.stride(0), BLOCK_M=BM, BLOCK_N=BN, BLOCK_K=BK,
-            num_warps=4, num_stages=4,
+            num_warps=num_warps, num_stages=num_stages,
         )  # fmt: skip
     else:  # many rows: dequantize a slab of the head at a time
         for n0 in range(0, N, chunk):
@@ -247,6 +273,41 @@ def install_fp8_head(lm_head, model=None) -> bool:
 
 
 # ── VocabTrim for the drafter ───────────────────────────────────────────────
+
+
+def install_fp8_linears(model) -> int:
+    """FP8-row-quantize the drafter's big unquantized linears in place
+    (``MJOLNIR_MTP_FP8``).
+
+    The MTP draft loop re-runs the drafter's GEMMs 4-5x per verify step, and
+    the 0.33 serving context runs weight-streaming GEMMs ~1.5-1.9x slower per
+    call (task/vllm-0.33.0-serving-regression.md) — halving the streamed
+    bytes buys back most of the loop on either version. The lm_head keeps its
+    own path; every layer passes the same self-test as the head before it is
+    touched, and the bf16 original is freed (the fp8 copy is the only
+    consumer once loaded)."""
+    n = 0
+    for name, mod in model.named_modules():
+        qm = getattr(mod, "quant_method", None)
+        w = getattr(mod, "weight", None)
+        if qm is None or w is None or w.ndim != 2 or w.numel() < _MTP_FP8_MIN_NUMEL:
+            continue
+        if w.dtype not in (torch.bfloat16, torch.float16):
+            continue
+        if "Unquantized" not in type(qm).__name__ or getattr(mod, "_mjolnir_fp8_linear", False):
+            continue
+        w8, scale = quantize_rows(w.data)
+        err = _self_test(w.data, w8, scale)
+        if not err < 0.02:
+            _log.warning("Mjolnir mtp fp8: %s self-test %.4f; left in bf16", name, err)
+            continue
+        mod.quant_method = Fp8HeadMethod(qm, w8, scale)
+        mod._mjolnir_fp8_linear = True
+        w.data = torch.empty(0, dtype=w.dtype, device=w.device)
+        torch.cuda.empty_cache()
+        n += 1
+        _log.info("Mjolnir mtp fp8: %s %s e4m3 per-row, self-test %.4f", name, tuple(w8.shape), err)
+    return n
 
 
 def load_vocab(path: str, size: int | None = None) -> list[int]:
@@ -660,6 +721,12 @@ def after_load(runner) -> None:
                     install_fp8_head(head, target)
                 except Exception as e:  # noqa: BLE001
                     _log.warning("Mjolnir lm_head fp8: not installed (%r)", e)
+    if os.environ.get(ENV_MTP_FP8, "").strip() and draft is not None:
+        try:
+            n = install_fp8_linears(draft)
+            _log.info("Mjolnir mtp fp8: %d drafter linears quantized", n)
+        except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+            _log.warning("Mjolnir mtp fp8: not installed (%r)", e)
     if torch.cuda.is_available():
         # hand the quantization temporaries back before vLLM profiles memory
         # for the KV cache (a cached-but-free block still counts as used)
