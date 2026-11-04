@@ -102,7 +102,7 @@ def test_full_render_from_fixture_data(repo):
     assert "{{" not in dh and "<img" not in dh
     assert "https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.jpg" in dh
     # the patch inventory re-emitted verbatim from docker/vllm-thor/PATCHES.md
-    assert "| File | PR | What it fixes |" in dh and "thor-fp6-e2m3-kv-cache.patch" in dh
+    assert "| File | PR | What it fixes |" in dh and "thor-mjolnir-attention-backend.patch" in dh
     # the kernel index lives on the platform page's `## Kernel` section (cycle
     # 3k): the headline finding is reused there, the kernel README is gone
     thor_page = (repo / "docs" / "platforms" / "thor" / "README.md").read_text()

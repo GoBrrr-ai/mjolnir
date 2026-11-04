@@ -96,7 +96,7 @@ def quant_role(role: str, platform: str = DEFAULT_PLATFORM) -> str:
 # The literal VLLM_VERSION line below is grepped by docker-image.yml (`sed
 # 's/^VLLM_VERSION = "..."'`) to sync with the Dockerfile's BASE_IMAGE — keep
 # it equal to the record's vllm_version (tests pin both sides).
-VLLM_VERSION = "0.32.0"
+VLLM_VERSION = "0.33.0"
 _thor = REGISTRY[DEFAULT_PLATFORM]
 IMAGE_REPO = _thor.image_repo
 DEFAULT_IMAGE = _thor.default_image

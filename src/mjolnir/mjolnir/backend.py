@@ -154,13 +154,48 @@ _BASE_WRITES_KV_IN_FORWARD = getattr(_Base, "forward_includes_kv_cache_update", 
 
 
 def _fp6_known_to_vllm() -> bool:
-    """Does this vLLM have the fp6_e2m3 cache dtype (the image's patch)?"""
+    """Does this vLLM know the fp6_e2m3 cache dtype?
+
+    Two routes: the image patch (vLLM <= 0.32.0 — ``get_kv_quant_mode`` maps
+    it to ``KVQuantMode.FP6_E2M3``) or the pluggable KV-dtype API (#52670,
+    0.33.0+ — ``mjolnir.kvdtype`` registers a handler from the plugin entry
+    point, and the mode reads ``KVQuantMode.CUSTOM``)."""
+    try:
+        from vllm.config.cache import get_kv_cache_dtype_handler
+
+        if get_kv_cache_dtype_handler("fp6_e2m3") is not None:
+            return True
+    except ImportError:  # pre-#52670 vLLM: the image patch route below
+        pass
     try:
         from vllm.v1.kv_cache_interface import KVQuantMode, get_kv_quant_mode
 
         return get_kv_quant_mode("fp6_e2m3") == getattr(KVQuantMode, "FP6_E2M3", None)
     except ImportError:
         return False
+
+
+def _spec_is_fp6(spec) -> bool:
+    """Is this KV spec one of ours (the packed e2m3 cell)?
+
+    0.33.0's ``KVQuantMode`` has no ``is_fp6``: the pluggable dtype reads
+    ``CUSTOM`` and is recognized through the registered handler (the mode
+    value is shared with every other self-managed dtype)."""
+    mode = getattr(spec, "kv_quant_mode", None)
+    if mode is None:
+        return False
+    try:
+        from vllm.v1.kv_cache_interface import KVQuantMode
+
+        if getattr(mode, "is_fp6", False):  # the image-patch route (<= 0.32.0)
+            return True
+        if mode == KVQuantMode.CUSTOM:  # the pluggable route (0.33.0+)
+            from vllm.config.cache import get_kv_cache_dtype_handler
+
+            return get_kv_cache_dtype_handler("fp6_e2m3") is not None
+    except ImportError:
+        pass
+    return False
 
 
 def _fallback_serves_fp8_scratch() -> bool:
@@ -777,8 +812,7 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
     def customize_spec(cls, spec):
         """fp6_e2m3: one (head, token) cell is the packed K row then the
         packed V row, d * 6 / 8 bytes each."""
-        mode = getattr(spec, "kv_quant_mode", None)
-        if getattr(mode, "is_fp6", False) and getattr(spec, "state_content_bytes", None) is None:
+        if _spec_is_fp6(spec) and getattr(spec, "state_content_bytes", None) is None:
             from dataclasses import replace
 
             from .kvfp6 import row_bytes

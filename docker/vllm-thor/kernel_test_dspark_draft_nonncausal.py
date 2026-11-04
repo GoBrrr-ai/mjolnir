@@ -98,6 +98,14 @@ def _gate_cfg(non_causal: bool, has_spec: bool):
 
 
 def _gate() -> None:
+    if not torch.cuda.is_available():
+        # 0.33.0: get_cudagraph_support consults the device — its fa2-native
+        # decode branch keys on has_device_capability(90), so with no device
+        # visible the verdict is meaningless (the dspark grant would look
+        # shadowed). Skip like the GPU tests do; the build with --gpus all
+        # exercises it for real.
+        print("SKIP T1 gate (no CUDA device visible; the gate is device-dependent)")
+        return
     import vllm.v1.attention.backends.flashinfer as fi
 
     orig = fi.can_use_trtllm_attention

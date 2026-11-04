@@ -243,6 +243,37 @@ def child(args) -> None:
         json.dump(res, f)
 
 
+def _wait_gpu_memory_stable(timeout: float = 30.0) -> None:
+    """Wait until the GPU's free memory stops changing.
+
+    Each child is a fresh process whose CUDA context tears down
+    asynchronously after exit; the NEXT child's memory profiling asserts on
+    any free-memory change mid-init ("other processes ... release GPU
+    memory"), and a context release lands exactly in that window. Samples
+    the free-memory reading every 2 s until two consecutive readings agree
+    within 32 MiB, or the timeout passes (then proceed anyway — the worst
+    case is today's behavior). torch's mem_get_info rather than nvidia-smi:
+    on Tegra the driver reports N/A there. The parent's own one-time context
+    is a fixed reservation and does not disturb a *change* measurement.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        torch.cuda.empty_cache()
+        last = torch.cuda.mem_get_info()[0]
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time.sleep(2.0)
+            cur = torch.cuda.mem_get_info()[0]
+            if abs(cur - last) <= 32 * 1024 * 1024:
+                return
+            last = cur
+    except Exception:  # noqa: BLE001 - best effort; never block the smoke
+        pass
+
+
 def calibrate(args, out: str) -> str:
     """Per-channel e2m3 scales for the smoke model (mjolnir.calibrate, own
     process). The full default prompt set: per-channel amax needs coverage —
@@ -279,6 +310,10 @@ def calibrate(args, out: str) -> str:
 
 
 def run_child(args, backend, out):
+    # The previous child's context may still be tearing down (async release);
+    # this child's init memory-profiling asserts on mid-profile changes, so
+    # wait for the GPU's free memory to settle first.
+    _wait_gpu_memory_stable()
     cmd = [
         sys.executable,
         os.path.abspath(__file__),
@@ -374,6 +409,9 @@ def main():
     tmp = os.environ.get("TMPDIR", "/tmp")
     if args.kv.startswith("fp6") and not os.environ.get("MJOLNIR_ATTN_KV_SCALES"):
         os.environ["MJOLNIR_ATTN_KV_SCALES"] = calibrate(args, os.path.join(tmp, "t5_smoke_kv_scales.json"))
+        # The calibrator's context tears down asynchronously -- see the
+        # helper; the next child's init profiling must not race the release.
+        _wait_gpu_memory_stable()
     ref = run_child(args, args.reference, os.path.join(tmp, "t5_smoke_ref.json"))
     t5 = run_child(args, "MJOLNIR", os.path.join(tmp, "t5_smoke_t5.json"))
 

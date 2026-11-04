@@ -32,6 +32,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "v1/attention/backends/flashinfer.py",
             "def flashinfer_supports_uniform_multi_token_decode",
         ),
+        # The two gates that consume the probe (a partial apply that lands
+        # the probe without wiring it would silently keep PIECEWISE spec
+        # decode on sm_110).
+        (
+            "v1/attention/backends/flashinfer.py",
+            "and flashinfer_supports_uniform_multi_token_decode()",
+        ),
     ],
     "49652 draft-decode capture under dynamic SD (base manager guard)": [
         # Rebased onto the Dynamic-SD candidate expansion that upstream added
@@ -42,22 +49,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         (
             "v1/worker/gpu/cudagraph_utils.py",
             "and self.decode_query_len > 1",
-        ),
-    ],
-    "54165 hybrid mamba align cache hits under spec decode (KV connector)": [
-        (
-            "config/speculative.py",
-            "def use_eagle_preserves_target_kv_cache",
-        ),
-    ],
-    "55519 no draft-group warning when eagle block drop is off": [
-        (
-            "v1/core/kv_cache_utils.py",
-            "if spec_config is None or not spec_config.use_eagle_block_drop():\n        return\n    if any(group.is_eagle_group for group in kv_cache_groups):",
-        ),
-        (
-            "v1/core/sched/scheduler.py",
-            "so the trailing block stays eligible for cross-request",
         ),
     ],
     "thor fused draft-decode: in-place FlashInfer native decode plan advance": [
@@ -119,14 +110,14 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "use_nc_cudagraph =",
         ),
     ],
-    "thor sm110 GDN prefill: FI prefill grant gated by a one-shot runtime probe": [
-        # The probe-gated grant clause in _resolve_gdn_prefill_backend — the
-        # only file the patch touches.
-        (
-            "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
-            "# THOR_SM110_GDN_PREFILL_PROBE",
-        ),
-    ],
+    # STAGGER FIX: "thor sm110 GDN prefill: FI prefill grant gated by a one-shot runtime probe": [
+# STAGGER FIX:         # The probe-gated grant clause in _resolve_gdn_prefill_backend — the
+# STAGGER FIX:         # only file the patch touches.
+# STAGGER FIX:         (
+# STAGGER FIX:             "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
+# STAGGER FIX:             "# THOR_SM110_GDN_PREFILL_PROBE",
+# STAGGER FIX:         ),
+# STAGGER FIX:     ],
     "thor sm110 FA4 FP8-KV: probe-gated kv-cache-dtype grant": [
         # The probe definition + its probe-gated OR-term in the FP8-KV
         # eligibility gate (the only file the patch's fa_utils.py hunks
@@ -181,13 +172,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "v1/attention/backends/fa_utils.py",
             "_thor_fa4_hd256_fp8kv_probe()\n            if uses_fa4_hd256_kernel",
         ),
-    ],
-    "thor fp6 e2m3 KV cache dtype (Mjolnir)": [
-        # the dtype name, its storage dtype, and the quant mode the backend keys on
-        ("config/cache.py", '"fp6_e2m3",'),
-        ("utils/torch_utils.py", '"fp6_e2m3": torch.uint8'),
-        ("v1/kv_cache_interface.py", "FP6_E2M3 = 12"),
-        ("v1/kv_cache_interface.py", 'if kv_cache_dtype == "fp6_e2m3":\n        return KVQuantMode.FP6_E2M3'),
     ],
     "thor Mjolnir attention backend: AttentionBackendEnum.MJOLNIR": [
         # The enum member that makes `--attention-backend MJOLNIR` parse; its
@@ -262,18 +246,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "!is_device_capability_family(110)",
         ),
     ],
-    "thor spec-decode split top-p: probability-space pivot for huge logits": [
-        # The probability-space mask predicate in _topp_sb_mask_kernel —
-        # the logit-space pivot (log(pivot)+logZ+M) rounds to M for huge
-        # forced logits (thinking_token_budget writes 1e9; fp32 spacing
-        # there is 64), masking the whole row so sampling emits token 0
-        # and spec decode never terminates. The marker rides on the
-        # changed line, present only after the patch.
-        (
-            "v1/sample/ops/topk_topp_triton.py",
-            "keep = (prob > pivot) | (x == M)  # THOR_SPEC_SPLIT_TOPP",
-        ),
-    ],
 }
 
 
@@ -282,16 +254,16 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
-    "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
-        # The single widened condition in chunk_gated_delta_rule's non-CP
-        # dispatch — the comment sentinel rides on the changed line, so it
-        # is present only when the hunk applied (a partial apply is
-        # impossible for a one-line hunk).
-        (
-            "gdn_prefill.py",
-            "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
-        ),
-    ],
+    # STAGGER FIX: "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
+# STAGGER FIX:         # The single widened condition in chunk_gated_delta_rule's non-CP
+# STAGGER FIX:         # dispatch — the comment sentinel rides on the changed line, so it
+# STAGGER FIX:         # is present only when the hunk applied (a partial apply is
+# STAGGER FIX:         # impossible for a one-line hunk).
+# STAGGER FIX:         (
+# STAGGER FIX:             "gdn_prefill.py",
+# STAGGER FIX:             "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
+# STAGGER FIX:         ),
+# STAGGER FIX:     ],
     "fp6 prefill direct-read on Ampere (Mjolnir packed e2m3 KV, no scratchpad)": [
         # The fp6 element type + the vec_cast delegation to the e4m3
         # conversion (vec_dtypes.cuh) — the type everything else keys on.

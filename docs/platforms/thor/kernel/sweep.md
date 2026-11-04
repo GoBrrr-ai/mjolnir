@@ -1,6 +1,6 @@
 # Headline L-sweep
 
-> Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians · `mjolnir verify sweep` · run `20261028-003028`
+> Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians · `mjolnir verify sweep` · run `20261103-022903`
 
 ## The question
 
@@ -21,21 +21,21 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 <img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the platform's memory peak" width="100%">
 
-- **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.25×**, from 1.05× (L=16K) to 1.79× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
-- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.16×**, from 1.03× (L=32K) to 1.81× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
-- **FlashAttention 4 hd256 (fp8 Q+KV)** vs FlashInfer (fp8 KV, NHD): geomean **0.57×**, from 0.49× (L=16K) to 1.01× (L=128); faster beyond the ±3% noise band at 0 of 8 context lengths.
+- **Mjolnir (e2m3 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.21×**, from 1.08× (L=16K) to 1.49× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
+- **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.12×**, from 1.02× (L=32K) to 1.44× (L=128); faster beyond the ±3% noise band at 7 of 8 context lengths.
+- **FlashAttention 4 hd256 (fp8 Q+KV)** vs FlashInfer (fp8 KV, NHD): geomean **0.56×**, from 0.48× (L=256K) to 0.97× (L=128); faster beyond the ±3% noise band at 0 of 8 context lengths.
 
 | L | FlashInfer | FA4 hd256 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA4 | e2m3 vs FA4 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| **128** | 23.9&nbsp;µs | 23.6&nbsp;µs | **13.2&nbsp;µs** | 13.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.81\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.79\times}}$ | $\color{#16a34a}{\mathbf{1.77\times}}$ |
-| **4K** | 60.5&nbsp;µs | 104.6&nbsp;µs | 55.6&nbsp;µs | **49.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.22\times}}$ | $\color{#16a34a}{\mathbf{1.88\times}}$ | $\color{#16a34a}{\mathbf{2.11\times}}$ |
-| **8K** | 94.5&nbsp;µs | 190.2&nbsp;µs | 88.5&nbsp;µs | **87.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.07\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
-| **16K** | 180.8&nbsp;µs | 370.4&nbsp;µs | 174.1&nbsp;µs | **171.6&nbsp;µs** | $\color{#16a34a}{\mathbf{1.04\times}}$ | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{2.13\times}}$ | $\color{#16a34a}{\mathbf{2.16\times}}$ |
-| **32K** | 363.1&nbsp;µs | 708.4&nbsp;µs | 350.9&nbsp;µs | **329.4&nbsp;µs** | $\color{#16a34a}{\mathbf{1.03\times}}$ | $\color{#16a34a}{\mathbf{1.10\times}}$ | $\color{#16a34a}{\mathbf{2.02\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ |
-| **64K** | 764.8&nbsp;µs | 1.37&nbsp;ms | 671.5&nbsp;µs | **600.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.14\times}}$ | $\color{#16a34a}{\mathbf{1.27\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.28\times}}$ |
-| **128K** | 1.38&nbsp;ms | 2.69&nbsp;ms | 1.26&nbsp;ms | **1.08&nbsp;ms** | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.28\times}}$ | $\color{#16a34a}{\mathbf{2.14\times}}$ | $\color{#16a34a}{\mathbf{2.50\times}}$ |
-| **256K** | 2.71&nbsp;ms | 5.29&nbsp;ms | 2.39&nbsp;ms | **2.07&nbsp;ms** | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{1.31\times}}$ | $\color{#16a34a}{\mathbf{2.22\times}}$ | $\color{#16a34a}{\mathbf{2.56\times}}$ |
-| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.16\times}}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{2.04\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
+| **128** | 21.1&nbsp;µs | 21.6&nbsp;µs | 14.6&nbsp;µs | **14.1&nbsp;µs** | $\color{#16a34a}{\mathbf{1.44\times}}$ | $\color{#16a34a}{\mathbf{1.49\times}}$ | $\color{#16a34a}{\mathbf{1.48\times}}$ | $\color{#16a34a}{\mathbf{1.53\times}}$ |
+| **4K** | 60.6&nbsp;µs | 104.5&nbsp;µs | 54.7&nbsp;µs | **51.0&nbsp;µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.19\times}}$ | $\color{#16a34a}{\mathbf{1.91\times}}$ | $\color{#16a34a}{\mathbf{2.05\times}}$ |
+| **8K** | 99.0&nbsp;µs | 193.8&nbsp;µs | 89.2&nbsp;µs | **88.1&nbsp;µs** | $\color{#16a34a}{\mathbf{1.11\times}}$ | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ |
+| **16K** | 187.9&nbsp;µs | 370.0&nbsp;µs | **172.3&nbsp;µs** | 174.5&nbsp;µs | $\color{#16a34a}{\mathbf{1.09\times}}$ | $\color{#16a34a}{\mathbf{1.08\times}}$ | $\color{#16a34a}{\mathbf{2.15\times}}$ | $\color{#16a34a}{\mathbf{2.12\times}}$ |
+| **32K** | 355.7&nbsp;µs | 703.8&nbsp;µs | 347.2&nbsp;µs | **314.2&nbsp;µs** | $\color{grey}{1.02\times}$ | $\color{#16a34a}{\mathbf{1.13\times}}$ | $\color{#16a34a}{\mathbf{2.03\times}}$ | $\color{#16a34a}{\mathbf{2.24\times}}$ |
+| **64K** | 735.0&nbsp;µs | 1.37&nbsp;ms | 655.4&nbsp;µs | **590.5&nbsp;µs** | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.24\times}}$ | $\color{#16a34a}{\mathbf{2.09\times}}$ | $\color{#16a34a}{\mathbf{2.32\times}}$ |
+| **128K** | 1.32&nbsp;ms | 2.72&nbsp;ms | 1.24&nbsp;ms | **1.10&nbsp;ms** | $\color{#16a34a}{\mathbf{1.06\times}}$ | $\color{#16a34a}{\mathbf{1.20\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ | $\color{#16a34a}{\mathbf{2.48\times}}$ |
+| **256K** | 2.56&nbsp;ms | 5.37&nbsp;ms | 2.44&nbsp;ms | **2.05&nbsp;ms** | $\color{#16a34a}{\mathbf{1.05\times}}$ | $\color{#16a34a}{\mathbf{1.25\times}}$ | $\color{#16a34a}{\mathbf{2.20\times}}$ | $\color{#16a34a}{\mathbf{2.62\times}}$ |
+| geomean |  |  |  |  | $\color{#16a34a}{\mathbf{1.12\times}}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ | $\color{#16a34a}{\mathbf{2.01\times}}$ | $\color{#16a34a}{\mathbf{2.17\times}}$ |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -47,7 +47,7 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/sweep/20261028-003028.json`](../../../../benchmarks/raw/verify/sweep/20261028-003028.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/sweep/20261103-022903.json`](../../../../benchmarks/raw/verify/sweep/20261103-022903.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 
@@ -55,7 +55,7 @@ At L=128 the cache fits in one tile and time is mostly fixed cost: plan, launch,
 
 ### FA4 hd256 as served: why the number is what it is
 
-The FA4 leg times the kernel as the `NVFP4_FA4hd256` serving config runs it on the Mjolnir image (the only image with the FA4 hd256 + fp8 patch group; stock vLLM downgrades hd256 + quantized KV to FA2). That path is fixed, not tunable, on vLLM 0.32.0:
+The FA4 leg times the kernel as the `NVFP4_FA4hd256` serving config runs it on the Mjolnir image (the only image with the FA4 hd256 + fp8 patch group; stock vLLM downgrades hd256 + quantized KV to FA2). That path is fixed, not tunable, on vLLM 0.33.0:
 
 - **1-CTA decode carve-out** — the patched kernel's measured-best decode form: 2-CTA is correct but 1.56× slower at decode shapes (clean micro-bench, 2026-09-24), so decode-shaped calls (M ≤ 8) take the single-CTA cluster; prefill keeps 2-CTA.
 - **No SplitKV at any layer** — the vendored hd256 kernel asserts `not is_split_kv` ("SM100 forward with head_dim=256 does not support SplitKV"), the dispatch clamps `num_splits = 1` for the dedicated hd256 kernel, and the backend pins `num_splits = 1`; the in-tree SplitKV machinery measured a **no-win on both cluster forms** (2-CTA slower in 40/40 cells; 1-CTA +18.6%/+6.4% at L=2048/4096 and at best noise-level at L=8192 — the per-CTA TMEM/MMA fixed cost replicates with the split count). Upstream #2916's hd256 SplitKV is not in this vendored FA4.

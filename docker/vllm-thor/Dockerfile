@@ -7,11 +7,11 @@
 # envs at serve time (the Thor pins in ENV below are the build default).
 #
 # BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.33.0 .
 #   (or: mjolnir image build)
 #
 # Image tags follow the upstream vLLM version this overlays (BASE_IMAGE below):
-# vllm/vllm-openai:v0.32.0 -> narandill/mjolnir-vllm:v0.32.0 (+ :v0.32.0-<sha>).
+# vllm/vllm-openai:v0.33.0 -> narandill/mjolnir-vllm:v0.33.0 (+ :v0.33.0-<sha>).
 # .github/workflows/docker-image.yml derives the tag from BASE_IMAGE.
 #
 # This is a SMALL OVERLAY, not a from-source build. It takes the official
@@ -47,28 +47,30 @@
 # already merged is skipped, not re-applied.
 #
 # Verified against base:
-#   vllm 0.32.0  (vllm/vllm-openai:v0.32.0-ubuntu2404, released 2026-10)
-#   flashinfer-python / flashinfer-cubin 0.7.0.post1
-#   torch 2.13.0+cu130
+#   vllm 0.33.0  (vllm/vllm-openai:v0.33.0, released 2026-11)
+#   flashinfer-python / flashinfer-cubin 0.7.2.post1
+#   torch 2.14.0+cu130 (Triton 3.8.0)
 #
 # Build (on Thor or any arm64 builder; repo-root context):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.33.0 .
 #
 # Base image lineage: vllm/vllm-openai (aarch64, CUDA 13.0, Ubuntu 24.04,
 # Python 3.12). JetPack 7.x on Thor ships CUDA 13.0, so the runtime driver
-# matches the image's CUDA toolkit.
+# matches the image's CUDA toolkit. (From 0.33.0 the release images are
+# CUDA 13.0 only and the `-ubuntu2404` suffix tag is gone: the plain
+# version tag IS the ubuntu2404 aarch64 build.)
 
-ARG BASE_IMAGE=vllm/vllm-openai:v0.32.0-ubuntu2404
+ARG BASE_IMAGE=vllm/vllm-openai:v0.33.0
 # Pinned digest so the default build is reproducible. Override with
 # --build-arg BASE_IMAGE=vllm/vllm-openai@<digest> (or the floating tag,
 # though the floating tag is the recommended BUMP path, see above).
-ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:ef74f0f30e704546aa671746e1da6b1a25094b0b0914a29d33384dec86f88cac
+ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
 ARG MJOLNIR_REVISION=unknown
 LABEL org.opencontainers.image.title="Mjolnir — vLLM for Jetson AGX Thor (sm_110)" \
-        org.opencontainers.image.description="vllm-openai v0.32.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
+        org.opencontainers.image.description="vllm-openai v0.33.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
         org.opencontainers.image.source="https://github.com/thor-arena/mjolnir" \
         org.opencontainers.image.revision="${MJOLNIR_REVISION}" \
         org.opencontainers.image.licenses="Apache-2.0 AND BSD-3-Clause"
@@ -100,7 +102,6 @@ ENV TORCH_CUDA_ARCH_LIST=11.0a \
 WORKDIR /opt/vllm-patches
 COPY docker/vllm-thor/patches/ patches/
 COPY docker/vllm-thor/apply_patches.py docker/vllm-thor/verify_patches.py \
-     docker/vllm-thor/functional_check_55519.py \
      docker/vllm-thor/kernel_test_fi_update.py \
      docker/vllm-thor/kernel_test_dspark_draft_nonncausal.py ./
 
@@ -125,8 +126,12 @@ import mjolnir
 from vllm.v1.attention.backends.registry import AttentionBackendEnum
 
 assert AttentionBackendEnum["MJOLNIR"].get_path() == mjolnir.BACKEND_PATH, "MJOLNIR enum member missing"
+# fp6_e2m3 registers through vLLM's pluggable KV-dtype API (#52670, in the
+# base since 0.33.0) from the plugin entry point — no image patch anymore.
+import mjolnir.kvdtype
+assert mjolnir.kvdtype.register(), "fp6_e2m3 KV dtype registration failed"
 from vllm.v1.kv_cache_interface import KVQuantMode, get_kv_quant_mode
-assert get_kv_quant_mode("fp6_e2m3") == KVQuantMode.FP6_E2M3, "fp6_e2m3 KV dtype missing"
+assert get_kv_quant_mode("fp6_e2m3") == KVQuantMode.CUSTOM, "fp6_e2m3 KV dtype not registered"
 import mjolnir.calibrate, mjolnir.kvfp6, mjolnir.kvscales, mjolnir.qpack  # noqa: F401 (pure-python, no GPU)
 eps = [e for e in md.entry_points(group="vllm.general_plugins") if e.name == "mjolnir"]
 assert eps and eps[0].value == "mjolnir:register", "mjolnir vllm.general_plugins entry point missing"
@@ -147,17 +152,13 @@ touched = [
     "v1/worker/gpu/cudagraph_utils.py",
     "v1/worker/gpu/spec_decode/dflash/speculator.py",
     "v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py",
-    "config/speculative.py",
-    "config/cache.py",
-    "v1/kv_cache_interface.py",
     "v1/attention/backends/fa_utils.py",
     "v1/attention/backends/registry.py",
-    "v1/core/sched/scheduler.py",
-    "v1/core/kv_cache_utils.py",
-    "v1/core/single_type_kv_cache_manager.py",
-    "v1/core/kv_cache_coordinator.py",
     "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
-    "utils/torch_utils.py",
+    "model_executor/layers/fused_moe/oracle/mxfp4.py",
+    "model_executor/layers/quantization/utils/mxfp4_utils.py",
+    "model_executor/layers/fused_moe/experts/gpt_oss_triton_kernels_moe.py",
+    "model_executor/layers/fused_moe/experts/cutlass_moe.py",
     "vllm_flash_attn/cute/interface.py",
     "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
 ]
@@ -167,17 +168,11 @@ print("compileall:", len(touched), "patched files OK")
 
 # Pure-python import smoke (no GPU needed).
 import vllm
-import vllm.config.speculative
 import vllm.v1.core.kv_cache_utils
 import vllm.v1.core.kv_cache_coordinator
 import vllm.v1.core.single_type_kv_cache_manager
 print("imports OK, vllm", vllm.__version__)
 PY
-
-# ── Behavioral gate for 55519 (draft-group warning) ──────────────────────────
-# The sentinel check above proves the code landed; this one proves the warning
-# path is gated on use_eagle_block_drop() and the scheduler warning reworded.
-RUN python3 /opt/vllm-patches/functional_check_55519.py
 
 # ── GPU gate for the Thor fused-draft-decode kernel (needs a CUDA device) ────
 # The five PR fixes are upstream code; the Thor fused-draft-decode kernel is
@@ -210,7 +205,7 @@ RUN cp -r /opt/vllm-patches/patches /usr/share/doc/mjolnir/patches
 RUN rm -rf /opt/vllm-patches && true
 
 # ── Build ──────────────────────────────────────────────────────────────────
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.32.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.33.0 .
 #
 # This is a thin overlay: the heavy lifting (CUDA kernels for SM 11.0a) comes
 # from the prebuilt wheel in the base image. The first server launch pays a
