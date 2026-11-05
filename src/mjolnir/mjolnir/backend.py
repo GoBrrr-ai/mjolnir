@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 import torch
 
-from .platforms import unsupported_reason
+from .platforms import fp6_block_reason, unsupported_reason
 from .runner import (
     SUPPORTED_PAGE_SIZES,
     detect_kv_layout,
@@ -151,6 +151,18 @@ _Base = _base_backend()
 _BaseBuilder = _Base.get_builder_cls()
 _BaseImpl = _Base.get_impl_cls()
 _BASE_WRITES_KV_IN_FORWARD = getattr(_Base, "forward_includes_kv_cache_update", True)
+
+
+def _fp6_arch_block() -> str | None:
+    """The local GPU's fp6 serving block, or None. The acceptance gates have
+    no device argument — the current device is the serving target (the same
+    convention as ``_unsupported_arch_reason``)."""
+    try:
+        import torch
+
+        return fp6_block_reason(torch.cuda.get_device_capability())
+    except (ImportError, RuntimeError):
+        return None  # no device context here: never block on a probe failure
 
 
 def _fp6_known_to_vllm() -> bool:
@@ -304,6 +316,9 @@ def _check_fp6(t5_reason, layer_names) -> None:
     """fp6 caches have exactly two readers: the mma/T5 decode kernel and the
     fallback's fp8 scratch (any fallback that serves fp8 KV: FA4 on thor,
     FlashInfer on orin)."""
+    blocked = _fp6_arch_block()
+    if blocked:
+        raise ValueError(f"{blocked} (serve fp8 KV on this arch)")
     if t5_reason is not None:
         raise ValueError(
             f"kv cache dtype fp6_e2m3 needs the Mjolnir decode kernel, but it is off for "
@@ -798,6 +813,8 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
     @classmethod
     def supports_kv_cache_dtype(cls, kv_cache_dtype) -> bool:
         if kv_cache_dtype in FP6_CACHE_DTYPES:
+            if _fp6_arch_block() is not None:
+                return False
             return _fp6_known_to_vllm() and _fallback_serves_fp8_scratch() and _Base.supports_kv_cache_dtype("fp8")
         return _Base.supports_kv_cache_dtype(kv_cache_dtype)
 
