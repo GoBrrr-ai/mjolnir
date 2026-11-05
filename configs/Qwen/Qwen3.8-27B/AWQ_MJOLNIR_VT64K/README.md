@@ -34,10 +34,10 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | official `AWQ_FLASHINFER` | Mjolnir `AWQ_MJOLNIR_VT64K` | change |
 |---|--:|--:|--:|
-| decode (t/s) | 16.6 | 22.4 | +34.7% |
-| prefill (t/s) | 395 | 393 | −0.4% |
-| TTFT (ms) | 88,381 | 88,742 | +0.4% |
-| ITL (ms) | 60.5 | 44.7 | −26.1% |
+| decode (t/s) | 17.9 | 21.9 | +22.4% |
+| prefill (t/s) | 394 | 391 | −0.7% |
+| TTFT (ms) | 88,466 | 89,204 | +0.8% |
+| ITL (ms) | 56.1 | 45.7 | −18.5% |
 
 <img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
 
@@ -50,5 +50,35 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 - **Colors**: green = better by at least 3%, grey = within ±3% (`E2E_NOISE_PCT`), red = worse by at least that. With speculative decoding a single decode cell moves more between runs (acceptance depends on the prompt), so repeat (`--repeat`) before reading a few-% difference.
 
 </details><br />
+
+<details>
+<summary>Speculative decoding</summary>
+
+AWQ_MJOLNIR_VT64K, 1 request: best with **6 drafts** — 26.3 t/s per request, 4.01 tokens per step. AWQ_MJOLNIR_VT64K, 4 requests: best with **4 drafts** — 23.4 t/s per request, 3.49 tokens per step.
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **tokens/step** = 1 + accepted draft tokens ÷ verify steps, from vLLM's speculative-decoding counters read before and after the block; **accept @i** = the share of verify steps whose i-th draft was accepted.
+- **decode t/s per request** = (generated tokens − 1) ÷ (time of the last token − time of the first token); **aggregate t/s** = all generated tokens ÷ the block's wall time.
+- ★ = the draft count with the highest decode t/s for that config and concurrency.
+
+</details><br />
+</details>
+
+<details>
+<summary>KV capacity</summary>
+
+**Mjolnir · fp8 KV + 64K draft vocab**: **570,343 tokens**, 2.9 requests at the full 190K context (vLLM's own estimate).
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **KV tokens** and KV memory come from vLLM's own startup log ("GPU KV cache size", "Available KV cache memory") for the same model and memory budget.
+- **vs first** = this row's KV tokens ÷ the first row's (`1.33×` = 33% more tokens).
+- **fits @ L** = ⌊KV tokens ÷ (L + 2,048 prompt + 128 generated)⌋ — whole requests of the e2e bench's shape that fit at once (`max-num-seqs` ignored).
+
+</details><br />
+</details>
 
 The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#-kernel), one chapter per verify stage.

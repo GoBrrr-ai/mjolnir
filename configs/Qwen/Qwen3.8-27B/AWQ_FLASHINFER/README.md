@@ -34,10 +34,10 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | official `AWQ_FLASHINFER` | Mjolnir `AWQ_MJOLNIR_VT64K` | change |
 |---|--:|--:|--:|
-| decode (t/s) | 16.6 | 22.4 | +34.7% |
-| prefill (t/s) | 395 | 393 | −0.4% |
-| TTFT (ms) | 88,381 | 88,742 | +0.4% |
-| ITL (ms) | 60.5 | 44.7 | −26.1% |
+| decode (t/s) | 17.9 | 21.9 | +22.4% |
+| prefill (t/s) | 394 | 391 | −0.7% |
+| TTFT (ms) | 88,466 | 89,204 | +0.8% |
+| ITL (ms) | 56.1 | 45.7 | −18.5% |
 
 <img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
 
@@ -54,7 +54,7 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 <details>
 <summary>Speculative decoding</summary>
 
-AWQ_FLASHINFER, 1 request: best with **3 drafts** — 18.9 t/s per request, 3.11 tokens per step. AWQ_FLASHINFER, 4 requests: best with **3 drafts** — 17.7 t/s per request, 3.12 tokens per step.
+AWQ_FLASHINFER, 1 request: best with **4 drafts** — 19.5 t/s per request, 3.51 tokens per step. AWQ_FLASHINFER, 4 requests: best with **3 drafts** — 18.2 t/s per request, 3.13 tokens per step.
 
 <details>
 <summary>How the % and × here are calculated</summary>
