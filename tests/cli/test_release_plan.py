@@ -84,7 +84,7 @@ def test_vllm_pin_mismatch_fails(repo):
         rp.plan(repo, "patch", "changed", DAY)
 
 
-def test_bundled_resources_release_the_cli_and_the_title_lists_only_what_ships(repo):
+def test_bundled_resources_release_the_cli_and_the_title_is_just_the_date(repo):
     _git(repo, "tag", "mjolnir-kernel-v0.1.0")
     _git(repo, "tag", "mjolnir-cli-v0.2.0")
     (repo / "docker" / "litellm").mkdir(parents=True)
@@ -93,8 +93,8 @@ def test_bundled_resources_release_the_cli_and_the_title_lists_only_what_ships(r
     _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "litellm")
     p = rp.plan(repo, "patch", "changed", DAY, image=False)
     assert p["packages"]["cli"]["release"] and not p["packages"]["kernel"]["release"]  # bundled into the CLI wheel
-    assert p["title"] == "Mjolnir 2026.10.14 — mjolnir-cli 0.2.1"
-    assert rp.plan(repo, "patch", "none", DAY, image=False)["title"].endswith("— no package or image changes")
+    assert p["title"] == "Mjolnir 2026.10.14"
+    assert rp.plan(repo, "patch", "none", DAY, image=False)["title"] == "Mjolnir 2026.10.14"
 
 
 def test_previous_umbrella_orders_same_day_releases(repo):
