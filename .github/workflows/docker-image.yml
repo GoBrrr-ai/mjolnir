@@ -10,7 +10,9 @@
 # builds without pushing unless asked.
 #
 # One-time setup:
-#   1. Docker Hub: create an access token with write access to the repo.
+#   1. Docker Hub: create an access token with the Read, Write & Delete scope
+#      (Read & Write pushes images fine but 403s on the description PATCH —
+#      peter-evans/dockerhub-description#331).
 #   2. GitHub: Settings -> Secrets and variables -> Actions:
 #        secrets   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
 #        variables (optional) IMAGE_REPO   (default narandill/mjolnir-vllm)
