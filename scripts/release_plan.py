@@ -137,12 +137,9 @@ def previous_umbrella(repo: Path) -> str | None:
     return max(tags, key=key) if tags else None
 
 
-def title(date: str, packages: dict, vllm: str, image: bool) -> str:
-    """``Mjolnir 2026.10.20 — mjolnir-kernel 0.1.1 · image v0.31.0``: only what this release ships."""
-    parts = [f"{v['dist']} {v['version']}" for v in packages.values() if v["release"]]
-    if image:
-        parts.append(f"image v{vllm}")
-    return f"Mjolnir {date} — " + (" · ".join(parts) if parts else "no package or image changes")
+def title(date: str) -> str:
+    """``Mjolnir 2026.10.20``: the date names it; the notes body carries the details."""
+    return f"Mjolnir {date}"
 
 
 def umbrella_tag(repo: Path, today: dt.date) -> str:
@@ -184,7 +181,7 @@ def plan(repo: Path, level: str, packages: str, today: dt.date | None = None, im
     # The release happens in the operator's local day; an aware local date
     # (not the naive UTC date) names the umbrella tag.
     out["umbrella"] = umbrella_tag(repo, today or dt.datetime.now().astimezone().date())
-    out["title"] = title(out["umbrella"][len(UMBRELLA) :], out["packages"], out["vllm"], image)
+    out["title"] = title(out["umbrella"][len(UMBRELLA) :])
     return out
 
 
@@ -193,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo", default=".")
     ap.add_argument("--bump", choices=("patch", "minor", "major"), default="patch")
     ap.add_argument("--packages", choices=("changed", "both", "cli", "kernel", "none"), default="changed")
-    ap.add_argument("--image", choices=("true", "false"), default="true", help="is the image rebuilt (the title)")
+    ap.add_argument("--image", choices=("true", "false"), default="true", help="is the image rebuilt")
     ap.add_argument("--github-output", action="store_true", help="also append key=value lines to $GITHUB_OUTPUT")
     args = ap.parse_args(argv)
     p = plan(Path(args.repo), args.bump, args.packages, image=args.image == "true")
