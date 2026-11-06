@@ -62,6 +62,13 @@ jobs:
       - name: Build sdist + wheel (bundles configs/ + the side stacks)
         run: uv build --package mjolnir-cli --out-dir dist
       - name: Smoke-test the wheel outside a checkout (the PyPI experience)
+        env:
+          # Hosted runners are GPU-less x86 VMs: detection finds no evidence
+          # and the CLI refuses to guess (a resolving command exits 2, by
+          # design). verify resolves platform legs/images, so pin thor — the
+          # documented MJOLNIR_PLATFORM escape hatch, as a headless operator
+          # would.
+          MJOLNIR_PLATFORM: thor
         run: |
           cd "$RUNNER_TEMP"
           uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/*.whl mjolnir --help
