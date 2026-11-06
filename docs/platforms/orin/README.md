@@ -35,7 +35,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
     <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
   </thead>
   <tbody>
-    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 23.5 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">449.3 t/s</span></td></tr>
+    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 24.3 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">450.5 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
@@ -49,7 +49,7 @@ from raw results in [`benchmarks/raw/verify/`](../../../benchmarks/raw/verify/)
 by `mjolnir plot --readme`; every chapter ends with the command that
 reproduces it.
 
-**Where it stands:** 1.18× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261031-200707`.
+**Where it stands:** 1.13× FlashInfer (geomean over L = 128 4K 8K 16K 32K 64K 128K 256K), 48 / 48 correctness checks — run `20261105-001520`.
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -65,18 +65,18 @@ reproduces it.
 
 | # | chapter | question | status |
 |---|---|---|---|
-| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261031-200054` |
-| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261031-200707` |
-| 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261030-141453` |
-| 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261030-151506` |
-| 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261030-153729` |
-| 6 | [KV cache capacity](kernel/kv-cache-size.md) | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context | ✅ run `20261026-203434` |
-| 7 | [Speculative decoding](kernel/spec.md) | MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count | ✅ run `20261026-175121` |
-| 8 | [Full profiles per KV format](kernel/fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261030-154138` |
+| 1 | [Correctness matrix](kernel/correctness.md) | kernel vs the bit-faithful emulator: every layout, format, page size, q_len, Q dtype | ✅ run `20261105-001102` |
+| 2 | [Headline L-sweep](kernel/sweep.md) | Mjolnir vs FlashInfer, fp8 KV — same-run kernel medians | ✅ run `20261105-001520` |
+| 3 | [Head-major pages](kernel/hndsweep.md) | FlashInfer on NHD and HND vs Mjolnir on HND — is HND a kernel win or a layout win? | ✅ run `20261105-001858` |
+| 4 | [KV layouts and formats](kernel/kvfmt.md) | fp8 / fp6 / fp4 / nvfp4 KV on NHD / interleaved / HND pages (ncu + wall clock) | ✅ run `20261105-175927` |
+| 5 | [KV format accuracy](kernel/quant.md) | relative L2 error of each KV format vs unquantized KV, at every L | ✅ run `20261105-181613` |
+| 6 | [KV cache capacity](kernel/kv-cache-size.md) | tokens of KV each config fits (vLLM's startup sizing), and the concurrency that buys per context | ✅ run `20261105-181749` |
+| 7 | [Speculative decoding](kernel/spec.md) | MTP acceptance per draft position and decode t/s for 1-N draft tokens, per config — the best draft count | ✅ run `20261105-182001` |
+| 8 | [Full profiles per KV format](kernel/fp6prof.md) | full ncu profiles: L2 sectors vs requests vs time, warp stalls, per KV format | ✅ run `20261105-181339` |
 | 9 | [KV ring depth](kernel/ring.md) | TMA→MMA ring depth (--kv_stages) sweep at every L | ⏳ pending |
 | 10 | [L2 prefetch](kernel/prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ⏳ pending |
 | 11 | [Programmatic dependent launch](kernel/pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ⏳ pending |
-| 12 | [Flag A/B](kernel/ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261030-145834` |
+| 12 | [Flag A/B](kernel/ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261105-175217` |
 | 13 | [Accuracy](kernel/accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | ✅ run `20261017-210613` |
 
 
@@ -97,15 +97,15 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 
 | L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
 |---|--:|--:|--:|
-| **128** | **66.6&nbsp;µs** | 118.2&nbsp;µs | $\color{#16a34a}{\mathbf{1.78\times}}$ |
-| **4K** | **88.7&nbsp;µs** | 130.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.47\times}}$ |
-| **8K** | **137.0&nbsp;µs** | 144.3&nbsp;µs | $\color{#16a34a}{\mathbf{1.05\times}}$ |
-| **16K** | 231.0&nbsp;µs | **230.0&nbsp;µs** | $\color{grey}{1.00\times}$ |
-| **32K** | **416.5&nbsp;µs** | 431.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.03\times}}$ |
-| **64K** | **790.5&nbsp;µs** | 860.5&nbsp;µs | $\color{#16a34a}{\mathbf{1.09\times}}$ |
-| **128K** | **1.54&nbsp;ms** | 1.66&nbsp;ms | $\color{#16a34a}{\mathbf{1.08\times}}$ |
-| **256K** | **3.03&nbsp;ms** | 3.37&nbsp;ms | $\color{#16a34a}{\mathbf{1.11\times}}$ |
-| geomean |  |  | $\color{#16a34a}{\mathbf{1.18\times}}$ |
+| **128** | **66.5&nbsp;µs** | 109.8&nbsp;µs | $\color{#16a34a}{\mathbf{1.65\times}}$ |
+| **4K** | **88.6&nbsp;µs** | 130.0&nbsp;µs | $\color{#16a34a}{\mathbf{1.47\times}}$ |
+| **8K** | 137.1&nbsp;µs | **133.3&nbsp;µs** | $\color{grey}{0.97\times}$ |
+| **16K** | 232.1&nbsp;µs | **229.8&nbsp;µs** | $\color{grey}{0.99\times}$ |
+| **32K** | **417.1&nbsp;µs** | 434.7&nbsp;µs | $\color{#16a34a}{\mathbf{1.04\times}}$ |
+| **64K** | **790.8&nbsp;µs** | 804.4&nbsp;µs | $\color{grey}{1.02\times}$ |
+| **128K** | **1.54&nbsp;ms** | 1.59&nbsp;ms | $\color{#16a34a}{\mathbf{1.03\times}}$ |
+| **256K** | **3.06&nbsp;ms** | 3.29&nbsp;ms | $\color{#16a34a}{\mathbf{1.08\times}}$ |
+| geomean |  |  | $\color{#16a34a}{\mathbf{1.13\times}}$ |
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
@@ -119,7 +119,7 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 
 | official | Mjolnir | official t/s | Mjolnir t/s | change | at |
 |---|---|--:|--:|--:|---|
-| `AWQ_FLASHINFER` | `AWQ_MJOLNIR_VT64K` | 16.6 | 22.4 | +34.7% | 32K |
+| `AWQ_FLASHINFER` | `AWQ_MJOLNIR_VT64K` | 17.9 | 21.9 | +22.4% | 32K |
 
 <img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
@@ -130,23 +130,23 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 18.4 → **23.5** $\color{#16a34a}{\text{+27.4\\%}}$ | — | 4,713 → **4,647** $\color{grey}{\text{−1.4\\%}}$ | 54.5 → **43.2** $\color{#16a34a}{\text{−20.8\\%}}$ |
-| 4K | 1 | 17.7 → **21.2** $\color{#16a34a}{\text{+19.7\\%}}$ | 469 → **472** $\color{grey}{\text{+0.6\\%}}$ | 13,320 → **13,255** $\color{grey}{\text{−0.5\\%}}$ | 57.1 → **47.9** $\color{#16a34a}{\text{−16.1\\%}}$ |
-| 8K | 1 | 18.6 → **24.1** $\color{#16a34a}{\text{+30.0\\%}}$ | 448 → **449** $\color{grey}{\text{+0.3\\%}}$ | 23,072 → **23,015** $\color{grey}{\text{−0.2\\%}}$ | 54.4 → **42.1** $\color{#16a34a}{\text{−22.8\\%}}$ |
-| 16K | 1 | 17.3 → **22.3** $\color{#16a34a}{\text{+28.3\\%}}$ | 428 → **428** $\color{grey}{\text{−0.0\\%}}$ | 43,274 → **43,305** $\color{grey}{\text{+0.1\\%}}$ | 58.3 → **45.4** $\color{#16a34a}{\text{−22.1\\%}}$ |
-| 32K | 1 | 16.6 → **22.4** $\color{#16a34a}{\text{+34.7\\%}}$ | 395 → **393** $\color{grey}{\text{−0.4\\%}}$ | 88,381 → **88,742** $\color{grey}{\text{+0.4\\%}}$ | 60.5 → **44.7** $\color{#16a34a}{\text{−26.1\\%}}$ |
-| no ctx | 2 | 32.2 → **37.7** $\color{#16a34a}{\text{+17.1\\%}}$ | — | 8,981 → **8,810** $\color{grey}{\text{−1.9\\%}}$ | 59.2 → **48.3** $\color{#16a34a}{\text{−18.4\\%}}$ |
-| 4K | 2 | 34.0 → **40.4** $\color{#16a34a}{\text{+18.9\\%}}$ | 462 → **459** $\color{grey}{\text{−0.6\\%}}$ | 26,513 → **26,749** $\color{grey}{\text{+0.9\\%}}$ | 56.1 → **47.0** $\color{#16a34a}{\text{−16.3\\%}}$ |
-| 8K | 2 | 32.6 → **38.7** $\color{#16a34a}{\text{+18.9\\%}}$ | 448 → **447** $\color{grey}{\text{−0.2\\%}}$ | 45,596 → **45,786** $\color{grey}{\text{+0.4\\%}}$ | 60.2 → **47.5** $\color{#16a34a}{\text{−21.1\\%}}$ |
-| 16K | 2 | 29.1 → **34.4** $\color{#16a34a}{\text{+18.1\\%}}$ | 428 → **428** $\color{grey}{\text{−0.1\\%}}$ | 85,848 → **85,543** $\color{grey}{\text{−0.4\\%}}$ | 63.3 → **51.4** $\color{#16a34a}{\text{−18.8\\%}}$ |
-| 32K | 2 | 7.3 → **7.1** $\color{grey}{\text{−1.8\\%}}$ | 393 → **392** $\color{grey}{\text{−0.3\\%}}$ | 164,001 → **163,375** $\color{grey}{\text{−0.4\\%}}$ | 166.0 → **163.2** $\color{grey}{\text{−1.7\\%}}$ |
-| no ctx | 4 | 60.3 → **73.2** $\color{#16a34a}{\text{+21.3\\%}}$ | — | 17,462 → **17,276** $\color{grey}{\text{−1.1\\%}}$ | 61.5 → **48.7** $\color{#16a34a}{\text{−20.8\\%}}$ |
-| 4K | 4 | 44.2 → **57.1** $\color{#16a34a}{\text{+29.3\\%}}$ | 458 → **456** $\color{grey}{\text{−0.3\\%}}$ | 52,740 → **53,342** $\color{grey}{\text{+1.1\\%}}$ | 67.2 → **53.2** $\color{#16a34a}{\text{−20.8\\%}}$ |
-| 8K | 4 | 33.4 → **31.0** $\color{#dc2626}{\text{−7.2\\%}}$ | 446 → **445** $\color{grey}{\text{−0.1\\%}}$ | 89,246 → **88,459** $\color{grey}{\text{−0.9\\%}}$ | 79.8 → **76.0** $\color{#16a34a}{\text{−4.8\\%}}$ |
-| 16K | 4 | 6.6 → **6.6** $\color{grey}{\text{−0.4\\%}}$ | 428 → **427** $\color{grey}{\text{−0.3\\%}}$ | 146,771 → **145,938** $\color{grey}{\text{−0.6\\%}}$ | 262.7 → **259.0** $\color{grey}{\text{−1.4\\%}}$ |
-| 32K | 4 | 2.4 → **2.4** $\color{grey}{\text{−0.4\\%}}$ | 393 → **392** $\color{grey}{\text{−0.1\\%}}$ | 264,903 → **263,463** $\color{grey}{\text{−0.5\\%}}$ | 767.3 → **767.8** $\color{grey}{\text{+0.1\\%}}$ |
+| no ctx | 1 | 18.2 → **24.3** $\color{#16a34a}{\text{+33.6\\%}}$ | — | 4,570 → **5,084** $\color{#dc2626}{\text{+11.2\\%}}$ | 55.7 → **41.7** $\color{#16a34a}{\text{−25.1\\%}}$ |
+| 4K | 1 | 18.1 → **23.9** $\color{#16a34a}{\text{+32.4\\%}}$ | 461 → **464** $\color{grey}{\text{+0.8\\%}}$ | 13,493 → **13,441** $\color{grey}{\text{−0.4\\%}}$ | 55.7 → **42.4** $\color{#16a34a}{\text{−23.8\\%}}$ |
+| 8K | 1 | 17.7 → **22.6** $\color{#16a34a}{\text{+27.4\\%}}$ | 447 → **451** $\color{grey}{\text{+0.8\\%}}$ | 23,067 → **22,941** $\color{grey}{\text{−0.5\\%}}$ | 57.4 → **44.4** $\color{#16a34a}{\text{−22.6\\%}}$ |
+| 16K | 1 | 16.7 → **22.7** $\color{#16a34a}{\text{+35.6\\%}}$ | 429 → **430** $\color{grey}{\text{+0.2\\%}}$ | 43,131 → **43,110** $\color{grey}{\text{−0.0\\%}}$ | 61.0 → **44.4** $\color{#16a34a}{\text{−27.3\\%}}$ |
+| 32K | 1 | 17.9 → **21.9** $\color{#16a34a}{\text{+22.4\\%}}$ | 394 → **391** $\color{grey}{\text{−0.7\\%}}$ | 88,466 → **89,204** $\color{grey}{\text{+0.8\\%}}$ | 56.1 → **45.7** $\color{#16a34a}{\text{−18.5\\%}}$ |
+| no ctx | 2 | 35.2 → **42.1** $\color{#16a34a}{\text{+19.6\\%}}$ | — | 8,836 → **8,765** $\color{grey}{\text{−0.8\\%}}$ | 55.2 → **45.8** $\color{#16a34a}{\text{−17.0\\%}}$ |
+| 4K | 2 | 32.3 → **40.6** $\color{#16a34a}{\text{+25.7\\%}}$ | 458 → **459** $\color{grey}{\text{+0.2\\%}}$ | 26,758 → **26,773** $\color{grey}{\text{+0.1\\%}}$ | 59.5 → **45.6** $\color{#16a34a}{\text{−23.4\\%}}$ |
+| 8K | 2 | 31.7 → **41.5** $\color{#16a34a}{\text{+31.2\\%}}$ | 448 → **448** $\color{grey}{\text{+0.0\\%}}$ | 45,670 → **45,721** $\color{grey}{\text{+0.1\\%}}$ | 61.4 → **45.4** $\color{#16a34a}{\text{−26.1\\%}}$ |
+| 16K | 2 | 31.1 → **35.2** $\color{#16a34a}{\text{+13.2\\%}}$ | 427 → **428** $\color{grey}{\text{+0.3\\%}}$ | 86,230 → **85,837** $\color{grey}{\text{−0.5\\%}}$ | 60.5 → **51.6** $\color{#16a34a}{\text{−14.7\\%}}$ |
+| 32K | 2 | 7.4 → **7.2** $\color{grey}{\text{−2.8\\%}}$ | 392 → **393** $\color{grey}{\text{+0.2\\%}}$ | 164,453 → **162,951** $\color{grey}{\text{−0.9\\%}}$ | 162.9 → **161.1** $\color{grey}{\text{−1.1\\%}}$ |
+| no ctx | 4 | 62.0 → **72.5** $\color{#16a34a}{\text{+17.1\\%}}$ | — | 17,395 → **17,544** $\color{grey}{\text{+0.9\\%}}$ | 59.6 → **48.9** $\color{#16a34a}{\text{−17.9\\%}}$ |
+| 4K | 4 | 53.0 → **59.0** $\color{#16a34a}{\text{+11.3\\%}}$ | 454 → **456** $\color{grey}{\text{+0.4\\%}}$ | 53,672 → **53,357** $\color{grey}{\text{−0.6\\%}}$ | 64.2 → **52.7** $\color{#16a34a}{\text{−17.9\\%}}$ |
+| 8K | 4 | 33.5 → **31.4** $\color{#dc2626}{\text{−6.3\\%}}$ | 445 → **445** $\color{grey}{\text{+0.1\\%}}$ | 89,982 → **89,030** $\color{grey}{\text{−1.1\\%}}$ | 76.2 → **71.0** $\color{#16a34a}{\text{−6.8\\%}}$ |
+| 16K | 4 | 6.6 → **6.6** $\color{grey}{\text{−0.8\\%}}$ | 426 → **428** $\color{grey}{\text{+0.3\\%}}$ | 147,447 → **145,928** $\color{grey}{\text{−1.0\\%}}$ | 260.2 → **258.0** $\color{grey}{\text{−0.8\\%}}$ |
+| 32K | 4 | 2.4 → **2.4** $\color{grey}{\text{−0.1\\%}}$ | 391 → **393** $\color{grey}{\text{+0.3\\%}}$ | 269,687 → **268,279** $\color{grey}{\text{−0.5\\%}}$ | 737.4 → **728.9** $\color{grey}{\text{−1.2\\%}}$ |
 
-> <sub>official: `vllm/vllm-openai:v0.32.0-ubuntu2404 · AWQ_FLASHINFER (AWQ int4 + FlashInfer)` · Mjolnir: `narandill/mjolnir-vllm:v0.32.0 · AWQ_MJOLNIR_VT64K` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
+> <sub>official: `vllm/vllm-openai:v0.33.0 · AWQ_FLASHINFER (vLLM 0.33.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.33.0 · AWQ_MJOLNIR_VT64K` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>

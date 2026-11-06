@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 
 import torch
 
@@ -440,7 +441,14 @@ def main() -> int:
     p.add_argument("--no_l2_flush", action="store_true", help="accepted; the prebuilt launch timing never flushes")
     p.add_argument("--ctas_per_sm", type=int, default=2, help="the Orin grid has no CTAs/SM knob; 2 only")
     p.add_argument("--max_splits", type=int, default=0, help="split-KV capacity (0 = the auto plan)")
+    p.add_argument(
+        "--fixedcut",
+        action="store_true",
+        help="the fixed-cost cut: the Q prologue via cp.async + the vectorized O store",
+    )
     args = p.parse_args()
+    if args.fixedcut:
+        os.environ.setdefault("MJOLNIR_FIXEDCUT", "1")
     assert args.q_dtype == "bf16", "the mma kernel takes a bf16 query (the fp8-Q pack path is not wired; M3)"
     assert args.ctas_per_sm == 2, "the Orin mma grid is pinned at 2 CTAs/SM (255 regs + the smem bind)"
     from mjolnir.arch.orin import mma as _mma

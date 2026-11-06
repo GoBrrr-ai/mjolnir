@@ -183,6 +183,13 @@ class MMADecodeKernel:
         # only, not with SLICEQ (its own acc economy). MJOLNIR_S_PP=1 opts
         # in; the binary is variant-keyed.
         self.s_pp = os.environ.get("MJOLNIR_S_PP", "") == "1" and self.regpath and not self.fp6 and not self.slice_q
+        # The fixed-cost cut (the prologue hypothesis): the Q fill issued as
+        # 128-bit cp.async chunks — its DRAM latency overlaps the ring-0
+        # issue+flight instead of serializing ahead of it (the per-call
+        # ~10.7 us floor: device(L) ~ 10.7 us + bytes/183 GB/s) — and the
+        # epilogue's O stored as adjacent-slot 4-byte words. MJOLNIR_FIXEDCUT=1
+        # opts in; the variant key carries it (the runner's env tuple, +s6).
+        self.fixedcut = os.environ.get("MJOLNIR_FIXEDCUT", "") == "1"
 
     # ------------------------------------------------------------------
     @cute.jit
@@ -1230,16 +1237,68 @@ class MMADecodeKernel:
             sStat[i * 2] = -cutlass.Float32.inf
             sStat[i * 2 + 1] = Float32(0.0)
 
-        for i in cutlass.range_constexpr(MT * D // NT):
-            e = tidx + i * NT
-            R = e // D
-            c = e % D
-            if seqlen_q * G > R:
-                m = R // G
-                r = R % G
-                sQ[R, c] = cutlass.BFloat16(mQ[batch_idx, Int32(m), kv_head * G + r, c])
-            else:
-                sQ[R, c] = cutlass.BFloat16(0.0)
+        if const_expr(self.fixedcut):
+            # fixedcut: the Q rides 128-bit cp.async chunks (8 bf16 = 16 B
+            # along the contiguous c axis; MT*D/8 chunks over NT threads)
+            # instead of MT*D/NT scalar LDG.U16 — the DRAM latency overlaps
+            # the ring-0 issue+flight below instead of serializing ahead of
+            # it. Chunk (R, c0) reads the mQ row (batch_idx, m, kv_head*G+r)
+            # — D bf16 contiguous, every chunk 16-B aligned (D*2 B rows,
+            # c0 % 8 == 0, and the Swizzle<3,3,3> granule preserves the low
+            # 3 offset bits). Padding rows keep plain zero stores (cp.async
+            # cannot write zeros). The e/R/c/m/r names mirror the scalar
+            # fill below so both arms leave the staged state the stage
+            # loop's join expects.
+            q_g2s = cute.make_copy_atom(
+                cpasync.CopyG2SOp(cache_mode=cpasync.LoadCacheMode.GLOBAL),
+                cutlass.BFloat16,
+                num_bits_per_copy=128,
+            )
+            for i in cutlass.range_constexpr(MT * D // 8 // NT):
+                e = tidx + i * NT  # the 16-B chunk index within the tile
+                R = e // (D // 8)
+                c = (e % (D // 8)) * 8
+                if seqlen_q * G > R:
+                    m = R // G
+                    r = R % G
+                    qoff = cute.crd2idx((batch_idx, Int32(m), Int32(kv_head * G + r), 0), mQ.layout)
+                    q_src = cute.make_tensor(
+                        cute.make_ptr(
+                            cutlass.BFloat16,
+                            (mQ.iterator + qoff + c).toint(),
+                            cute.AddressSpace.gmem,
+                            assumed_align=16,
+                        ),
+                        cute.make_layout(8),
+                    )
+                    q_dst = cute.make_tensor(
+                        cute.make_ptr(
+                            cutlass.BFloat16,
+                            (sQ.iterator + cute.crd2idx((R, Int32(c)), sQ.layout)).toint(),
+                            cute.AddressSpace.smem,
+                            assumed_align=16,
+                        ),
+                        cute.make_layout(8),
+                    )
+                    cute.copy(q_g2s, q_src, q_dst)
+                else:
+                    for j in cutlass.range_constexpr(8):
+                        sQ[R, Int32(c + j)] = cutlass.BFloat16(0.0)
+            cute.arch.cp_async_commit_group()
+        else:
+            # ---- stage the Q once: the q_rows real rows, the zero padding ---
+            # mQ: (b, M, h_q, d) bf16; the M row (token m, head-in-group r) at
+            # the (batch*seqlen_q + m, kv_head*g + r) — the token-major rows.
+            for i in cutlass.range_constexpr(MT * D // NT):
+                e = tidx + i * NT
+                R = e // D
+                c = e % D
+                if seqlen_q * G > R:
+                    m = R // G
+                    r = R % G
+                    sQ[R, c] = cutlass.BFloat16(mQ[batch_idx, Int32(m), kv_head * G + r, c])
+                else:
+                    sQ[R, c] = cutlass.BFloat16(0.0)
 
         m_atoms = MT // 16
         n_arr = 4 // m_atoms
@@ -1354,6 +1413,42 @@ class MMADecodeKernel:
         tSrP = thr_mma.make_fragment_A(thr_mma.partition_A(sP))
         tSrP_copy = smem_thr_Q.retile(tSrP)
 
+        if const_expr(self.fixedcut):
+            # fixedcut: ring buffer 0 rides while the Q load is in flight —
+            # buffer 0 does not alias sQ, so the two async groups coexist
+            # (the Q's DRAM latency now overlaps this issue + flight). The
+            # wait releases the Q group only (group FIFO: the Q was
+            # committed first); ring 0 stays outstanding until the stage
+            # loop's wait — its semantics are unchanged from the flag-OFF
+            # prologue (the Q group is gone by then either way).
+            if kv_len_c > 0:
+                self.g2s_stage(
+                    mK,
+                    mV,
+                    mPageTable,
+                    sK8,
+                    sK8b,
+                    sK8c,
+                    sV8,
+                    sV8b,
+                    sV8c,
+                    tidx,
+                    kv_start,
+                    0,
+                    kv_len_c,
+                    num_head_kv,
+                    kv_head,
+                    batch_idx,
+                    kv_row0,
+                    0,
+                    sK8v if const_expr(rp) else None,
+                )
+                cute.arch.cp_async_commit_group()
+                cute.arch.cp_async_wait_group(1)
+            else:
+                # an empty chunk issues no ring group: drain the Q group.
+                cute.arch.cp_async_wait_group(0)
+
         cute.arch.sync_threads()
         if const_expr(rp):
             # the even/odd-d Q fragments, filled directly from the sQ with
@@ -1387,28 +1482,31 @@ class MMADecodeKernel:
 
         n_stages = cute.ceil_div(kv_len_c, SR)
         if kv_len_c > 0:
-            self.g2s_stage(
-                mK,
-                mV,
-                mPageTable,
-                sK8,
-                sK8b,
-                sK8c,
-                sV8,
-                sV8b,
-                sV8c,
-                tidx,
-                kv_start,
-                0,
-                kv_len_c,
-                num_head_kv,
-                kv_head,
-                batch_idx,
-                kv_row0,
-                0,
-                sK8v if const_expr(rp) else None,
-            )
-            cute.arch.cp_async_commit_group()
+            if const_expr(not self.fixedcut):
+                # flag-off: the prologue issues both ring groups here; under
+                # fixedcut the buf-0 group was committed before the Q wait.
+                self.g2s_stage(
+                    mK,
+                    mV,
+                    mPageTable,
+                    sK8,
+                    sK8b,
+                    sK8c,
+                    sV8,
+                    sV8b,
+                    sV8c,
+                    tidx,
+                    kv_start,
+                    0,
+                    kv_len_c,
+                    num_head_kv,
+                    kv_head,
+                    batch_idx,
+                    kv_row0,
+                    0,
+                    sK8v if const_expr(rp) else None,
+                )
+                cute.arch.cp_async_commit_group()
             self.g2s_stage(
                 mK,
                 mV,
@@ -2105,24 +2203,70 @@ class MMADecodeKernel:
                 acc_O_mn[r, c] = acc_O_mn[r, c] * (scale * v_descale)
 
         # 2. the O store: the slot's (row, col) from the identity coords.
+        #    fixedcut: the fragment's adjacent slots (c, c+1) are consecutive
+        #    D columns of ONE row for every lane (the m16n8k16 C layout —
+        #    probe-verified for MT 16/32 x D 128/256, all 32 lanes: per pair
+        #    the lane coefficient is equal and the base differs by 1), so two
+        #    bf16 ride one aligned 4-byte store (i0 is always even) and the
+        #    per-row destination is hoisted out of the column loop.
         for r in cutlass.range_constexpr(n_row_slots):
             R = tScO_mn[r, 0][2]
             if q_rows > R:
                 m = R // G
                 head = kv_head * G + (R % G)
-                for c in cutlass.range_constexpr(cute.size(acc_O_mn.shape[1])):
-                    i = tScO_mn[0, c][3]
-                    v = acc_O_mn[r, c].to(o_elem)
-                    o_dst = cute.make_tensor(
-                        cute.make_ptr(
-                            o_elem,
-                            (o_base + o_off + m * row_stride + head * D + i).toint(),
-                            cute.AddressSpace.gmem,
-                            assumed_align=4,
-                        ),
-                        cute.make_layout(1),
-                    )
-                    o_dst[0] = v
+                if const_expr(self.fixedcut):
+                    o_iter = o_base + o_off + m * row_stride + head * D
+                    for c in cutlass.range_constexpr(cute.size(acc_O_mn.shape[1]) // 2):
+                        i0 = tScO_mn[0, 2 * c][3]
+                        if const_expr(o_elem.width == 16):
+                            # 16-bit O (the direct write-through path): the
+                            # pair is one aligned 4-byte word (i0 is even).
+                            pair = acc_O_mn[r, 2 * c].to(o_elem).bitcast(cutlass.Uint16).to(cutlass.Uint32) | (
+                                acc_O_mn[r, 2 * c + 1].to(o_elem).bitcast(cutlass.Uint16).to(cutlass.Uint32) << 16
+                            )
+                            o_dst = cute.make_tensor(
+                                cute.make_ptr(
+                                    cutlass.Uint32,
+                                    (o_iter + i0).toint(),
+                                    cute.AddressSpace.gmem,
+                                    assumed_align=4,
+                                ),
+                                cute.make_layout(1),
+                            )
+                        else:
+                            # 32-bit O (the fp32 split partials — the serving
+                            # path): the pair is one aligned 8-byte word. i0
+                            # is even, so the element offset is a multiple of
+                            # 2 and the word address stays 8-B aligned (the
+                            # partial buffers are torch allocations, >=256-B
+                            # aligned).
+                            pair = acc_O_mn[r, 2 * c].to(o_elem).bitcast(cutlass.Uint32).to(cutlass.Uint64) | (
+                                acc_O_mn[r, 2 * c + 1].to(o_elem).bitcast(cutlass.Uint32).to(cutlass.Uint64) << 32
+                            )
+                            o_dst = cute.make_tensor(
+                                cute.make_ptr(
+                                    cutlass.Uint64,
+                                    (o_iter + i0).toint(),
+                                    cute.AddressSpace.gmem,
+                                    assumed_align=8,
+                                ),
+                                cute.make_layout(1),
+                            )
+                        o_dst[0] = pair
+                else:
+                    for c in cutlass.range_constexpr(cute.size(acc_O_mn.shape[1])):
+                        i = tScO_mn[0, c][3]
+                        v = acc_O_mn[r, c].to(o_elem)
+                        o_dst = cute.make_tensor(
+                            cute.make_ptr(
+                                o_elem,
+                                (o_base + o_off + m * row_stride + head * D + i).toint(),
+                                cute.AddressSpace.gmem,
+                                assumed_align=4,
+                            ),
+                            cute.make_layout(1),
+                        )
+                        o_dst[0] = v
 
         # 3. the LSE: the group's first lane writes its rows' slots (the
         #    value is group-uniform after the reduction — the duplicate

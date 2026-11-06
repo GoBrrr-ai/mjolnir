@@ -160,12 +160,9 @@ KVFMT_VARIANTS: dict[str, str] = {
         "e3m2-hnd:--kv_format e3m2 --kv_layout hnd|e2m1-hnd:--kv_format e2m1 --kv_layout hnd|"
         "nvfp4-hnd:--kv_format nvfp4 --kv_layout hnd"
     ),
-    # The MMA: fp8 + e2m3 KV (bf16 needs the 16-bit load path — a kernel
-    # change), HND + NHD.
-    "orin": (
-        "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-hnd:--kv_format fp8 --kv_layout hnd|"
-        "e2m3-hnd:--kv_format e2m3 --kv_layout hnd"
-    ),
+    # The MMA serves fp8 on the Orin (fp6 is blocked at the backend — the
+    # e2m3 ring never paid on sm_87); HND + NHD.
+    "orin": "fp8-nhd:--kv_format fp8 --kv_layout nhd|fp8-hnd:--kv_format fp8 --kv_layout hnd",
 }
 
 PROF_VARIANTS: dict[str, str] = {
@@ -173,23 +170,25 @@ PROF_VARIANTS: dict[str, str] = {
         "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd|"
         "e2m1-hnd:--kv_format e2m1 --kv_layout hnd"
     ),
-    "orin": "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd",
+    "orin": "fp8-hnd:--kv_format fp8 --kv_layout hnd",
 }
 
 # The quant stage's formats: the ones each family can quantize from float
-# (bf16 IS float — no error to measure; the Orin has no e3m2/e2m1/nvfp4).
+# (bf16 IS float — no error to measure; the Orin has no e3m2/e2m1/nvfp4 and
+# serves fp8 only).
 QUANT_FORMATS: dict[str, str] = {
     "default": "fp8 e2m3 e3m2 e2m1 nvfp4",
-    "orin": "fp8 e2m3",
+    "orin": "fp8",
 }
 
 # The ab stage's default A/B: the Thor sweeps its launch knobs; the Orin's
-# meaningful wall-clock A/B is the KV format itself (fp8 vs fp6 vs bf16).
+# meaningful wall-clock A/B was the KV format — fp8-only since the fp6 block
+# (the single row is the reference measurement).
 AB_VARIANTS: dict[str, str] = {
     "default": (
         "base:--kv_evict_first 0|evict:--kv_evict_first 1|pdl:--kv_evict_first 0 --pdl|both:--kv_evict_first 1 --pdl"
     ),
-    "orin": "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd",
+    "orin": "fp8-hnd:--kv_format fp8 --kv_layout hnd",
 }
 
 

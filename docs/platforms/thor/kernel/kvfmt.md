@@ -69,13 +69,12 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 - **layout**: fp8 on NHD vs interleaved vs HND isolates the page layout;
 - **format**: on HND, fp6 reads 25% fewer bytes and fp4 50% fewer — compare the measured speedup with that ideal (and see [fp6prof](fp6prof.md) for why fp6 realizes less of it);
 - **nvfp4** is limited by its conversion warpgroup, not by bytes;
-- the tradeoff chart is the decision: up-and-left wins; e2m3 is the harness default because it sits next to fp8 on accuracy.
+- the tradeoff chart is the decision: up-and-left wins.
 
 ## Reproduce
 
 ```bash
 mjolnir verify kvfmt
-mjolnir verify kvfmt --variants "e2m3:--kv_format e2m3"
 ```
 
 ## Ideas to try

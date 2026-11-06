@@ -35,39 +35,9 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | `AWQ_MJOLNIR_E2M3_VT64K` |
 |---|--:|
-| decode (t/s) | 19.8 |
-| prefill (t/s) | 377 |
-| TTFT (ms) | 92,647 |
-| ITL (ms) | 50.7 |
-
-<details>
-<summary>Speculative decoding</summary>
-
-AWQ_MJOLNIR_E2M3_VT64K, 1 request: best with **5 drafts** — 25.8 t/s per request, 3.71 tokens per step. AWQ_MJOLNIR_E2M3_VT64K, 4 requests: best with **5 drafts** — 23.0 t/s per request, 3.73 tokens per step.
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- **tokens/step** = 1 + accepted draft tokens ÷ verify steps, from vLLM's speculative-decoding counters read before and after the block; **accept @i** = the share of verify steps whose i-th draft was accepted.
-- **decode t/s per request** = (generated tokens − 1) ÷ (time of the last token − time of the first token); **aggregate t/s** = all generated tokens ÷ the block's wall time.
-- ★ = the draft count with the highest decode t/s for that config and concurrency.
-
-</details><br />
-</details>
-
-<details>
-<summary>KV capacity</summary>
-
-**Mjolnir · fp6 e2m3 KV + 64K draft vocab**: **769,120 tokens**, 4.0 requests at the full 190K context (vLLM's own estimate).
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- **KV tokens** and KV memory come from vLLM's own startup log ("GPU KV cache size", "Available KV cache memory") for the same model and memory budget.
-- **vs first** = this row's KV tokens ÷ the first row's (`1.33×` = 33% more tokens).
-- **fits @ L** = ⌊KV tokens ÷ (L + 2,048 prompt + 128 generated)⌋ — whole requests of the e2e bench's shape that fit at once (`max-num-seqs` ignored).
-
-</details><br />
-</details>
+| decode (t/s) | 20.5 |
+| prefill (t/s) | 380 |
+| TTFT (ms) | 91,836 |
+| ITL (ms) | 49.3 |
 
 The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson Orin kernel case study](../../../../docs/platforms/orin/README.md#-kernel), one chapter per verify stage.

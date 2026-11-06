@@ -91,6 +91,7 @@ def _mma_variant() -> str:
             "MJOLNIR_SLICEQ",
             "MJOLNIR_DUMP_S",
             "MJOLNIR_S_PP",
+            "MJOLNIR_FIXEDCUT",
         )
     )
 
@@ -133,13 +134,15 @@ class OrinDecodeRunner:
         # kernels must not reuse the pre-s4 binaries). s5: the big kernel
         # RETIRED (Option C) — the dispatch refuses rows > SMALL_ROWS and
         # MJOLNIR_MMA16 left the variant key; same-env pre-s5 entries must
-        # not resurface. The split CAPACITY rides the key too (appended
+        # not resurface. s6: MJOLNIR_FIXEDCUT joined the key (the fixed-cost
+        # cut traces a different prologue/epilogue) — pre-s6 entries must
+        # not load. The split CAPACITY rides the key too (appended
         # once ns_cap is resolved below): it is baked into the TVM-FFI
         # signature (the partial shapes, the grid.y) but is not a KernelKey
         # field — without it, two configs with different
         # MJOLNIR_ATTN_MAX_SPLITS sharing a cache dir would silently load
         # each other's wrong-capacity binary.
-        self._variant = _mma_variant() + "+s5"  # the capacity joins below
+        self._variant = _mma_variant() + "+s6"  # the capacity joins below
         from mjolnir.arch.orin import mma as mma_kernel
 
         assert head_size in mma_kernel.MMADecodeKernel.SUPPORTED_HEAD_SIZES, (

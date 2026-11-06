@@ -37,7 +37,11 @@ fp6 reads 25% fewer bytes than fp8 — so why is it not 25% faster? A full Nsigh
 
 ```bash
 mjolnir verify fp6prof
+{% if ctx.platform and ctx.platform.sm_family == "sm_87" -%}
+mjolnir verify fp6prof --variants "fp8-hnd:--kv_format fp8 --kv_layout hnd" --ls 65536
+{% else -%}
 mjolnir verify fp6prof --variants "fp8-hnd:--kv_format fp8 --kv_layout hnd|e2m3-hnd:--kv_format e2m3 --kv_layout hnd" --ls 65536
+{% endif -%}
 ```
 
 ## Ideas to try

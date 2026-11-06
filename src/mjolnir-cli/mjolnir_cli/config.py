@@ -74,7 +74,7 @@ QUANT_ROLES: dict[str, dict[str, str]] = {
     "thor": {"default": DEFAULT_QUANT, "fast": FAST_QUANT, "baseline": BASELINE_QUANT, "fa2": FA2_QUANT},
     "orin": {
         "default": "AWQ_MJOLNIR_VT64K",  # fp8 KV + the 64K draft vocab, K=4 (the small-kernel verify)
-        "fast": "AWQ_MJOLNIR_E2M3_VT64K",
+        "fast": "AWQ_MJOLNIR_VT64K",  # no lighter tier: fp8-only story (fp6 blocked on the arch)
         "baseline": "AWQ_FLASHINFER",
         "fa2": "AWQ_FLASHINFER",  # no FA2 config on Orin; the native-FI baseline covers it
     },

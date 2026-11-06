@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mjolnir_cli.config import BACKEND_LABELS, BASELINE_QUANT, DEFAULT_MODEL, DEFAULT_QUANT, model_of
+from mjolnir_cli.config import BACKEND_LABELS, DEFAULT_MODEL, DEFAULT_QUANT, model_of, quant_role
 from mjolnir_cli.history import _merge_records, load_records, spec_of
 from mjolnir_cli.platforms import DEFAULT_PLATFORM, REGISTRY, platform_of
 
@@ -114,18 +114,26 @@ def latest_pair(
     (legacy) records resolve to ``thor``."""
     model = model or DEFAULT_MODEL
     platform = platform or DEFAULT_PLATFORM
-    base = official_config or BASELINE_QUANT
+    base = official_config or quant_role("baseline", platform)
     recs = [
         r for r in load_records(history_file) if r.get("cells") and model_of(r) == model and platform_of(r) == platform
     ]
-    want = mjolnir_config
-    if want is None:
-        mine = [r for r in recs if is_mjolnir(r)]
-        want = (
-            DEFAULT_QUANT
-            if any(r.get("config") == DEFAULT_QUANT for r in mine) or not mine
-            else max(mine, key=lambda r: r.get("epoch", 0)).get("config")
-        )
+    mine = [r for r in recs if is_mjolnir(r)]
+    # the platform's role config first (config.QUANT_ROLES: the served story,
+    # e.g. orin AWQ_MJOLNIR_VT64K) — but only for the implicit want; an
+    # explicit mjolnir_config keeps the exact-match-or-None contract. The
+    # legacy chain (DEFAULT_QUANT, then the newest Mjolnir-image config)
+    # covers models with no record of the role config.
+    if mjolnir_config:
+        want: str = mjolnir_config
+    else:
+        want = quant_role("default", platform)
+        if not any(r.get("config") == want for r in mine):
+            want = (
+                DEFAULT_QUANT
+                if any(r.get("config") == DEFAULT_QUANT for r in mine) or not mine
+                else max(mine, key=lambda r: r.get("epoch", 0)).get("config")
+            )
     offs, mjs = [], []
     for r in recs:
         if is_official(r) and r.get("config") != want:
