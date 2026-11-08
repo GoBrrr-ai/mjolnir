@@ -357,13 +357,14 @@ setup_power_mode() {
 
     echo "ℹ️  Setting power mode to mode ${JETSON_POWER_MODES[$MAXN_POWER_MODE_ID]} (this will be applied after reboot)..."
 
-    # Use -f flag to suppress the interactive reboot prompt
-    if sudo nvpmodel -m "$MAXN_POWER_MODE_ID" -f "$power_config_path" > /dev/null; then
-        echo "✅ Power mode change scheduled. A reboot will be required to apply this change."
-        REBOOT_REQUIRED=1
-        return 0
-    else
-        echo "❌ Failed to set power mode"
-        return 1
+    # JetPack 7's nvpmodel asks an interactive "reboot now?" on transitions that
+    # require one; without a tty (ssh/cron/CI) it dies there — exit 234, mode
+    # untouched. --force applies cleanly, rebooting itself only when the
+    # transition demands it; pre-7 versions have no --force -> plain path.
+    if ! sudo nvpmodel -m "$MAXN_POWER_MODE_ID" -f "$power_config_path" --force > /dev/null 2>&1; then
+        sudo nvpmodel -m "$MAXN_POWER_MODE_ID" -f "$power_config_path" > /dev/null || { echo "❌ Failed to set power mode"; return 1; }
     fi
+    echo "✅ Power mode change scheduled. A reboot will be required to apply this change."
+    REBOOT_REQUIRED=1
+    return 0
 }
