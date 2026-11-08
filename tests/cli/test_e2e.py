@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 import mjolnir_cli.benchy as benchy
+import mjolnir_cli.charts as charts_mod
 from mjolnir_cli import cli, dockerctl, e2e
 from mjolnir_cli.config import ConfigEntry
 from mjolnir_cli.history import parse_benchy_json
@@ -706,10 +707,16 @@ def test_bench_e2e_full_run_serves_compares_and_rerenders(monkeypatch, tmp_path)
     from mjolnir_cli.commands import bench
 
     monkeypatch.setenv("MJOLNIR_STATE", str(tmp_path / "state.json"))
-    seen: dict[str, Any] = {"up": [], "down": [], "perf": [], "readme": 0}
+    seen: dict[str, Any] = {"up": [], "down": [], "perf": [], "readme": 0, "charts": 0}
     monkeypatch.setattr(dockerctl, "stale_image", lambda image: None)
     monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: seen["down"].append(s.quant))
     monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: seen["up"].append(s.quant))
+
+    def fake_charts(layout):
+        seen["charts"] += 1
+        return {}
+
+    monkeypatch.setattr(charts_mod, "render_all", fake_charts)
 
     def fake_perf(s, layout, **kw):
         seen["perf"].append(s.quant)
@@ -727,7 +734,7 @@ def test_bench_e2e_full_run_serves_compares_and_rerenders(monkeypatch, tmp_path)
     r = runner.invoke(cli.app, ["bench", "e2e", "--depths", "4096", "--concurrency", "1"])
     assert r.exit_code == 0, r.output
     assert "restarts the vLLM server for each image" in r.output
-    assert seen["perf"] and seen["readme"] == 1
+    assert seen["perf"] and seen["readme"] == 1 and seen["charts"] == 1
     assert seen["compared"][0] is not None  # the Mjolnir-side config reached the comparison
 
 
@@ -742,6 +749,7 @@ def test_bench_e2e_refuses_a_stale_image_unless_allowed(monkeypatch, tmp_path):
     # with the flag: the warning is printed and the run proceeds
     import mjolnir_cli.readme as readme_mod
 
+    monkeypatch.setattr(charts_mod, "render_all", lambda layout: {})
     monkeypatch.setattr(dockerctl, "serve_down", lambda s, **kw: None)
     monkeypatch.setattr(dockerctl, "serve_up", lambda s, **kw: None)
     monkeypatch.setattr(benchy, "run_perf", lambda s, layout, **kw: None)
@@ -786,6 +794,7 @@ def test_bench_e2e_suggests_how_to_compare_the_optional_legs(monkeypatch, tmp_pa
     monkeypatch.setattr(bench, "print_compare", lambda *a, **kw: 0)
     import mjolnir_cli.readme as readme_mod
 
+    monkeypatch.setattr(charts_mod, "render_all", lambda layout: {})
     monkeypatch.setattr(readme_mod, "render_readme", lambda *a, **kw: None)
     r = runner.invoke(cli.app, ["bench", "e2e", "--also", "NVFP4_MJOLNIR"])
     assert r.exit_code == 0, r.output
