@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-plot = ["matplotlib>=3.10.9"]
+plot = ["matplotlib>=3.10.9", "pyoxipng>=9.1"]
 
 [project.urls]
 Homepage = "https://github.com/GoBrrr-ai/mjolnir"

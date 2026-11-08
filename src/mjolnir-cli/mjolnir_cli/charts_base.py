@@ -23,6 +23,9 @@ NOISE = NOISE_PCT / 100  # same-run ratio noise band (see verify.stages.NOISE_PC
 
 DPI = 160
 
+_PNG_COLORS = 64  # charts quantize to a 64-color palette (see _optimize_png)
+_PNG_OLEVEL = 6  # oxipng zopfli: ~5% under o2, worth the seconds on a render
+
 
 def load_verify(layout: RepoLayout) -> dict[str, dict]:
     """The latest default run of every stage that has one."""
@@ -226,10 +229,37 @@ def _int_locator():
     return MaxNLocator(integer=True)
 
 
+def _optimize_png(path: Path) -> None:
+    """Charts ship as 64-color indexed PNGs, no alpha channel.
+
+    Median-cut quantization is lossy by design: the antialiasing blends
+    collapse into their nearest palette entries (the theme's series colors
+    all stay distinct — checked across every chart), and the always-opaque
+    alpha matplotlib emits is dropped. oxipng finishes the file. ~3.5x
+    smaller than the render output; the pinned toolchain keeps the bytes
+    deterministic, so the CI surfaces check still reproduces."""
+    import oxipng
+    from PIL import Image
+
+    im = Image.open(path)
+    im.load()
+    q = im.convert("RGB").quantize(colors=_PNG_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    tmp = path.with_suffix(".q.png")
+    out = path.with_suffix(".opt.png")
+    try:
+        q.save(tmp)
+        oxipng.optimize(str(tmp), output=str(out), level=_PNG_OLEVEL)
+        out.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+        out.unlink(missing_ok=True)
+
+
 def _save(fig, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     theme.fit_footer(fig)
     fig.savefig(path, facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
+    _optimize_png(path)
     return path
 
 
