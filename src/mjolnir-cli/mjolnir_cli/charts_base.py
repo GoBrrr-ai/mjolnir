@@ -6,6 +6,7 @@ their helpers from here and charts.py re-exports the public names.
 
 from __future__ import annotations
 
+import io
 import math
 from pathlib import Path
 
@@ -22,6 +23,9 @@ NOISE = NOISE_PCT / 100  # same-run ratio noise band (see verify.stages.NOISE_PC
 
 
 DPI = 160
+
+_PNG_COLORS = 64  # charts quantize to a 64-color palette (see _optimize_png)
+_PNG_OLEVEL = 6  # oxipng zopfli: ~5% under o2, worth the seconds on a render
 
 
 def load_verify(layout: RepoLayout) -> dict[str, dict]:
@@ -226,10 +230,34 @@ def _int_locator():
     return MaxNLocator(integer=True)
 
 
+def _finalize_png(raw: bytes) -> bytes:
+    """Charts ship as 64-color indexed PNGs, no alpha channel.
+
+    Median-cut quantization is lossy by design: the antialiasing blends
+    collapse into their nearest palette entries (the theme's series colors
+    all stay distinct — checked across every chart), and the always-opaque
+    alpha matplotlib emits is dropped. oxipng finishes the file. ~3.5x
+    smaller than the render output; the pinned toolchain keeps the bytes
+    deterministic, so unchanged data leaves the committed file untouched."""
+    import oxipng
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(raw))
+    im.load()
+    q = im.convert("RGB").quantize(colors=_PNG_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    buf = io.BytesIO()
+    q.save(buf, format="PNG")
+    return oxipng.optimize_from_memory(buf.getvalue(), level=_PNG_OLEVEL)
+
+
 def _save(fig, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     theme.fit_footer(fig)
-    fig.savefig(path, facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
+    final = _finalize_png(buf.getvalue())
+    if not (path.exists() and path.read_bytes() == final):
+        path.write_bytes(final)
     return path
 
 
