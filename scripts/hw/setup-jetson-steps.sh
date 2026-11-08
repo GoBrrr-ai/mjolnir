@@ -82,9 +82,15 @@ install_jtop() {
     # https://github.com/rbonghi/jetson_stats
     if ! command -v jtop &> /dev/null; then
         echo "📦 Installing jtop..."
-        pip3 install -U "setuptools<71.0.0"
-        sudo env "PATH=$HOME/.local/bin:$PATH" pip3 install -U jetson-stats
-        systemctl_restart_service jtop.service
+        # PEP 668 (ubuntu 24.04 / JP7): a plain pip install exits non-zero there —
+        # and under set -e that kills the whole run; no-op where no marker exists.
+        local pip_flags=""
+        [ -f "$(python3 -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')/EXTERNALLY-MANAGED" ] && pip_flags="--break-system-packages"
+        pip3 install $pip_flags -U "setuptools<71.0.0"
+        sudo env "PATH=$HOME/.local/bin:$PATH" pip3 install $pip_flags -U jetson-stats
+        # jetson-stats >= 7 no longer registers its unit during pip install, so the
+        # restart exits 5 ("unit does not exist") — install it on demand instead.
+        systemctl_restart_service jtop.service || sudo jtop --install-service || true
         echo "✅ jtop was installed successfully."
     else
         echo "✅ jtop is already installed."
