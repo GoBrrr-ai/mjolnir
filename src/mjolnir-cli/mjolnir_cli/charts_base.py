@@ -6,6 +6,7 @@ their helpers from here and charts.py re-exports the public names.
 
 from __future__ import annotations
 
+import io
 import math
 from pathlib import Path
 
@@ -229,7 +230,7 @@ def _int_locator():
     return MaxNLocator(integer=True)
 
 
-def _optimize_png(path: Path) -> None:
+def _finalize_png(raw: bytes) -> bytes:
     """Charts ship as 64-color indexed PNGs, no alpha channel.
 
     Median-cut quantization is lossy by design: the antialiasing blends
@@ -237,29 +238,26 @@ def _optimize_png(path: Path) -> None:
     all stay distinct — checked across every chart), and the always-opaque
     alpha matplotlib emits is dropped. oxipng finishes the file. ~3.5x
     smaller than the render output; the pinned toolchain keeps the bytes
-    deterministic, so the CI surfaces check still reproduces."""
+    deterministic, so unchanged data leaves the committed file untouched."""
     import oxipng
     from PIL import Image
 
-    im = Image.open(path)
+    im = Image.open(io.BytesIO(raw))
     im.load()
     q = im.convert("RGB").quantize(colors=_PNG_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-    tmp = path.with_suffix(".q.png")
-    out = path.with_suffix(".opt.png")
-    try:
-        q.save(tmp)
-        oxipng.optimize(str(tmp), output=str(out), level=_PNG_OLEVEL)
-        out.replace(path)
-    finally:
-        tmp.unlink(missing_ok=True)
-        out.unlink(missing_ok=True)
+    buf = io.BytesIO()
+    q.save(buf, format="PNG")
+    return oxipng.optimize_from_memory(buf.getvalue(), level=_PNG_OLEVEL)
 
 
 def _save(fig, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     theme.fit_footer(fig)
-    fig.savefig(path, facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
-    _optimize_png(path)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
+    final = _finalize_png(buf.getvalue())
+    if not (path.exists() and path.read_bytes() == final):
+        path.write_bytes(final)
     return path
 
 
