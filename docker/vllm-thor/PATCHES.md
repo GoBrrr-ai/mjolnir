@@ -17,9 +17,9 @@ canary in `kernel_test_sm110_gates.py`), one hd256 1CTA decode carve-out
 below) and the three Thor-authored **qwen4_exp-family patches** (dense
 decoder, the sm_110 top-k guard and the probe-gated Mjolnir QSA decode —
 see "Thor qwen4 dense decoder" and the sections after it below).
-Fifteen vLLM-side patches in total, applied by `apply_patches.py` onto the
-installed vllm package **and** the installed flashinfer package (one more
-patch there, plus one retired-and-commented); verified by
+In total: **fifteen vLLM-side patches**, applied by `apply_patches.py` to
+the installed vllm package **and** the installed flashinfer package (one
+more patch there, plus one retired-and-commented); verified by
 `verify_patches.py`.
 
 The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)

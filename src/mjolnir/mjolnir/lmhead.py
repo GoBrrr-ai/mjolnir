@@ -25,7 +25,11 @@ in through the ``.env`` sidecar inside its config dir, see
   draft step) quantized to e4m3 per row at load and run through the same
   fp8 GEMM. Drafter-only: verification stays lossless; acceptance may shift
   a little (measure with ``verify spec`` before adopting). The bf16
-  originals are freed (~0.45 GiB back to the KV cache).
+  originals are freed (~0.45 GiB back to the KV cache). Measured negative
+  on sm_110 — see config ``NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8``; the broader,
+  serving-tuned variant is ``MJOLNIR_MTP_FP8``: fp8-row-quantize every big
+  (>= 16M param) unquantized drafter Linear at load, same scheme + self-test
+  as the head.
 
 The hooks wrap ``GPUModelRunner.load_model`` (installed by
 ``mjolnir.register`` when either variable is set) and run after the target

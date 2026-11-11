@@ -18,8 +18,9 @@ Only two things change:
   * the impl: forward() runs the T5 kernel when it gets T5 metadata,
     otherwise it calls the base forward.
 
-KV formats: fp8 (e4m3, vLLM's own cache write), and ``fp6_e2m3`` on the
-image (``thor-fp6-e2m3-kv-cache.patch`` adds the dtype): packed 6-bit codes
+KV formats: fp8 (e4m3, vLLM's own cache write), and ``fp6_e2m3``
+(plugin-registered on vLLM >= 0.33 by ``mjolnir.kvdtype`` from the entry
+point; the 0.32-era image patch is retired): packed 6-bit codes
 with static per-(layer, KV head, channel) scales from a calibration file
 (``mjolnir.kvscales``). Mjolnir writes that cache itself (``mjolnir.kvfp6``),
 T5 reads it directly (the channel scales folded into Q and the output), and
@@ -804,8 +805,8 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
 
     # -- KV cache dtypes --------------------------------------------------
     # The fallback's own list, plus fp6_e2m3 where vLLM knows the dtype (the
-    # image's thor-fp6-e2m3-kv-cache patch) and the fallback can read the fp8
-    # scratch (see _fallback_serves_fp8_scratch).
+    # mjolnir.kvdtype plugin registration on >= 0.33) and the fallback can
+    # read the fp8 scratch (see _fallback_serves_fp8_scratch).
     supported_kv_cache_dtypes: ClassVar[list] = list(getattr(_Base, "supported_kv_cache_dtypes", [])) + (
         list(FP6_CACHE_DTYPES) if _fallback_serves_fp8_scratch() else []
     )

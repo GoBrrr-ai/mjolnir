@@ -32,9 +32,10 @@ from pathlib import Path
 
 # Order: re-based onto upstream vLLM 0.33.0 (2026-11 bump). 54165, 55519,
 # the fp6 e2m3 KV dtype and the split top-p sampler fix retired at this
-# bump — all four are in the base now (see PATCHES.md). The gdn-prefill
-# and fa4 sm_110 gate patches touch files disjoint from every other patch
-# (qwen_gdn_linear_attn.py; v1/attention/backends/fa_utils.py +
+# bump — all four are in the base now (see PATCHES.md); the gdn-prefill
+# pair is retired too (the c4 stagger, commented STAGGER FIX below). The
+# fa4 sm_110 gate patches touch files disjoint from every other patch
+# (v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches
 # vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py), so their position
 # among the middle patches is immaterial — except that the two fa4 sm_110
@@ -121,12 +122,12 @@ PATCH_ORDER = [
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
-# site-packages tree, not the vllm package). The GDN prefill enablement
-# hunk widens the non-CP dispatch allowlist at gdn_prefill.py:460 from
-# major 10 to (10, 11) so the SM100 CuTe-DSL kernel (JIT-compiled for the
-# device) is reachable on sm_110; the vLLM-side grant
-# (thor-gdn-prefill-sm110) stays probe-gated, so this hunk alone changes
-# no behavior on any device.
+# site-packages tree, not the vllm package). The retired GDN prefill
+# enablement hunk (STAGGER FIX below) widened the non-CP dispatch
+# allowlist at gdn_prefill.py:460 from major 10 to (10, 11) so the SM100
+# CuTe-DSL kernel (JIT-compiled for the device) is reachable on sm_110 —
+# its vLLM-side grant is retired with it, so nothing today changes
+# behavior on any device but the fp6 hunk.
 FLASHINFER_PATCH_ORDER = [
     # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",
