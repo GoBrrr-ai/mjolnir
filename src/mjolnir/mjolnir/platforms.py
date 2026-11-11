@@ -95,6 +95,22 @@ def unsupported_reason(cc: tuple[int, int]) -> str | None:
     return _unsupported_msg(cc) + " Decode steps run on the fallback backend."
 
 
+# The arches where fp6 (e2m3) KV does not serve, with the reason: the Orin's
+# measured serving story is fp8-only (the e2m3 ring never paid on sm_87 — the
+# oct28 campaign; fp6 costs 1.4-1.75x the fp8 time per byte saved there).
+# Pure — no device access; the backend consults it in its fp6 acceptance.
+FP6_BLOCKED: dict[tuple[int, int], str] = {
+    (8, 7): "fp6 KV is blocked on Orin — the serving story is fp8 "
+    "(AWQ_MJOLNIR_VT64K); the e2m3 ring never paid on sm_87",
+}
+
+
+def fp6_block_reason(cc: tuple[int, int]) -> str | None:
+    """The arch's fp6-KV serving block, or None when fp6 serves there. Pure —
+    no device access."""
+    return FP6_BLOCKED.get(tuple(cc))
+
+
 def _unsupported_msg(cc: tuple[int, int]) -> str:
     impl = [f"{n} (sm_{maj}{minr})" for n, (maj, minr), ok in _SHIPPED if ok]
     research = [f"{n} (sm_{maj}{minr})" for n, (maj, minr), ok in _SHIPPED if not ok]

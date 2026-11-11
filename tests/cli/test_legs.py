@@ -94,16 +94,16 @@ def test_legs_for_stage_research_platforms_measure_their_own_baseline(platform, 
 
 def test_legs_for_stage_orin_serves_its_own_family():
     # the orin's override table: the AWQ family for every stage, with the
-    # native-FlashInfer config as the stock-backend baseline
+    # native-FlashInfer config as the stock-backend baseline; fp8-only —
+    # the Mjolnir side is AWQ_MJOLNIR_VT64K (fp6 is blocked on the arch)
     for name in legs.SERVING:
         table = legs.legs_for_stage(name, "orin")
         assert table, name
         assert all(cfg.startswith("AWQ_") for _, cfg in table), (name, table)
     spec = legs.legs_for_stage("verify.spec", "orin")
     assert spec[0] == (legs.OFFICIAL, "AWQ_FLASHINFER")
-    assert (legs.MJOLNIR, "AWQ_MJOLNIR") in spec
-    assert (legs.MJOLNIR, "AWQ_MJOLNIR_E2M3") in spec
-    assert (legs.MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K") in spec
+    assert (legs.MJOLNIR, "AWQ_MJOLNIR_VT64K") in spec
+    assert not any("E2M3" in cfg for _, cfg in spec)
 
 
 def test_available_serving_legs_resolve_the_orin_baseline_from_the_repo_configs():
@@ -117,12 +117,8 @@ def test_available_serving_legs_resolve_the_orin_baseline_from_the_repo_configs(
 
 def test_bench_and_verify_legs_render_the_orin_family():
     # the official leg pins the platform's stock image; the Mjolnir legs are bare
-    assert legs.bench_legs("bench.ab", "orin") == (
-        f"{STOCK_IMAGE}:AWQ_FLASHINFER,AWQ_MJOLNIR_E2M3,AWQ_MJOLNIR_E2M3_VT64K"
-    )
-    assert legs.verify_legs("verify.spec", "orin") == (
-        "official:AWQ_FLASHINFER,mjolnir:AWQ_MJOLNIR,mjolnir:AWQ_MJOLNIR_E2M3,mjolnir:AWQ_MJOLNIR_E2M3_VT64K"
-    )
+    assert legs.bench_legs("bench.ab", "orin") == f"{STOCK_IMAGE}:AWQ_FLASHINFER,AWQ_MJOLNIR_VT64K"
+    assert legs.verify_legs("verify.spec", "orin") == "official:AWQ_FLASHINFER,mjolnir:AWQ_MJOLNIR_VT64K"
 
 
 def _fake_configs(root: Path, entries: dict[str, tuple[str, ...]]) -> Path:

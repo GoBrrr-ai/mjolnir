@@ -1,20 +1,20 @@
 {
  "schema": "mjolnir.verify/1",
  "stage": "sweep",
- "run_id": "20261030-162038",
- "ts": "2026-10-30T16:23:56+00:00",
+ "run_id": "20261105-001520",
+ "ts": "2026-11-05T00:18:09+00:00",
  "default": true,
  "host": "agx-orin-dev",
- "image": "narandill/mjolnir-vllm:v0.32.0",
+ "image": "narandill/mjolnir-vllm:v0.33.0",
  "kernel": {
   "version": "0.1.0",
-  "git": "fe40d4b",
-  "dirty": false
+  "git": "6cdb512",
+  "dirty": true
  },
  "gate": {
-  "gated": true,
-  "clean": true,
-  "server": "up"
+  "gated": false,
+  "clean": null,
+  "server": "offline"
  },
  "params": {
   "ls": [
@@ -35,7 +35,7 @@
  },
  "platform": "orin",
  "gpu": "Orin (nvgpu)",
- "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "ref_image": "vllm/vllm-openai:v0.33.0",
  "series": [
   {
    "id": "mjolnir",
@@ -48,43 +48,43 @@
    "points": [
     {
      "L": 128,
-     "total_us": 69.25,
-     "gbps": 3.79
+     "total_us": 66.46,
+     "gbps": 3.94
     },
     {
      "L": 4096,
-     "total_us": 87.36,
-     "gbps": 96.0
+     "total_us": 88.58,
+     "gbps": 94.7
     },
     {
      "L": 8192,
-     "total_us": 136.35,
-     "gbps": 123.0
+     "total_us": 137.06,
+     "gbps": 122.0
     },
     {
      "L": 16384,
-     "total_us": 229.15,
-     "gbps": 146.0
+     "total_us": 232.13,
+     "gbps": 145.0
     },
     {
      "L": 32768,
-     "total_us": 417.63,
+     "total_us": 417.12,
      "gbps": 161.0
     },
     {
      "L": 65536,
-     "total_us": 791.33,
+     "total_us": 790.78,
      "gbps": 170.0
     },
     {
      "L": 131072,
-     "total_us": 1535.87,
+     "total_us": 1537.41,
      "gbps": 175.0
     },
     {
      "L": 262144,
-     "total_us": 3038.88,
-     "gbps": 177.0
+     "total_us": 3055.1,
+     "gbps": 176.0
     }
    ]
   },
@@ -99,53 +99,53 @@
    "points": [
     {
      "L": 128,
-     "total_us": 106.3
+     "total_us": 109.8
     },
     {
      "L": 4096,
-     "total_us": 131.3
+     "total_us": 130.0
     },
     {
      "L": 8192,
-     "total_us": 135.7
+     "total_us": 133.3
     },
     {
      "L": 16384,
-     "total_us": 229.7
+     "total_us": 229.8
     },
     {
      "L": 32768,
-     "total_us": 434.8
+     "total_us": 434.7
     },
     {
      "L": 65536,
-     "total_us": 838.9
+     "total_us": 804.4
     },
     {
      "L": 131072,
-     "total_us": 1639.2
+     "total_us": 1587.9
     },
     {
      "L": 262144,
-     "total_us": 3308.6
+     "total_us": 3287.5
     }
    ]
   }
  ],
  "summary": {
   "vs_fi": {
-   "geomean": 1.1449,
-   "min": 0.9952,
-   "max": 1.535,
+   "geomean": 1.1348,
+   "min": 0.9726,
+   "max": 1.6521,
    "per_L": {
-    "128": 1.535,
-    "4096": 1.503,
-    "8192": 0.9952,
-    "16384": 1.0024,
-    "32768": 1.0411,
-    "65536": 1.0601,
-    "131072": 1.0673,
-    "262144": 1.0888
+    "128": 1.6521,
+    "4096": 1.4676,
+    "8192": 0.9726,
+    "16384": 0.99,
+    "32768": 1.0421,
+    "65536": 1.0172,
+    "131072": 1.0328,
+    "262144": 1.0761
    }
   }
  }

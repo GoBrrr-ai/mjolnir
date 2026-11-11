@@ -197,7 +197,7 @@ def child(args) -> None:
         "dtype": "bfloat16",
         "enforce_eager": args.eager,
         "max_model_len": args.max_model_len,
-        "gpu_memory_utilization": args.gpu_mem,
+        "gpu_memory_utilization": _fit_gpu_mem(args.gpu_mem),
         "max_num_seqs": max(16, len(PROMPTS)),
         "seed": 0,
     }
@@ -243,6 +243,37 @@ def child(args) -> None:
         json.dump(res, f)
 
 
+def _wait_gpu_memory_stable(timeout: float = 30.0) -> None:
+    """Wait until the GPU's free memory stops changing.
+
+    Each child is a fresh process whose CUDA context tears down
+    asynchronously after exit; the NEXT child's memory profiling asserts on
+    any free-memory change mid-init ("other processes ... release GPU
+    memory"), and a context release lands exactly in that window. Samples
+    the free-memory reading every 2 s until two consecutive readings agree
+    within 32 MiB, or the timeout passes (then proceed anyway — the worst
+    case is today's behavior). torch's mem_get_info rather than nvidia-smi:
+    on Tegra the driver reports N/A there. The parent's own one-time context
+    is a fixed reservation and does not disturb a *change* measurement.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        torch.cuda.empty_cache()
+        last = torch.cuda.mem_get_info()[0]
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time.sleep(2.0)
+            cur = torch.cuda.mem_get_info()[0]
+            if abs(cur - last) <= 32 * 1024 * 1024:
+                return
+            last = cur
+    except Exception:  # noqa: BLE001 - best effort; never block the smoke
+        pass
+
+
 def calibrate(args, out: str) -> str:
     """Per-channel e2m3 scales for the smoke model (mjolnir.calibrate, own
     process). The full default prompt set: per-channel amax needs coverage —
@@ -258,7 +289,7 @@ def calibrate(args, out: str) -> str:
         "--max-model-len",
         str(args.max_model_len),
         "--gpu-mem",
-        str(args.gpu_mem),
+        str(_fit_gpu_mem(args.gpu_mem)),
         "--prompts",
         "48",
         "--long",
@@ -279,6 +310,10 @@ def calibrate(args, out: str) -> str:
 
 
 def run_child(args, backend, out):
+    # The previous child's context may still be tearing down (async release);
+    # this child's init memory-profiling asserts on mid-profile changes, so
+    # wait for the GPU's free memory to settle first.
+    _wait_gpu_memory_stable()
     cmd = [
         sys.executable,
         os.path.abspath(__file__),
@@ -312,13 +347,35 @@ def run_child(args, backend, out):
         return json.load(f)
 
 
+def _fit_gpu_mem(requested: float) -> float:
+    """The device-memory fraction vLLM may claim. A fixed fraction is a
+    board-shaped guess (0.15 assumed the Thor's 122 GiB), and one derived
+    in a parent process goes stale by the time a later child boots (the
+    co-tenant's allocation breathes; a sibling leg's teardown lags). 0
+    (the default) derives it FRESH IN EACH PROCESS from what is actually
+    free at boot — 60% of it, capped at 0.15 — so the desired budget can
+    never exceed the free pool the boot itself observes. An explicit
+    value wins."""
+    if requested > 0.0:
+        return requested
+    import torch
+
+    free, total = torch.cuda.mem_get_info()
+    return min(0.15, 0.6 * free / total)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3-0.6B")
     ap.add_argument("--reference", default="FLASHINFER")
     ap.add_argument("--max_tokens", type=int, default=128)
     ap.add_argument("--max_model_len", type=int, default=4096)
-    ap.add_argument("--gpu_mem", type=float, default=0.15)  # Thor: 0.15 x 122 GiB ~ 18 GiB
+    ap.add_argument(
+        "--gpu_mem",
+        type=float,
+        default=0.0,
+        help="vLLM gpu_memory_utilization; 0 = fit to the free VRAM (60%% of it, cap 0.15)",
+    )
     ap.add_argument("--eager", action="store_true")
     ap.add_argument("--spec", type=int, default=0, help="ngram speculative tokens (0 = off)")
     ap.add_argument("--kv", default="fp8", help="Mjolnir's KV cache dtype: fp8 | fp6_e2m3 (the reference stays fp8)")
@@ -352,6 +409,9 @@ def main():
     tmp = os.environ.get("TMPDIR", "/tmp")
     if args.kv.startswith("fp6") and not os.environ.get("MJOLNIR_ATTN_KV_SCALES"):
         os.environ["MJOLNIR_ATTN_KV_SCALES"] = calibrate(args, os.path.join(tmp, "t5_smoke_kv_scales.json"))
+        # The calibrator's context tears down asynchronously -- see the
+        # helper; the next child's init profiling must not race the release.
+        _wait_gpu_memory_stable()
     ref = run_child(args, args.reference, os.path.join(tmp, "t5_smoke_ref.json"))
     t5 = run_child(args, "MJOLNIR", os.path.join(tmp, "t5_smoke_t5.json"))
 

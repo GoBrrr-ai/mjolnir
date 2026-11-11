@@ -59,12 +59,8 @@ TASKS: list[Task] = [
         "DSpark non-causal draft cudagraph (gate/route/capture-replay/determinism)",
         arch="thor",
     ),
-    Task(
-        "functional",
-        "docker/vllm-thor/functional_check_55519.py",
-        "55519 draft-group warning gate check (no GPU)",
-        gpu=False,
-    ),
+    # The 55519 functional gate retired with the patch at the 0.33.0 bump
+    # (the false-positive warning is gone from the base; see PATCHES.md).
 ]
 
 BY_NAME = {t.name: t for t in TASKS}

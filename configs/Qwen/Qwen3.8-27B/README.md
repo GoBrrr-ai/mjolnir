@@ -72,8 +72,8 @@ longest shared context.
 
 | platform | official | Mjolnir | official t/s | Mjolnir t/s | change | at |
 |---|---|---|--:|--:|--:|---|
-| Jetson AGX Thor | `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 24.8 | 32.2 | +29.9% | 32K |
-| Jetson Orin | `AWQ_FLASHINFER` | `AWQ_MJOLNIR_VT64K` | 16.6 | 22.4 | +34.7% | 32K |
+| Jetson AGX Thor | `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 22.7 | 34.2 | +50.9% | 32K |
+| Jetson Orin | `AWQ_FLASHINFER` | `AWQ_MJOLNIR_VT64K` | 17.9 | 21.9 | +22.4% | 32K |
 
 
 <details>

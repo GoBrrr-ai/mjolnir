@@ -59,12 +59,12 @@ index e3e90ec..293d802 100644
          # 3. fallback for unsupported combinations
          if device_capability.major >= 10 and fa_version == 3:
 diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
-index 207c112..ce75260 100644
+index 093a536..ddfbd97 100644
 --- a/vllm/v1/attention/backends/registry.py
 +++ b/vllm/v1/attention/backends/registry.py
-@@ -153,6 +153,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
-     AMX_MLA = "vllm.v1.attention.backends.mla.amx_mla.AMXMLABackend"
-     TURBOQUANT = "vllm.v1.attention.backends.turboquant_attn.TurboQuantAttentionBackend"
+@@ -164,6 +164,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
+         "vllm.v1.attention.backends.rocm_octave_attn.RocmOctaveAttentionBackend"
+     )
      ULTRAQUANT = "vllm.v1.attention.backends.ultraquant_attn.UltraQuantAttentionBackend"
 +    # Mjolnir: the tcgen05/TMEM/TMA fp8 paged decode kernel for Jetson AGX
 +    # Thor (sm_110), packaged as `mjolnir-kernel` (https://github.com/thor-arena/mjolnir).

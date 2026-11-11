@@ -122,37 +122,29 @@ _BASELINE: dict[str, str] = {
 
 # Platform overrides of the SERVING tables: a platform whose model family
 # names its own configs lists its stages here (looked up before the default
-# table). The Orin serves the Qwen3.8-27B AWQ family: AWQ weights for sm_87,
-# per-channel fp6 scales for its KV, and the native-FlashInfer config as the
-# stock-backend baseline.
+# table). The Orin serves the Qwen3.8-27B AWQ family: AWQ weights for sm_87
+# and fp8 KV — the Mjolnir side is AWQ_MJOLNIR_VT64K (fp8 + the 64K draft
+# vocab; fp6 is blocked on the arch, the e2m3 ring never paid on sm_87) —
+# against the native-FlashInfer config as the stock-backend baseline.
 _SERVING_BY_PLATFORM: dict[str, dict[str, tuple[Leg, ...]]] = {
     "orin": {
-        "verify.kv-cache-size": (
-            (MJOLNIR, "AWQ_MJOLNIR"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
-        ),
+        "verify.kv-cache-size": ((MJOLNIR, "AWQ_MJOLNIR_VT64K"),),
         "verify.spec": (
             (OFFICIAL, "AWQ_FLASHINFER"),
-            (MJOLNIR, "AWQ_MJOLNIR"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+            (MJOLNIR, "AWQ_MJOLNIR_VT64K"),
         ),
-        "verify.profile": ((MJOLNIR, "AWQ_MJOLNIR_E2M3"), (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K")),
+        "verify.profile": ((MJOLNIR, "AWQ_MJOLNIR_VT64K"),),
         "bench.ab": (
             (OFFICIAL, "AWQ_FLASHINFER"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+            (MJOLNIR, "AWQ_MJOLNIR_VT64K"),
         ),
         "bench.e2e": (
             (OFFICIAL, "AWQ_FLASHINFER"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3_VT64K"),
+            (MJOLNIR, "AWQ_MJOLNIR_VT64K"),
         ),
         "bench.accuracy": (
             (OFFICIAL, "AWQ_FLASHINFER"),
-            (MJOLNIR, "AWQ_MJOLNIR"),
-            (MJOLNIR, "AWQ_MJOLNIR_E2M3"),
+            (MJOLNIR, "AWQ_MJOLNIR_VT64K"),
         ),
     },
 }

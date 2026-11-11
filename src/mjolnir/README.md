@@ -114,7 +114,9 @@ runs on the fallback backend.
 | `MJOLNIR_ATTN_DRAFT_T5` | `1` | `0`: the drafter's layers (MTP / EAGLE) run on the fallback — isolates the draft-step cost (`mjolnir verify profile`). fp8 KV only: refused on fp6 KV, whose fallback cannot be CUDA-graphed |
 | `MJOLNIR_ATTN_NONCAUSAL` | `1` | `0`: a parallel drafter's non-causal block steps (DSpark / DFlash) go to the fallback instead of the decode kernel — fp8 KV only for the same reason as above |
 | `MJOLNIR_ATTN_FUSED_DRAFT` | `1` | `0`: tell vLLM the backend cannot advance draft metadata in place → one graph replay per draft step instead of the fused draft loop |
-| `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`); the bf16 copy is freed automatically (untied heads only, +2.5 GB KV) |
+| `MJOLNIR_LM_HEAD` | – | `fp8`: quantize the lm_head to e4m3 per row at load, Triton fp8-weight GEMM for the verify and every draft (`mjolnir.lmhead`; config `NVFP4_MJOLNIR_E2M3_LMH8_VT64K`); the bf16 copy is freed automatically (untied heads only, +2.5 GB KV). `MJOLNIR_LM_HEAD_TILES` overrides the GEMV launch config (`BN,BK,warps,stages`; default 64,256,8,5 — the 2026-11-04 serving A/B winner) |
+| `MJOLNIR_MTP_FP8` | – | `1`: fp8-row-quantize the drafter's big unquantized linears (≥16M params) at load, same e4m3-per-row scheme + self-test (≤0.02 rel err) as the head; the bf16 originals are freed. Halves the MTP draft loop's streamed weight bytes |
+| `MJOLNIR_MTP_LAYER` | – | `fp8`: the older, narrower variant — W8A8 via cuBLASLt rowwise `scaled_mm` on the MTP layer + eh_proj `fc` only. **Measured negative on sm_110** (cuBLASLt fp8 ≈60% of peak on layer shapes; 16–22% slower decode, acceptance safe) — see config `NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8`; revisit only with a faster skinny-shape fp8 GEMM |
 | `MJOLNIR_DRAFT_VOCAB` | – | path to a `draft_vocab.json` (`mjolnir calibrate --draft-vocab`): the drafter's logits only over those tokens (VocabTrim); `MJOLNIR_DRAFT_VOCAB_SIZE` keeps the first N (a shorter file is padded with the lowest unused ids, with a warning). The kept head stays in the drafter's native quant (NVFP4 4-bit in-kernel, FP8 row-slice) — never up-scaled to bf16; a bf16 head is the one exception (fp8 only when `MJOLNIR_LM_HEAD=fp8` is set). `MJOLNIR_DRAFT_VOCAB_NATIVE=0` forces the dequant→fp8 path |
  | `MJOLNIR_ATTN_VERBOSE` | – | `1`: print the kernel's compile-time notes (ring stages, TMEM columns) — the standalone harness always does |
  | `MJOLNIR_ATTN_BANNER` | `1` | `0`: skip the Mjolnir hammer banner in the vLLM boot log (`mjolnir.banner.emit`, once per start, coloured with the server's formatter) |
@@ -166,8 +168,8 @@ registry (`mjolnir.arch.thor` re-exports the exact runner surface the backend
 consumes), and `mjolnir/platforms.py` is the torch-free leaf that maps a
 compute capability to it. Thor and Jetson Orin (`sm_87`) are implemented;
 DGX Spark (`sm_121`) is declared research — named in the matrix, no kernel
-yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 and
-fp6-e2m3 KV, hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
+yet. Orin ships one kernel: the `mma.m16n8k16` decode kernel (fp8 KV at
+hd 128/256, fp6-e2m3 KV hd 256, M ≤ 8, bf16 Q) — see `mjolnir/arch/orin/README.md`.
 
 `kernel_for((11, 0))` returns `mjolnir.arch.thor`; any other compute
 capability raises `PlatformNotSupported` naming the requested `sm_XX` and the

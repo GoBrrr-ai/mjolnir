@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 import torch
 
-from .platforms import unsupported_reason
+from .platforms import fp6_block_reason, unsupported_reason
 from .runner import (
     SUPPORTED_PAGE_SIZES,
     detect_kv_layout,
@@ -153,14 +153,61 @@ _BaseImpl = _Base.get_impl_cls()
 _BASE_WRITES_KV_IN_FORWARD = getattr(_Base, "forward_includes_kv_cache_update", True)
 
 
+def _fp6_arch_block() -> str | None:
+    """The local GPU's fp6 serving block, or None. The acceptance gates have
+    no device argument — the current device is the serving target (the same
+    convention as ``_unsupported_arch_reason``)."""
+    try:
+        import torch
+
+        return fp6_block_reason(torch.cuda.get_device_capability())
+    except (ImportError, RuntimeError):
+        return None  # no device context here: never block on a probe failure
+
+
 def _fp6_known_to_vllm() -> bool:
-    """Does this vLLM have the fp6_e2m3 cache dtype (the image's patch)?"""
+    """Does this vLLM know the fp6_e2m3 cache dtype?
+
+    Two routes: the image patch (vLLM <= 0.32.0 — ``get_kv_quant_mode`` maps
+    it to ``KVQuantMode.FP6_E2M3``) or the pluggable KV-dtype API (#52670,
+    0.33.0+ — ``mjolnir.kvdtype`` registers a handler from the plugin entry
+    point, and the mode reads ``KVQuantMode.CUSTOM``)."""
+    try:
+        from vllm.config.cache import get_kv_cache_dtype_handler
+
+        if get_kv_cache_dtype_handler("fp6_e2m3") is not None:
+            return True
+    except ImportError:  # pre-#52670 vLLM: the image patch route below
+        pass
     try:
         from vllm.v1.kv_cache_interface import KVQuantMode, get_kv_quant_mode
 
         return get_kv_quant_mode("fp6_e2m3") == getattr(KVQuantMode, "FP6_E2M3", None)
     except ImportError:
         return False
+
+
+def _spec_is_fp6(spec) -> bool:
+    """Is this KV spec one of ours (the packed e2m3 cell)?
+
+    0.33.0's ``KVQuantMode`` has no ``is_fp6``: the pluggable dtype reads
+    ``CUSTOM`` and is recognized through the registered handler (the mode
+    value is shared with every other self-managed dtype)."""
+    mode = getattr(spec, "kv_quant_mode", None)
+    if mode is None:
+        return False
+    try:
+        from vllm.v1.kv_cache_interface import KVQuantMode
+
+        if getattr(mode, "is_fp6", False):  # the image-patch route (<= 0.32.0)
+            return True
+        if mode == KVQuantMode.CUSTOM:  # the pluggable route (0.33.0+)
+            from vllm.config.cache import get_kv_cache_dtype_handler
+
+            return get_kv_cache_dtype_handler("fp6_e2m3") is not None
+    except ImportError:
+        pass
+    return False
 
 
 def _fallback_serves_fp8_scratch() -> bool:
@@ -269,6 +316,9 @@ def _check_fp6(t5_reason, layer_names) -> None:
     """fp6 caches have exactly two readers: the mma/T5 decode kernel and the
     fallback's fp8 scratch (any fallback that serves fp8 KV: FA4 on thor,
     FlashInfer on orin)."""
+    blocked = _fp6_arch_block()
+    if blocked:
+        raise ValueError(f"{blocked} (serve fp8 KV on this arch)")
     if t5_reason is not None:
         raise ValueError(
             f"kv cache dtype fp6_e2m3 needs the Mjolnir decode kernel, but it is off for "
@@ -763,6 +813,8 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
     @classmethod
     def supports_kv_cache_dtype(cls, kv_cache_dtype) -> bool:
         if kv_cache_dtype in FP6_CACHE_DTYPES:
+            if _fp6_arch_block() is not None:
+                return False
             return _fp6_known_to_vllm() and _fallback_serves_fp8_scratch() and _Base.supports_kv_cache_dtype("fp8")
         return _Base.supports_kv_cache_dtype(kv_cache_dtype)
 
@@ -777,8 +829,7 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
     def customize_spec(cls, spec):
         """fp6_e2m3: one (head, token) cell is the packed K row then the
         packed V row, d * 6 / 8 bytes each."""
-        mode = getattr(spec, "kv_quant_mode", None)
-        if getattr(mode, "is_fp6", False) and getattr(spec, "state_content_bytes", None) is None:
+        if _spec_is_fp6(spec) and getattr(spec, "state_content_bytes", None) is None:
             from dataclasses import replace
 
             from .kvfp6 import row_bytes

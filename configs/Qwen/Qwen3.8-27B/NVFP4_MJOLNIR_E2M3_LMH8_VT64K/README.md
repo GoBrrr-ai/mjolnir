@@ -34,10 +34,10 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | official `NVFP4` | Mjolnir `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | change |
 |---|--:|--:|--:|
-| decode (t/s) | 24.8 | 32.2 | +29.9% |
-| prefill (t/s) | 1,756 | 3,433 | +95.5% |
-| TTFT (ms) | 19,964 | 11,222 | −43.8% |
-| ITL (ms) | 40.6 | 31.3 | −23.1% |
+| decode (t/s) | 22.7 | 34.2 | +50.9% |
+| prefill (t/s) | 1,746 | 2,943 | +68.6% |
+| TTFT (ms) | 20,068 | 12,986 | −35.3% |
+| ITL (ms) | 44.3 | 29.3 | −33.8% |
 
 <img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
 

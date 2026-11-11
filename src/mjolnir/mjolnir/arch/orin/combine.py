@@ -8,9 +8,10 @@ The eager torch form issued ~20 small kernels (~150 us of GPU per call
 over the partials, the FlashInfer MergeStates cost class.
 
 One block per (row, q-head): the block loads its ns LSE values, then
-each thread accumulates its two d elements across the splits. d is
-baked at 256 (the MMA kernel's HEAD_DIM); ns/rows/h_q/b/ql are runtime
-Int32s so one compile serves every capture shape. The tensor layouts
+each thread accumulates its d/NUM_THREADS elements across the splits
+(2 at hd256, 1 at hd128 — the head size rides the compile as a
+constexpr). ns/rows/h_q/b/ql are runtime Int32s so one compile serves
+every capture shape per head size. The tensor layouts
 are the runner's capacity buffers (fixed at construction, so the baked
 extents are stable). The empty-chunk splits write lse = -inf -> weight
 0; an all-empty row normalizes to 0 (the torch combine's clamp_min) —
@@ -22,9 +23,8 @@ from __future__ import annotations
 import cutlass
 import cutlass.cute as cute
 import cuda.bindings.driver as cuda
-from cutlass import Float32, Int32
+from cutlass import Float32, Int32, const_expr
 
-D = 256  # the MMA kernel's HEAD_DIM
 NUM_THREADS = 128
 _TINY = 1.1754944e-35  # torch.finfo(torch.float32).tiny, rounded
 _NEG_FLOOR = -3.4028234e38  # -torch.finfo(torch.float32).max: the finite L floor
@@ -35,6 +35,7 @@ def combine_kernel(
     mO_part: cute.Tensor,  # (ns_cap*rows_cap*h_q*D) fp32 flat
     mLse: cute.Tensor,  # (ns_cap*b_cap*h_q*ql_cap) fp32 flat
     mOut: cute.Tensor,  # (rows_cap*h_q*D) bf16 flat
+    d: cutlass.Constexpr[int],  # the head size (128 or 256): the elements/thread = d/NUM_THREADS
     max_ns: cutlass.Constexpr[int],  # the unroll/predication bound (= ns_cap)
     ns: Int32,
     rows: Int32,
@@ -78,13 +79,15 @@ def combine_kernel(
         if s < ns:
             w = cute.math.exp2((mLse[s * ls_s + bb * ls_b + h * ql + qq] - L) * ln2e, fastmath=True)
             sw = sw + w
-            obase = s * rows * h_q * D + r * h_q * D + h * D
+            obase = s * rows * h_q * d + r * h_q * d + h * d
             acc0 = acc0 + w * mO_part[obase + tidx]
-            acc1 = acc1 + w * mO_part[obase + tidx + NUM_THREADS]
+            if const_expr(d == 256):
+                acc1 = acc1 + w * mO_part[obase + tidx + NUM_THREADS]
     scale = 1.0 / cutlass.max(sw, Float32(_TINY))
-    obase = r * h_q * D + h * D
+    obase = r * h_q * d + h * d
     mOut[obase + tidx] = (acc0 * scale).to(mOut.element_type)
-    mOut[obase + tidx + NUM_THREADS] = (acc1 * scale).to(mOut.element_type)
+    if const_expr(d == 256):
+        mOut[obase + tidx + NUM_THREADS] = (acc1 * scale).to(mOut.element_type)
 
 
 @cute.jit
@@ -92,6 +95,7 @@ def combine_launch(
     mO_part: cute.Tensor,
     mLse: cute.Tensor,
     mOut: cute.Tensor,
+    d: cutlass.Constexpr[int],
     max_ns: cutlass.Constexpr[int],
     ns: Int32,
     rows: Int32,
@@ -100,7 +104,7 @@ def combine_launch(
     ql: Int32,
     stream: cuda.CUstream = None,
 ):
-    combine_kernel(mO_part, mLse, mOut, max_ns, ns, rows, h_q, b, ql).launch(
+    combine_kernel(mO_part, mLse, mOut, d, max_ns, ns, rows, h_q, b, ql).launch(
         grid=(rows * h_q, 1, 1),
         block=(NUM_THREADS, 1, 1),
         stream=stream,

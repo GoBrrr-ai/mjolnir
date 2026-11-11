@@ -106,7 +106,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       # config in pyproject.toml; version pinned to .pre-commit-config.yaml
       - name: ruff check
         run: uvx ruff@0.14.14 check src/ tests/
@@ -127,7 +127,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync
       - run: uv run ty check src/ tests/
 
@@ -161,7 +161,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Fetch the base branch
         if: github.event_name == 'pull_request'
         run: git fetch --no-tags --depth=1 origin "$BASE_REF"
@@ -192,14 +192,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync
       # the kernel tests need CUDA + the CUTLASS DSL: they run on a Thor via
       # `mjolnir verify vllm`; tests/kernel/conftest.py skips them here — the
       # kernel package is therefore not measurable in CI, the CLI is. --cov also
       # writes the .coverage data file the report action reads; the XML is the
       # Cobertura form and term-missing is a per-file table in the job log
-      - run: uv run --with pytest-cov pytest -q --tb=short --cov=mjolnir_cli --cov-report=term-missing --cov-report=xml:coverage.xml
+      # pytest-xdist: ~860 tests, ~10min serial-with-coverage on 2-4 vCPU
+      # runners — the heavy tail is ~10 render/e2e tests, everything else is
+      # sub-second, so -n auto fans the box. pytest-cov combines the workers'
+      # data into the single .coverage the report step reads.
+      - run: uv run --with pytest-cov --with pytest-xdist pytest -q --tb=short -n auto --cov=mjolnir_cli --cov-report=term-missing --cov-report=xml:coverage.xml
       # Coverage report on the PR: an upserted comment + annotations on the
       # new lines missing coverage. This stage is path-gated, so docs/CI-only
       # PRs get neither suite nor report; the report is informational — a
@@ -242,7 +246,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync
       - name: README + docs are reproducible from the raw data
         run: |
@@ -257,16 +261,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Build both packages (sdist + wheel)
         run: |
           uv build --package mjolnir-kernel --out-dir dist
           uv build --package mjolnir-cli --out-dir dist
       - name: Smoke-test the CLI wheel outside the checkout
+        env:
+          # GPU-less runner: detection finds no evidence by design — pin thor
+          # so the platform-resolving verify leg runs (mirrors the release
+          # smoke-test in release-cli.yml).
+          MJOLNIR_PLATFORM: thor
         run: |
           cd "$RUNNER_TEMP"
           uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/mjolnir_cli-*.whl mjolnir --help
           uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/mjolnir_cli-*.whl mjolnir model list
+          uv run --isolated --no-project --with "$GITHUB_WORKSPACE"/dist/mjolnir_cli-*.whl mjolnir verify sweep --dry-run --ls 8192 --no-gate
       - name: Smoke-test the kernel wheel (import + plugin entry point)
         run: |
           uv run --isolated --no-project --with dist/mjolnir_kernel-*.whl python -c \

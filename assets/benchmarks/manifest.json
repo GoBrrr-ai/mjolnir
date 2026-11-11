@@ -83,12 +83,6 @@
  ],
  "fp6prof-bytes-vs-time": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/fp6prof-bytes-vs-time.png",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "orin",
-   "stage": "fp6prof"
-  },
-  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",

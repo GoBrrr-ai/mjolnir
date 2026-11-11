@@ -1,14 +1,14 @@
 {
  "schema": "mjolnir.verify/1",
  "stage": "sweep",
- "run_id": "20261031-104421",
- "ts": "2026-10-31T10:50:26+00:00",
+ "run_id": "20261103-022903",
+ "ts": "2026-11-03T02:35:30+00:00",
  "default": true,
  "host": "jetsonthor",
- "image": "narandill/mjolnir-vllm:v0.32.0",
+ "image": "narandill/mjolnir-vllm:v0.33.0-3e9495f",
  "kernel": {
   "version": "0.1.0",
-  "git": "28899a1",
+  "git": "3e9495f",
   "dirty": false
  },
  "gate": {
@@ -41,7 +41,7 @@
  },
  "platform": "thor",
  "gpu": "NVIDIA Thor",
- "ref_image": "vllm/vllm-openai:v0.32.0-ubuntu2404",
+ "ref_image": "vllm/vllm-openai:v0.33.0",
  "series": [
   {
    "id": "fi",
@@ -59,105 +59,128 @@
    "points": [
     {
      "L": 128,
-     "total_us": 22.65,
-     "main_us": 22.65,
+     "total_us": 21.07,
+     "main_us": 21.07,
      "merge_us": 0,
-     "min_us": 19.36,
-     "l2_sectors": 16667.51,
+     "min_us": 19.42,
+     "l2_sectors": 16595.22,
      "ctas": 4,
      "invocations": 200,
-     "gbps": 11.57,
+     "gbps": 12.44,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 22.65,
+       "avg_us": 21.07,
        "inv": 200
       }
      ]
     },
     {
      "L": 4096,
-     "total_us": 60.46,
-     "main_us": 53.92,
-     "merge_us": 6.54,
-     "min_us": 54.46,
-     "l2_sectors": 282449.5,
+     "total_us": 60.59,
+     "main_us": 54.31,
+     "merge_us": 6.28,
+     "min_us": 55.97,
+     "l2_sectors": 282413.92000000004,
      "ctas": 32,
      "invocations": 200,
-     "gbps": 138.75,
+     "gbps": 138.45,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 53.92,
+       "avg_us": 54.31,
        "inv": 200
       },
       {
        "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
-       "avg_us": 6.54,
+       "avg_us": 6.28,
        "inv": 200
       }
      ]
     },
     {
      "L": 8192,
-     "total_us": 95.84,
-     "main_us": 89.01,
-     "merge_us": 6.83,
-     "min_us": 91.49,
-     "l2_sectors": 547261.3099999999,
+     "total_us": 99.05,
+     "main_us": 92.59,
+     "merge_us": 6.46,
+     "min_us": 91.87,
+     "l2_sectors": 546767.94,
      "ctas": 40,
      "invocations": 200,
-     "gbps": 175.05,
+     "gbps": 169.38,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 89.01,
+       "avg_us": 92.59,
        "inv": 200
       },
       {
        "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
-       "avg_us": 6.83,
+       "avg_us": 6.46,
        "inv": 200
       }
      ]
     },
     {
      "L": 16384,
-     "total_us": 175.46,
-     "main_us": 168.65,
-     "merge_us": 6.81,
-     "min_us": 165.66,
-     "l2_sectors": 1071669.51,
+     "total_us": 187.94,
+     "main_us": 181.06,
+     "merge_us": 6.88,
+     "min_us": 163.23,
+     "l2_sectors": 1071500.8900000001,
      "ctas": 40,
      "invocations": 200,
-     "gbps": 191.24,
+     "gbps": 178.54,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 168.65,
+       "avg_us": 181.06,
        "inv": 200
       },
       {
        "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
-       "avg_us": 6.81,
+       "avg_us": 6.88,
        "inv": 200
       }
      ]
     },
     {
      "L": 32768,
-     "total_us": 374.72,
-     "main_us": 367.89,
-     "merge_us": 6.83,
-     "min_us": 311.97,
-     "l2_sectors": 2121915.05,
+     "total_us": 355.66,
+     "main_us": 349.19,
+     "merge_us": 6.47,
+     "min_us": 308.13,
+     "l2_sectors": 2121695.95,
      "ctas": 40,
      "invocations": 200,
-     "gbps": 179.09,
+     "gbps": 188.69,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 367.89,
+       "avg_us": 349.19,
+       "inv": 200
+      },
+      {
+       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
+       "avg_us": 6.47,
+       "inv": 200
+      }
+     ]
+    },
+    {
+     "L": 65536,
+     "total_us": 735.01,
+     "main_us": 728.18,
+     "merge_us": 6.83,
+     "min_us": 635.36,
+     "l2_sectors": 4219942.11,
+     "ctas": 40,
+     "invocations": 200,
+     "gbps": 182.61,
+     "kernels": [
+      {
+       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
+       "avg_us": 728.18,
        "inv": 200
       },
       {
@@ -168,70 +191,47 @@
      ]
     },
     {
-     "L": 65536,
-     "total_us": 769.35,
-     "main_us": 762.63,
-     "merge_us": 6.72,
-     "min_us": 656.51,
-     "l2_sectors": 4221194.76,
-     "ctas": 40,
-     "invocations": 200,
-     "gbps": 174.46,
-     "kernels": [
-      {
-       "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 762.63,
-       "inv": 200
-      },
-      {
-       "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
-       "avg_us": 6.72,
-       "inv": 200
-      }
-     ]
-    },
-    {
      "L": 131072,
-     "total_us": 1406.72,
-     "main_us": 1400.0,
-     "merge_us": 6.72,
-     "min_us": 1305.73,
-     "l2_sectors": 8417938.57,
+     "total_us": 1316.67,
+     "main_us": 1310.0,
+     "merge_us": 6.67,
+     "min_us": 1185.7,
+     "l2_sectors": 8415556.059999999,
      "ctas": 40,
      "invocations": 200,
-     "gbps": 190.82,
+     "gbps": 203.87,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 1400.0,
+       "avg_us": 1310.0,
        "inv": 200
       },
       {
        "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
-       "avg_us": 6.72,
+       "avg_us": 6.67,
        "inv": 200
       }
      ]
     },
     {
      "L": 262144,
-     "total_us": 2686.96,
-     "main_us": 2680.0,
-     "merge_us": 6.96,
-     "min_us": 2405.76,
-     "l2_sectors": 16808565.54,
+     "total_us": 2556.94,
+     "main_us": 2550.0,
+     "merge_us": 6.94,
+     "min_us": 2305.66,
+     "l2_sectors": 16806130.959999997,
      "ctas": 40,
      "invocations": 200,
-     "gbps": 199.81,
+     "gbps": 209.97,
      "kernels": [
       {
        "name": "void BatchPrefillWithPagedKVCacheKernel<1, KernelTraits<0, 16, 1, 2, 16, 16, 1, 4, 0, __nv_bfloat16, __nv_fp8_e4m3, __nv",
-       "avg_us": 2680.0,
+       "avg_us": 2550.0,
        "inv": 200
       },
       {
        "name": "void PersistentVariableLengthMergeStatesKernel<8, 32, 4, 4, __nv_bfloat16, __nv_bfloat16, int>(T5 *, float *, T7 *, T6 *",
-       "avg_us": 6.96,
+       "avg_us": 6.94,
        "inv": 200
       }
      ]
@@ -252,90 +252,90 @@
    "points": [
     {
      "L": 128,
-     "total_us": 24.23,
-     "main_us": 24.23,
+     "total_us": 21.64,
+     "main_us": 21.64,
      "merge_us": 0,
-     "min_us": 19.39,
-     "l2_sectors": 75065.46,
+     "min_us": 19.78,
+     "l2_sectors": 72863.97,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 10.82,
+     "gbps": 12.11,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 24.23,
+       "avg_us": 21.64,
        "inv": 201
       }
      ]
     },
     {
      "L": 4096,
-     "total_us": 104.06,
-     "main_us": 104.06,
+     "total_us": 104.53,
+     "main_us": 104.53,
      "merge_us": 0,
-     "min_us": 95.55,
-     "l2_sectors": 1470359.56,
+     "min_us": 97.22,
+     "l2_sectors": 1470035.11,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 80.61,
+     "gbps": 80.25,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 104.06,
+       "avg_us": 104.53,
        "inv": 201
       }
      ]
     },
     {
      "L": 8192,
-     "total_us": 195.0,
-     "main_us": 195.0,
+     "total_us": 193.76,
+     "main_us": 193.76,
      "merge_us": 0,
-     "min_us": 183.84,
-     "l2_sectors": 2920387.25,
+     "min_us": 183.62,
+     "l2_sectors": 2921132.87,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 86.04,
+     "gbps": 86.59,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 195.0,
+       "avg_us": 193.76,
        "inv": 201
       }
      ]
     },
     {
      "L": 16384,
-     "total_us": 370.22,
-     "main_us": 370.22,
+     "total_us": 369.98,
+     "main_us": 369.98,
      "merge_us": 0,
-     "min_us": 355.78,
-     "l2_sectors": 5812515.74,
+     "min_us": 353.02,
+     "l2_sectors": 5807570.32,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 90.63,
+     "gbps": 90.69,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 370.22,
+       "avg_us": 369.98,
        "inv": 201
       }
      ]
     },
     {
      "L": 32768,
-     "total_us": 713.67,
-     "main_us": 713.67,
+     "total_us": 703.77,
+     "main_us": 703.77,
      "merge_us": 0,
-     "min_us": 675.78,
-     "l2_sectors": 11546034.33,
+     "min_us": 676.1,
+     "l2_sectors": 11535099.44,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 94.03,
+     "gbps": 95.36,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 713.67,
+       "avg_us": 703.77,
        "inv": 201
       }
      ]
@@ -346,7 +346,7 @@
      "main_us": 1370.0,
      "merge_us": 0,
      "min_us": 1330.0,
-     "l2_sectors": 23051318.55,
+     "l2_sectors": 23000194.25,
      "ctas": 24,
      "invocations": 201,
      "gbps": 97.97,
@@ -360,36 +360,36 @@
     },
     {
      "L": 131072,
-     "total_us": 2690.0,
-     "main_us": 2690.0,
+     "total_us": 2720.0,
+     "main_us": 2720.0,
      "merge_us": 0,
-     "min_us": 2620.0,
-     "l2_sectors": 46076584.17,
+     "min_us": 2650.0,
+     "l2_sectors": 45962130.74,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 99.79,
+     "gbps": 98.69,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 2690.0,
+       "avg_us": 2720.0,
        "inv": 201
       }
      ]
     },
     {
      "L": 262144,
-     "total_us": 5310.0,
-     "main_us": 5310.0,
+     "total_us": 5370.0,
+     "main_us": 5370.0,
      "merge_us": 0,
-     "min_us": 5210.0,
-     "l2_sectors": 92130552.58,
+     "min_us": 5260.0,
+     "l2_sectors": 91827252.29,
      "ctas": 24,
      "invocations": 201,
-     "gbps": 101.11,
+     "gbps": 99.98,
      "kernels": [
       {
        "name": "kernel_cutlass_kernel_vllmvllm_flash_attncutesm100_hd256_2cta_fmha_forwardBlackwellFusedMultiHeadAttentionForward_object",
-       "avg_us": 5310.0,
+       "avg_us": 5370.0,
        "inv": 201
       }
      ]
@@ -410,179 +410,179 @@
    "points": [
     {
      "L": 128,
-     "total_us": 13.24,
-     "main_us": 13.24,
+     "total_us": 14.62,
+     "main_us": 14.62,
      "merge_us": 0,
-     "min_us": 11.42,
-     "l2_sectors": 16261.68,
+     "min_us": 11.68,
+     "l2_sectors": 16276.78,
      "ctas": 4,
      "invocations": 50,
-     "gbps": 19.8,
+     "gbps": 17.93,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 13.24,
+       "avg_us": 14.62,
        "inv": 50
       }
      ]
     },
     {
      "L": 4096,
-     "total_us": 56.02,
-     "main_us": 48.39,
-     "merge_us": 7.63,
-     "min_us": 50.11,
-     "l2_sectors": 289852.84,
+     "total_us": 54.7,
+     "main_us": 47.62,
+     "merge_us": 7.08,
+     "min_us": 49.73,
+     "l2_sectors": 289699.04000000004,
      "ctas": 32,
      "invocations": 50,
-     "gbps": 149.74,
+     "gbps": 153.36,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 48.39,
+       "avg_us": 47.62,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.63,
+       "avg_us": 7.08,
        "inv": 50
       }
      ]
     },
     {
      "L": 8192,
-     "total_us": 89.97,
-     "main_us": 82.77,
-     "merge_us": 7.2,
-     "min_us": 83.59,
-     "l2_sectors": 556613.88,
+     "total_us": 89.17,
+     "main_us": 82.28,
+     "merge_us": 6.89,
+     "min_us": 84.03,
+     "l2_sectors": 555826.76,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 186.48,
+     "gbps": 188.15,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 82.77,
+       "avg_us": 82.28,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.2,
+       "avg_us": 6.89,
        "inv": 50
       }
      ]
     },
     {
      "L": 16384,
-     "total_us": 172.61,
-     "main_us": 165.02,
-     "merge_us": 7.59,
-     "min_us": 158.3,
-     "l2_sectors": 1081110.78,
+     "total_us": 172.32,
+     "main_us": 164.83,
+     "merge_us": 7.49,
+     "min_us": 151.55,
+     "l2_sectors": 1080804.8399999999,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 194.39,
+     "gbps": 194.72,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 165.02,
+       "avg_us": 164.83,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.59,
+       "avg_us": 7.49,
        "inv": 50
       }
      ]
     },
     {
      "L": 32768,
-     "total_us": 343.62,
-     "main_us": 336.69,
-     "merge_us": 6.93,
-     "min_us": 307.68,
-     "l2_sectors": 2131257.56,
+     "total_us": 347.18,
+     "main_us": 338.15,
+     "merge_us": 9.03,
+     "min_us": 310.65,
+     "l2_sectors": 2131485.0,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 195.3,
+     "gbps": 193.3,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 336.69,
+       "avg_us": 338.15,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 6.93,
+       "avg_us": 9.03,
        "inv": 50
       }
      ]
     },
     {
      "L": 65536,
-     "total_us": 663.48,
-     "main_us": 656.28,
-     "merge_us": 7.2,
-     "min_us": 622.68,
-     "l2_sectors": 4231233.94,
+     "total_us": 655.35,
+     "main_us": 648.25,
+     "merge_us": 7.1,
+     "min_us": 606.65,
+     "l2_sectors": 4230387.78,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 202.29,
+     "gbps": 204.8,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 656.28,
+       "avg_us": 648.25,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.2,
+       "avg_us": 7.1,
        "inv": 50
       }
      ]
     },
     {
      "L": 131072,
-     "total_us": 1267.74,
-     "main_us": 1260.0,
-     "merge_us": 7.74,
-     "min_us": 1176.11,
-     "l2_sectors": 8427454.38,
+     "total_us": 1237.01,
+     "main_us": 1230.0,
+     "merge_us": 7.01,
+     "min_us": 1155.82,
+     "l2_sectors": 8426943.7,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 211.74,
+     "gbps": 217.0,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 1260.0,
+       "avg_us": 1230.0,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.74,
+       "avg_us": 7.01,
        "inv": 50
       }
      ]
     },
     {
      "L": 262144,
-     "total_us": 2387.63,
-     "main_us": 2380.0,
-     "merge_us": 7.63,
-     "min_us": 2276.11,
-     "l2_sectors": 16818466.5,
+     "total_us": 2437.05,
+     "main_us": 2430.0,
+     "merge_us": 7.05,
+     "min_us": 2286.24,
+     "l2_sectors": 16819907.88,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 224.86,
+     "gbps": 220.3,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 2380.0,
+       "avg_us": 2430.0,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.63,
+       "avg_us": 7.05,
        "inv": 50
       }
      ]
@@ -603,179 +603,179 @@
    "points": [
     {
      "L": 128,
-     "total_us": 12.38,
-     "main_us": 12.38,
+     "total_us": 14.14,
+     "main_us": 14.14,
      "merge_us": 0,
-     "min_us": 10.69,
-     "l2_sectors": 14174.48,
+     "min_us": 11.04,
+     "l2_sectors": 14196.92,
      "ctas": 4,
      "invocations": 50,
-     "gbps": 15.88,
+     "gbps": 13.9,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 12.38,
+       "avg_us": 14.14,
        "inv": 50
       }
      ]
     },
     {
      "L": 4096,
-     "total_us": 50.88,
-     "main_us": 43.97,
-     "merge_us": 6.91,
-     "min_us": 46.43,
-     "l2_sectors": 224649.22,
+     "total_us": 51.03,
+     "main_us": 43.72,
+     "merge_us": 7.31,
+     "min_us": 46.4,
+     "l2_sectors": 224376.9,
      "ctas": 32,
      "invocations": 50,
-     "gbps": 123.65,
+     "gbps": 123.29,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 43.97,
+       "avg_us": 43.72,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 6.91,
+       "avg_us": 7.31,
        "inv": 50
       }
      ]
     },
     {
      "L": 8192,
-     "total_us": 90.42,
-     "main_us": 82.99,
-     "merge_us": 7.43,
-     "min_us": 76.32,
-     "l2_sectors": 425919.98,
+     "total_us": 88.09,
+     "main_us": 81.31,
+     "merge_us": 6.78,
+     "min_us": 78.11,
+     "l2_sectors": 425904.95999999996,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 139.16,
+     "gbps": 142.84,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 82.99,
+       "avg_us": 81.31,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.43,
+       "avg_us": 6.78,
        "inv": 50
       }
      ]
     },
     {
      "L": 16384,
-     "total_us": 178.34,
-     "main_us": 170.86,
-     "merge_us": 7.48,
-     "min_us": 152.74,
-     "l2_sectors": 820769.2400000001,
+     "total_us": 174.48,
+     "main_us": 167.32,
+     "merge_us": 7.16,
+     "min_us": 143.52,
+     "l2_sectors": 821094.76,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 141.11,
+     "gbps": 144.23,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 170.86,
+       "avg_us": 167.32,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.48,
+       "avg_us": 7.16,
        "inv": 50
       }
      ]
     },
     {
      "L": 32768,
-     "total_us": 333.46,
-     "main_us": 325.86,
-     "merge_us": 7.6,
-     "min_us": 302.82,
-     "l2_sectors": 1609846.5,
+     "total_us": 314.25,
+     "main_us": 306.76,
+     "merge_us": 7.49,
+     "min_us": 271.46,
+     "l2_sectors": 1609089.96,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 150.94,
+     "gbps": 160.16,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 325.86,
+       "avg_us": 306.76,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.6,
+       "avg_us": 7.49,
        "inv": 50
       }
      ]
     },
     {
      "L": 65536,
-     "total_us": 605.89,
-     "main_us": 597.84,
-     "merge_us": 8.05,
-     "min_us": 542.66,
-     "l2_sectors": 3184945.34,
+     "total_us": 590.49,
+     "main_us": 583.3,
+     "merge_us": 7.19,
+     "min_us": 535.52,
+     "l2_sectors": 3183656.78,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 166.14,
+     "gbps": 170.47,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 597.84,
+       "avg_us": 583.3,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 8.05,
+       "avg_us": 7.19,
        "inv": 50
       }
      ]
     },
     {
      "L": 131072,
-     "total_us": 1077.14,
-     "main_us": 1070.0,
-     "merge_us": 7.14,
-     "min_us": 1015.89,
-     "l2_sectors": 6331688.800000001,
+     "total_us": 1097.68,
+     "main_us": 1090.0,
+     "merge_us": 7.68,
+     "min_us": 1036.02,
+     "l2_sectors": 6329412.32,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 186.91,
+     "gbps": 183.41,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 1070.0,
+       "avg_us": 1090.0,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.14,
+       "avg_us": 7.68,
        "inv": 50
       }
      ]
     },
     {
      "L": 262144,
-     "total_us": 2057.39,
-     "main_us": 2050.0,
-     "merge_us": 7.39,
-     "min_us": 1985.89,
-     "l2_sectors": 12626248.82,
+     "total_us": 2047.69,
+     "main_us": 2040.0,
+     "merge_us": 7.69,
+     "min_us": 1946.02,
+     "l2_sectors": 12625553.120000001,
      "ctas": 40,
      "invocations": 50,
-     "gbps": 195.71,
+     "gbps": 196.64,
      "kernels": [
       {
        "name": "kernel_cutlass_decode_mjolnirarchthordecodeMixedInputFusedMultiHeadAttentionDecode_object_at__128_16_256_128_16_128_Tile",
-       "avg_us": 2050.0,
+       "avg_us": 2040.0,
        "inv": 50
       },
       {
        "name": "kernel_cutlass_reduction_tensorptrbf16gmemalign16o1_tensorptrf32gmemalign16o1_tensorptrf32gmemalign16o161_tensorptrf32gm",
-       "avg_us": 7.39,
+       "avg_us": 7.69,
        "inv": 50
       }
      ]
@@ -785,33 +785,33 @@
  ],
  "summary": {
   "vs_fi": {
-   "geomean": 1.238,
-   "min": 0.9839,
-   "max": 1.8296,
+   "geomean": 1.2076,
+   "min": 1.0771,
+   "max": 1.4901,
    "per_L": {
-    "128": 1.8296,
-    "4096": 1.1883,
-    "8192": 1.0599,
-    "16384": 0.9839,
-    "32768": 1.1237,
-    "65536": 1.2698,
-    "131072": 1.306,
-    "262144": 1.306
+    "128": 1.4901,
+    "4096": 1.1873,
+    "8192": 1.1244,
+    "16384": 1.0771,
+    "32768": 1.1318,
+    "65536": 1.2447,
+    "131072": 1.1995,
+    "262144": 1.2487
    }
   },
   "vs_fa4": {
-   "geomean": 2.2051,
-   "min": 1.9572,
-   "max": 2.5809,
+   "geomean": 2.1711,
+   "min": 1.5304,
+   "max": 2.6225,
    "per_L": {
-    "128": 1.9572,
-    "4096": 2.0452,
-    "8192": 2.1566,
-    "16384": 2.0759,
-    "32768": 2.1402,
-    "65536": 2.2611,
-    "131072": 2.4974,
-    "262144": 2.5809
+    "128": 1.5304,
+    "4096": 2.0484,
+    "8192": 2.1996,
+    "16384": 2.1205,
+    "32768": 2.2395,
+    "65536": 2.3201,
+    "131072": 2.478,
+    "262144": 2.6225
    }
   }
  }

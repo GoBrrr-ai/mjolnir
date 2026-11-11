@@ -249,6 +249,7 @@ is_l4t_installed_on_sdcard() { [[ "$(l4t_root_device)" == "sdcard" ]]; }
 
 # the step functions live next to this script (bundled together into the wheel)
 source "$(dirname "$(readlink -f "$0")")/setup-jetson-steps.sh"
+source "$(dirname "$(readlink -f "$0")")/setup-jetson-perf.sh"
 
 # ================================================================================
 # MAIN

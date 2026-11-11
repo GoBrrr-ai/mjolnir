@@ -51,9 +51,10 @@ diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/
          self.supports_quant_query_input = False
  
      def forward_qsa(
-@@ -309,9 +305,7 @@
+@@ -309,10 +305,8 @@
              torch.bfloat16,
              torch.float8_e4m3fn,
+             torch.uint8,
          ):
 -            raise NotImplementedError(
 -                "Qwen4Exp QSA requires BF16 Q and BF16 or FP8-e4m3 K/V"
@@ -139,17 +140,6 @@ diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/
          self.indexer = QSAIndexer(
              vllm_config=vllm_config,
              config=config,
-@@ -493,9 +494,7 @@
-         # One launch does the indexer prepare, the main QK-norm/RoPE/gate and
-         # the main K/V cache write (see QSAIndexer.forward); otherwise all of
-         # them take the separate kernels.
--        self.use_fused_qsa_prepare = (
--            self.use_fused_qk_norm_rope_gate and self.indexer.use_fused_pre_indexer
--        )
-+        self.use_fused_qsa_prepare = self.use_fused_qk_norm_rope_gate and self.indexer.use_fused_pre_indexer
-         self.fuse_indexer_projection = vllm_config.lora_config is None
-         if self.fuse_indexer_projection:
-             self.index_qk_size = self.indexer.index_qk_proj.output_size
 @@ -624,9 +623,7 @@
      ) -> torch.Tensor:
          qkv, _ = self.qkv_proj(hidden_states)
