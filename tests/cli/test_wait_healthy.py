@@ -80,3 +80,13 @@ def test_exited_container_fails_immediately(monkeypatch):
     with pytest.raises(RuntimeError, match="exited before becoming healthy"):
         dockerctl.wait_healthy(_settings(), timeout_s=1800.0)
     assert t[0] <= 30
+
+
+def test_removed_container_fails_immediately(monkeypatch):
+    # docker rm / a prune mid-wait: fail fast instead of burning the window
+    # polling a health endpoint nothing serves any more
+    t, _ = _patch_board(monkeypatch, size=[100], healthy_at=10_000.0)
+    monkeypatch.setattr(dockerctl, "container_exists", lambda: t[0] < 15.0)
+    with pytest.raises(RuntimeError, match="removed while waiting"):
+        dockerctl.wait_healthy(_settings(), timeout_s=1800.0)
+    assert t[0] <= 30

@@ -616,9 +616,10 @@ def _log_size() -> int | None:
 
 def wait_healthy(s: Settings, timeout_s: float = 1800.0) -> None:
     """Poll the OpenAI /health endpoint until the server answers (model load
-    + JIT on Thor takes minutes). A container that exits mid-wait fails
-    immediately — a dead serve burns no timeout (the 1800s blind wait on a
-    crashed boot cost a full point per leg in the 10/10c sweeps).
+    + JIT on Thor takes minutes). A container that exits — or is removed —
+    mid-wait fails immediately: a dead serve burns no timeout (the 1800s
+    blind wait on a crashed boot cost a full point per leg in the 10/10c
+    sweeps).
 
     A first boot also *compiles* — inductor + the CUDA graphs ran 34 minutes
     on a cold Orin (orin2's §4) — so the wait is progress-aware: while the
@@ -638,13 +639,24 @@ def wait_healthy(s: Settings, timeout_s: float = 1800.0) -> None:
                     return
         except Exception:  # noqa: BLE001
             pass
-        if container_exists() and not container_running():
+        exists = container_exists()
+        if exists and not container_running():
             logs = subprocess.run([_docker(), "logs", "--tail", "12", CONTAINER_NAME], capture_output=True, text=True)
-            tail = (logs.stdout + logs.stderr).strip().splitlines()
-            hint = "\n".join(f"  {ln}" for ln in tail[-6:])
+            if logs.returncode == 0:
+                tail = (logs.stdout + logs.stderr).strip().splitlines()
+                hint = "\n".join(f"  {ln}" for ln in tail[-6:])
+            else:  # removed between the exists-check and now — say so, not a daemon error
+                hint = f"  (docker logs failed: {logs.stderr.strip()})"
             raise RuntimeError(
                 f"the {CONTAINER_NAME} container exited before becoming healthy "
                 f"(after {time.time() - t0:.0f}s) — last logs:\n{hint}"
+            )
+        if not exists:
+            # removed mid-wait (a docker rm / prune): the old wait burned the whole
+            # timeout polling a health endpoint nothing serves any more
+            raise RuntimeError(
+                f"the {CONTAINER_NAME} container was removed while waiting "
+                f"(after {time.time() - t0:.0f}s) — nothing left to wait for"
             )
         size = _log_size()
         if size is not None and size != last_size:
