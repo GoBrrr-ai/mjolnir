@@ -1,0 +1,21 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/ops/qsa_indexer.py b/vllm/models/qwen4_exp/nvidia/ops/qsa_indexer.py
+--- a/vllm/models/qwen4_exp/nvidia/ops/qsa_indexer.py
++++ b/vllm/models/qwen4_exp/nvidia/ops/qsa_indexer.py
+@@ -483,11 +483,17 @@
+ ) -> None:
+     # similar dispatch logic as DeepSeek indexer
+     block_topk = token_topk // compress_ratio
++    # THOR_QWEN4_TOPK_SM110: sm_110 excluded from cooperative_topk - the
++    # cluster launch is rejected on Thor ("cluster misconfiguration",
++    # cooperative_topk.cu:48; same failure class as vLLM issue #47266
++    # Issue 8 on SM120, whose fix also excludes the family). Falls through
++    # to persistent_topk. Inert on every other arch.
+     use_cooperative_topk = (
+         logits.shape[0] <= 64
+         and logits.stride(0) % 4 == 0
+         and current_platform.has_device_capability(90)
+         and not current_platform.is_device_capability_family(120)
++        and not current_platform.is_device_capability_family(110)
+     )
+     topk_op = (
+         torch.ops._C.cooperative_topk

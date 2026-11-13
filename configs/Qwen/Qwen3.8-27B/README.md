@@ -1,6 +1,6 @@
 # Qwen3.8-27B
 
-`Qwen/Qwen3.8-27B` — served as `Qwen/Qwen3.8-27B` — with 15
+`Qwen/Qwen3.8-27B` — served as `Qwen/Qwen3.8-27B` — with 16
 serving configs in `configs/Qwen/Qwen3.8-27B/`. Everything on this page is
 derived from the config tree and the raw results; there is no hand-written
 model prose (decision 7).
@@ -29,6 +29,7 @@ format) on each platform.
 | [`NVFP4_MJOLNIR_E2M3_DFLASH2`](NVFP4_MJOLNIR_E2M3_DFLASH2/README.md) | Mjolnir fp6 KV + DFlash2 | ✅ | — | — |
 | [`NVFP4_MJOLNIR_E2M3_DSPARK`](NVFP4_MJOLNIR_E2M3_DSPARK/README.md) | Mjolnir fp6 KV + DSpark | ✅ | — | — |
 | [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | ✅ | — | — |
+| [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8/README.md) | NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8 | ✅ | — | — |
 
 
 - `AWQ_FLASHINFER` on orin: ✅ Marlin serves W4A16 (GPTQ/AWQ) from compute capability 7.5 up — the bandwidth-optimized classic edge format.
@@ -48,6 +49,7 @@ format) on each platform.
 - `NVFP4_MJOLNIR_E2M3_DFLASH2` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_DSPARK` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
+- `NVFP4_MJOLNIR_E2M3_LMH8_VT64K_M8` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 
 
 ## Quickstart

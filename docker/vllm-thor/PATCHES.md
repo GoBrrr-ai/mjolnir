@@ -12,11 +12,14 @@ sm_110 draft-CG shape gate" below), one **flashinfer-side** sm_110
 enablement hunk (see "Thor sm_110 GDN prefill enablement (flashinfer
 side)" below), one hd256 FP8-KV kernel + policy patch (probe-gated, T11
 canary in `kernel_test_sm110_gates.py`), one hd256 1CTA decode carve-out
-(see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below) and two
+(see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below), two
 **sm_110 MoE backend gate fixes** (see "Thor MoE backend gates on sm_110"
-below). Thirteen vLLM-side patches in total, applied by
-`apply_patches.py` onto the installed vllm package **and** the installed
-flashinfer package (two more patches there); verified by
+below) and the three Thor-authored **qwen4_exp-family patches** (dense
+decoder, the sm_110 top-k guard and the probe-gated Mjolnir QSA decode —
+see "Thor qwen4 dense decoder" and the sections after it below).
+In total: **fifteen vLLM-side patches**, applied by `apply_patches.py` to
+the installed vllm package **and** the installed flashinfer package (one
+more patch there, plus one retired-and-commented); verified by
 `verify_patches.py`.
 
 The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
@@ -64,6 +67,9 @@ FlashInfer 0.7.2.post1, torch 2.14.0+cu130.
 | `fi-fp6-kv-ampere-prefill.patch` | — (Mjolnir-authored, **FlashInfer-side**) | **Packed-fp6 (e2m3) KV direct-read for FlashInfer's Ampere (sm_80-family) FA2 prefill** — the scratchpad-free fp6 fallback: the produce stage stages 16 codes (12 bytes, partial-src cp.async) per smem slot and an in-place pass rewrites each slot to e4m3 (`code · s_channel`, per-(kv-head, channel) float scales via two new optional `maybe_{k,v}_fp6_scales` params), after which the tile is byte-identical to fp8 and **every** downstream path (per-fragment `vec_cast`, both tile shapes) runs unchanged. Inert unless the fp6 dtype string is requested; see "fp6 prefill direct-read (flashinfer side, sm_80/87)" below. **0.33.0 bump:** applies to FlashInfer 0.7.2.post1 (22/23 hunks verbatim; the one dropped hunk was a pure line-collapse in `jit/attention/modules.py`). |
 | `thor-sm110-mxfp4-moe-gate.patch` | [#62133](https://github.com/vllm-project/vllm/pull/62133) | **Fix OAI Triton MXFP4 MoE on SM110** (supersedes closed #61387). #58877 (in 0.32.0) widened the OAI-Triton device gate to `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init (upstream issue #61374). The final state keeps the device gate (TRITON opt-in) but: the GPT-OSS MXFP4 **selector** keeps **MARLIN** the default on SM110 (TRITON opt-in) and `_swizzle_mxfp4` applies the persistent + `epilogue_subtile=1` constraints on SM110 too. **#62133 merged 2026-10-27 (f03b704) but is NOT in the 0.33.0 release branch** (the device gate still admits SM110; the selector has no SM110 clause) — the patch applies and stays. Re-check at every bump; drop once a tracked release carries it. |
 | `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) (open) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275 (still open as of the 0.33.0 bump). |
+| `thor-qwen4-dense-model.patch` | Thor-authored (basis: the recovered Intel `fp8_dense.cpp` — Qwen4-27B is **dense**) | **Dense-decoder support for the qwen4_exp family.** v0.32.0 builds `Qwen4ExpSparseMoeBlock` for every layer and transformers rejects `num_experts <= 0`, so no dense Qwen4 checkpoint can load. The patch mirrors qwen3_next's own hybrid rule (`mlp_only_layers` + `(layer_idx + 1) % decoder_sparse_step`): a checkpoint that lists every layer in `mlp_only_layers` gets `Qwen3NextMLP` (`Qwen2MoeMLP`) with `config.intermediate_size`. The MTP drafter goes dense through the same layer class; `Qwen4ExpMixtureOfExperts` already handles zero MoE layers. **Inert** for every existing checkpoint (none set `mlp_only_layers` on qwen4_exp). See "Thor qwen4 dense decoder" below. |
+| `thor-qwen4-topk-sm110.patch` | Thor-authored (upstream precedent: [#47266](https://github.com/vllm-project/vllm/issues/47266) Issue 8, SM120) | **sm_110 excluded from `cooperative_topk`.** Device-proven 2026-10-31: v0.32.0's sparse-indexer `auto` chain leads with `cooperative_topk`, whose thread-block-cluster launch is **rejected on Thor** (`cluster misconfiguration`, `cooperative_topk.cu:48` → `EngineDeadError` at the first decode top-k; model loads and prefills fine). The patch extends the gate's family exclusion (`120` already there) to `110` — the dispatch falls through to `persistent_topk`. Inert on every other arch. See "Thor qwen4 topk sm110" below. |
+| `thor-qwen4-qsa-mjolnir.patch` | Thor-authored (kernel: `mjolnir.qsa_impl`) | **Probe-gated Mjolnir decode for the QSA layers** (`MJOLNIR_ATTN_QSA`). Wraps the stock impl — routes pure-decode steps through the tcgen05 scratch-gather (the measured 13.5×/11.7× path) and falls back to the stock Triton kernel for prefill/verify/mixed steps, bf16 caches, or anything else it does not own. The heavy logic ships in `mjolnir-kernel` (`src/mjolnir/mjolnir/qsa_impl.py`), not in the patch. INERT without the env var. |
 
 ## Why "hand-adapted" and not the raw diff
 
@@ -612,6 +618,113 @@ upstream; its patch applies at offset. The split top-p fix #58231 (merged
 pristine `vllm/vllm-openai:v0.33.0` tree: full stack applies, all fixes
 verify (no GPU).
 
+## Thor qwen4 dense decoder — `patches/thor-qwen4-dense-model.patch` (2026-10-31)
+
+**What:** dense-decoder support for the `qwen4_exp` family, so the confirmed
+**Qwen4-27B dense** shape can serve on the image the day weights land. Basis:
+the recovered Intel `fp8_dense.cpp` ("Dense Qwen4 TP2 decode") and the
+`qwen4_exp` family code in v0.32.0 — full evidence chain in
+`task/research/qwen4-27b-upstream-prep/` (private).
+
+- **The blocker:** `Qwen4ExpDecoderLayer` builds `Qwen4ExpSparseMoeBlock`
+  unconditionally, and transformers' `Qwen4ExpTextConfig.__post_init__`
+  rejects `num_experts <= 0` — no dense checkpoint can load. Upstream has no
+  dense decoder for the family (checked 2026-10-30).
+- **The fix:** `mlp_only_layers` + `(layer_idx + 1) % decoder_sparse_step` —
+  qwen3_next's own hybrid rule, verbatim. A dense checkpoint ships
+  `num_experts > 0` (satisfying the validation) and lists **every layer** in
+  `mlp_only_layers`; every `mlp` becomes `Qwen3NextMLP` (the `Qwen2MoeMLP`
+  alias — `gate_up_proj`/`down_proj`, the tensor names a dense checkpoint
+  carries) with `config.intermediate_size` (leak: 14336). Asserts fire with a
+  clear message if a "dense" config forgets either field.
+- **What rides along for free:** the MTP drafter builds its layer through the
+  same `Qwen4ExpDecoderLayer` (dense drafter); `Qwen4ExpMixtureOfExperts.
+  set_moe_parameters` already returns zero counts when no layer matches;
+  `is_model_fused_shared_expert_compatible` returns False; `load_weights`'
+  `maybe_fuse_shared_experts` is `getattr`-defaulted.
+- **Probe-gated, not sm_110-gated:** the branch is config-driven on every
+  platform, and **inert** for every existing checkpoint — none set
+  `mlp_only_layers` on a `qwen4_exp` config, so `is_moe_layer` stays True
+  everywhere and the built model is byte-identical to stock. Other model
+  families never import this file.
+- **Not sufficient if** the released 27B arrives under a **new model_type**
+  (a dense `qwen4` config class + architectures string): that also needs a
+  config-class mapping and a registry entry — release-day work, checklist in
+  the research dir. The QSA layers (indexer cache, budget 2048) come from the
+  family code unchanged; the Mjolnir kernel side is `MJOLNIR_ATTN_QSA`
+  (`mjolnir/arch/thor/qsa.py`, `mjolnir verify qsa`).
+
+## Thor qwen4 topk sm110 — `patches/thor-qwen4-topk-sm110.patch` (2026-10-31)
+
+**What:** the sparse-indexer decode top-k (`qsa_indexer._topk`) must not
+select `cooperative_topk` on sm_110 — the gate gains a
+`not is_device_capability_family(110)` term, so the Thor dispatch falls
+through to `persistent_topk`. One hunk in
+`models/qwen4_exp/nvidia/ops/qsa_indexer.py`; **inert on every other arch**
+(the gate's existing terms are untouched).
+
+- **Device-proven 2026-10-31** (the fixture serve-smoke, rooster step 5):
+  the dense qwen4_exp fixture **loads and prefills** on Thor, then the
+  first decode top-k dies with
+  `RuntimeError: launch_cooperative_cluster, /workspace/csrc/cooperative_topk.cu:48,
+  ... cluster misconfiguration` → `EngineDeadError` — fatal, no fallback
+  (`auto` = cooperative → persistent → per_row, but a launch *error* isn't
+  a constraint probe). Stock Qwen4 QSA decode is **broken on Thor**.
+- **Upstream precedent, same failure class:** SM120 report
+  [#47266](https://github.com/vllm-project/vllm/issues/47266) Issue 8
+  ("cluster launch rejected on SM120") — its fix excludes the family from
+  `use_cooperative_topk`; the 0.32.0 gate already carries the family-120
+  exclusion, just not 110. Two open upstream PRs are exactly this fix:
+  [#56084](https://github.com/vllm-project/vllm/pull/56084) (fixes #56083)
+  and [#56102](https://github.com/vllm-project/vllm/pull/56102) — which
+  pins the **mechanism**: the cooperative kernel requests a 16-block
+  cluster, Thor's max cluster dimension is 8 (structural; an attribute set
+  would not help). Retire this patch at the bump that lands either.
+- **Open validation (next window):** `persistent_topk` on sm_110 is
+  unmeasured — the smoke re-run with the patched image is the first test
+  (then `per_row`/`flashinfer`/`torch` as fallbacks if it also trips;
+  `torch` is the guaranteed reference). **VALIDATED 2026-10-31:** the
+  patched image serves the fixture end-to-end — greedy decode deterministic
+  and finite through all QSA layers, zero errors; this was also the first
+  execution of the stock Triton QSA decode attention on sm_110.
+
+## Thor qwen4 qsa mjolnir — `patches/thor-qwen4-qsa-mjolnir.patch` (2026-10-31)
+
+**What:** `MJOLNIR_ATTN_QSA` swaps `Qwen4ExpQSAAttention`'s impl for
+`mjolnir.qsa_impl.Qwen4ExpQSAMjolnirImpl` — a subclass of the stock impl
+whose `forward_qsa` routes **pure-decode steps** (one query token per
+request) through the tcgen05 scratch-gather: packed selection → per-request
+block ids → `scratch_plan` → one fused Triton gather per K/V → the dense
+kernel on `effective_seq_lens` plans → sigmoid output gate applied
+host-side (the stock Triton kernel folds it; the dense kernel doesn't).
+
+- **Fallbacks are the contract:** prefill/verify/mixed batches (per-row
+  selections), bf16 caches, unsupported page sizes, or any surprise falls
+  back to the stock Triton path — with a one-line reason printed once per
+  reason (`MJOLNIR QSA decode: stock path (...)`), and the live path
+  announces itself once (`MJOLNIR QSA decode: scratch-gather active ...`).
+- **Shared state:** the runner + scratch workspace are keyed by geometry
+  and shared across all QSA layers of a model (plan→run stays adjacent
+  within one layer's forward; layers run sequentially per step).
+- **Eager only in v1:** the selection→plan work syncs; graph capture rides
+  on the P2 in-loader gather. Verify-batch (MTP) support needs per-row
+  scratch plans or a shared superset selection — deferred with the e2e
+  tests.
+- **Inert without the env var**; the try/except in the patch keeps stock
+  even when the kernel package is absent.
+
+**Sentinel:** `verify_patches.py` checks `THOR_QWEN4_QSA_MJOLNIR` in
+`models/qwen4_exp/nvidia/qsa.py` (plus `THOR_QWEN4_DENSE` in `model.py` and
+`THOR_QWEN4_TOPK_SM110` in `ops/qsa_indexer.py`). **Validated against the
+pristine v0.33.0 tree (2026-11-11, no GPU):** all three patches apply clean
+(`git apply --check`) and the patched sources compile; the two 0.33 drifts
+are folded in — the dtype-check tuple gained `torch.uint8` (sub-sm_89
+byte-decode; hunk re-anchored) and the fused-writer gate gained the sm_89
+guard (our cosmetic one-liner hunk dropped, upstream's form kept). **Not
+yet run:** a server smoke on the 0.33 image — the 0.32 one (dense fixture
+load + prefill + deterministic decode through all QSA layers) remains the
+device evidence.
+
 ## Open upstream watch list (assessed 2026-11-03, base v0.33.0)
 
 Status of every open PR relevant to Thor — what to pre-patch (nothing),
@@ -637,10 +750,17 @@ purpose:
   but a moving target, mutually exclusive with `MJOLNIR_LM_HEAD=fp8`
   (a quantized head raises at load), and default-on would inflate our e2e;
   benchmark it against LMH8 at bump time instead).
+- **Take at the next bump if merged (supersedes our patch): #56084 /
+  #56102 (both open as of 2026-10-31) — exclude sm_110 from the
+  cooperative_topk cluster kernel.** Device-proven here first (2026-10-31:
+  `cluster misconfiguration` → EngineDeadError at the first QSA decode
+  top-k; #56102 pins the mechanism — the kernel wants a 16-block cluster,
+  Thor's max is 8). Our `thor-qwen4-topk-sm110.patch` is the same one-line
+  gate; retire it at the bump that lands either PR (and re-test:
+  `persistent_topk` on Thor is unvalidated until then).
 - **Keep out on purpose:** #55366 (SM110 FA4 auto-selection — changes the
   stock default our official-image baselines must reflect; add a new
-  official leg when it lands), #56084/#56102 (cooperative-topk — QSA-model
-  path, not our models), #53520 (prompt_logprobs corruption — V1-runner
+  official leg when it lands), #53520 (prompt_logprobs corruption — V1-runner
   only; our image runs MRV2 and no bench reads prompt_logprobs),
   #54705 (fp8-KV scales — SM100-scoped; our kernel owns sm_110 fp8-KV),
   #53383 (ROCm), #58868 (mmap fault-in — startup-time only).

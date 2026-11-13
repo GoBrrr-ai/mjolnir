@@ -24,3 +24,8 @@ else:
         collect_ignore.append("test_orin_runner.py")
     if _cc == (8, 7):
         collect_ignore.append("test_runner.py")  # the Thor (tcgen05) suite
+
+if importlib.util.find_spec("torch") is None:
+    # the host-torch qsa suites: no GPU and no CUTLASS, but still torch —
+    # which plain CI does not install; collect-nothing there too.
+    collect_ignore += ["test_qsa.py", "test_qsa_gather.py"]

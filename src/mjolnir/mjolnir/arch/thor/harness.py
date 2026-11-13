@@ -63,10 +63,20 @@ def emulate_decode(
     chunk_tiles,
     fp8,
     causal=True,
+    selection_blocks=None,  # (b, budget_blocks) int32, -1 padded: QSA gather reference
+    compress_ratio=4,
 ):
     """Bit-faithful model of the kernel's arithmetic (contiguous chunk split, running
     max, -inf guard, P rounding to e4m3(p * 448) or bf16, descale folding).
-    Also returns a plain fp32 attention for the fp8-vs-exact gap."""
+    Also returns a plain fp32 attention for the fp8-vs-exact gap.
+
+    With ``selection_blocks`` the S columns are the SELECTED tokens (the QSA
+    gather path): block i covers rows [i*ratio, (i+1)*ratio) of the sequence,
+    gathered per (page, row) from the pool. Visibility is then owned by the
+    selection (every query row sees every selected column — the shared-
+    selection semantics of MTP verify), so ``causal`` is ignored; an
+    all-blocks selection at q_len == 1 is bit-identical to the dense path
+    (the identity oracle)."""
     b, h_k, n_q, d = q_packed.shape
     PS = k_pool.shape[1]
     h_r = n_q // q_len
@@ -76,21 +86,42 @@ def emulate_decode(
     o_exact = torch.zeros(b, h_k, n_q, d)
     for bi in range(b):
         L = int(seq_lens[bi])
-        n_blk = math.ceil(L / PS)
-        pages = block_table[bi, :n_blk].long()
-        Kb = k_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)  # (h_k, L, d)
-        Vb = v_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)
-        S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
-        qi = torch.arange(n_q) // h_r
-        lim = L - q_len + qi if causal else torch.full((n_q,), L - 1)  # (n_q,) last key each row sees
-        masked = torch.arange(L)[None, :] > lim[:, None]  # (n_q, L)
+        if selection_blocks is not None:
+            ids = selection_blocks[bi]
+            ids = ids[ids >= 0].long()
+            rows = torch.cat(
+                [
+                    torch.arange(min(int(i) * compress_ratio, L), min((int(i) + 1) * compress_ratio, L))
+                    for i in ids.tolist()
+                ]
+                or [torch.empty(0, dtype=torch.long)]
+            )
+            n_cols = len(rows)
+            # token row r of the sequence lives at pool page block_table[bi, r // PS]
+            pages_of_row = block_table[bi][rows // PS].long()
+            rows_in_page = rows % PS
+            Kb = k_pool[pages_of_row, rows_in_page].permute(1, 0, 2)  # (h_k, n_cols, d)
+            Vb = v_pool[pages_of_row, rows_in_page].permute(1, 0, 2)
+            S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
+            masked = torch.zeros(1, dtype=torch.bool)  # no positional mask: the selection owns visibility
+            lim = None
+            tiles = math.ceil(n_cols / tile_s_rows)
+        else:
+            n_blk = math.ceil(L / PS)
+            pages = block_table[bi, :n_blk].long()
+            Kb = k_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)  # (h_k, L, d)
+            Vb = v_pool[pages].reshape(-1, h_k, d)[:L].permute(1, 0, 2)
+            S = torch.einsum("gnd,gld->gnl", q_packed[bi], Kb)  # raw scores
+            qi = torch.arange(n_q) // h_r
+            lim = L - q_len + qi if causal else torch.full((n_q,), L - 1)  # (n_q,) last key each row sees
+            masked = torch.arange(L)[None, :] > lim[:, None]  # (n_q, L)
+            tiles = math.ceil(L / tile_s_rows)
         S = S.masked_fill(masked[None], -math.inf)
         qk = q_descale[bi] * k_descale[bi]  # (h_k,)
         c = (scale_qs * log2_e * qk)[:, None]  # (h_k, 1)
         cta_scale = (scale_qs * qk)[:, None]
         vd = v_descale[bi][:, None, None]
 
-        tiles = math.ceil(L / tile_s_rows)
         o_parts, m_parts, l_parts = [], [], []
         n_chunks = math.ceil(tiles / chunk_tiles)
         for j in range(n_chunks):  # contiguous chunks, as in the plan
@@ -98,7 +129,7 @@ def emulate_decode(
             l = torch.zeros(h_k, n_q)
             o = torch.zeros(h_k, n_q, d)
             for t in range(j * chunk_tiles, min((j + 1) * chunk_tiles, tiles)):
-                sl = slice(t * tile_s_rows, min((t + 1) * tile_s_rows, L))
+                sl = slice(t * tile_s_rows, min((t + 1) * tile_s_rows, S.shape[-1]))
                 St = S[:, :, sl]
                 m_new = torch.maximum(m, St.amax(dim=-1))
                 m_use = torch.where(m_new == -math.inf, torch.zeros_like(m_new), m_new)
@@ -122,6 +153,230 @@ def emulate_decode(
         P = torch.softmax(S * cta_scale[..., None], dim=-1)
         o_exact[bi] = scale_o * torch.einsum("gnl,gld->gnd", P, Vb) * vd
     return o_emu, lse_emu, o_exact
+
+
+def run_qsa_gather(
+    batches: int = 2,
+    seqlen: int = 65536,
+    q_len: int = 1,
+    heads_q: int = 24,
+    heads_k: int = 4,
+    headdim: int = 256,
+    page_size: int = 128,
+    iterations: int = 50,
+    warmup_iterations: int = 5,
+    seed: int = 1111,
+    tolerance: float = 0.05,
+    **_,
+):
+    """The QSA scratch-gather decision experiment (MJOLNIR_ATTN_QSA path).
+
+    Dense decode over the whole context vs COPY the selected rows into a
+    page-shaped scratch (torch row gather) + the SAME dense kernel on the
+    scratch — the P0 gather with zero traced-body changes. Correctness:
+    (a) a full selection reproduces dense exactly, (b) a partial selection
+    matches the emulate_decode selection oracle. Timing: cuda-event medians
+    of dense / copy+gather / copy alone at the requested context — the
+    numbers the ``verify qsagain`` stage collects.
+    """
+    from mjolnir.arch.thor import qsa
+    from mjolnir.arch.thor.runner import T5DecodeRunner
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU is required to run this example!")
+    cap = torch.cuda.get_device_capability()
+    if cap not in ((10, 0), (11, 0)):
+        raise RuntimeError(f"Thor sm_110 harness; device is sm_{cap[0]}{cap[1]}")
+    torch.manual_seed(seed)
+    dev = torch.device("cuda")
+    PS = page_size
+    spec = qsa.IndexerSpec()
+    spec.check_main_page_size(PS)
+    assert q_len >= 1
+
+    n_blocks = math.ceil(seqlen / PS)
+    num_pages = n_blocks * batches + 4
+    gen = torch.Generator().manual_seed(seed)
+    k_pool = (torch.randn(num_pages, PS, heads_k, headdim, generator=gen) * 0.5).to(torch.float8_e4m3fn).to(dev)
+    v_pool = (torch.randn(num_pages, PS, heads_k, headdim, generator=gen) * 0.5).to(torch.float8_e4m3fn).to(dev)
+    block_table = torch.zeros(batches, n_blocks, dtype=torch.int32)
+    for s in range(batches):
+        block_table[s] = torch.arange(s * n_blocks, (s + 1) * n_blocks, dtype=torch.int32)
+    block_table = block_table.to(dev)
+    seq_lens = torch.full((batches,), seqlen, dtype=torch.int32, device=dev)
+
+    # deterministic budget-limited selection over RATIO blocks (4 tokens each,
+    # NOT pages): evenly spaced + the local tail when over budget
+    n_blocks_total = math.ceil(seqlen / spec.ratio)
+    if n_blocks_total > spec.budget_blocks:
+        ids = torch.linspace(0, n_blocks_total - 17, spec.budget_blocks - 16).round().long()
+        ids = torch.cat([ids, torch.arange(n_blocks_total - 16, n_blocks_total)])
+    else:
+        ids = torch.arange(n_blocks_total)
+    selection = torch.full((batches, spec.budget_blocks), -1, dtype=torch.int32, device=dev)
+    selection[:, : len(ids)] = ids.to(dev)
+
+    eff = qsa.effective_seq_lens(selection, seq_lens.cpu(), spec)
+    src, dst, sbt, pages_max = qsa.scratch_plan(selection.cpu(), seq_lens.cpu(), block_table.cpu(), spec, PS)
+    scratch_pages = pages_max * batches + 2
+    scratch_k = torch.empty(scratch_pages, PS, heads_k, headdim, dtype=torch.float8_e4m3fn, device=dev)
+    scratch_v = torch.empty_like(scratch_k)
+    scratch_bt = torch.zeros(batches, sbt.shape[1], dtype=torch.int32, device=dev)
+    scratch_bt[:, : sbt.shape[1]] = sbt.to(dev)
+    src_dev, dst_dev = src.to(dev), dst.to(dev)
+    eff_cpu = eff.cpu()
+
+    # the copy path: fused Triton when available, torch indexing otherwise.
+    # BOTH paths feed correctness (b) — the timed path is the checked path.
+    from mjolnir import qsa_gather
+
+    if qsa_gather.available():
+
+        def copy():
+            # one Triton launch per K/V; strides in bytes of the logical layout
+            kb, vb = k_pool.view(torch.uint8), v_pool.view(torch.uint8)
+            qsa_gather.gather_rows(
+                kb, scratch_k.view(torch.uint8), src_dev, dst_dev, eff, PS, kb.stride(0), kb.stride(1), kb.stride(2)
+            )
+            qsa_gather.gather_rows(
+                vb, scratch_v.view(torch.uint8), src_dev, dst_dev, eff, PS, vb.stride(0), vb.stride(1), vb.stride(2)
+            )
+
+        print("qsa copy path: triton (fused)")
+    else:
+
+        def copy():
+            qsa.scratch_copy(k_pool, scratch_k, src_dev, dst_dev, eff_cpu)
+            qsa.scratch_copy(v_pool, scratch_v, src_dev, dst_dev, eff_cpu)
+
+        print("qsa copy path: torch (no Triton)")
+
+    tokens = batches * q_len
+    query = (torch.randn(tokens, heads_q, headdim, generator=gen) * 0.5).to(torch.bfloat16).to(dev)
+    out = torch.empty(tokens, heads_q, headdim, dtype=torch.bfloat16, device=dev)
+    one = torch.ones(1, device=dev)
+    softmax_scale = 1.0 / math.sqrt(headdim)
+
+    runner = T5DecodeRunner(
+        num_heads=heads_q,
+        num_kv_heads=heads_k,
+        head_size=headdim,
+        page_size=PS,
+        out_dtype=torch.bfloat16,
+        max_num_seqs=batches,
+        max_q_len=max(2, q_len),
+        q_mode="bf16",
+        kv_format="fp8",
+        device=dev,
+    )
+    # NOTE: runner.plan() writes into the runner's PERSISTENT shared device
+    # buffers — a plan is only valid until the next plan() call. Every
+    # run() below is immediately preceded by its own plan().
+
+    # ---- correctness (a): full selection == dense, same kernel ----
+    # only meaningful at L <= budget (a "full" selection cannot exceed it)
+    L1 = min(seqlen, spec.budget_tokens)
+    pages1 = math.ceil(L1 / PS)
+    sel_full = qsa.identity_selection(torch.full((batches,), L1, dtype=torch.int32), spec).to(dev)
+    src_f, dst_f, sbt_f, pages_f = qsa.scratch_plan(
+        sel_full.cpu(), torch.full((batches,), L1, dtype=torch.int32), block_table[:, :pages1].cpu(), spec, PS
+    )
+    full_k = torch.empty(pages_f * batches + 2, PS, heads_k, headdim, dtype=torch.float8_e4m3fn, device=dev)
+    full_v = torch.empty_like(full_k)
+    qsa.scratch_copy(k_pool, full_k, src_f.to(dev), dst_f.to(dev), torch.full((batches,), L1, dtype=torch.int32))
+    qsa.scratch_copy(v_pool, full_v, src_f.to(dev), dst_f.to(dev), torch.full((batches,), L1, dtype=torch.int32))
+    full_bt = torch.zeros(batches, sbt_f.shape[1], dtype=torch.int32, device=dev)
+    full_bt[:, : sbt_f.shape[1]] = sbt_f.to(dev)
+    out_full = torch.empty_like(out)
+    seqs1 = torch.full((batches,), L1, dtype=torch.int32, device=dev)
+    plan = runner.plan([L1] * batches, batches, q_len, full_bt, seqs1, causal=False)
+    runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
+    runner.run(plan, query, out_full, full_k, full_v, one, one, softmax_scale)
+    # both sides causal=False: the gather's shared-selection visibility — the
+    # check is layout transparency, not causal semantics (q_len > 1 ladders differ)
+    plan = runner.plan([L1] * batches, batches, q_len, block_table[:, :pages1], seqs1, causal=False)
+    runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
+    runner.run(plan, query, out, k_pool, v_pool, one, one, softmax_scale)
+    torch.cuda.synchronize()
+    err_full = (out.float() - out_full.float()).abs().max().item()
+    print(f"qsa gather: full-selection vs dense (L={L1}) max|err| = {err_full:.3g} (expect ~0)")
+    assert err_full == 0.0, "full-selection scratch decode diverged from dense"
+
+    # ---- correctness (b): partial selection vs the selection oracle ----
+    copy()
+    plan = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
+    runner.ensure_compiled(q_len, plan.with_reduction, causal=False)
+    runner.run(plan, query, out, scratch_k, scratch_v, one, one, softmax_scale)
+    torch.cuda.synchronize()
+    o_got = (
+        out.view(batches, q_len, heads_k, heads_q // heads_k, headdim)
+        .permute(0, 2, 1, 3, 4)
+        .reshape(batches, heads_k, q_len * (heads_q // heads_k), headdim)
+        .float()
+        .cpu()
+    )
+    o_emu, _, _ = emulate_decode(
+        query.view(batches, q_len, heads_k, -1, headdim)
+        .permute(0, 2, 1, 3, 4)
+        .reshape(batches, heads_k, q_len * (heads_q // heads_k), headdim)
+        .float()
+        .cpu(),
+        k_pool.float().cpu(),
+        v_pool.float().cpu(),
+        block_table.cpu(),
+        seq_lens.cpu(),
+        torch.ones(batches, heads_k),
+        torch.ones(batches, heads_k),
+        torch.ones(batches, heads_k),
+        softmax_scale,
+        1.0,
+        q_len,
+        2,
+        fp8=False,
+        selection_blocks=selection.cpu(),
+    )
+    err_sel = (o_got - o_emu).abs().max().item()
+    tol = tolerance * max(1.0, o_emu.abs().max().item())
+    print(f"qsa gather: partial-selection vs oracle max|err| = {err_sel:.3g} (tol {tol:.3g})")
+    assert err_sel <= tol, "scratch decode diverged from the selection oracle"
+
+    # ---- timing: dense / copy+gather / copy alone ----
+    def timed(fn, iters=iterations, warmup=warmup_iterations):
+        for _ in range(warmup):
+            fn()
+        torch.cuda.synchronize()
+        times = []
+        for _ in range(iters):
+            s, e = torch.cuda.Event(True), torch.cuda.Event(True)
+            s.record()
+            fn()
+            e.record()
+            e.synchronize()
+            times.append(s.elapsed_time(e) * 1000.0)
+        times.sort()
+        return times[len(times) // 2]
+
+    def gather_step():
+        # re-plan every step: the honest per-step cost (serving rebuilds
+        # metadata each step), and plan() owns the persistent buffers
+        copy()
+        plan = runner.plan(eff.tolist(), batches, q_len, scratch_bt, eff.to(dev), causal=False)
+        runner.run(plan, query, out, scratch_k, scratch_v, one, one, softmax_scale)
+
+    def dense_step():
+        plan = runner.plan(seq_lens.tolist(), batches, q_len, block_table, seq_lens)
+        runner.run(plan, query, out, k_pool, v_pool, one, one, softmax_scale)
+
+    t_dense = timed(dense_step)
+    t_gather = timed(gather_step)
+    t_copy = timed(copy)
+    kv_bytes = int(seq_lens.sum()) * heads_k * headdim * 2
+    sel_bytes = int(eff.sum()) * heads_k * headdim * 2
+    for name, us in (("dense", t_dense), ("gather", t_gather), ("copy", t_copy)):
+        print(f"median {name} {us:.2f} us")
+    print(f"qsa ratio dense/gather = {t_dense / t_gather:.3f} (copy share {t_copy / t_gather:.2f})")
+    print(f"qsa bytes: dense {kv_bytes} B vs selected {sel_bytes} B (+ indexer cache, not modeled here)")
+    print("PASS")
 
 
 def run(
@@ -705,8 +960,21 @@ def main():
         action="store_true",
         help="E1: the last CTA per (seq, q tile, kv head) merges the split partials in-kernel",
     )
+    parser.add_argument(
+        "--qsa_gather",
+        action="store_true",
+        help="the QSA scratch-gather decision experiment (MJOLNIR_ATTN_QSA "
+        "path): dense decode vs copy-selected-rows + the same kernel on the "
+        "scratch — correctness vs the selection oracle + cuda-event medians; "
+        "uses --batches/--seqlen/--q_len/--heads_q/--heads_k/--headdim/"
+        "--page_size/--iterations/--seed/--tolerance, forces fp8 KV",
+    )
 
     kwargs = vars(parser.parse_args())
+    if kwargs.pop("qsa_gather", False):
+        run_qsa_gather(**kwargs)
+        print("PASS")
+        return
     if kwargs["kv_format"] == "auto":  # sub-8-bit formats need fp8 Q
         kwargs["kv_format"] = HARNESS_KV_FORMAT_FP8Q if kwargs["q_dtype"] is cutlass.Float8E4M3FN else "fp8"
     run(**kwargs)

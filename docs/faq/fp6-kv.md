@@ -17,8 +17,9 @@ Mjolnir decode kernel reads it directly (`tcgen05 kind::f8f6f4`); a value is
 | prefill, mixed, chunked | FlashAttention 4 (the fallback) | the step's pages are expanded to e4m3 in a scratch first: `code × s_c / S`, with one descale `S` per head |
 | every step | Mjolnir writes the cache | one Triton kernel: scale, round, pack, scatter |
 
-The image adds the dtype to vLLM (`thor-fp6-e2m3-kv-cache.patch`); only the
-`MJOLNIR` backend with the `FLASH_ATTN` fallback accepts it.
+The dtype is registered in vLLM by the ``mjolnir.kvdtype`` plugin entry
+point (vLLM >= 0.33; on 0.32 the retired ``thor-fp6-e2m3-kv-cache.patch``
+did it); only the `MJOLNIR` backend with the `FLASH_ATTN` fallback accepts it.
 
 ## The scales: calibrate once per model
 

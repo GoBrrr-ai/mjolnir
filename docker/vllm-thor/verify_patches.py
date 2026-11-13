@@ -111,13 +111,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         ),
     ],
     # STAGGER FIX: "thor sm110 GDN prefill: FI prefill grant gated by a one-shot runtime probe": [
-# STAGGER FIX:         # The probe-gated grant clause in _resolve_gdn_prefill_backend — the
-# STAGGER FIX:         # only file the patch touches.
-# STAGGER FIX:         (
-# STAGGER FIX:             "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
-# STAGGER FIX:             "# THOR_SM110_GDN_PREFILL_PROBE",
-# STAGGER FIX:         ),
-# STAGGER FIX:     ],
+    # STAGGER FIX:         # The probe-gated grant clause in _resolve_gdn_prefill_backend — the
+    # STAGGER FIX:         # only file the patch touches.
+    # STAGGER FIX:         (
+    # STAGGER FIX:             "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
+    # STAGGER FIX:             "# THOR_SM110_GDN_PREFILL_PROBE",
+    # STAGGER FIX:         ),
+    # STAGGER FIX:     ],
     "thor sm110 FA4 FP8-KV: probe-gated kv-cache-dtype grant": [
         # The probe definition + its probe-gated OR-term in the FP8-KV
         # eligibility gate (the only file the patch's fa_utils.py hunks
@@ -246,6 +246,42 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "!is_device_capability_family(110)",
         ),
     ],
+    "thor qwen4 dense decoder: mlp_only_layers hybrid rule (THOR_QWEN4_DENSE)": [
+        # v0.32.0's Qwen4ExpDecoderLayer builds a sparse MoE block for every
+        # layer and transformers rejects num_experts <= 0, so a dense Qwen4
+        # checkpoint cannot load. The patch mirrors qwen3_next's own hybrid
+        # rule (mlp_only_layers + (layer_idx+1) % decoder_sparse_step): a
+        # dense checkpoint lists EVERY layer in mlp_only_layers and gets
+        # Qwen3NextMLP. Inert for every existing qwen4_exp checkpoint (none
+        # set mlp_only_layers) — and inert for all other model families.
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_DENSE",
+        ),
+    ],
+    "thor qwen4 topk sm110: cooperative_topk excluded on Thor (THOR_QWEN4_TOPK_SM110)": [
+        # Device-proven 2026-10-31: v0.32.0's sparse-indexer auto chain leads
+        # with cooperative_topk, whose cluster launch is rejected on sm_110
+        # ("cluster misconfiguration" -> EngineDeadError at the first decode
+        # top-k). Same failure class as the upstream SM120 report #47266
+        # Issue 8. The patch extends the family exclusion to 110 so the gate
+        # falls through to persistent_topk; inert on every other arch.
+        (
+            "models/qwen4_exp/nvidia/ops/qsa_indexer.py",
+            "THOR_QWEN4_TOPK_SM110",
+        ),
+    ],
+    "thor qwen4 qsa mjolnir: probe-gated Mjolnir decode impl (THOR_QWEN4_QSA_MJOLNIR)": [
+        # MJOLNIR_ATTN_QSA swaps Qwen4ExpQSAAttention's impl for the kernel
+        # package's scratch-gather decode (mjolnir.qsa_impl) — pure-decode
+        # steps only, everything else falls back to the stock Triton path
+        # inside the impl. INERT without the env var (the try/except keeps
+        # stock even when the kernel package is absent).
+        (
+            "models/qwen4_exp/nvidia/qsa.py",
+            "THOR_QWEN4_QSA_MJOLNIR",
+        ),
+    ],
 }
 
 
@@ -255,15 +291,15 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
     # STAGGER FIX: "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
-# STAGGER FIX:         # The single widened condition in chunk_gated_delta_rule's non-CP
-# STAGGER FIX:         # dispatch — the comment sentinel rides on the changed line, so it
-# STAGGER FIX:         # is present only when the hunk applied (a partial apply is
-# STAGGER FIX:         # impossible for a one-line hunk).
-# STAGGER FIX:         (
-# STAGGER FIX:             "gdn_prefill.py",
-# STAGGER FIX:             "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
-# STAGGER FIX:         ),
-# STAGGER FIX:     ],
+    # STAGGER FIX:         # The single widened condition in chunk_gated_delta_rule's non-CP
+    # STAGGER FIX:         # dispatch — the comment sentinel rides on the changed line, so it
+    # STAGGER FIX:         # is present only when the hunk applied (a partial apply is
+    # STAGGER FIX:         # impossible for a one-line hunk).
+    # STAGGER FIX:         (
+    # STAGGER FIX:             "gdn_prefill.py",
+    # STAGGER FIX:             "if _arch_major in (10, 11):  # THOR_SM110_GDN_ALLOWLIST",
+    # STAGGER FIX:         ),
+    # STAGGER FIX:     ],
     "fp6 prefill direct-read on Ampere (Mjolnir packed e2m3 KV, no scratchpad)": [
         # The fp6 element type + the vec_cast delegation to the e4m3
         # conversion (vec_dtypes.cuh) — the type everything else keys on.

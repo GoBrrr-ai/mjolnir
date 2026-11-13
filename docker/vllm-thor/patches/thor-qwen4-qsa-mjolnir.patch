@@ -1,0 +1,153 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
+--- a/vllm/models/qwen4_exp/nvidia/qsa.py
++++ b/vllm/models/qwen4_exp/nvidia/qsa.py
+@@ -16,6 +16,7 @@
+ from vllm.config.cache import CacheConfig, CacheDType
+ from vllm.distributed import get_tensor_model_parallel_world_size
+ from vllm.forward_context import get_forward_context
++from vllm.logger import init_logger
+ from vllm.model_executor.layers.attention.attention import (
+     set_default_quant_scales,
+ )
+@@ -64,6 +65,9 @@
+ from .indexer_qsa import QSAIndexer
+ 
+ 
++logger = init_logger(__name__)
++
++
+ class Qwen4ExpQSAQKVIndexerLinear(MergedColumnParallelLinear):
+     """Pack sharded Q/gate, K, V and replicated indexer Q/K in one GEMM."""
+ 
+@@ -112,13 +116,9 @@
+         self._load_shard(super().weight_loader, param, loaded_weight, loaded_shard_id)
+ 
+     def weight_loader_v2(self, param, loaded_weight, loaded_shard_id=None) -> None:
+-        self._load_shard(
+-            super().weight_loader_v2, param, loaded_weight, loaded_shard_id
+-        )
++        self._load_shard(super().weight_loader_v2, param, loaded_weight, loaded_shard_id)
+ 
+-    def load_weights(
+-        self, weights: Iterable[tuple[str, torch.Tensor]]
+-    ) -> Iterable[str]:
++    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> Iterable[str]:
+         def remap_shards():
+             for name, weight in weights:
+                 shard_id = getattr(weight, "shard_id", None)
+@@ -252,13 +252,9 @@
+         if not is_flash_attn_varlen_func_available():
+             raise NotImplementedError("Qwen4Exp QSA requires FlashAttention")
+         if self.dcp_world_size != 1:
+-            raise NotImplementedError(
+-                "Qwen4Exp QSA does not support decode context parallelism"
+-            )
++            raise NotImplementedError("Qwen4Exp QSA does not support decode context parallelism")
+         if self.kv_cache_dtype not in ("auto", "bfloat16", "fp8", "fp8_e4m3"):
+-            raise NotImplementedError(
+-                "Qwen4Exp QSA requires a BF16 or FP8-e4m3 main KV cache"
+-            )
++            raise NotImplementedError("Qwen4Exp QSA requires a BF16 or FP8-e4m3 main KV cache")
+         self.supports_quant_query_input = False
+ 
+     def forward_qsa(
+@@ -309,10 +305,8 @@
+             torch.bfloat16,
+             torch.float8_e4m3fn,
+             torch.uint8,
+         ):
+-            raise NotImplementedError(
+-                "Qwen4Exp QSA requires BF16 Q and BF16 or FP8-e4m3 K/V"
+-            )
++            raise NotImplementedError("Qwen4Exp QSA requires BF16 Q and BF16 or FP8-e4m3 K/V")
+ 
+         from .ops.qsa import qsa_sparse_paged_attention
+ 
+@@ -359,19 +353,12 @@
+             "fp8",
+             "fp8_e4m3",
+         ):
+-            raise NotImplementedError(
+-                "Qwen4Exp QSA requires a BF16 or FP8-e4m3 main KV cache"
+-            )
++            raise NotImplementedError("Qwen4Exp QSA requires a BF16 or FP8-e4m3 main KV cache")
+         if getattr(quant_config, "kv_cache_scheme", None) is not None:
+             raise NotImplementedError("Qwen4Exp QSA does not support KV quantization")
+         parallel_config = vllm_config.parallel_config
+-        if (
+-            parallel_config.prefill_context_parallel_size > 1
+-            or parallel_config.decode_context_parallel_size > 1
+-        ):
+-            raise NotImplementedError(
+-                "Qwen4Exp QSA does not support context parallelism"
+-            )
++        if parallel_config.prefill_context_parallel_size > 1 or parallel_config.decode_context_parallel_size > 1:
++            raise NotImplementedError("Qwen4Exp QSA does not support context parallelism")
+         if not getattr(config, "is_causal", True):
+             raise NotImplementedError("Qwen4Exp QSA requires causal decoder attention")
+ 
+@@ -398,9 +385,7 @@
+         self.q_size = self.num_heads * self.head_dim
+         self.kv_size = self.num_kv_heads * self.head_dim
+         self.scaling = self.head_dim**-0.5
+-        self.dual_chunk_attention_config = getattr(
+-            config, "dual_chunk_attention_config", None
+-        )
++        self.dual_chunk_attention_config = getattr(config, "dual_chunk_attention_config", None)
+         if self.dual_chunk_attention_config is not None:
+             raise NotImplementedError("Qwen4Exp QSA does not support dual-chunk RoPE")
+         # Qwen4Exp full-attention checkpoints always pack a sigmoid output
+@@ -458,13 +443,9 @@
+         self.layer_name = f"{prefix}.attn"
+         self.attn_type = AttentionType.DECODER
+         self.kv_cache_dtype = qsa_kv_cache_dtype(cache_config, prefix)
+-        self.kv_cache_torch_dtype = kv_cache_dtype_str_to_dtype(
+-            self.kv_cache_dtype, model_config
+-        )
++        self.kv_cache_torch_dtype = kv_cache_dtype_str_to_dtype(self.kv_cache_dtype, model_config)
+         if self.kv_cache_torch_dtype not in (torch.bfloat16, torch.uint8):
+-            raise NotImplementedError(
+-                "Qwen4Exp QSA requires BF16 or FP8-e4m3 (uint8) cache storage"
+-            )
++            raise NotImplementedError("Qwen4Exp QSA requires BF16 or FP8-e4m3 (uint8) cache storage")
+         self.kv_sharing_target_layer_name = None
+         self.kv_cache = torch.tensor([])
+         set_default_quant_scales(self, register_buffer=True)
+@@ -482,6 +463,26 @@
+             AttentionType.DECODER,
+             None,
+         )
++        # THOR_QWEN4_QSA_MJOLNIR: probe-gated Mjolnir decode for the QSA
++        # layers (MJOLNIR_ATTN_QSA - the kernel package's own gate). Wraps
++        # the stock impl - identical everything except forward_qsa, which
++        # routes pure-decode steps through the tcgen05 scratch-gather kernel
++        # and falls back to this Triton path for prefill/verify/anything it
++        # does not own. Graceful: any failure keeps the stock impl.
++        try:
++            from mjolnir.arch.thor.qsa import qsa_enabled
++            from mjolnir.qsa_impl import build_impl_class
++
++            if qsa_enabled():
++                self.impl = build_impl_class()(
++                    self,
++                    max_num_seqs=getattr(vllm_config.scheduler_config, "max_num_seqs", 256),
++                )
++        except Exception as exc:  # pragma: no cover - kernel absent/mismatched
++            logger.warning(
++                "MJOLNIR_ATTN_QSA set but the Mjolnir QSA impl is unavailable (%s); the stock QSA path stays",
++                exc,
++            )
+         self.indexer = QSAIndexer(
+             vllm_config=vllm_config,
+             config=config,
+@@ -624,9 +623,7 @@
+     ) -> torch.Tensor:
+         qkv, _ = self.qkv_proj(hidden_states)
+         if self.fuse_indexer_projection:
+-            qkv, projected_qk = qkv.split(
+-                [2 * self.q_size + 2 * self.kv_size, self.index_qk_size], dim=-1
+-            )
++            qkv, projected_qk = qkv.split([2 * self.q_size + 2 * self.kv_size, self.index_qk_size], dim=-1)
+         else:
+             projected_qk, _ = self.indexer.index_qk_proj(hidden_states)
+         num_tokens = hidden_states.shape[0]

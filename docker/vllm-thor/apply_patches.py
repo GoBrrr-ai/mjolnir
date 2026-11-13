@@ -32,9 +32,10 @@ from pathlib import Path
 
 # Order: re-based onto upstream vLLM 0.33.0 (2026-11 bump). 54165, 55519,
 # the fp6 e2m3 KV dtype and the split top-p sampler fix retired at this
-# bump — all four are in the base now (see PATCHES.md). The gdn-prefill
-# and fa4 sm_110 gate patches touch files disjoint from every other patch
-# (qwen_gdn_linear_attn.py; v1/attention/backends/fa_utils.py +
+# bump — all four are in the base now (see PATCHES.md); the gdn-prefill
+# pair is retired too (the c4 stagger, commented STAGGER FIX below). The
+# fa4 sm_110 gate patches touch files disjoint from every other patch
+# (v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches
 # vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py), so their position
 # among the middle patches is immaterial — except that the two fa4 sm_110
@@ -91,15 +92,42 @@ PATCH_ORDER = [
     # from every other patch — order-independent.
     "thor-sm110-mxfp4-moe-gate.patch",
     "thor-sm110-cutlass-fp4-moe-guard.patch",
+    # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
+    # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
+    # MoE block for every layer and transformers rejects num_experts <= 0, so
+    # the patch mirrors qwen3_next's own hybrid rule — a checkpoint that lists
+    # every layer in mlp_only_layers gets Qwen3NextMLP. INERT for every
+    # existing checkpoint (none set mlp_only_layers on qwen4_exp) and for all
+    # other model families; config-driven, so no sm_110 gate. Touches only
+    # models/qwen4_exp/nvidia/model.py — order-independent. If the released
+    # 27B arrives under a NEW model_type instead, this is necessary but not
+    # sufficient (a new architectures registration is also needed) — see
+    # task/research/qwen4-27b-upstream-prep/ (release-day checklist).
+    "thor-qwen4-dense-model.patch",
+    # Sparse-indexer decode top-k on sm_110: v0.32.0's auto chain leads with
+    # cooperative_topk, whose thread-block-cluster launch is REJECTED on
+    # Thor (device-proven 2026-10-31: "cluster misconfiguration" ->
+    # EngineDeadError at the first decode top-k; the upstream SM120 report
+    # vllm-project/vllm#47266 Issue 8 is the same failure class and its fix
+    # excludes the family). The patch extends the exclusion to family 110 —
+    # the gate falls through to persistent_topk. Probe-gated: inert on every
+    # other arch.
+    "thor-qwen4-topk-sm110.patch",
+    # The Mjolnir QSA decode: probe-gated (MJOLNIR_ATTN_QSA) impl swap inside
+    # Qwen4ExpQSAAttention — wraps the stock impl and routes pure-decode steps
+    # through the kernel package's scratch-gather (mjolnir.qsa_impl, which
+    # ships in mjolnir-kernel and degrades to the stock Triton path whenever
+    # a guard fails). INERT unless the env var is set.
+    "thor-qwen4-qsa-mjolnir.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
-# site-packages tree, not the vllm package). The GDN prefill enablement
-# hunk widens the non-CP dispatch allowlist at gdn_prefill.py:460 from
-# major 10 to (10, 11) so the SM100 CuTe-DSL kernel (JIT-compiled for the
-# device) is reachable on sm_110; the vLLM-side grant
-# (thor-gdn-prefill-sm110) stays probe-gated, so this hunk alone changes
-# no behavior on any device.
+# site-packages tree, not the vllm package). The retired GDN prefill
+# enablement hunk (STAGGER FIX below) widened the non-CP dispatch
+# allowlist at gdn_prefill.py:460 from major 10 to (10, 11) so the SM100
+# CuTe-DSL kernel (JIT-compiled for the device) is reachable on sm_110 —
+# its vLLM-side grant is retired with it, so nothing today changes
+# behavior on any device but the fp6 hunk.
 FLASHINFER_PATCH_ORDER = [
     # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",

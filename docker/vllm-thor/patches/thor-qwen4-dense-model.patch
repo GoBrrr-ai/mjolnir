@@ -1,0 +1,57 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
+--- a/vllm/models/qwen4_exp/nvidia/model.py
++++ b/vllm/models/qwen4_exp/nvidia/model.py
+@@ -50,6 +50,7 @@
+ )
+ from vllm.model_executor.models.qwen3_next import (
+     Qwen3NextAttention,
++    Qwen3NextMLP,
+     Qwen3NextSparseMoeBlock,
+ )
+ from vllm.model_executor.models.qwen3_vl import (
+@@ -262,11 +263,41 @@
+         else:
+             raise ValueError(f"Invalid layer_type {layer_type}")
+ 
+-        self.mlp = Qwen4ExpSparseMoeBlock(
+-            vllm_config=vllm_config,
+-            prefix=f"{prefix}.mlp",
+-            reduce_results=not self.use_hc_sequence_parallel,
++        # THOR_QWEN4_DENSE: hybrid dense/MoE, qwen3_next's rule verbatim.
++        # A dense checkpoint ships num_experts > 0 (the config class rejects
++        # num_experts <= 0) and lists EVERY layer in mlp_only_layers; absent
++        # there this reduces to the stock all-MoE behavior, so existing
++        # checkpoints are unaffected.
++        mlp_only_layers = (
++            [] if not hasattr(config, "mlp_only_layers") else config.mlp_only_layers
+         )
++        num_experts = getattr(config, "num_experts", 0) or 0
++        is_moe_layer = (self.layer_idx not in mlp_only_layers) and (
++            num_experts > 0
++            and (self.layer_idx + 1) % getattr(config, "decoder_sparse_step", 1) == 0
++        )
++        if is_moe_layer:
++            self.mlp = Qwen4ExpSparseMoeBlock(
++                vllm_config=vllm_config,
++                prefix=f"{prefix}.mlp",
++                reduce_results=not self.use_hc_sequence_parallel,
++            )
++        else:
++            assert num_experts <= 0 or mlp_only_layers, (
++                "a dense qwen4_exp decoder needs every layer in "
++                "mlp_only_layers (transformers rejects num_experts <= 0)"
++            )
++            assert getattr(config, "intermediate_size", None), (
++                "a dense qwen4_exp decoder needs config.intermediate_size"
++            )
++            self.mlp = Qwen3NextMLP(
++                hidden_size=config.hidden_size,
++                intermediate_size=config.intermediate_size,
++                hidden_act=config.hidden_act,
++                quant_config=quant_config,
++                prefix=f"{prefix}.mlp",
++                reduce_results=not self.use_hc_sequence_parallel,
++            )
+ 
+         hc_config = HyperConnectionConfig(
+             hc_count=config.hc_count,
