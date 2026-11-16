@@ -92,6 +92,12 @@ PATCH_ORDER = [
     # from every other patch — order-independent.
     "thor-sm110-mxfp4-moe-gate.patch",
     "thor-sm110-cutlass-fp4-moe-guard.patch",
+    # CuTe DSL NVFP4 MoE on sm_110: vLLM's FlashInferCuteDSLExperts gate admits
+    # family 110 (the FlashInfer-side capability checks are in
+    # FLASHINFER_PATCH_ORDER). Only selected for W4A4 (activation-quantized)
+    # NVFP4 experts; W4A16 checkpoints keep MARLIN. Touches only
+    # fused_moe/experts/flashinfer_cutedsl_moe.py - order-independent.
+    "thor-sm110-cutedsl-moe-gate.patch",
     # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
     # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
     # MoE block for every layer and transformers rejects num_experts <= 0, so
@@ -131,6 +137,11 @@ PATCH_ORDER = [
 FLASHINFER_PATCH_ORDER = [
     # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",
+    # The FlashInfer half of the CuTe DSL MoE enablement: the two blockscaled
+    # grouped-GEMM wrappers accept major 11 (CuTe DSL compiles them for
+    # sm_110a natively) and the moe_utils JIT (moe_sort / unpermute) builds
+    # for major 11. Disjoint from the fp6 hunk.
+    "fi-cutedsl-moe-sm110.patch",
 ]
 
 
