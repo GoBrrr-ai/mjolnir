@@ -376,6 +376,28 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
 `docs/faq/releasing.md`.
 
 ## Open work
+- [ ] **0.34.0 correctness + smoke — the bump proof**: once the hub mirror
+      lands, pin the digest in the Dockerfile and `mjolnir image build`;
+      on-device run `mjolnir image gates` (T6/T9/T10/T11 +
+      `kernel_test_fi_update` + the dspark non-causal graph canary) and the
+      serve smokes: the qwen4 QSA swap (`MJOLNIR_ATTN_QSA` on the renamed
+      `Qwen4ExpQSAImpl` / kw-only-`forward` / side-metadata API — the
+      0.34 port is device-untested), `persistent_topk` on sm_110 (first
+      device exercise now that #56102 landed), the fused-draft path
+      (`verify spec`: MTP acceptance per position + the c1 gate on the
+      re-anchored `fused-draft-decode`/`t5-refresh` pair), fp6 e2m3
+      (`verify vllm` mode e2m3) and the Orin fp8/fp6 legs — then the
+      0.34 e2e re-baseline (`bench ab`/`e2e`, both images same-run).
+- [ ] **Upstream PR sweep (the post-0.34 watch, re-run at every bump)**:
+      work the list in `docker/vllm-thor/PATCHES.md` §Open upstream
+      watch — take #67571 (spec-decode dummy-run cap, merged 2026-11-16
+      post-cut) at the 0.35 re-audit; measure #60566 (screened lm_head)
+      against `MJOLNIR_LM_HEAD=fp8` before adopting; #53337/#44590 stay
+      take-at-a-bump (e2e contamination); re-check the GDN trio (FI
+      #7827, the vLLM selector follow-up, the in-tree CuTeDSL path
+      #65050) and re-test the retired gdn pair's c4 stagger on each;
+      retire/refresh the carry patches (#50885, the dspark/cg-gate pair)
+      at the bump that merges them.
 - [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,
       commit `benchmarks/raw/verify/**`, re-render (the README shows "pending"
       for stages without a default run).
