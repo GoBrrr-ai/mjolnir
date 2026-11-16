@@ -19,7 +19,7 @@ Scope of v1 (deliberate):
 
 Everything else (indexer scores, top-k, the K/V cache write, the output
 gate application contract) stays stock: the impl subclasses the stock
-impl and only overrides ``forward_qsa``.
+impl and only overrides ``forward``.
 """
 
 from __future__ import annotations
@@ -440,7 +440,7 @@ def build_impl_class() -> type:
                     scratch_v,
                     k_buf,
                     v_buf,
-                    self.head_size**-0.5,
+                    self.scale,
                 )
 
                 # the stock Triton kernel applies the sigmoid output gate; the

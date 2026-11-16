@@ -554,7 +554,7 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   `qwen4-qsa-mjolnir` re-derived for the renamed `Qwen4ExpQSAImpl`, the
   slim ctor and the kw-only `forward` — `qsa_impl.py` ports the
   `forward_qsa`→`forward` surface and pulls seq lens from the indexer's
-  side metadata via the forward context), 3 untouched
+  side metadata via the forward context), 5 untouched
   (`50885`/`hd256-fp8`/`1cta`/`mjolnir-backend`/`dense` byte-stable).
   FI 0.7.2.post1→0.7.3: the fp6 patch applies verbatim (4 of 5 files
   byte-identical; `prefill.cuh` hunks all land, sentinels green).

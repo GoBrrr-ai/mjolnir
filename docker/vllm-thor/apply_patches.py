@@ -78,7 +78,10 @@ PATCH_ORDER = [
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
-    # touches — order-independent. Makes `--attention-backend MJOLNIR` parse.
+    # touches — order-independent EXCEPT that its fa_utils.py hunk assumes
+    # the fa4 patches' version of that file: it lands AFTER the fa4 pair
+    # (region-disjoint from them, but a reorder must keep this order).
+    # Makes `--attention-backend MJOLNIR` parse.
     "thor-mjolnir-attention-backend.patch",
     # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
     # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse

@@ -823,3 +823,13 @@ purpose:
   the vLLM selector follow-up) remains open upstream — 0.35 at the
   earliest; our retired `thor-gdn-prefill-fi-sm110.patch` is the
   stopgap (re-verify against whatever FI ships then).
+- **Post-tag drift = the 0.35 re-anchor list** (main @ 2026-11-16, 618
+  commits past `62d4bc3c7`): `v1/attention/backends/flashinfer.py` +376
+  lines (all three of our patches there), `dflash/speculator.py` +83 (the
+  cg-gate dispatch), `qwen4_exp/nvidia/{qsa,qsa_indexer,ops/qsa_indexer}`
+  churn (the qsa patch + the dense fixture), `fa_utils.py −75` (a
+  refactor — re-derive the fa4/mjolnir hunks), `cudagraph_utils.py ±39`.
+  Plus #67006 (online weight-only NVFP4 for DENSE linear layers, merged
+  2026-11-16 post-tag — evaluate for the qwen4 dense day-0 quantization
+  matrix) and #65802/#66118 (online-quant reload / FP8 indexer-wk
+  loading — qwen4-adjacent loader churn).

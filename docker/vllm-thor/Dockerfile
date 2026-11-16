@@ -61,14 +61,15 @@
 # version tag IS the ubuntu2404 aarch64 build.)
 
 ARG BASE_IMAGE=vllm/vllm-openai:v0.34.0
-# Pinned digest so the default build is reproducible. Override with
-# --build-arg BASE_IMAGE=vllm/vllm-openai@<digest> (or the floating tag,
-# though the floating tag is the recommended BUMP path, see above).
-# 0.34.0 note: the release image was not on the hub yet at the bump
-# (git tag 62d4bc3c7 cut 2026-11-13) — the digest lands here at first
-# mirror; until then the build resolves the floating tag. Fill from
-# `docker buildx imagetools inspect vllm/vllm-openai:v0.34.0`.
-ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:0000000000000000000000000000000000000000000000000000000000000000
+# Pinned digest so the default build is reproducible. Empty until the
+# release image hits the registry — an EMPTY default makes
+# FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}} resolve the floating tag
+# (v0.34.0), which is the intended pre-pin state; the tag sha is
+# 62d4bc3c7 (2026-11-13). Fill from
+# `docker buildx imagetools inspect vllm/vllm-openai:v0.34.0` — and note
+# that while this ARG holds any value it WINS over BASE_IMAGE, so the
+# --build-arg BASE_IMAGE= override requires emptying this one first.
+ARG BASE_IMAGE_DIGEST=
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
@@ -189,6 +190,11 @@ assert issubclass(_cls, _qsa_mod.Qwen4ExpQSAImpl), (
     f"(mro[1]={_cls.__mro__[1].__module__}.{_cls.__mro__[1].__name__})"
 )
 _params = inspect.signature(_cls.forward).parameters
+_positional = [p.name for p in _params.values()
+               if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD]
+assert _positional == ["self", "layer", "query", "kv_cache", "attn_metadata", "output"], (
+    f"QSA impl forward positional surface drifted: {_positional}"
+)
 for _kw in ("token_to_req", "use_prefill_config", "output_gate"):
     assert _kw in _params and _params[_kw].kind is inspect.Parameter.KEYWORD_ONLY, (
         f"QSA impl forward is missing the kw-only {_kw!r} the 0.34 _run_qsa passes"
