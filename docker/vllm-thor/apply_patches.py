@@ -30,12 +30,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Order: re-based onto upstream vLLM 0.33.0 (2026-11 bump). 54165, 55519,
-# the fp6 e2m3 KV dtype and the split top-p sampler fix retired at this
-# bump — all four are in the base now (see PATCHES.md); the gdn-prefill
-# pair is retired too (the c4 stagger, commented STAGGER FIX below). The
-# fa4 sm_110 gate patches touch files disjoint from every other patch
-# (v1/attention/backends/fa_utils.py +
+# Order: re-based onto upstream vLLM 0.34.0 (2026-11 bump, tag 62d4bc3c7).
+# Retired at this bump (all four in the base now — see PATCHES.md): 49652
+# (the draft-decode capture shapes are explicit in the 0.34 speculator
+# managers), the two sm_110 MoE gates (#62133, #62275) and the qwen4 topk
+# gate (#56102). The fa4 sm_110 gate patches touch files disjoint from every
+# other patch (v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches
 # vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py), so their position
 # among the middle patches is immaterial — except that the two fa4 sm_110
@@ -43,22 +43,20 @@ from pathlib import Path
 # (whose fa_utils hunks are diffed against the hd128-patched file) must
 # land after the hd128 one. The three Thor v1/attention/backends/flashinfer.py
 # patches land in sequence: 50885 (the FI-native uniform-multi-token FULL
-# grant — on 0.33.0 slimmed to the probe + the two gates; the wrapper
-# plumbing itself is upstream), the fused-draft-decode patch (its hunks
+# grant — the probe + the two gates; the wrapper plumbing itself is
+# upstream), the fused-draft-decode patch (its hunks
 # sit on top of 50885's), then the DSpark non-causal cudagraph patch
 # (its get_cudagraph_support hunk is diffed against 50885's grant).
 PATCH_ORDER = [
-    "49652-draft-decode-capture.patch",
     "50885-flashinfer-full-cudagraph.patch",
-    # STAGGER FIX (2026-11-04): the GDN
-    # prefill pair carries the c4 aggregate stagger — removed. Stock GDN
-    # prefill path serves correctly on 0.33 (kernelonly A/B, acc 3.59).
     "thor-fused-draft-decode-fi-native-update.patch",
     # Refreshes the T5 split-KV work plan when the fused draft loop replays
-    # its FULL cudagraph: the _fused_multi_step_decode FULL branch returns
+    # its FULL cudagraph: the _run_fused_multi_step_decode FULL branch returns
     # before building the draft metadata, so a host-side per-cycle plan
     # (ours) would stay baked at capture-time seq_lens. Same feature
     # family as the patch above; the speculator file is disjoint from it.
+    # 0.34: the fused machinery lives in spec_decode/autoregressive/
+    # speculator.py (moved out of target_dependent_ar).
     "thor-fused-draft-t5-plan-refresh.patch",
     "thor-dspark-draft-fi-noncausal-cudagraph.patch",
     # Disjoint from every patch except the hd256 one below (fa_utils.py) —
@@ -82,16 +80,6 @@ PATCH_ORDER = [
     # package) to v1/attention/backends/registry.py, which no other patch
     # touches — order-independent. Makes `--attention-backend MJOLNIR` parse.
     "thor-mjolnir-attention-backend.patch",
-    # Two sm_110 MoE-backend gate fixes (drop each when the PR lands in a
-    # release we track): the OAI Triton MXFP4 MoE selector keeps MARLIN as
-    # the default on SM110 (the OAI Triton path fails to compile matmul_ogs
-    # at engine init, #61374) and the CUTLASS FP4 MoE backend must not
-    # auto-select on sm_110 (faults in profile_run, TMA descriptor init).
-    # #62133 is merged upstream (2026-10-27) but NOT in the 0.33.0 release
-    # branch — re-check at every bump. All five touched files are disjoint
-    # from every other patch — order-independent.
-    "thor-sm110-mxfp4-moe-gate.patch",
-    "thor-sm110-cutlass-fp4-moe-guard.patch",
     # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
     # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
     # MoE block for every layer and transformers rejects num_experts <= 0, so
@@ -104,15 +92,6 @@ PATCH_ORDER = [
     # sufficient (a new architectures registration is also needed) — see
     # task/research/qwen4-27b-upstream-prep/ (release-day checklist).
     "thor-qwen4-dense-model.patch",
-    # Sparse-indexer decode top-k on sm_110: v0.32.0's auto chain leads with
-    # cooperative_topk, whose thread-block-cluster launch is REJECTED on
-    # Thor (device-proven 2026-10-31: "cluster misconfiguration" ->
-    # EngineDeadError at the first decode top-k; the upstream SM120 report
-    # vllm-project/vllm#47266 Issue 8 is the same failure class and its fix
-    # excludes the family). The patch extends the exclusion to family 110 —
-    # the gate falls through to persistent_topk. Probe-gated: inert on every
-    # other arch.
-    "thor-qwen4-topk-sm110.patch",
     # The Mjolnir QSA decode: probe-gated (MJOLNIR_ATTN_QSA) impl swap inside
     # Qwen4ExpQSAAttention — wraps the stock impl and routes pure-decode steps
     # through the kernel package's scratch-gather (mjolnir.qsa_impl, which

@@ -499,30 +499,31 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
     (merged Jul 2026): graph-safe uniform multi-token decode; design statement
     confirms frozen plan_info depends only on (batch, total_rows, uniform_q_len)
     — the property our c1 regression fix relies on.
-- **0.34 watch — post-0.33.0 audit (2026-11-13, `v0.33.0`=`4ba787e`, main
-  +1464 commits, no 0.34 cut yet; full notes `task/vllm-0.34up-audit.md`)**:
-  - Merged → base-covers our patches at the next rebase: #62133 + #62275
-    (both sm_110 MoE-gate patches retire), #56102 (cooperative-topk SM110
-    exclusion — the same family guard as `thor-qwen4-topk-sm110`, retires it),
-    #65050 CuteDSL GDN prefill on SM110 (selector + the fewer-SMs-than-heads
-    grid clamp; TTFT −6 % @16k Qwen3.8-27B vs FLA, `auto` still FLA).
-  - GDN-prefill FI on SM110 still pending: flashinfer#7827 open (not in
-    0.7.3/0.7.4), the vLLM follow-up and #63284 (selector can-run/prefer
-    split) open ⇒ 0.35 at the earliest. FI kernel table: 2.0–8.7× vs FLA on
-    Thor GDN shapes (#65054) ⇒ ≈ −14 % TTFT potential; re-test our retired
-    gdn pair's c4 stagger on the cutedsl path at the rebase.
-  - **Model Runner V1 removed (#63373)** — validate the mjolnir
-    backend/builder (+ the `lmhead.py` runner hook) against V2-only main
-    before any bump; the ext-KV-cache wave (#61452 + fixups) touches
-    KVCacheSpec surfaces; #63406 splits prefill/decode CG capture sizes.
-  - FA4: fa_utils churn is small (#65203 sync, #60372) but the
-    vllm-flash-attn pin moved `b273a02`→`af5422c` — re-verify the cute/
-    hunks (fp8kv, hd256-fp8, 1cta) against the new pin; #63232 (skip FP8
-    descale on unit per-tensor scale) is a no-op for our per-channel scales.
-  - qwen4_exp churn is heavy (#64110 FA-dep removal/renames, #65619 shared
-    top-k buffer, #65812 FP8-KV scales honored in QSA, #66834, #66512): the
-    two qwen4 patches are the main re-anchor work. torch pin unchanged
-    (2.14.0); FlashInfer 0.7.2.post1 → 0.7.4 upstream (#65930, #67042).
+- **0.34 bump — DONE (2026-11-16, `v0.34.0`=`62d4bc3c7`, branch
+  `feat/vllm-0.34.0`)**: base pinned (`vllm/vllm-openai:v0.34.0`, digest
+  lands when the hub mirror appears — the release images were not up at
+  the bump), 4 patches retired as base-covered (`49652` — the 0.34
+  speculator rework pins draft graph shapes via
+  `decode_query_lens={1: max_num_reqs}` + `specialize_spec_tokens` — see
+  PATCHES.md; the two sm_110 MoE gates #62133/#62275; qwen4-topk #56102),
+  6 re-anchored (`fa4-fp8kv` cute assert 907→987; `fused-draft-decode`
+  past the `qo_indptr_prefill` block; `fused-draft-t5` re-targeted to
+  `spec_decode/autoregressive/speculator.py::_run_fused_multi_step_decode`
+  — the fused machinery moved out of `target_dependent_ar`;
+  `qwen4-qsa-mjolnir` re-derived for the renamed `Qwen4ExpQSAImpl`, the
+  slim ctor and the kw-only `forward` — `qsa_impl.py` ports the
+  `forward_qsa`→`forward` surface and pulls seq lens from the indexer's
+  side metadata via the forward context), 3 untouched
+  (`50885`/`hd256-fp8`/`1cta`/`mjolnir-backend`/`dense` byte-stable).
+  FI 0.7.2.post1→0.7.3: the fp6 patch applies verbatim (4 of 5 files
+  byte-identical; `prefill.cuh` hunks all land, sentinels green).
+  vllm-flash-attn pin `b273a02`→`d8dca8f06c74`: the hd256 forward kernel
+  is byte-identical, `interface.py` churn is SM90-side only. No-GPU gate
+  green: 11/11 apply on the pristine tag, every `verify_patches` sentinel
+  passes, all 9 touched files py_compile. **Pending device work: the
+  0.34 image build (awaits the hub mirror), the serve smoke (qwen4 QSA
+  impl swap + `persistent_topk` on sm_110 now that #56102 landed), the
+  spec/cudagraph canaries, and the e2e re-baseline.**
 
 ## Conventions
 - **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**

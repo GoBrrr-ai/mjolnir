@@ -1,8 +1,8 @@
 diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
-index 1519b45..90a7347 100644
+index 685b95d32..ddfad3329 100755
 --- a/vllm/v1/attention/backends/flashinfer.py
 +++ b/vllm/v1/attention/backends/flashinfer.py
-@@ -796,6 +796,20 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -924,6 +924,20 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              self._decode_wrappers_cudagraph: dict[
                  tuple[int, int], BatchDecodeWithPagedKVCacheWrapper
              ] = {}
@@ -23,7 +23,7 @@ index 1519b45..90a7347 100644
              self._decode_cudagraph_max_bs = (1 + num_spec_tokens) * max_num_reqs
              if self.compilation_config.max_cudagraph_capture_size is not None:
                  self._decode_cudagraph_max_bs = min(
-@@ -1116,6 +1130,25 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1288,6 +1302,25 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
              and not use_non_causal
          ):
              return AttentionCGSupport.UNIFORM_BATCH
@@ -49,7 +49,7 @@ index 1519b45..90a7347 100644
          return AttentionCGSupport.UNIFORM_SINGLE_TOKEN_DECODE
  
      @override  # type: ignore[misc]
-@@ -1346,6 +1379,39 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1521,6 +1554,39 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          assert self._prefill_wrapper is not None
          return self._prefill_wrapper
  
@@ -89,7 +89,7 @@ index 1519b45..90a7347 100644
      def _get_decode_wrapper(
          self, batch_size: int, use_cudagraph: bool = False, q_len_per_req: int = 1
      ):
-@@ -1687,7 +1753,30 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1876,7 +1942,30 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                      max_seq_len=max_seq_len,
                  )
              else:

@@ -40,17 +40,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "and flashinfer_supports_uniform_multi_token_decode()",
         ),
     ],
-    "49652 draft-decode capture under dynamic SD (base manager guard)": [
-        # Rebased onto the Dynamic-SD candidate expansion that upstream added
-        # to the BASE CudaGraphManager: draft-decode managers run at
-        # decode_query_len == 1, and the expansion must be skipped for them
-        # (it would produce non-positive decode_query_lens). The guard line is
-        # absent in the pristine tree and present only after this patch.
-        (
-            "v1/worker/gpu/cudagraph_utils.py",
-            "and self.decode_query_len > 1",
-        ),
-    ],
     "thor fused draft-decode: in-place FlashInfer native decode plan advance": [
         (
             "v1/attention/backends/flashinfer.py",
@@ -62,12 +51,14 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         ),
     ],
     "thor fused draft-decode: T5 work-plan refresh on the FULL-graph replay path": [
-        # The FULL branch of _fused_multi_step_decode must rebuild the draft
-        # metadata before run_fullgraph so host-side per-cycle plan state
-        # (Mjolnir's T5 split-KV work distribution) sees this cycle's
-        # seq_lens. Assert the build call itself, not just a comment.
+        # The FULL branch of _run_fused_multi_step_decode must rebuild the
+        # draft metadata before run_fullgraph so host-side per-cycle plan
+        # state (Mjolnir's T5 split-KV work distribution) sees this cycle's
+        # seq_lens. 0.34: the fused machinery lives in
+        # spec_decode/autoregressive/speculator.py. Assert the build call
+        # itself, not just a comment.
         (
-            "v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py",
+            "v1/worker/gpu/spec_decode/autoregressive/speculator.py",
             "if not skip_attn:\n                self._build_uniform_attn_metadata(\n                    num_reqs=num_reqs,\n                    batch_desc=batch_desc,\n                    num_query_per_req=1,\n                    seq_lens_cpu_upper_bound=seq_lens_cpu_upper_bound,\n                    step=1,\n                )",
         ),
     ],
@@ -208,44 +199,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "need_eager = is_profile or _thor_draft_cg_gate_wants_eager(num_reqs)",
         ),
     ],
-    "thor sm110 MXFP4 MoE: OAI Triton selector keeps MARLIN default on SM110": [
-        # The widened GPT-OSS MXFP4 selector condition in
-        # _get_priority_backends_for_gpt_oss: SM110 must not take the OAI
-        # Triton path by default (matmul_ogs compile failure at engine
-        # init, #61374). The marker rides on the changed line, so it is
-        # present only after the patch.
-        (
-            "model_executor/layers/fused_moe/oracle/mxfp4.py",
-            "current_platform.is_device_capability_family(110)  # THOR_SM110_MXFP4_GATE",
-        ),
-        # The _swizzle_mxfp4 constraints widening: whenever the (opt-in)
-        # TRITON path runs on SM110 it needs is_persistent +
-        # epilogue_subtile=1 (the SWAP_XW subtiled-epilogue codegen bug).
-        (
-            "model_executor/layers/quantization/utils/mxfp4_utils.py",
-            "for family in (100, 110, 120)",
-        ),
-    ],
-    "thor sm110 CUTLASS FP4 MoE: backend not auto-selected on SM110": [
-        # The demoted _supports_current_device in cutlass_moe.py: sm_110
-        # removed from the family allowlist (profile_run TMA-descriptor
-        # fault on Thor). The marker comment is present only after the
-        # patch; the collapsed single-line condition only exists in the
-        # patched shape; the absence guard fails the build if the
-        # family(110) term ever returns (re-adapt signal).
-        (
-            "model_executor/layers/fused_moe/experts/cutlass_moe.py",
-            "# THOR_SM110_CUTLASS_FP4_GUARD",
-        ),
-        (
-            "model_executor/layers/fused_moe/experts/cutlass_moe.py",
-            "p.is_device_capability_family(100) or p.is_device_capability_family(120)",
-        ),
-        (
-            "model_executor/layers/fused_moe/experts/cutlass_moe.py",
-            "!is_device_capability_family(110)",
-        ),
-    ],
     "thor qwen4 dense decoder: mlp_only_layers hybrid rule (THOR_QWEN4_DENSE)": [
         # v0.32.0's Qwen4ExpDecoderLayer builds a sparse MoE block for every
         # layer and transformers rejects num_experts <= 0, so a dense Qwen4
@@ -257,18 +210,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         (
             "models/qwen4_exp/nvidia/model.py",
             "THOR_QWEN4_DENSE",
-        ),
-    ],
-    "thor qwen4 topk sm110: cooperative_topk excluded on Thor (THOR_QWEN4_TOPK_SM110)": [
-        # Device-proven 2026-10-31: v0.32.0's sparse-indexer auto chain leads
-        # with cooperative_topk, whose cluster launch is rejected on sm_110
-        # ("cluster misconfiguration" -> EngineDeadError at the first decode
-        # top-k). Same failure class as the upstream SM120 report #47266
-        # Issue 8. The patch extends the family exclusion to 110 so the gate
-        # falls through to persistent_topk; inert on every other arch.
-        (
-            "models/qwen4_exp/nvidia/ops/qsa_indexer.py",
-            "THOR_QWEN4_TOPK_SM110",
         ),
     ],
     "thor qwen4 qsa mjolnir: probe-gated Mjolnir decode impl (THOR_QWEN4_QSA_MJOLNIR)": [

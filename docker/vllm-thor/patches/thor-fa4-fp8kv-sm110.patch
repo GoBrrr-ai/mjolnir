@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/attention/backends/fa_utils.py b/vllm/v1/attention/backends/fa_utils.py
-index 83348bb94a42d027ffae03078476ef809996b732..bf3f1c8df75360e2dd60d09b1d3b142e40e6f574 100644
+index 293cd89fb..f8083945f 100644
 --- a/vllm/v1/attention/backends/fa_utils.py
 +++ b/vllm/v1/attention/backends/fa_utils.py
 @@ -279,6 +279,164 @@ def is_fa_version_supported(fa_version: int) -> bool:
@@ -184,11 +184,11 @@ index 83348bb94a42d027ffae03078476ef809996b732..bf3f1c8df75360e2dd60d09b1d3b142e
  
  
 diff --git a/vllm/vllm_flash_attn/cute/interface.py b/vllm/vllm_flash_attn/cute/interface.py
-index 7c366605dd425ed432ea9d7bb51228d8249cc7d1..91c1ffbd0da27dfee3ee797bca48ca42e7258ab3 100644
+index d547369fb..f9c9ea64f 100644
 --- a/vllm/vllm_flash_attn/cute/interface.py
 +++ b/vllm/vllm_flash_attn/cute/interface.py
-@@ -907,7 +907,9 @@ def _flash_attn_fwd(
-         # fp16 in-kernel and casting the fp32 accumulator to O's dtype in the epilogue.
+@@ -987,7 +987,9 @@ def _flash_attn_fwd(
+         # fp16 selects the auxiliary layouts; mQ/mO keep the caller's fp16/bf16 dtypes.
          dtype = torch2cute_dtype_map[torch.float16]
      if is_fp8:
 -        assert arch // 10 == 10, "FP8 is only supported on SM100 (compute capability 10.x) for FA4 CuTe."
