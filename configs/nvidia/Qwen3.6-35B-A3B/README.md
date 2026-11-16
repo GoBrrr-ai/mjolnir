@@ -1,6 +1,6 @@
 # Qwen3.6-35B-A3B
 
-`nvidia/Qwen3.6-35B-A3B` — served as `nvidia/Qwen3.6-35B-A3B-NVFP4` — with 5
+`nvidia/Qwen3.6-35B-A3B` — served as `nvidia/Qwen3.6-35B-A3B-NVFP4` — with 6
 serving configs in `configs/nvidia/Qwen3.6-35B-A3B/`. Everything on this page is
 derived from the config tree and the raw results; there is no hand-written
 model prose (decision 7).
@@ -19,6 +19,7 @@ format) on each platform.
 | [`NVFP4_MJOLNIR_E2M3`](NVFP4_MJOLNIR_E2M3/README.md) | Mjolnir fp6 KV | ✅ | — | — |
 | [`NVFP4_MJOLNIR_E2M3_LMH8_VT64K`](NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md) | Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab | ✅ | — | — |
 | [`NVFP4_MJOLNIR_E2M3_VT64K`](NVFP4_MJOLNIR_E2M3_VT64K/README.md) | Mjolnir fp6 KV + 64K draft vocab | ✅ | — | — |
+| [`NVFP4_MJOLNIR_W4A4`](NVFP4_MJOLNIR_W4A4/README.md) | Mjolnir + W4A4 experts | ✅ | — | — |
 
 
 - `NVFP4_DFLASH` on thor: ✅ The FlashInfer backend serves fp8 KV across its whole sm_80 to sm_121 support window.
@@ -26,6 +27,7 @@ format) on each platform.
 - `NVFP4_MJOLNIR_E2M3` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
 - `NVFP4_MJOLNIR_E2M3_VT64K` on thor: ✅ The Mjolnir kernel is the only fp6 reader, with per-(layer, KV-head, channel) calibrated scales.
+- `NVFP4_MJOLNIR_W4A4` on thor: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 
 
 ## Quickstart
