@@ -332,7 +332,7 @@ def kvcache_label(r: dict) -> str:
     if r.get("side") != "official":
         extra = "".join(
             f" + {name}"
-            for tag, name in (("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab"))
+            for tag, name in (("W4A4", "W4A4 experts"), ("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab"))
             if tag in str(r.get("config", "")).split("_")
         )
         return f"Mjolnir · {kv} KV{extra}"
@@ -346,6 +346,7 @@ def spec_label(cfg: str, side: str | None = None) -> str:
         "NVFP4_MJOLNIR": "Mjolnir · fp8 KV",
         "NVFP4_MJOLNIR_E2M3": "Mjolnir · fp6 KV",
         "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": "Mjolnir · fp6 KV + fp8 lm_head + 64K draft vocab",
+        "NVFP4_MJOLNIR_W4A4": "Mjolnir · fp8 KV + W4A4 experts",
     }.get(cfg, cfg)
 
 
