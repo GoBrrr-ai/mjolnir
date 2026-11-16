@@ -398,6 +398,25 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       #65050) and re-test the retired gdn pair's c4 stagger on each;
       retire/refresh the carry patches (#50885, the dspark/cg-gate pair)
       at the bump that merges them.
+- [ ] **Qwen4 day-0 prep — branch `feat/qwen4-day0-prep` off
+      `feat/vllm-0.34.0` (queued; GPU-free only)**. Four bounded items, in
+      order:
+      1. `--engram-config` passthrough in the serve/config layer + the
+         `.env` switch pattern (day-0 Phase 0 mandates the flag when
+         `ple_layer_ids` is non-empty — today it's hand-typed JSON);
+      2. engram-aware memory ledger in `verify kv-cache-size` (the table's
+         home must count, or the Phase 3 numbers lie);
+      3. the c4-stagger A/B leg in `mjolnir-cli` `legs.py` — 4 concurrent
+         8K prefills mixed with decode, per GDN path (the day-0 Phase 4
+         mandatory check; pure bench config);
+      4. the CLOCK slot-pool **prototype only**: a `ple_cache.py` module
+         seam + CPU tests against the 0.34 `ple_layer.py` interfaces,
+         flag-gated, NOTICE §5 attribution in the header — parked
+         (`ar/parked/`) until the shape lock says `ple_layer_ids` is
+         non-empty. NO kernel-side work and NO productionization before
+         that gate; if the dense 27B ships PLE-less (or tiny), the whole
+         item dies cheap. Merge order: this branch lands after
+         `feat/vllm-0.34.0` passes its proof and merges.
 - [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,
       commit `benchmarks/raw/verify/**`, re-render (the README shows "pending"
       for stages without a default run).
