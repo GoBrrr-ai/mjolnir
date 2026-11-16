@@ -90,3 +90,13 @@ def register() -> None:
             import logging
 
             logging.getLogger("vllm.mjolnir").warning("Mjolnir lm_head hooks not installed: %r", e)
+    # opt-in W4A4 routed experts (W4A16 NVFP4 checkpoints with calibrated input scales)
+    if os.environ.get("MJOLNIR_NVFP4_MOE_W4A4", "").strip():
+        try:
+            from .moew4a4 import install_hooks as _install_moe_w4a4
+
+            _install_moe_w4a4()
+        except Exception as e:  # noqa: BLE001 - never break vLLM startup
+            import logging
+
+            logging.getLogger("vllm.mjolnir").warning("Mjolnir W4A4 MoE hook not installed: %r", e)
