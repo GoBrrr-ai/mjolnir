@@ -172,6 +172,28 @@ import vllm.v1.core.kv_cache_utils
 import vllm.v1.core.kv_cache_coordinator
 import vllm.v1.core.single_type_kv_cache_manager
 print("imports OK, vllm", vllm.__version__)
+
+# The QSA impl-swap contract (CPU-only): the kernel package must subclass
+# THIS base's stock impl under its 0.34 name and expose the kw-only forward
+# the layer's _run_qsa call site uses. Catches the rename/arity class of
+# drift at build time instead of at first serving.
+import inspect
+
+import mjolnir.qsa_impl as _qsa_impl
+
+import vllm.models.qwen4_exp.nvidia.qsa as _qsa_mod
+
+_cls = _qsa_impl.build_impl_class()
+assert issubclass(_cls, _qsa_mod.Qwen4ExpQSAImpl), (
+    f"mjolnir QSA impl does not subclass this base's Qwen4ExpQSAImpl "
+    f"(mro[1]={_cls.__mro__[1].__module__}.{_cls.__mro__[1].__name__})"
+)
+_params = inspect.signature(_cls.forward).parameters
+for _kw in ("token_to_req", "use_prefill_config", "output_gate"):
+    assert _kw in _params and _params[_kw].kind is inspect.Parameter.KEYWORD_ONLY, (
+        f"QSA impl forward is missing the kw-only {_kw!r} the 0.34 _run_qsa passes"
+    )
+print("qsa swap contract: subclass + kw-only forward OK")
 PY
 
 # ── GPU gate for the Thor fused-draft-decode kernel (needs a CUDA device) ────
