@@ -410,7 +410,9 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
          8K prefills mixed with decode, per GDN path (the day-0 Phase 4
          mandatory check; pure bench config);
       4. the CLOCK slot-pool **prototype only**: a `ple_cache.py` module
-         seam + CPU tests against the 0.34 `ple_layer.py` interfaces,
+         seam + host-side tests against the 0.34 `ple_layer.py`
+         interfaces (the pool itself is GPU-resident — only the index
+         and the tests are host-side, the NemoClaw design),
          flag-gated, NOTICE §5 attribution in the header — parked
          (`ar/parked/`) until the shape lock says `ple_layer_ids` is
          non-empty. NO kernel-side work and NO productionization before

@@ -174,7 +174,10 @@ import vllm.v1.core.kv_cache_coordinator
 import vllm.v1.core.single_type_kv_cache_manager
 print("imports OK, vllm", vllm.__version__)
 
-# The QSA impl-swap contract (CPU-only): the kernel package must subclass
+# The QSA impl-swap contract, checked at build time (the build host has
+# no GPU — this is an import-level signature/subclass assert only; the
+# kernel itself always runs on the device, see qsa_impl.py): the kernel
+# package must subclass
 # THIS base's stock impl under its 0.34 name and expose the kw-only forward
 # the layer's _run_qsa call site uses. Catches the rename/arity class of
 # drift at build time instead of at first serving.
