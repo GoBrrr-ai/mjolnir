@@ -173,3 +173,48 @@ on sm_110 with stock vLLM 0.32.0 paths (Mjolnir image, `--enforce-eager`):
   (the 27B shapes and the MTP ring constraint — community-reported, unconfirmed);
 - this repo: `docker/vllm-thor/PATCHES.md` ("Thor qwen4 dense decoder"),
   `src/mjolnir/mjolnir/arch/thor/qsa.py`.
+
+## The NemoClaw-Thor gap analysis (2026-11-16)
+
+A second Thor stack serves the same family today
+([NemoClaw-Thor](https://github.com/pastoriomarco/NemoClaw-Thor), serving
+recipes for Qwen3.8-Flash-Next — the `qwen4_exp` template). Its author also
+reviewed our patch list. The findings, re-based on **v0.34.0** (their audit
+ran on 0.33; three of their overlays are base there now — verified on the
+tag):
+
+| Their item | Mjolnir 0.34 state | Day-0 action |
+|---|---|---|
+| PLE table on NVMe + CLOCK slot pool (`VLLM_PLE_DISK`, −2 ms/step, KV 312K→475K) | **Stock since 0.34**: #59958 PLE disk offload (`--engram-config '{"disk_offload": true}'`) is in the tag, `ple_layer.py`/`ngram_embedding.py` in `qwen4_exp`. Their data: without a disk path vLLM allocates ~112 GB pre-load → OOM on the 122 GiB board | Phase 0 mandates the engram flag when `ple_layer_ids` is non-empty; a CLOCK pool is a post-day-0 opt, not ours to build |
+| FP4-Local checkpoints (#64312 CSF scales + #64869 WeightsMapper) | **Both in 0.34** (`608365b0f`, `87cb835db`) — their overlays are base now | None — FP4-Local checkpoints load stock |
+| `cooperative_topk` sm_110 guard | #56102 in 0.34; our patch retired | None |
+| CuTe DSL MoE on sm_110 (FlashInfer FC1/FC2 + `moe_utils` arch + vLLM selector), MXFP8 C3 tactic, CUTLASS-MoE unlock | Not upstream (their overlays carry it); **moot for the dense 27B** — dense `mlp_only_layers` has no routed experts. Applies only if a Qwen4 MoE member ships | Conditional: revisit at a Qwen4-MoE day-0 |
+| Screened lm_head (#60566) | Still open upstream; our alternative is `MJOLNIR_LM_HEAD=fp8` (LMH8) | Unchanged: benchmark-vs-LMH8 at bump time (watch list) |
+| Broad online FP8 — draft head, MTP dense, side layers **with the QSA indexer projections left BF16** | Knobs exist here (`MJOLNIR_LM_HEAD=fp8`, the MTP_FP8/MTP_LAYER pair); the quality datum is new: their N2→N3 A/B — FP8 on the fused QSA `qkv_proj` indexer cost 5 ToolEval points (86→93), everything else held | Phase 2: any quantized-side-layer pass keeps the QSA indexer projections BF16 (`QWEN4EXP_SIDE_FP8_SKIP`-style); our calibration defaults already skip them |
+| Draft vocabulary (47K `QWEN4EXP_DRAFT_VOCAB`) | Covered: the `VT64K` pattern + `mjolnir calibrate --draft-vocab` | None; their A/B found no think-off gain — supports opt-in |
+| Draft FULL graphs (`VLLM_SPEC_STEP_DRAFT_FULL_CG`), spec-step stats | Our fused-draft CG family covers the mechanism (50885 + the dspark/cg-gate pair, re-anchored on 0.34 incl. the #60989 speculator rework); counters live in `bench`/`verify spec` | None |
+| **GDN c4 stagger** — their required check: 4 concurrent 8K prefills, overlay on/off (single-request tests miss it); we measured −30 % aggregate at c4/8K on 0.33 and retired the pair | Still unexplained; 0.34 adds a third path (#65050 CuTeDSL, opt-in) | Phase 4 gains the explicit 4×8K stagger A/B across {stock-FLA, cutedsl, (FI when 0.7.x lands)} |
+| FN_STATS step timing | `bench`/`verify spec` counters + `verify profile` | None |
+
+Corrections to their review of us: the patch count is **11 vLLM-side + 1
+FlashInfer-side on 0.34** (not 18 on 0.33 — four retired at the bump), and
+the CUTLASS-FP4 guard is upstream (#62275 in the tag), not a carried patch.
+
+### Attribution
+
+The PLE/ngram serving ideas we may pre-empt — the CLOCK slot pool, the
+page-cache gather, the prefetch/early-row split — are
+[Marco Pastorio's](https://github.com/pastoriomarco)
+([NemoClaw-Thor](https://github.com/pastoriomarco/NemoClaw-Thor), **MIT**)
+designs; his own stack credits Edge-LLM's `pleReadPlan`/`pleReadExecutor`
+and the TRT-LLM-EDGE CLOCK policy as the models. Any Mjolnir reimplementation
+carries the attribution in the shipping artifact — **section 5 of
+[`NOTICE`](../../NOTICE) records the obligation** (license, what derives
+from what, and where the notice must appear: the patch header, module
+docstring or config comment that first ships it). The stock 0.34 path needs
+no attribution (vLLM #59958 is the project's own).
+
+Net: **no new Mjolnir code is required for the 0.34-basis day-0** — the
+gaps it does have are the day-0 runbook updates below (PLE engram path, the
+c4 stagger check, the indexer-BF16 quantization rule) and the standing
+device ladder.
