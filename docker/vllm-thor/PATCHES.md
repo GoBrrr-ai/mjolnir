@@ -540,7 +540,15 @@ text, so the whole `jit/attention/modules.py` section is regenerated against
 the wheel (net diff; the dropped hunks were line-collapses) and
 `apply_patches.py` patches with `--fuzz=3` (one `prefill.py` context needs
 it). Clean-room: fresh-wheel apply 0 FAILED, full sentinel set green, all
-four Python files parse.**
+four Python files parse. The first device gate then caught a real one the
+sentinels cannot see: 0.7.3 grew `*_scale_smem_ptr` trailing args on the
+plain `compute_qk`/`compute_sfm_v` calls, which broke the V-hunk's context
+match and let `--fuzz` slide the insertion into the `USE_SINGLE_PREFILL…`
+branch (dead def, `warp_vo_base` unqualified). The whole `prefill.cuh`
+section is likewise regenerated against the wheel: fp6 arms mirrored onto
+the 0.7.3 else-shape (scale args included, per the "stock path unchanged"
+intent), the misplaced `vosplit` back in its own branch, fp6 last in the
+chain — fp6-expand canary bit-exact 4/4 heads on Thor.**
 
 **Sentinel:** `verify_patches.py` checks the fp6 struct in `vec_dtypes.cuh`,
 the partial-src loader in `cp_async.cuh`, and — the "used, not just defined"
