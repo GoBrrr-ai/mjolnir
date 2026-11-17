@@ -201,6 +201,10 @@ def child(args) -> None:
         "max_num_seqs": max(16, len(PROMPTS)),
         "seed": 0,
     }
+    if os.environ.get("MJOLNIR_SMOKE_BLOCK"):
+        # page A/B: the 0.33 chooser picked 16 everywhere, 0.34 picks 64 —
+        # pin to split kernel-page effects from the rest
+        kw["block_size"] = int(os.environ["MJOLNIR_SMOKE_BLOCK"])
     if args.spec:
         kw["speculative_config"] = {
             "method": "ngram",
@@ -365,6 +369,17 @@ def _fit_gpu_mem(requested: float) -> float:
 
 
 def main():
+    _probe = os.environ.get("MJOLNIR_PROBE")
+    if _probe and os.path.exists(_probe):
+        # fp6 composition probe: load hook module (patches the seams in
+        # place); children re-exec this file with the same env, so the
+        # engine process is the one instrumented.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("mjolnir_probe_hooks", _probe)
+        if spec is not None and spec.loader is not None:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3-0.6B")
     ap.add_argument("--reference", default="FLASHINFER")
