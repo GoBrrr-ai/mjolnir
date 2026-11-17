@@ -1,0 +1,29 @@
+# The 0.34 Fi half of the CuTe DSL NVFP4 MoE sm_110 enablement (the W4A4
+# follow-up): 0.34 rewrote the wrappers as top-level files with a hard
+# `major != 10` gate; this admits family 110 exactly like the 0.33-era
+# fi-cutedsl-moe-sm110.patch did (the same one-line semantics, the new paths).
+# The moe_utils majors already include 11 upstream -- no hunk for it.
+--- a/flashinfer/fused_moe/cute_dsl/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py
++++ b/flashinfer/fused_moe/cute_dsl/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py
+@@ -686,7 +686,8 @@
+     # Check compute capability
+     major, minor = get_compute_capability(a.device)
+     is_rubin = mma_tiler is not None and mma_inst_shape is not None
+-    if major != 10:
++    # THOR_SM110_CUTEDSL_MOE: CuTe DSL 4.8 emits sm_110a natively.
++    if major not in (10, 11):  # THOR_SM110_CUTEDSL_MOE
+         raise ValueError(
+             f"Blockscaled contiguous gather grouped GEMM requires SM10x family. "
+             f"Got SM{major}{minor}."
+--- a/flashinfer/fused_moe/cute_dsl/blockscaled_contiguous_grouped_gemm_finalize_fusion.py
++++ b/flashinfer/fused_moe/cute_dsl/blockscaled_contiguous_grouped_gemm_finalize_fusion.py
+@@ -500,7 +500,8 @@
+     # Check compute capability
+     major, minor = get_compute_capability(a.device)
+     is_rubin = mma_tiler is not None and mma_inst_shape is not None
+-    if major != 10:
++    # THOR_SM110_CUTEDSL_MOE: CuTe DSL 4.8 emits sm_110a natively.
++    if major not in (10, 11):  # THOR_SM110_CUTEDSL_MOE
+         raise ValueError(
+             f"Blockscaled contiguous grouped GEMM with finalize fusion requires SM10x family. "
+             f"Got SM{major}{minor}."

@@ -54,6 +54,20 @@ contributors. thor-gdn-prefill-fi-sm110.patch modifies flashinfer/gdn_prefill.py
 in the image's FlashInfer package.
 
 -------------------------------------------------------------------------------
+5. NemoClaw-Thor (PLE / ngram serving ideas)                      MIT
+-------------------------------------------------------------------------------
+https://github.com/pastoriomarco/NemoClaw-Thor — Copyright Marco Pastorio.
+Any Mjolnir implementation of the partially-resident-embedding (PLE) n-gram
+table serving from that project's recipes — the CLOCK slot pool, the disk
+page-cache path, the prefetch/early-row-fetch split — is a reimplementation
+and MUST carry this attribution in the patch, module docstring or config
+comment that first ships it (per the repo convention: new third-party
+derivation -> this file). The qwen4 gap analysis
+(docs/faq/qwen4-27b.md, "The NemoClaw-Thor gap analysis") is the design
+record; the upstream PLE disk offload itself is vLLM #59958, in the base
+since 0.34.0.
+
+-------------------------------------------------------------------------------
 The narandill/mjolnir-vllm container image
 -------------------------------------------------------------------------------
 The image is built FROM the official vllm/vllm-openai image and redistributes

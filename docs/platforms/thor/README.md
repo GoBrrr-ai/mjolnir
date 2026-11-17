@@ -33,7 +33,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
     <tr><th align="left" width="250">model</th><th align="center" width="250">default config</th><th align="center" width="250">decode</th><th align="center" width="250">prefill</th></tr>
   </thead>
   <tbody>
-    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md"><code>NVFP4_MJOLNIR_E2M3_LMH8_VT64K</code></a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 36.4 t/s</span></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">4427.6 t/s</span></td></tr>
+    <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md"><code>NVFP4_MJOLNIR_E2M3_LMH8_VT64K</code></a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 40.7 t/s</span></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">4325.4 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_E2M3_LMH8_VT64K/README.md"><code>NVFP4_MJOLNIR_E2M3_LMH8_VT64K</code></a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">7575.5 t/s</span></td></tr>
   </tbody>
 </table>
@@ -89,9 +89,9 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 |---|---|---|---|
 | **Mjolnir · e2m3 KV** | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | Mjolnir kernel + fp8 lm_head + 64K MTP drafter | e2m3, HND pages |
 | **Mjolnir · fp8 KV** | `NVFP4_MJOLNIR` | Mjolnir kernel | fp8 e4m3, HND pages |
-| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.33.0 FlashInfer for `sm_110` | fp8 e4m3, NHD pages |
-| **FlashAttention&nbsp;4 · hd256 fp8** | `NVFP4_FA4hd256` | FA4 hd256 as our image serves it — the patched FA4: 1-CTA decode carve-out, no SplitKV (structural in vLLM 0.33.0's vendored kernel) | fp8 e4m3 Q+KV, NHD pages |
-| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — on demand (`--legs fa2`); stock vLLM 0.33.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
+| **FlashInfer · fp8 KV** | `NVFP4` | The fastest official vllm 0.34.0 FlashInfer for `sm_110` | fp8 e4m3, NHD pages |
+| **FlashAttention&nbsp;4 · hd256 fp8** | `NVFP4_FA4hd256` | FA4 hd256 as our image serves it — the patched FA4: 1-CTA decode carve-out, no SplitKV (structural in vLLM 0.34.0's vendored kernel) | fp8 e4m3 Q+KV, NHD pages |
+| **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — on demand (`--legs fa2`); stock vLLM 0.34.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
 
 <img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
@@ -120,7 +120,7 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 
 | official | Mjolnir | official t/s | Mjolnir t/s | change | at |
 |---|---|--:|--:|--:|---|
-| `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 22.7 | 34.2 | +50.9% | 32K |
+| `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 24.4 | 31.8 | +30.3% | 32K |
 
 <img src="../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
@@ -131,23 +131,23 @@ Each cell: official → **Mjolnir** and the relative change of the value — **t
 
 | context | requests | decode (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | prefill (t/s, ↑) $\color{grey}\scriptstyle\text{throughput change}$ | TTFT (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ | ITL (ms, ↓) $\color{grey}\scriptstyle\text{latency change}$ |
 |--:|--:|--:|--:|--:|--:|
-| no ctx | 1 | 21.7 → **36.4** $\color{#16a34a}{\text{+67.9\\%}}$ | — | 896 → **708** $\color{#16a34a}{\text{−21.0\\%}}$ | 47.7 → **27.6** $\color{#16a34a}{\text{−42.2\\%}}$ |
-| 4K | 1 | 22.5 → **32.9** $\color{#16a34a}{\text{+46.3\\%}}$ | 2,778 → **7,469** $\color{#16a34a}{\text{+168.9\\%}}$ | 2,334 → **1,979** $\color{#16a34a}{\text{−15.2\\%}}$ | 44.6 → **30.9** $\color{#16a34a}{\text{−30.7\\%}}$ |
-| 8K | 1 | 23.4 → **36.4** $\color{#16a34a}{\text{+55.4\\%}}$ | 2,485 → **4,428** $\color{#16a34a}{\text{+78.2\\%}}$ | 4,243 → **3,467** $\color{#16a34a}{\text{−18.3\\%}}$ | 42.9 → **27.7** $\color{#16a34a}{\text{−35.5\\%}}$ |
-| 16K | 1 | 23.7 → **36.2** $\color{#16a34a}{\text{+52.9\\%}}$ | 2,178 → **3,465** $\color{#16a34a}{\text{+59.1\\%}}$ | 8,585 → **6,475** $\color{#16a34a}{\text{−24.6\\%}}$ | 42.6 → **27.9** $\color{#16a34a}{\text{−34.6\\%}}$ |
-| 32K | 1 | 22.7 → **34.2** $\color{#16a34a}{\text{+50.9\\%}}$ | 1,746 → **2,943** $\color{#16a34a}{\text{+68.6\\%}}$ | 20,068 → **12,986** $\color{#16a34a}{\text{−35.3\\%}}$ | 44.3 → **29.3** $\color{#16a34a}{\text{−33.8\\%}}$ |
-| no ctx | 2 | 44.6 → **68.3** $\color{#16a34a}{\text{+53.1\\%}}$ | — | 1,428 → **1,248** $\color{#16a34a}{\text{−12.6\\%}}$ | 43.0 → **27.7** $\color{#16a34a}{\text{−35.7\\%}}$ |
-| 4K | 2 | 44.4 → **67.2** $\color{#16a34a}{\text{+51.4\\%}}$ | 2,727 → **3,017** $\color{#16a34a}{\text{+10.6\\%}}$ | 4,442 → **4,076** $\color{#16a34a}{\text{−8.2\\%}}$ | 43.1 → **28.5** $\color{#16a34a}{\text{−33.7\\%}}$ |
-| 8K | 2 | 44.1 → **59.8** $\color{#16a34a}{\text{+35.8\\%}}$ | 2,453 → **2,967** $\color{#16a34a}{\text{+21.0\\%}}$ | 8,286 → **6,784** $\color{#16a34a}{\text{−18.1\\%}}$ | 43.7 → **30.6** $\color{#16a34a}{\text{−30.1\\%}}$ |
-| 16K | 2 | 40.9 → **58.8** $\color{#16a34a}{\text{+43.8\\%}}$ | 2,166 → **2,829** $\color{#16a34a}{\text{+30.6\\%}}$ | 16,951 → **12,949** $\color{#16a34a}{\text{−23.6\\%}}$ | 46.1 → **30.8** $\color{#16a34a}{\text{−33.1\\%}}$ |
-| 32K | 2 | 39.2 → **45.3** $\color{#16a34a}{\text{+15.6\\%}}$ | 1,738 → **2,655** $\color{#16a34a}{\text{+52.8\\%}}$ | 39,691 → **25,600** $\color{#16a34a}{\text{−35.5\\%}}$ | 46.9 → **36.8** $\color{#16a34a}{\text{−21.6\\%}}$ |
-| no ctx | 4 | 80.1 → **110.3** $\color{#16a34a}{\text{+37.7\\%}}$ | — | 2,757 → **2,514** $\color{#16a34a}{\text{−8.8\\%}}$ | 44.7 → **30.9** $\color{#16a34a}{\text{−31.0\\%}}$ |
-| 4K | 4 | 78.0 → **98.9** $\color{#16a34a}{\text{+26.7\\%}}$ | 2,681 → **2,958** $\color{#16a34a}{\text{+10.3\\%}}$ | 9,009 → **8,144** $\color{#16a34a}{\text{−9.6\\%}}$ | 46.0 → **33.4** $\color{#16a34a}{\text{−27.4\\%}}$ |
-| 8K | 4 | 74.8 → **71.7** $\color{#dc2626}{\text{−4.1\\%}}$ | 2,434 → **2,893** $\color{#16a34a}{\text{+18.8\\%}}$ | 16,676 → **13,444** $\color{#16a34a}{\text{−19.4\\%}}$ | 47.4 → **39.8** $\color{#16a34a}{\text{−15.9\\%}}$ |
-| 16K | 4 | 41.6 → **45.3** $\color{#16a34a}{\text{+8.8\\%}}$ | 2,133 → **2,755** $\color{#16a34a}{\text{+29.1\\%}}$ | 33,024 → **24,775** $\color{#16a34a}{\text{−25.0\\%}}$ | 59.6 → **51.2** $\color{#16a34a}{\text{−14.1\\%}}$ |
-| 32K | 4 | 11.1 → **16.0** $\color{#16a34a}{\text{+44.7\\%}}$ | 1,679 → **2,726** $\color{#16a34a}{\text{+62.4\\%}}$ | 67,684 → **41,074** $\color{#16a34a}{\text{−39.3\\%}}$ | 171.4 → **120.5** $\color{#16a34a}{\text{−29.7\\%}}$ |
+| no ctx | 1 | 22.1 → **40.7** $\color{#16a34a}{\text{+84.1\\%}}$ | — | 836 → **669** $\color{#16a34a}{\text{−20.0\\%}}$ | 47.4 → **24.9** $\color{#16a34a}{\text{−47.5\\%}}$ |
+| 4K | 1 | 25.1 → **38.7** $\color{#16a34a}{\text{+54.1\\%}}$ | 2,915 → **7,382** $\color{#16a34a}{\text{+153.2\\%}}$ | 2,253 → **1,983** $\color{#16a34a}{\text{−12.0\\%}}$ | 40.0 → **26.1** $\color{#16a34a}{\text{−34.8\\%}}$ |
+| 8K | 1 | 24.6 → **36.2** $\color{#16a34a}{\text{+47.0\\%}}$ | 2,609 → **4,325** $\color{#16a34a}{\text{+65.8\\%}}$ | 4,070 → **3,515** $\color{#16a34a}{\text{−13.7\\%}}$ | 41.1 → **28.0** $\color{#16a34a}{\text{−31.8\\%}}$ |
+| 16K | 1 | 23.6 → **34.1** $\color{#16a34a}{\text{+44.6\\%}}$ | 2,264 → **3,635** $\color{#16a34a}{\text{+60.5\\%}}$ | 8,287 → **6,219** $\color{#16a34a}{\text{−25.0\\%}}$ | 42.5 → **29.8** $\color{#16a34a}{\text{−30.0\\%}}$ |
+| 32K | 1 | 24.4 → **31.8** $\color{#16a34a}{\text{+30.3\\%}}$ | 1,801 → **3,118** $\color{#16a34a}{\text{+73.1\\%}}$ | 19,473 → **12,312** $\color{#16a34a}{\text{−36.8\\%}}$ | 41.4 → **31.5** $\color{#16a34a}{\text{−23.8\\%}}$ |
+| no ctx | 2 | 47.2 → **67.1** $\color{#16a34a}{\text{+42.2\\%}}$ | — | 1,333 → **1,230** $\color{#16a34a}{\text{−7.7\\%}}$ | 40.1 → **28.5** $\color{#16a34a}{\text{−29.0\\%}}$ |
+| 4K | 2 | 47.0 → **64.1** $\color{#16a34a}{\text{+36.4\\%}}$ | 2,821 → **3,172** $\color{#16a34a}{\text{+12.5\\%}}$ | 4,296 → **3,829** $\color{#16a34a}{\text{−10.9\\%}}$ | 40.9 → **28.8** $\color{#16a34a}{\text{−29.7\\%}}$ |
+| 8K | 2 | 47.8 → **65.1** $\color{#16a34a}{\text{+36.2\\%}}$ | 2,559 → **2,979** $\color{#16a34a}{\text{+16.4\\%}}$ | 7,942 → **6,749** $\color{#16a34a}{\text{−15.0\\%}}$ | 40.9 → **28.8** $\color{#16a34a}{\text{−29.5\\%}}$ |
+| 16K | 2 | 45.1 → **58.8** $\color{#16a34a}{\text{+30.2\\%}}$ | 2,240 → **2,965** $\color{#16a34a}{\text{+32.4\\%}}$ | 16,399 → **12,380** $\color{#16a34a}{\text{−24.5\\%}}$ | 42.7 → **31.1** $\color{#16a34a}{\text{−27.2\\%}}$ |
+| 32K | 2 | 38.3 → **47.5** $\color{#16a34a}{\text{+24.1\\%}}$ | 1,787 → **2,817** $\color{#16a34a}{\text{+57.7\\%}}$ | 38,602 → **24,062** $\color{#16a34a}{\text{−37.7\\%}}$ | 47.0 → **35.5** $\color{#16a34a}{\text{−24.4\\%}}$ |
+| no ctx | 4 | 89.8 → **107.6** $\color{#16a34a}{\text{+19.9\\%}}$ | — | 2,591 → **2,379** $\color{#16a34a}{\text{−8.2\\%}}$ | 41.5 → **30.6** $\color{#16a34a}{\text{−26.4\\%}}$ |
+| 4K | 4 | 78.9 → **105.1** $\color{#16a34a}{\text{+33.2\\%}}$ | 2,772 → **3,098** $\color{#16a34a}{\text{+11.7\\%}}$ | 8,716 → **7,777** $\color{#16a34a}{\text{−10.8\\%}}$ | 45.2 → **31.8** $\color{#16a34a}{\text{−29.7\\%}}$ |
+| 8K | 4 | 80.5 → **66.3** $\color{#dc2626}{\text{−17.7\\%}}$ | 2,533 → **2,982** $\color{#16a34a}{\text{+17.7\\%}}$ | 16,028 → **12,895** $\color{#16a34a}{\text{−19.5\\%}}$ | 45.1 → **39.1** $\color{#16a34a}{\text{−13.4\\%}}$ |
+| 16K | 4 | 42.9 → **46.8** $\color{#16a34a}{\text{+9.1\\%}}$ | 2,217 → **2,894** $\color{#16a34a}{\text{+30.5\\%}}$ | 31,760 → **23,418** $\color{#16a34a}{\text{−26.3\\%}}$ | 57.2 → **49.4** $\color{#16a34a}{\text{−13.7\\%}}$ |
+| 32K | 4 | 11.7 → **16.7** $\color{#16a34a}{\text{+42.3\\%}}$ | 1,767 → **2,755** $\color{#16a34a}{\text{+55.9\\%}}$ | 64,923 → **40,102** $\color{#16a34a}{\text{−38.2\\%}}$ | 156.8 → **116.8** $\color{#16a34a}{\text{−25.5\\%}}$ |
 
-> <sub>official: `vllm/vllm-openai:v0.33.0 · NVFP4 (vLLM 0.33.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.33.0-headfix3 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
+> <sub>official: `vllm/vllm-openai:v0.34.0 · NVFP4 (vLLM 0.34.0 (official image))` · Mjolnir: `narandill/mjolnir-vllm:v0.34.0 · NVFP4_MJOLNIR_E2M3_LMH8_VT64K (Mjolnir fp6 KV + fp8 lm_head + 64K draft vocab)` · TTFT = time to first token; ITL = inter-token latency (1000 / per-request decode rate) · from [`benchmarks/history.jsonl`](../../../benchmarks/history.jsonl).</sub>
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -177,7 +177,7 @@ The full walkthrough — one chapter per experiment, each with its chart, data t
 
 ## <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="26" align="absmiddle"> What's in the Mjolnir image
 
-[`narandill/mjolnir-vllm:v0.33.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.33.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md) — the full inventory lives there and in the image's Docker Hub description. Tags follow the upstream vLLM version.
+[`narandill/mjolnir-vllm:v0.34.0`](https://hub.docker.com/r/narandill/mjolnir-vllm) = the official `vllm/vllm-openai:v0.34.0` image + the `mjolnir-kernel` package + a hand-adapted [patch stack for Thor](../../../docker/vllm-thor/PATCHES.md) — the full inventory lives there and in the image's Docker Hub description. Tags follow the upstream vLLM version.
 
 
 

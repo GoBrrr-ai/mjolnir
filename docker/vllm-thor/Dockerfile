@@ -7,11 +7,11 @@
 # envs at serve time (the Thor pins in ENV below are the build default).
 #
 # BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.33.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.34.0 .
 #   (or: mjolnir image build)
 #
 # Image tags follow the upstream vLLM version this overlays (BASE_IMAGE below):
-# vllm/vllm-openai:v0.33.0 -> narandill/mjolnir-vllm:v0.33.0 (+ :v0.33.0-<sha>).
+# vllm/vllm-openai:v0.34.0 -> narandill/mjolnir-vllm:v0.34.0 (+ :v0.34.0-<sha>).
 # .github/workflows/docker-image.yml derives the tag from BASE_IMAGE.
 #
 # This is a SMALL OVERLAY, not a from-source build. It takes the official
@@ -47,12 +47,12 @@
 # already merged is skipped, not re-applied.
 #
 # Verified against base:
-#   vllm 0.33.0  (vllm/vllm-openai:v0.33.0, released 2026-11)
-#   flashinfer-python / flashinfer-cubin 0.7.2.post1
-#   torch 2.14.0+cu130 (Triton 3.8.0)
+#   vllm 0.34.0  (vllm/vllm-openai:v0.34.0, tag 62d4bc3c7, released 2026-11)
+#   flashinfer-python / flashinfer-cubin 0.7.3
+#   torch 2.14.0+cu130 (Triton 3.8.0); vllm-flash-attn pin d8dca8f06c74
 #
 # Build (on Thor or any arm64 builder; repo-root context):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.33.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.34.0 .
 #
 # Base image lineage: vllm/vllm-openai (aarch64, CUDA 13.0, Ubuntu 24.04,
 # Python 3.12). JetPack 7.x on Thor ships CUDA 13.0, so the runtime driver
@@ -60,17 +60,18 @@
 # CUDA 13.0 only and the `-ubuntu2404` suffix tag is gone: the plain
 # version tag IS the ubuntu2404 aarch64 build.)
 
-ARG BASE_IMAGE=vllm/vllm-openai:v0.33.0
-# Pinned digest so the default build is reproducible. Override with
-# --build-arg BASE_IMAGE=vllm/vllm-openai@<digest> (or the floating tag,
-# though the floating tag is the recommended BUMP path, see above).
-ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e
+ARG BASE_IMAGE=vllm/vllm-openai:v0.34.0
+# Pinned digest so the default build is reproducible: the release
+# multi-arch INDEX (arm64 leaf e40eb98263fa…, published 2026-11-16
+# 22:23 UTC; tag sha 62d4bc3c7). While this ARG holds a value it WINS
+# over BASE_IMAGE — override THIS one (or empty it) to float.
+ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
 ARG MJOLNIR_REVISION=unknown
 LABEL org.opencontainers.image.title="Mjolnir — vLLM for Jetson AGX Thor (sm_110)" \
-        org.opencontainers.image.description="vllm-openai v0.33.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
+        org.opencontainers.image.description="vllm-openai v0.34.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
         org.opencontainers.image.source="https://github.com/thor-arena/mjolnir" \
         org.opencontainers.image.revision="${MJOLNIR_REVISION}" \
         org.opencontainers.image.licenses="Apache-2.0 AND BSD-3-Clause"
@@ -149,18 +150,14 @@ import importlib, importlib.util, pathlib, py_compile
 root = pathlib.Path(importlib.util.find_spec("vllm").origin).parent
 touched = [
     "v1/attention/backends/flashinfer.py",
-    "v1/worker/gpu/cudagraph_utils.py",
+    "v1/worker/gpu/spec_decode/autoregressive/speculator.py",
     "v1/worker/gpu/spec_decode/dflash/speculator.py",
-    "v1/worker/gpu/spec_decode/target_dependent_ar/speculator.py",
     "v1/attention/backends/fa_utils.py",
     "v1/attention/backends/registry.py",
-    "model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py",
-    "model_executor/layers/fused_moe/oracle/mxfp4.py",
-    "model_executor/layers/quantization/utils/mxfp4_utils.py",
-    "model_executor/layers/fused_moe/experts/gpt_oss_triton_kernels_moe.py",
-    "model_executor/layers/fused_moe/experts/cutlass_moe.py",
     "vllm_flash_attn/cute/interface.py",
     "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
+    "models/qwen4_exp/nvidia/model.py",
+    "models/qwen4_exp/nvidia/qsa.py",
 ]
 for rel in touched:
     py_compile.compile(str(root / rel), doraise=True)
@@ -172,6 +169,39 @@ import vllm.v1.core.kv_cache_utils
 import vllm.v1.core.kv_cache_coordinator
 import vllm.v1.core.single_type_kv_cache_manager
 print("imports OK, vllm", vllm.__version__)
+
+# The QSA impl-swap contract, checked at build time (the build host has
+# no GPU — this is an import-level signature/subclass assert only; the
+# kernel itself always runs on the device, see qsa_impl.py): the kernel
+# package must subclass
+# THIS base's stock impl under its 0.34 name and expose the kw-only forward
+# the layer's _run_qsa call site uses. Catches the rename/arity class of
+# drift at build time instead of at first serving.
+import inspect
+
+import mjolnir.qsa_impl as _qsa_impl
+
+# qsa <-> model is order-sensitive upstream (qsa does `from . import model`
+# mid-file): model must be imported first, as every vLLM runtime path does.
+import vllm.models.qwen4_exp.nvidia.model as _qsa_model_mod  # noqa: F401
+import vllm.models.qwen4_exp.nvidia.qsa as _qsa_mod
+
+_cls = _qsa_impl.build_impl_class()
+assert issubclass(_cls, _qsa_mod.Qwen4ExpQSAImpl), (
+    f"mjolnir QSA impl does not subclass this base's Qwen4ExpQSAImpl "
+    f"(mro[1]={_cls.__mro__[1].__module__}.{_cls.__mro__[1].__name__})"
+)
+_params = inspect.signature(_cls.forward).parameters
+_positional = [p.name for p in _params.values()
+               if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD]
+assert _positional == ["self", "layer", "query", "kv_cache", "attn_metadata", "output"], (
+    f"QSA impl forward positional surface drifted: {_positional}"
+)
+for _kw in ("token_to_req", "use_prefill_config", "output_gate"):
+    assert _kw in _params and _params[_kw].kind is inspect.Parameter.KEYWORD_ONLY, (
+        f"QSA impl forward is missing the kw-only {_kw!r} the 0.34 _run_qsa passes"
+    )
+print("qsa swap contract: subclass + kw-only forward OK")
 PY
 
 # ── GPU gate for the Thor fused-draft-decode kernel (needs a CUDA device) ────
@@ -205,7 +235,7 @@ RUN cp -r /opt/vllm-patches/patches /usr/share/doc/mjolnir/patches
 RUN rm -rf /opt/vllm-patches && true
 
 # ── Build ──────────────────────────────────────────────────────────────────
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.33.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.34.0 .
 #
 # This is a thin overlay: the heavy lifting (CUDA kernels for SM 11.0a) comes
 # from the prebuilt wheel in the base image. The first server launch pays a

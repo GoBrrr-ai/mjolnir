@@ -378,6 +378,57 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
 `docs/faq/releasing.md`.
 
 ## Open work
+- [x] **0.34.0 correctness + smoke — the bump proof (2026-11-17)**: base pinned
+      (`v0.34.0`, digest `e40eb982…` arm64), image builds clean; device gates
+      green (T9/T10/T11, T6 honestly skipped — the gdn pair is retired-0.33,
+      fi-update 7/7, dspark-noncausal 5/5, fp6-expand bit-exact 4/4);
+      `verify vllm` **39/39** (30 kernel tests + graph/eager/e2m3/lmh8 smokes).
+      The one real regression found+root-caused: **vLLM #63232 (0.34) passes
+      None for scalar-1 FA4 descales; the cute interface packs descales
+      positionally and only the SM90 branch materializes missing slots — the
+      is_fp8 path shifts K/V scales and corrupts the fp6 fallback's
+      attention** (period-1 token loops; the full bisect in PATCHES.md §"0.34
+      fp6 fallback regression"). Fix: `MjolnirImpl._descale` overrides with
+      the 0.33 never-None semantics — FA4 stays the fallback. Also en route:
+      the fi-fp6 patch's Python side
+      re-anchored to 0.7.3 (modules.py regenerated, `--fuzz=3`), prefill.cuh
+      fp6 arms mirrored to the 0.7.3 else-shape (`*_scale_smem_ptr` args),
+      the QSA-smoke import order (upstream `qsa`↔`model` pair), the
+      smoke's `MJOLNIR_SMOKE_BLOCK`/`MJOLNIR_PROBE` diagnostic hooks. The
+      0.34 e2e re-baseline (`bench e2e`, depths ≤32K) runs separately — the
+      Orin fp8/fp6 legs and the `verify spec` fused-draft c1 gate remain
+      open above.
+- [ ] **Upstream PR sweep (the post-0.34 watch, re-run at every bump)**:
+      work the list in `docker/vllm-thor/PATCHES.md` §Open upstream
+      watch — take #67571 (spec-decode dummy-run cap, merged 2026-11-16
+      post-cut) at the 0.35 re-audit; measure #60566 (screened lm_head)
+      against `MJOLNIR_LM_HEAD=fp8` before adopting; #53337/#44590 stay
+      take-at-a-bump (e2e contamination); re-check the GDN trio (FI
+      #7827, the vLLM selector follow-up, the in-tree CuTeDSL path
+      #65050) and re-test the retired gdn pair's c4 stagger on each;
+      retire/refresh the carry patches (#50885, the dspark/cg-gate pair)
+      at the bump that merges them.
+- [ ] **Qwen4 day-0 prep — branch `feat/qwen4-day0-prep` off
+      `feat/vllm-0.34.0` (queued; GPU-free only)**. Four bounded items, in
+      order:
+      1. `--engram-config` passthrough in the serve/config layer + the
+         `.env` switch pattern (day-0 Phase 0 mandates the flag when
+         `ple_layer_ids` is non-empty — today it's hand-typed JSON);
+      2. engram-aware memory ledger in `verify kv-cache-size` (the table's
+         home must count, or the Phase 3 numbers lie);
+      3. the c4-stagger A/B leg in `mjolnir-cli` `legs.py` — 4 concurrent
+         8K prefills mixed with decode, per GDN path (the day-0 Phase 4
+         mandatory check; pure bench config);
+      4. the CLOCK slot-pool **prototype only**: a `ple_cache.py` module
+         seam + host-side tests against the 0.34 `ple_layer.py`
+         interfaces (the pool itself is GPU-resident — only the index
+         and the tests are host-side, the NemoClaw design),
+         flag-gated, NOTICE §5 attribution in the header — parked
+         (`ar/parked/`) until the shape lock says `ple_layer_ids` is
+         non-empty. NO kernel-side work and NO productionization before
+         that gate; if the dense 27B ships PLE-less (or tiny), the whole
+         item dies cheap. Merge order: this branch lands after
+         `feat/vllm-0.34.0` passes its proof and merges.
 - [ ] **Headline kernel data**: `mjolnir verify bench` on the current kernel,
       commit `benchmarks/raw/verify/**`, re-render (the README shows "pending"
       for stages without a default run).
@@ -501,30 +552,33 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
     (merged Jul 2026): graph-safe uniform multi-token decode; design statement
     confirms frozen plan_info depends only on (batch, total_rows, uniform_q_len)
     — the property our c1 regression fix relies on.
-- **0.34 watch — post-0.33.0 audit (2026-11-13, `v0.33.0`=`4ba787e`, main
-  +1464 commits, no 0.34 cut yet; full notes `task/vllm-0.34up-audit.md`)**:
-  - Merged → base-covers our patches at the next rebase: #62133 + #62275
-    (both sm_110 MoE-gate patches retire), #56102 (cooperative-topk SM110
-    exclusion — the same family guard as `thor-qwen4-topk-sm110`, retires it),
-    #65050 CuteDSL GDN prefill on SM110 (selector + the fewer-SMs-than-heads
-    grid clamp; TTFT −6 % @16k Qwen3.8-27B vs FLA, `auto` still FLA).
-  - GDN-prefill FI on SM110 still pending: flashinfer#7827 open (not in
-    0.7.3/0.7.4), the vLLM follow-up and #63284 (selector can-run/prefer
-    split) open ⇒ 0.35 at the earliest. FI kernel table: 2.0–8.7× vs FLA on
-    Thor GDN shapes (#65054) ⇒ ≈ −14 % TTFT potential; re-test our retired
-    gdn pair's c4 stagger on the cutedsl path at the rebase.
-  - **Model Runner V1 removed (#63373)** — validate the mjolnir
-    backend/builder (+ the `lmhead.py` runner hook) against V2-only main
-    before any bump; the ext-KV-cache wave (#61452 + fixups) touches
-    KVCacheSpec surfaces; #63406 splits prefill/decode CG capture sizes.
-  - FA4: fa_utils churn is small (#65203 sync, #60372) but the
-    vllm-flash-attn pin moved `b273a02`→`af5422c` — re-verify the cute/
-    hunks (fp8kv, hd256-fp8, 1cta) against the new pin; #63232 (skip FP8
-    descale on unit per-tensor scale) is a no-op for our per-channel scales.
-  - qwen4_exp churn is heavy (#64110 FA-dep removal/renames, #65619 shared
-    top-k buffer, #65812 FP8-KV scales honored in QSA, #66834, #66512): the
-    two qwen4 patches are the main re-anchor work. torch pin unchanged
-    (2.14.0); FlashInfer 0.7.2.post1 → 0.7.4 upstream (#65930, #67042).
+- **0.34 bump — DONE (2026-11-16, `v0.34.0`=`62d4bc3c7`, branch
+  `feat/vllm-0.34.0`)**: base pinned (`vllm/vllm-openai:v0.34.0`, digest
+  lands when the hub mirror appears — the release images were not up at
+  the bump), 4 patches retired as base-covered (`49652` — the 0.34
+  speculator rework pins draft graph shapes via
+  `decode_query_lens={1: max_num_reqs}` + `specialize_spec_tokens` — see
+  PATCHES.md; the two sm_110 MoE gates #62133/#62275; qwen4-topk #56102),
+  6 re-anchored (`fa4-fp8kv` cute assert 907→987; `fused-draft-decode`
+  past the `qo_indptr_prefill` block; `fused-draft-t5` re-targeted to
+  `spec_decode/autoregressive/speculator.py::_run_fused_multi_step_decode`
+  — the fused machinery moved out of `target_dependent_ar`;
+  `qwen4-qsa-mjolnir` re-derived for the renamed `Qwen4ExpQSAImpl`, the
+  slim ctor and the kw-only `forward` — `qsa_impl.py` ports the
+  `forward_qsa`→`forward` surface and pulls seq lens from the indexer's
+  side metadata via the forward context), 5 untouched
+  (`50885`/`hd256-fp8`/`1cta`/`mjolnir-backend`/`dense` byte-stable).
+  FI 0.7.2.post1→0.7.3: the fp6 patch applies verbatim (4 of 5 files
+  byte-identical; `prefill.cuh` hunks all land, sentinels green).
+  vllm-flash-attn pin `b273a02`→`d8dca8f06c74`: the hd256 forward kernel
+  is byte-identical, `interface.py` churn is SM90-side only. No-GPU gate
+  green: 11/11 apply on the pristine tag, every `verify_patches` sentinel
+  passes, all 9 touched files py_compile. **The hub mirror landed
+  (2026-11-16 22:23Z; index `20fdb089…`, arm64 leaf `e40eb982…` — pinned
+  in the Dockerfile). Pending device work: the
+  0.34 image build, the serve smoke (qwen4 QSA
+  impl swap + `persistent_topk` on sm_110 now that #56102 landed), the
+  spec/cudagraph canaries, and the e2e re-baseline.**
 
 ## Conventions
 - **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**

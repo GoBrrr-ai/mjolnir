@@ -431,6 +431,18 @@ def _install_fp6_scales(vllm_config, layer_names, h_k: int, d: int) -> None:
 # Impl
 # --------------------------------------------------------------------------
 class MjolnirImpl(_BaseImpl):  # type: ignore[misc, valid-type]
+    def _descale(self, scale: torch.Tensor, scale_float: float, shape: tuple[int, int]) -> torch.Tensor | None:
+        # vLLM 0.34 #63232 passes None for a scalar-1 descale; the cute
+        # interface's DescaleTensors then packs the present tensors
+        # positionally, and only the SM90 fp8_kv_dequant branch materializes
+        # the missing slots -- the is_fp8 path (sm_100/110, our fallback)
+        # shifts K/V scales into the wrong fields and silently corrupts the
+        # attention (the fp6 fallback's period-1 token loops; see
+        # PATCHES.md "0.34 fp6 fallback"). 0.33 always passed real tensors:
+        # keep doing exactly that (the interface's stride canonicalization is
+        # proven innocent -- the bug is the None, not the view).
+        return scale.expand(shape)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # T5 quantizes Q itself (dynamic, per (sequence, KV head)); the

@@ -60,6 +60,12 @@ Image: `narandill/mjolnir-vllm:v0.32.0` — 20 vLLM patches + 2 FlashInfer
 patches, gates 20/20. Ratios are **reference ÷ ours** (>1 = Mjolnir faster,
 ±3% same-run noise — [methodology](../methodology/benchmarking.md)).
 
+> **0.34 basis (the `feat/vllm-0.34.0` bump, 2026-11-16):** the stack is now
+> **11 vLLM-side + 1 FlashInfer-side patches on vLLM 0.34.0** — the topk
+> guard retired upstream (#56102), FP4-Local (#64312/#64869) and the PLE
+> disk offload (#59958) are base. The device numbers above are the 0.32
+> bring-up evidence; the ladder re-runs on 0.34 per the open-work TODO.
+
 ## Phase 0 — the config lands (30 min, no GPU)
 
 ```bash
@@ -80,11 +86,16 @@ Decision tree:
 - `indexer_budget != 2048` or `indexer_compress_ratio != 4` → update
   `IndexerSpec` in `mjolnir/arch/thor/qsa.py` (the constants are asserted,
   the change is mechanical) and re-run `verify qsa` + `qsagain`.
-- If `ple_layer_ids` is non-empty → PLE is present: budget ~95 GiB
-  **host-resident** (vLLM's pinned-host UVA offload, already in 0.32.0 —
-  [#55513](https://github.com/vllm-project/vllm/pull/55513) is in too) and
-  plan `--gpu-memory-utilization` around it — the smoke showed how tight a
-  122 GiB unified board gets when a build runs alongside.
+- If `ple_layer_ids` is non-empty → PLE is present: on the 0.34 base the
+  disk-offload path is STOCK — serve with
+  `--engram-config '{"disk_offload": true}'` (vLLM #59958, in the tag);
+  the host-resident UVA offload (#55513) is the fallback. NemoClaw-Thor's
+  serving data is the warning: without a disk path vLLM allocates ~112 GiB
+  before the weights land and a 122 GiB unified board OOMs at load — plan
+  `--gpu-memory-utilization` around the table's home, and expect the
+  per-step row gather to be the tuning target (their CLOCK slot pool
+  buys ~2 ms/step and +163K KV tokens; a post-day-0 opt, attribution in
+  [NOTICE](../../NOTICE) §5 if reimplemented).
 - `heads_per_ngram` / `ngram_vocab_size_base` → the 64K draft vocab: the
   `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` pattern applies (see the
   [Qwen3.6 configs](../../configs/nvidia/Qwen3.6-35B-A3B/)), including the
@@ -131,6 +142,12 @@ mjolnir calibrate --config <cfg> --draft-vocab   # if the 64K draft vocab path a
 - **Indexer-pool scales are phase 2**: fp8 per-tensor first, fp6 later —
   the calibration extension lands in `mjolnir calibrate` (checklist item 5,
   code pending at the time of writing).
+- **Keep the QSA indexer projections BF16 in any side-layer quantization
+  pass** (the fused `qkv_proj` indexer chooses what sparse attention sees).
+  NemoClaw-Thor's A/B is the datum: online-FP8 everything cost 5 ToolEval
+  points (86→93); restricting the skip to the indexer projections
+  recovered all of it. Our calibration/lmhead knobs already leave them
+  alone — keep it that way for any `--quantization-config`-style pass too.
 
 ## Phase 3 — the device ladder (2–3 h)
 
@@ -162,6 +179,13 @@ uv run mjolnir plot --readme
 - **A default flip (KV dtype, draft count, impl-swap on) requires a
   same-run A/B win across L** — never a single-cell win
   ([methodology](../methodology/benchmarking.md)).
+- **The GDN c4-stagger check is mandatory** (NemoClaw-Thor's required
+  check, our own 0.33 finding): 4 concurrent 8K prefills, mixed with
+  decode, per GDN-prefill path — stock FLA vs the 0.34 opt-in CuTeDSL
+  (`--gdn-prefill-backend cutedsl`, #65050) vs FlashInfer once 0.7.x
+  ships it. A single-request prefill A/B misses the failure mode
+  (requests 2–4's prefills sliding seconds behind, aggregate −30 % at
+  c4/8K as measured on 0.33).
 - The infographic takes the highest decode-gain 1-request cell.
 
 ## If something fails on the day

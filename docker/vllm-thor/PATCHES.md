@@ -1,28 +1,16 @@
 # vLLM Thor PR Patches
 
-Ten vLLM PR fixes / Thor-authored patches, **hand-adapted** onto the vLLM
-base (not a raw `git apply` of the upstream PR diffs — the two originals
-because the base code has diverged from each PR's base, the Thor-authored
-ones to add capabilities the stock backends don't have), plus the
-**Mjolnir attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see
-"The Mjolnir attention backend" below), two for a capability the upstream
-backends don't yet have, two `sm_110` gate probes (see "Thor sm_110 gate
-probes" below), one dispatch-side `sm_110` draft-CG shape gate (see "Thor
-sm_110 draft-CG shape gate" below), one **flashinfer-side** sm_110
-enablement hunk (see "Thor sm_110 GDN prefill enablement (flashinfer
-side)" below), one hd256 FP8-KV kernel + policy patch (probe-gated, T11
-canary in `kernel_test_sm110_gates.py`), one hd256 1CTA decode carve-out
-(see "Thor hd256 1CTA decode carve-out (v11, 2026-09-24)" below), two
-**sm_110 MoE backend gate fixes** (see "Thor MoE backend gates on sm_110"
-below) and the three Thor-authored **qwen4_exp-family patches** (dense
-decoder, the sm_110 top-k guard and the probe-gated Mjolnir QSA decode —
-see "Thor qwen4 dense decoder" and the sections after it below), and the
-**CuTe DSL NVFP4 MoE sm_110 pair** (one vLLM-side, one flashinfer-side — see
-"Thor CuTe DSL NVFP4 MoE on sm_110" below).
-In total: **sixteen vLLM-side patches**, applied by `apply_patches.py` to
-the installed vllm package **and** the installed flashinfer package (two
-more patches there, plus one retired-and-commented); verified by
-`verify_patches.py`.
+Twelve vLLM-side patches (**twelve** files under `patches/` carry them; two
+more are retired-on-file keepers for the GDN retest), **hand-adapted** onto
+the vLLM base (not a raw `git apply` of the upstream PR diffs — the two
+originals because the base code has diverged from each PR's base, the
+Thor-authored ones to add capabilities the stock backends don't have), plus
+the **Mjolnir attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see
+"The Mjolnir attention backend" below) and one **flashinfer-side** fp6 hunk
+(see "fp6 prefill direct-read" below). In total: **twelve vLLM-side
+patches** (incl. the CuTe DSL NVFP4 MoE sm_110 pair below), applied by `apply_patches.py` to the installed vllm package
+**and** the installed flashinfer package (two more patches there, plus two
+retired-and-commented); verified by `verify_patches.py`.
 
 The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
 and its kernel were removed when the Mjolnir kernel replaced them; the last
@@ -49,13 +37,36 @@ snapshot is the git tag `gemv-archive`: [`gemv-archive:deprecated/gemv/`](https:
 - `thor-spec-decode-split-topp.patch` — #58231 merged 2026-10-19 is in the
   base (the probability-space pivot, byte-identical predicate).
 
-Base this was verified against: **vllm 0.33.0** (`vllm/vllm-openai:v0.33.0`),
-FlashInfer 0.7.2.post1, torch 2.14.0+cu130.
+**Retired at the v0.34.0 bump (2026-11-16)** — all four are in the base now:
+
+- `49652-draft-decode-capture.patch` — the 0.34 speculator rework makes the
+  draft-decode graph shapes explicit: `AutoregressiveSpecimator.init_cudagraph_manager`
+  constructs the draft decode manager with `decode_query_lens={1:
+  max_num_reqs}` (fixed query length 1 — this patch's exact semantics) plus
+  a draft-specific `get_draft_decode_cudagraph_request_sizes()`; the
+  Dynamic-SD candidate expansion moved out of `CudaGraphManager
+  ._init_candidates` into the opt-in `specialize_spec_tokens` capture path.
+  The old guard's hunk target no longer exists.
+- `thor-sm110-mxfp4-moe-gate.patch` — #62133 is in the release: the GPT-OSS
+  MXFP4 selector carries the SM110 clause ("Jetson Thor (SM110): MARLIN
+  stays the default", `oracle/mxfp4.py`) and `_swizzle_mxfp4` applies
+  `is_persistent` + `epilogue_subtile=1` for families (100, 110, 120).
+- `thor-sm110-cutlass-fp4-moe-guard.patch` — #62275 is in the release:
+  `CutlassMoEMethod._supports_current_device` allows families (100, 120)
+  with the "SM110 excluded: grouped NVFP4 kernel is sm100-only" comment.
+- `thor-qwen4-topk-sm110.patch` — #56102 is in the release:
+  `qsa_indexer.py`'s `use_cooperative_topk` carries
+  `not is_device_capability_family(110)` (the #47266-class family guard).
+
+Base this was verified against: **vllm 0.34.0** (`vllm/vllm-openai:v0.34.0`,
+tag `62d4bc3c7`), FlashInfer 0.7.3, torch 2.14.0+cu130, vllm-flash-attn
+pin `d8dca8f06c74`. The full stack applies on the pristine tag and every
+`verify_patches` sentinel passes (no-GPU gate, 2026-11-16); the image build
+awaits the release image on the hub.
 
 | File | PR | What it fixes |
 |------|----|---------------|
-| `50885-flashinfer-full-cudagraph.patch` | [#50885](https://github.com/vllm-project/vllm/pull/50885) (closed unmerged) | Capture **FULL** decode cudagraphs for spec-decode on the FlashInfer **native** (non-trtllm) path — uniform multi-token verify batches. **0.33.0 slim-down:** the base now carries the wrapper plumbing itself (`_get_decode_wrapper(batch_size, use_cudagraph, q_len_per_req)`, the tuple-keyed `_decode_wrappers_cudagraph`, `fast_plan_decode` threading `q_len_per_req` into FlashInfer's `fast_decode_plan` — which since 0.7.2 plans uniform multi-token queries on the fa2 tensor-core backend). What remains Thor-side is the *policy*: the `flashinfer_supports_uniform_multi_token_decode()` probe (does the installed FI accept `q_len_per_req`), the `supports_spec_as_decode` OR-term and the `get_cudagraph_support` UNIFORM_BATCH grant (both gated on the probe + non-trtllm + causal) and the `build()` per-request `num_input_tokens`/`q_len_per_req` computation (previously fa2-native-only, pre-SM90). Without it sm_110 spec decode still falls to PIECEWISE graphs. |
-| `49652-draft-decode-capture.patch` | [#49652](https://github.com/vllm-project/vllm/pull/49652) (closed unmerged) | Autoregressive (MTP) **draft-decode** cudagraph capture under **Dynamic SD**. The draft decoder always processes 1 token/request, so its graphs must stay at fixed query length 1 instead of following the target's dynamic-SD verify schedule. |
+| `50885-flashinfer-full-cudagraph.patch` | [#50885](https://github.com/vllm-project/vllm/pull/50885) (closed unmerged) | Capture **FULL** decode cudagraphs for spec-decode on the FlashInfer **native** (non-trtllm) path — uniform multi-token verify batches. **0.33.0 slim-down:** the base now carries the wrapper plumbing itself (`_get_decode_wrapper(batch_size, use_cudagraph, q_len_per_req)`, the tuple-keyed `_decode_wrappers_cudagraph`, `fast_plan_decode` threading `q_len_per_req` into FlashInfer's `fast_decode_plan` — which since 0.7.2 plans uniform multi-token queries on the fa2 tensor-core backend). What remains Thor-side is the *policy*: the `flashinfer_supports_uniform_multi_token_decode()` probe (does the installed FI accept `q_len_per_req`), the `supports_spec_as_decode` OR-term and the `get_cudagraph_support` UNIFORM_BATCH grant (both gated on the probe + non-trtllm + causal) and the `build()` per-request `num_input_tokens`/`q_len_per_req` computation (previously fa2-native-only, pre-SM90). Without it sm_110 spec decode still falls to PIECEWISE graphs. Unchanged on 0.34 (`get_cudagraph_support` is byte-identical 0.33→0.34). |
 | `thor-fused-draft-decode-fi-native-update.patch` | — (Thor-authored) | **Implement `update_draft_decode_metadata` for the FlashInfer backend** so the spec-decode loop can use the **fused multi-step draft decode** instead of the "rebuild attention metadata between draft steps" fallback. The upstream contract is a `pass` stub for trtllm-gen (0.33.0: one trtllm-gen decode build serves every step); the patch ORs `supports_draft_decode_metadata_update` with the FI-native full-cudagraph, single-rank, non-DCP, non-trtllm case and replaces the stub with `_advance_fi_decode_plan_kernel`, which re-derives the FI decode plan (`paged_kv_indptr`/`last_page_len`/`page_indices`) **on the GPU** from the advancing `seq_lens` + block table — the same formula as `build()`, but capture-safe (no host sync, no D2D index copy) so it replays correctly inside the draft CUDA graph. Pays off only at **K ≥ 3** (MTP3 / DSpark K≥2); a deliberate no-op at K=2. |
 | `thor-fused-draft-t5-plan-refresh.patch` | — (Thor-authored) | **Rebuild the draft attention metadata on the fused FULL-graph replay path** so host-side per-cycle plan state survives graph replay. `_fused_multi_step_decode` returns before `_build_uniform_attn_metadata` when `cg_mode == FULL`, so any builder that computes per-cycle host state in `build()` — Mjolnir's T5 split-KV **work plan** (`work_buf`/`nsplit_buf`, host-computed from seq_lens) — stays **baked at capture-time seq_lens**: every replayed draft step attends a truncated context and MTP acceptance collapses beyond position 0 (measured 2026-10-18: K=5 acceptance 4.1→**2.04**; eager or `MJOLNIR_ATTN_FUSED_DRAFT=0` healthy). The fix re-runs the build before `run_fullgraph` — the returned metadata is unused (the graph replays baked launches), but the side effect refreshes the persistent plan buffers the graph reads. |
 | `thor-dspark-draft-fi-noncausal-cudagraph.patch` | — (Thor-authored) | **Capture the DSpark non-causal multi-token draft under a FULL CUDA graph** instead of running the draft eagerly. A non-causal drafter (DSpark) routes its draft through the FI *prefill* wrapper — the FI *decode* wrapper cannot express non-causal multi-token (its fa2 kernel is block-causal only for `q_len_per_req > 1`). In cuda-graph mode that prefill wrapper freezes its batch size at creation and reads its KV plan from **persistent** buffers, so one wrapper per captured batch size is needed (`_noncausal_prefill_wrappers_cudagraph`, mirroring `_decode_wrappers_cudagraph`); the draft plans eagerly outside the captured graph and the captured `run()` replays safely across ragged re-plans. Adds the `_get_noncausal_prefill_wrapper_cudagraph` factory, grants a non-causal `UNIFORM_BATCH` in `get_cudagraph_support` (gated on a multi-token drafter, non-SM12x, single-rank DCP), and dispatches the prefill batch to the cudagraph wrapper in `build()`. Lands **after** 50885 (its `get_cudagraph_support` hunk is diffed against 50885's grant). Most bump-fragile patch — see below. |
@@ -67,12 +78,9 @@ FlashInfer 0.7.2.post1, torch 2.14.0+cu130.
 | `thor-fa4-hd256-fp8-sm110.patch` | — (Thor-authored) | hd256 **FP8-KV kernel + policy** patch (the "N-1" workstream — enable the FA4 hd256 kernel on sm_110, probe-gated, T11 canary in `kernel_test_sm110_gates.py`); the decode path is the 1CTA carve-out above. |
 | `thor-gdn-prefill-fi-sm110.patch` | — (FlashInfer) | **RETIRED on 0.33.0 together with `thor-gdn-prefill-sm110`** (the c4 aggregate stagger — the pair is the carrier; see that row). **FlashInfer-side** GDN prefill non-CP dispatch allowlist widened major 10 → (10, 11) so the SM100 CuTe-DSL kernel is reachable on sm_110 (behavior unchanged on other devices); see "Thor sm_110 GDN prefill enablement (flashinfer side)". |
 | `fi-fp6-kv-ampere-prefill.patch` | — (Mjolnir-authored, **FlashInfer-side**) | **Packed-fp6 (e2m3) KV direct-read for FlashInfer's Ampere (sm_80-family) FA2 prefill** — the scratchpad-free fp6 fallback: the produce stage stages 16 codes (12 bytes, partial-src cp.async) per smem slot and an in-place pass rewrites each slot to e4m3 (`code · s_channel`, per-(kv-head, channel) float scales via two new optional `maybe_{k,v}_fp6_scales` params), after which the tile is byte-identical to fp8 and **every** downstream path (per-fragment `vec_cast`, both tile shapes) runs unchanged. Inert unless the fp6 dtype string is requested; see "fp6 prefill direct-read (flashinfer side, sm_80/87)" below. **0.33.0 bump:** applies to FlashInfer 0.7.2.post1 (22/23 hunks verbatim; the one dropped hunk was a pure line-collapse in `jit/attention/modules.py`). |
-| `thor-sm110-mxfp4-moe-gate.patch` | [#62133](https://github.com/vllm-project/vllm/pull/62133) | **Fix OAI Triton MXFP4 MoE on SM110** (supersedes closed #61387). #58877 (in 0.32.0) widened the OAI-Triton device gate to `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init (upstream issue #61374). The final state keeps the device gate (TRITON opt-in) but: the GPT-OSS MXFP4 **selector** keeps **MARLIN** the default on SM110 (TRITON opt-in) and `_swizzle_mxfp4` applies the persistent + `epilogue_subtile=1` constraints on SM110 too. **#62133 merged 2026-10-27 (f03b704) but is NOT in the 0.33.0 release branch** (the device gate still admits SM110; the selector has no SM110 clause) — the patch applies and stays. Re-check at every bump; drop once a tracked release carries it. |
-| `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) (open) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275 (still open as of the 0.33.0 bump). |
 | `thor-sm110-cutedsl-moe-gate.patch` | — (Thor-authored) | **Admit sm_110 to the CuTe DSL NVFP4 MoE.** `FlashInferCuteDSLExperts._supports_current_device` accepts device family 110 next to 100, so the NVFP4 MoE oracle can pick `FLASHINFER_CUTEDSL` for **activation-quantized (W4A4)** experts on Thor. W4A16 experts keep MARLIN (the CuTe DSL kernel needs FP4 activations). Pairs with the FlashInfer-side `fi-cutedsl-moe-sm110.patch`. Probe-gated: a no-op off sm_110. |
-| `fi-cutedsl-moe-sm110.patch` | — (Thor-authored, **FlashInfer-side**) | **FlashInfer half of the CuTe DSL MoE enablement.** The blockscaled contiguous grouped-GEMM wrappers (`…gather_grouped_gemm_act_fusion.py`, `…grouped_gemm_finalize_fusion.py`) accept major 11 (CuTe DSL compiles them for `sm_110a` natively), and the `moe_utils` JIT module (`moe_sort`/`unpermute`) builds for major 11. No behavior change on any other arch. |
+| `fi-cutedsl-moe-sm110.patch` | — (Thor-authored, **FlashInfer-side**) | **RETIRED on 0.34 (the FI cute-dsl MoE restructure).** 0.34's moe_utils majors already include 11 and the grouped-GEMM wrappers moved to `fused_moe/cute_dsl/rubin/` with a hard `major != 10` gate — the patch's paths no longer exist; out of the 0.34 apply order. The W4A4-on-0.34 FI rework is a follow-up. Original: **FlashInfer half of the CuTe DSL MoE enablement.** The blockscaled contiguous grouped-GEMM wrappers (`…gather_grouped_gemm_act_fusion.py`, `…grouped_gemm_finalize_fusion.py`) accept major 11 (CuTe DSL compiles them for `sm_110a` natively), and the `moe_utils` JIT module (`moe_sort`/`unpermute`) builds for major 11. No behavior change on any other arch. |
 | `thor-qwen4-dense-model.patch` | Thor-authored (basis: the recovered Intel `fp8_dense.cpp` — Qwen4-27B is **dense**) | **Dense-decoder support for the qwen4_exp family.** v0.32.0 builds `Qwen4ExpSparseMoeBlock` for every layer and transformers rejects `num_experts <= 0`, so no dense Qwen4 checkpoint can load. The patch mirrors qwen3_next's own hybrid rule (`mlp_only_layers` + `(layer_idx + 1) % decoder_sparse_step`): a checkpoint that lists every layer in `mlp_only_layers` gets `Qwen3NextMLP` (`Qwen2MoeMLP`) with `config.intermediate_size`. The MTP drafter goes dense through the same layer class; `Qwen4ExpMixtureOfExperts` already handles zero MoE layers. **Inert** for every existing checkpoint (none set `mlp_only_layers` on qwen4_exp). See "Thor qwen4 dense decoder" below. |
-| `thor-qwen4-topk-sm110.patch` | Thor-authored (upstream precedent: [#47266](https://github.com/vllm-project/vllm/issues/47266) Issue 8, SM120) | **sm_110 excluded from `cooperative_topk`.** Device-proven 2026-10-31: v0.32.0's sparse-indexer `auto` chain leads with `cooperative_topk`, whose thread-block-cluster launch is **rejected on Thor** (`cluster misconfiguration`, `cooperative_topk.cu:48` → `EngineDeadError` at the first decode top-k; model loads and prefills fine). The patch extends the gate's family exclusion (`120` already there) to `110` — the dispatch falls through to `persistent_topk`. Inert on every other arch. See "Thor qwen4 topk sm110" below. |
 | `thor-qwen4-qsa-mjolnir.patch` | Thor-authored (kernel: `mjolnir.qsa_impl`) | **Probe-gated Mjolnir decode for the QSA layers** (`MJOLNIR_ATTN_QSA`). Wraps the stock impl — routes pure-decode steps through the tcgen05 scratch-gather (the measured 13.5×/11.7× path) and falls back to the stock Triton kernel for prefill/verify/mixed steps, bf16 caches, or anything else it does not own. The heavy logic ships in `mjolnir-kernel` (`src/mjolnir/mjolnir/qsa_impl.py`), not in the patch. INERT without the env var. |
 
 ## Why "hand-adapted" and not the raw diff
@@ -529,16 +537,75 @@ speed after #4769. The fp6 path is the same machinery with a different unpack.
 per tile. **Fragility:** the per-j gmem scalars and the j-loop bound are the
 bump-fragile parts — re-derive `upcast_size` and the fp4/fp8 scalars from the
 new base's `produce_kv` before re-adapting. **Validation status: patch
-applies to FlashInfer 0.7.2.post1 (0.33.0 base, 2026-11-03) — the headers
+applies to FlashInfer 0.7.3 (0.34.0 base, 2026-11-16 —
+`vec_dtypes/cp_async/permuted_smem/jit utils` are byte-identical
+0.7.2.post1→0.7.3; `prefill.cuh` churned but every hunk lands) — the headers
 + the fp6 expand instantiation compile for sm_87 (nvcc, CPU-side; the
 `fp6-expand` image canary is bit-exact on Thor); runtime prefill canary +
-the vLLM-side `MJOLNIR_ATTN_FP6_DIRECT` wiring are pending.**
+the vLLM-side `MJOLNIR_ATTN_FP6_DIRECT` wiring are pending. The Python
+side needed a re-anchor for 0.7.3 (2026-11-17): the 0.32-era
+`_validate_workspace`/single-prefill-list hunks sat on pre-token-head-sf
+text, so the whole `jit/attention/modules.py` section is regenerated against
+the wheel (net diff; the dropped hunks were line-collapses) and
+`apply_patches.py` patches with `--fuzz=3` (one `prefill.py` context needs
+it). Clean-room: fresh-wheel apply 0 FAILED, full sentinel set green, all
+four Python files parse. The first device gate then caught a real one the
+sentinels cannot see: 0.7.3 grew `*_scale_smem_ptr` trailing args on the
+plain `compute_qk`/`compute_sfm_v` calls, which broke the V-hunk's context
+match and let `--fuzz` slide the insertion into the `USE_SINGLE_PREFILL…`
+branch (dead def, `warp_vo_base` unqualified). The whole `prefill.cuh`
+section is likewise regenerated against the wheel: fp6 arms mirrored onto
+the 0.7.3 else-shape (scale args included, per the "stock path unchanged"
+intent), the misplaced `vosplit` back in its own branch, fp6 last in the
+chain — fp6-expand canary bit-exact 4/4 heads on Thor.**
 
 **Sentinel:** `verify_patches.py` checks the fp6 struct in `vec_dtypes.cuh`,
 the partial-src loader in `cp_async.cuh`, and — the "used, not just defined"
 sentinel — the `expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>` call
-site in `prefill.cuh` (a partial apply that lands the helper without the
+site in `prefill.cuh` (a partial apply lands the helper without the
 compute-side call would compile and silently no-op).
+
+## The 0.34 fp6 fallback regression — root-caused: vLLM #63232 (2026-11-17)
+
+**The change: vLLM [`23b898419` — "FA4: pass no FP8 descale for a unit
+per-tensor scale" (#63232)]**, new in 0.34. It makes
+`FlashAttentionImpl._descale` return **None** instead of a ones tensor when
+the layer scale is scalar-1 — and the cute interface's `DescaleTensors`
+handling of that None is incomplete on the path we ride:
+
+- the interface **packs the present descales positionally** (its own comment:
+  values "cannot shift … and silently corrupt QK/PV scaling");
+- the missing-slot materialization exists **only in the SM90
+  `fp8_kv_dequant` branch** — the `is_fp8` path (sm_100/**110**, every FA4
+  fallback call) passes Nones straight through;
+- our fp6 fallback hands it `q_descale=None` (scalar-1 `_q_scale`) plus
+  per-head K/V tensors ⇒ **the K/V descales land in the wrong slots** ⇒
+  corrupted attention ⇒ the smoke's period-1 token loops
+  (`authority authority…`, `.def.def.def…`) on every page size, graphs and
+  eager alike. 0.33 always passed real tensors: no shift, green.
+
+**Proven by staged revert on the 0.34 image (FA4 fallback forced):**
+the whole-`vllm_flash_attn` 0.33 package over 0.34 → still red (package
+exonerated; the CuTe kernels are unchanged 0.33→0.34); the `_descale` hunk
+alone reverted to `scale.expand(shape)` → **8/8 near-ties**; the
+`canonicalize_singleton_dim_strides` rider kept with only the None branch
+dropped → **8/8** — the None is the bug, the stride walk innocent.
+
+**The fix (ours): `MjolnirImpl._descale` overrides the base with the 0.33
+semantics (always a real expanded tensor) — FA4 stays the fallback, no image
+env, the fp8 legs untouched. The upstream-shaped fix (materialize missing
+descale slots in the `is_fp8` branch too) is the candidate vLLM PR.**
+
+**The upstream candidate, concretely** (`vllm/vllm_flash_attn/cute/
+interface.py`, extend the existing materialization to both paths):
+
+```python
+-if fp8_kv_dequant and any(t is None for t in (q_descale, k_descale, v_descale)):
++if any(t is None for t in (q_descale, k_descale, v_descale)) and (
++        fp8_kv_dequant or is_fp8):
+     # DescaleTensors' MLIR reconstruction packs present values positionally.
+     # ... (unchanged)
+```
 
 ## The Mjolnir attention backend — `patches/thor-mjolnir-attention-backend.patch`
 
@@ -568,7 +635,7 @@ the layer; if they fail, the backend logs it and falls back to FlashInfer.
 An explicit `flash_attn_version` always wins; nothing changes off sm_110 or
 for any other backend.
 
-**Apply to a vLLM 0.33.0 checkout** (after the FA4 patches, which also touch
+**Apply to a vLLM 0.34.0 checkout** (after the FA4 patches, which also touch
 `fa_utils.py`): `git apply docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch`
 (paths are `vllm/...`; `apply_patches.py` applies it to the installed package
 with `patch -p1 --forward`). **Sentinel:** `verify_patches.py` checks the
@@ -582,14 +649,17 @@ members before `CUSTOM` (a new upstream member there moves one line); the
 `flash_attn_version` override in `get_flash_attn_version()`, so it is
 re-generated whenever those patches are.
 
-## Thor MoE backend gates on sm_110 (2026-10-22)
+## Thor MoE backend gates on sm_110 — RETIRED at the 0.34.0 bump (2026-11-16)
 
-Two upstream fixes, hand-adapted onto v0.32.0 (still applying on 0.33.0) —
-both prevent faults when an
-NVFP4/MXFP4 MoE model is served on Thor. Files are disjoint from every
-other patch, so their `PATCH_ORDER` position is immaterial. (A third, the
-split top-p sampler fix #58231, retired at the 0.33.0 bump — it is in the
-base.)
+Both fixes are in the v0.34.0 base (verified on the pristine tag): the
+GPT-OSS MXFP4 selector carries the SM110 clause (`oracle/mxfp4.py`, "Jetson
+Thor (SM110): MARLIN stays the default") with the `_swizzle_mxfp4`
+persistent + `epilogue_subtile=1` constraints on families (100, 110, 120)
+(#62133), and `CutlassMoEMethod._supports_current_device` allows exactly
+families (100, 120) with the "SM110 excluded: grouped NVFP4 kernel is
+sm100-only" comment (#62275). The patch files and their `PATCH_ORDER` /
+`verify_patches` entries are gone; git history has the last applied state
+(`v0.33.0`-era).
 
 - **`thor-sm110-mxfp4-moe-gate.patch`** —
   [#62133](https://github.com/vllm-project/vllm/pull/62133) "Fix OAI Triton
@@ -619,18 +689,21 @@ the `for family in (100, 110, 120)` widening (`mxfp4_utils.py`);
 `THOR_SM110_CUTLASS_FP4_GUARD` + the collapsed single-line condition +
 an absence guard on `is_device_capability_family(110)` in `cutlass_moe.py`.
 
-**0.33.0 bump status:** #62133 merged upstream (2026-10-27, f03b704) but is
-**not in the 0.33.0 release branch** — the device gate still admits SM110
-and the selector has no SM110 clause, so the patch applies verbatim and
-stays until a tracked release carries the fix. #62275 is still open
-upstream; its patch applies at offset. The split top-p fix #58231 (merged
-2026-10-19) IS in 0.33.0 — its patch retired (the base's
-`_topp_sb_mask_kernel` predicate is byte-identical to ours). Verified on a
-pristine `vllm/vllm-openai:v0.33.0` tree: full stack applies, all fixes
-verify (no GPU).
+**0.34.0 bump status:** both patches are RETIRED — #62133 and #62275 are
+in the v0.34.0 tag (the selector's SM110 clause and the
+`(100, 120)`-only `_supports_current_device`, both verified on the pristine
+tag). The 0.33.0-era record: #62133 merged upstream 2026-10-27 but was not
+in the 0.33.0 release branch; #62275 was still open. The split top-p fix
+#58231 retired earlier (0.33.0 base). Verified on a pristine
+`vllm/vllm-openai:v0.33.0` tree back then: full stack applied, all fixes
+verified (no GPU); the 0.34 equivalent gate is the 2026-11-16 no-GPU run
+recorded at the top.
 
 ## Thor CuTe DSL NVFP4 MoE on sm_110 — `patches/thor-sm110-cutedsl-moe-gate.patch` + `patches/fi-cutedsl-moe-sm110.patch` (2026-11-16)
 
+**0.34 status: the vLLM-side gate below is in the apply order and verified; the
+FlashInfer half is RETIRED (0.34 restructured the cute-dsl MoE — see the row)
+and the W4A4-on-0.34 FI rework is a follow-up. The 0.33-era record:**
 FlashInfer 0.7.2.post1's CuTe DSL NVFP4 MoE (fused gather/act FC1, fused
 finalize FC2) is written for SM100 and gated on `major == 10`, but CuTe DSL
 4.8 targets `sm_110a` natively: with the four one-line gates lifted it
@@ -728,9 +801,17 @@ the recovered Intel `fp8_dense.cpp` ("Dense Qwen4 TP2 decode") and the
   family code unchanged; the Mjolnir kernel side is `MJOLNIR_ATTN_QSA`
   (`mjolnir/arch/thor/qsa.py`, `mjolnir verify qsa`).
 
-## Thor qwen4 topk sm110 — `patches/thor-qwen4-topk-sm110.patch` (2026-10-31)
+## Thor qwen4 topk sm110 — `patches/thor-qwen4-topk-sm110.patch` — RETIRED at the 0.34.0 bump
 
-**What:** the sparse-indexer decode top-k (`qsa_indexer._topk`) must not
+**Retired 2026-11-16: #56102 is in the v0.34.0 base** — `qsa_indexer.py`'s
+`use_cooperative_topk` carries `not
+current_platform.is_device_capability_family(110)` (next to the existing
+120 term), exactly this patch's one-line gate; the dispatch falls through
+to `persistent_topk` upstream. The historical record below stands; the
+0.34 note on `persistent_topk`-on-sm_110 validation is unchanged (still
+device-untested — the first 0.34 smoke covers it).
+
+**What (historical):** the sparse-indexer decode top-k (`qsa_indexer._topk`) must not
 select `cooperative_topk` on sm_110 — the gate gains a
 `not is_device_capability_family(110)` term, so the Thor dispatch falls
 through to `persistent_topk`. One hunk in
@@ -762,9 +843,40 @@ through to `persistent_topk`. One hunk in
   and finite through all QSA layers, zero errors; this was also the first
   execution of the stock Triton QSA decode attention on sm_110.
 
-## Thor qwen4 qsa mjolnir — `patches/thor-qwen4-qsa-mjolnir.patch` (2026-10-31)
+## Thor qwen4 qsa mjolnir — `patches/thor-qwen4-qsa-mjolnir.patch` (2026-10-31; re-anchored on 0.34.0)
 
-**What:** `MJOLNIR_ATTN_QSA` swaps `Qwen4ExpQSAAttention`'s impl for
+**0.34.0 re-anchor (2026-11-16).** The qwen4_exp QSA stack was reworked
+upstream and the patch + the kernel side (`mjolnir/qsa_impl.py`) were
+ported to the new API:
+
+- the stock impl is renamed `Qwen4ExpQSAFlashAttentionImpl` →
+  **`Qwen4ExpQSAImpl`** (still `models/qwen4_exp/nvidia/qsa.py`) and its
+  ctor slimmed to `(num_heads, head_size, scale, num_kv_heads,
+  kv_cache_dtype)` — alibi/window/sink/AttentionType moved into the layer;
+- **`forward_qsa` is gone**: the impl entry is now
+  `forward(layer, query, kv_cache, attn_metadata, output, *,
+  token_to_req, use_prefill_config, output_gate)` (keyword-only, no
+  key/value, no per-call output-scale args — the fused-output quantization
+  reads `layer._k_scale_float` internally). `build_impl_class`'s subclass
+  override follows the same signature and every fallback routes through
+  `super().forward(..., token_to_req=..., use_prefill_config=...,
+  output_gate=...)`;
+- **the main QSA metadata is slim** (`num_actual_tokens`, `max_query_len`,
+  `block_table`, `slot_mapping`) — the per-request `seq_lens` moved onto
+  the indexer's side metadata (`QSAIndexerMetadata`). The kernel's host
+  side fetches it through the forward context under
+  `layer.indexer.raw_key_cache.prefix` (the same key the owner layer uses
+  in `_run_qsa`) via the new `qsa_impl._indexer_metadata()`; any surprise
+  there degrades to the stock path;
+- the patch itself shrinks to three hunks (the `init_logger` import, the
+  module logger, the probe-gated impl swap after the stock
+  `self.impl = Qwen4ExpQSAImpl(...)` assignment) — the 0.33-era cosmetic
+  reflow hunks are dropped;
+- **not yet device-run**: the 0.32-era smoke (dense fixture load, decode
+  through all QSA layers) remains the device evidence; the 0.34 path needs
+  the same smoke once the image exists.
+
+**What (0.33-era record):** `MJOLNIR_ATTN_QSA` swaps `Qwen4ExpQSAAttention`'s impl for
 `mjolnir.qsa_impl.Qwen4ExpQSAMjolnirImpl` — a subclass of the stock impl
 whose `forward_qsa` routes **pure-decode steps** (one query token per
 request) through the tcgen05 scratch-gather: packed selection → per-request
@@ -799,43 +911,56 @@ yet run:** a server smoke on the 0.33 image — the 0.32 one (dense fixture
 load + prefill + deterministic decode through all QSA layers) remains the
 device evidence.
 
-## Open upstream watch list (assessed 2026-11-03, base v0.33.0)
+## Open upstream watch list (re-assessed 2026-11-16, base v0.34.0 = `62d4bc3c7`)
 
 Status of every open PR relevant to Thor — what to pre-patch (nothing),
 what to take at a future bump (both images inherit it, so the e2e attention
 delta stays the only variable), and what to keep out of the image on
 purpose:
 
-- **Already carried here:** #62275 (the cutlass-fp4-moe-guard patch —
-  essential for the Qwen3.6-35B-A3B NVFP4 MoE).
-- **Retired at this bump (in the base):** #54165's substance (its gating
-  half landed as #54163's `needs_eagle_block_drop()` and the 0.33.0
-  scheduler keys the mamba backoff + trailing-block drop on the gated
-  flag; #61589's lookahead hashes remove the MTP drop where prefix caching
-  can prove the boundary token), #55519 (the false-positive warning is
-  gone), #58231 (the probability-space split top-p pivot).
-- **Merged upstream but NOT in 0.33.0 — re-check every bump:**
-  #62133 (the mxfp4-moe-gate patch still applies and stays).
+- **Retired at this bump (in the 0.34.0 base):** #62133 + #62275 (both
+  sm_110 MoE gates), #56102 (the cooperative-topk sm_110 exclusion — the
+  `qwen4-topk` patch), #49652's substance (the 0.34 speculator rework
+  pins draft-decode graph shapes explicitly), #65050 (CuteDSL GDN prefill
+  on SM110 — the selector + the fewer-SMs grid clamp are upstream; our
+  retired gdn pair stays retired, and the c4-stagger re-test now has a
+  third path: the in-tree CuTeDSL one, still FLA by default).
+- **Still open, carry here:** #50885 (the FI-native uniform-multi-token
+  FULL grant — our longest-lived patch, unchanged on 0.34) and #56289
+  (closed unmerged: the `get_cudagraph_support` head-count mismatch that
+  kills draft cudagraphs — our dspark/cg-gate pair is the working
+  alternative).
 - **Take at a future bump, not before:** #53337/#44590 (Thor-tuned Triton
-  `selective_state_update` — our image serves the hybrid model on the fused
-  CUDA GDN decode kernel, so one-sided adoption would change nothing for our
-  configs while contaminating the e2e comparison) and #60566 (screened
-  lm_head — MRV2, explicitly targets Thor, +7.7% greedy on Thor-class hw,
-  but a moving target, mutually exclusive with `MJOLNIR_LM_HEAD=fp8`
-  (a quantized head raises at load), and default-on would inflate our e2e;
-  benchmark it against LMH8 at bump time instead).
-- **Take at the next bump if merged (supersedes our patch): #56084 /
-  #56102 (both open as of 2026-10-31) — exclude sm_110 from the
-  cooperative_topk cluster kernel.** Device-proven here first (2026-10-31:
-  `cluster misconfiguration` → EngineDeadError at the first QSA decode
-  top-k; #56102 pins the mechanism — the kernel wants a 16-block cluster,
-  Thor's max is 8). Our `thor-qwen4-topk-sm110.patch` is the same one-line
-  gate; retire it at the bump that lands either PR (and re-test:
-  `persistent_topk` on Thor is unvalidated until then).
+  `selective_state_update` — still open; our image serves the hybrid model
+  on the fused CUDA GDN decode kernel, so one-sided adoption would change
+  nothing for our configs while contaminating the e2e comparison) and
+  #60566 (screened lm_head — MRV2, explicitly targets Thor, +7.7% greedy
+  on Thor-class hw, still open; mutually exclusive with
+  `MJOLNIR_LM_HEAD=fp8` (a quantized head raises at load), and default-on
+  would inflate our e2e; benchmark it against LMH8 at bump time).
+- **Post-0.34-cut merges to watch for the next bump:** #67571 (merged
+  2026-11-16, [MRV2][Spec Decode] cap dummy-run requests by their draft
+  slots — touches the MTP dummy-batch path our spec legs exercise) and the
+  GDN perf pair already in 0.34 (#65874 fused-GDN-MTP DSpark K=8 idle-SMs,
+  #66064 prefill state gather/scatter fuse — base-side, both images
+  inherit).
 - **Keep out on purpose:** #55366 (SM110 FA4 auto-selection — changes the
   stock default our official-image baselines must reflect; add a new
   official leg when it lands), #53520 (prompt_logprobs corruption — V1-runner
   only; our image runs MRV2 and no bench reads prompt_logprobs),
   #54705 (fp8-KV scales — SM100-scoped; our kernel owns sm_110 fp8-KV),
   #53383 (ROCm), #58868 (mmap fault-in — startup-time only).
-- **Closed unmerged — our patches stay:** #50885, #49652, #56289.
+- **FlashInfer side:** the GDN-prefill FI-kernel pair (flashinfer#7827 +
+  the vLLM selector follow-up) remains open upstream — 0.35 at the
+  earliest; our retired `thor-gdn-prefill-fi-sm110.patch` is the
+  stopgap (re-verify against whatever FI ships then).
+- **Post-tag drift = the 0.35 re-anchor list** (main @ 2026-11-16, 618
+  commits past `62d4bc3c7`): `v1/attention/backends/flashinfer.py` +376
+  lines (all three of our patches there), `dflash/speculator.py` +83 (the
+  cg-gate dispatch), `qwen4_exp/nvidia/{qsa,qsa_indexer,ops/qsa_indexer}`
+  churn (the qsa patch + the dense fixture), `fa_utils.py −75` (a
+  refactor — re-derive the fa4/mjolnir hunks), `cudagraph_utils.py ±39`.
+  Plus #67006 (online weight-only NVFP4 for DENSE linear layers, merged
+  2026-11-16 post-tag — evaluate for the qwen4 dense day-0 quantization
+  matrix) and #65802/#66118 (online-quant reload / FP8 indexer-wk
+  loading — qwen4-adjacent loader churn).

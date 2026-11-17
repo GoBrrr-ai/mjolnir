@@ -43,6 +43,7 @@ mount and env (see the T12 docstring):
     -e FLASHINFER_NVCC_THREADS=2 \
     -v <data-dir>/flashinfer-cache:/data/flashinfer-cache
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,18 +57,26 @@ import torch
 
 def _t6_gdn_prefill() -> None:
     """T6 — GDN prefill probe verdict + correctness A/B + resolved backend."""
-    from vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn import (
-        _resolve_gdn_prefill_backend,
-        _thor_gdn_prefill_probe,
-        _thor_gdn_prefill_probe_run,
-    )
+    import vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn as gdn
+
+    if not (hasattr(gdn, "_thor_gdn_prefill_probe") and hasattr(gdn, "_thor_gdn_prefill_probe_run")):
+        # The thor-gdn-prefill pair retired on 0.33.0 (the c4 aggregate
+        # stagger; stock GDN prefill is the verified path) — nothing to
+        # gate until the pair returns. See PATCHES.md.
+        print(
+            "SKIP T6 GDN prefill: thor-gdn-prefill retired on 0.33.0 "
+            "(c4 stagger; stock GDN prefill is the verified path)"
+        )
+        return
+    _resolve_gdn_prefill_backend = gdn._resolve_gdn_prefill_backend
+    _thor_gdn_prefill_probe = gdn._thor_gdn_prefill_probe
+    _thor_gdn_prefill_probe_run = gdn._thor_gdn_prefill_probe_run
     from vllm.platforms import current_platform
 
     # The Qwen3.8-27B GDN geometry: head_k_dim 128 (the arch clause value).
     cfg = types.SimpleNamespace(
         additional_config={},
-        model_config=types.SimpleNamespace(
-            hf_text_config=types.SimpleNamespace(linear_key_head_dim=128)),
+        model_config=types.SimpleNamespace(hf_text_config=types.SimpleNamespace(linear_key_head_dim=128)),
     )
 
     # First call performs the one-shot FI-vs-FLA A/B; later calls are a
@@ -77,30 +86,27 @@ def _t6_gdn_prefill() -> None:
     # Correctness A/B: when the probe passed, re-run the raw A/B comparison
     # (deterministic, seeded) — a second run must agree.
     if verdict:
-        assert _thor_gdn_prefill_probe_run(), (
-            "GDN prefill A/B re-run disagrees with the probe verdict"
-        )
+        assert _thor_gdn_prefill_probe_run(), "GDN prefill A/B re-run disagrees with the probe verdict"
         print("T6 A/B re-check: FI vs FLA output+state still match")
 
     resolved = _resolve_gdn_prefill_backend(cfg)
     arch_eligible = (
-        current_platform.is_device_capability_family(110)
-        and current_platform.get_cuda_runtime_major() >= 13
+        current_platform.is_device_capability_family(110) and current_platform.get_cuda_runtime_major() >= 13
     )
     if arch_eligible:
         # On sm_110 the grant is exactly "probe passed" (head_k_dim 128 is
         # set in cfg above).
         expected = "flashinfer" if verdict else "triton"
         assert resolved == ("auto", expected), (
-            f"GDN prefill resolution {resolved} != expected "
-            f"('auto', {expected!r}) for probe verdict {verdict}"
+            f"GDN prefill resolution {resolved} != expected ('auto', {expected!r}) for probe verdict {verdict}"
         )
     if verdict:
-        print(f"PASS T6 GDN prefill: FI kernel verified on this device; "
-              f"resolved {resolved}")
+        print(f"PASS T6 GDN prefill: FI kernel verified on this device; resolved {resolved}")
     else:
-        print(f"INERT-OK T6 GDN prefill: probe disabled (expected on "
-              f"Thor today); resolved {resolved} (Triton path intact)")
+        print(
+            f"INERT-OK T6 GDN prefill: probe disabled (expected on "
+            f"Thor today); resolved {resolved} (Triton path intact)"
+        )
 
 
 def _t9_fa4_fp8kv() -> None:
@@ -122,12 +128,10 @@ def _t9_fa4_fp8kv() -> None:
     # FlashInfer — the patch alone changes zero behavior.
     with set_current_vllm_config(VllmConfig()):
         assert FA._THOR_FA4_FP8KV_PROBE_RESULT is None, (
-            "the FA4 FP8-KV probe ran although no explicit FA4 "
-            "attention-config is set — passive-by-default is broken"
+            "the FA4 FP8-KV probe ran although no explicit FA4 attention-config is set — passive-by-default is broken"
         )
         assert not FA.flash_attn_supports_kv_cache_dtype("fp8_e4m3"), (
-            "FP8-KV gate open under the DEFAULT config — passive-by-"
-            "default is broken"
+            "FP8-KV gate open under the DEFAULT config — passive-by-default is broken"
         )
         default_backend = get_attn_backend(
             head_size=128,
@@ -140,9 +144,11 @@ def _t9_fa4_fp8kv() -> None:
             f"{default_backend.__name__}, expected FlashInferBackend — "
             f"passive-by-default regression"
         )
-    print(f"T9 passive-by-default: default config leaves the probe "
-          f"untriggered, FP8-KV gate closed, auto-selection -> "
-          f"{default_backend.__name__}")
+    print(
+        f"T9 passive-by-default: default config leaves the probe "
+        f"untriggered, FP8-KV gate closed, auto-selection -> "
+        f"{default_backend.__name__}"
+    )
 
     # Probe verdict + gate consistency under the explicit FA4 config
     # (the required opt-in: backend=FLASH_ATTN + flash_attn_version=4).
@@ -157,28 +163,31 @@ def _t9_fa4_fp8kv() -> None:
     ):
         gate = FA.flash_attn_supports_kv_cache_dtype("fp8_e4m3")
     assert gate == verdict, (
-        f"flash_attn_supports_kv_cache_dtype (explicit FA4 config) = "
-        f"{gate} disagrees with the probe verdict {verdict}"
+        f"flash_attn_supports_kv_cache_dtype (explicit FA4 config) = {gate} disagrees with the probe verdict {verdict}"
     )
 
     if family110:
         if verdict:
-            print(f"PASS T9 FA4 FP8-KV: probe enabled on sm_110; gate "
-                  f"open for the explicit FA4 config; default config "
-                  f"stays passive ({default_backend.__name__})")
+            print(
+                f"PASS T9 FA4 FP8-KV: probe enabled on sm_110; gate "
+                f"open for the explicit FA4 config; default config "
+                f"stays passive ({default_backend.__name__})"
+            )
         else:
-            print(f"INERT-OK T9 FA4 FP8-KV: probe disabled on sm_110 "
-                  f"(reason in the 'THOR FA4 FP8-KV probe: disabled' log "
-                  f"line); gate closed for FA4; default config stays "
-                  f"passive ({default_backend.__name__})")
+            print(
+                f"INERT-OK T9 FA4 FP8-KV: probe disabled on sm_110 "
+                f"(reason in the 'THOR FA4 FP8-KV probe: disabled' log "
+                f"line); gate closed for FA4; default config stays "
+                f"passive ({default_backend.__name__})"
+            )
     else:
-        assert verdict is False, (
-            f"probe must be a no-op off sm_110, got verdict={verdict}"
-        )
+        assert verdict is False, f"probe must be a no-op off sm_110, got verdict={verdict}"
         assert not gate
-        print(f"INERT-OK T9 FA4 FP8-KV: not an sm_110 device; probe is a "
-              f"no-op (False); gate {gate}, default selection "
-              f"{default_backend.__name__} (unchanged by the patch)")
+        print(
+            f"INERT-OK T9 FA4 FP8-KV: not an sm_110 device; probe is a "
+            f"no-op (False); gate {gate}, default selection "
+            f"{default_backend.__name__} (unchanged by the patch)"
+        )
 
 
 def _t11_fa4_hd256_fp8kv() -> None:
@@ -211,10 +220,7 @@ def _t11_fa4_hd256_fp8kv() -> None:
             head_size_v=256,
             kv_cache_block_size=128,
             supports_fa4_hd256=True,
-        ), (
-            "FP8-KV gate open for the hd256 model under the DEFAULT "
-            "config — passive-by-default is broken"
-        )
+        ), "FP8-KV gate open for the hd256 model under the DEFAULT config — passive-by-default is broken"
         default_backend = get_attn_backend(
             head_size=256,
             dtype=torch.bfloat16,
@@ -226,9 +232,11 @@ def _t11_fa4_hd256_fp8kv() -> None:
             f"{default_backend.__name__}, expected FlashInferBackend — "
             f"passive-by-default regression"
         )
-    print(f"T11 passive-by-default: default config leaves the hd256 "
-          f"probe untriggered, FP8-KV gate closed for the hd256 model, "
-          f"auto-selection -> {default_backend.__name__}")
+    print(
+        f"T11 passive-by-default: default config leaves the hd256 "
+        f"probe untriggered, FP8-KV gate closed for the hd256 model, "
+        f"auto-selection -> {default_backend.__name__}"
+    )
 
     # Probe verdict + gate consistency under the explicit FA4 config
     # (the required opt-in: backend=FLASH_ATTN +
@@ -258,9 +266,7 @@ def _t11_fa4_hd256_fp8kv() -> None:
         f"flash_attn_supports_kv_cache_dtype (explicit FA4, hd256) = "
         f"{gate} disagrees with the hd256 probe verdict {verdict}"
     )
-    expected_reason = (
-        None if verdict else "quantized KV cache dtype fp8_e4m3"
-    )
+    expected_reason = None if verdict else "quantized KV cache dtype fp8_e4m3"
     assert fallback == expected_reason, (
         f"_fa4_hd256_fallback_reason (block_size=128, FP8 KV) = "
         f"{fallback!r} disagrees with the hd256 probe verdict "
@@ -270,29 +276,32 @@ def _t11_fa4_hd256_fp8kv() -> None:
 
     if family110:
         if verdict:
-            print(f"PASS T11 FA4 hd256 FP8-KV: probe enabled on sm_110; "
-                  f"gate open + no FA2 downgrade for the explicit FA4 "
-                  f"config; default config stays passive "
-                  f"({default_backend.__name__})")
+            print(
+                f"PASS T11 FA4 hd256 FP8-KV: probe enabled on sm_110; "
+                f"gate open + no FA2 downgrade for the explicit FA4 "
+                f"config; default config stays passive "
+                f"({default_backend.__name__})"
+            )
         else:
-            print(f"INERT-OK T11 FA4 hd256 FP8-KV: probe disabled on "
-                  f"sm_110 (reason in the 'THOR FA4 hd256 FP8-KV probe: "
-                  f"disabled' log line); gate closed; the quantized-KV "
-                  f"reject is intact ({fallback!r}); default config "
-                  f"stays passive ({default_backend.__name__})")
+            print(
+                f"INERT-OK T11 FA4 hd256 FP8-KV: probe disabled on "
+                f"sm_110 (reason in the 'THOR FA4 hd256 FP8-KV probe: "
+                f"disabled' log line); gate closed; the quantized-KV "
+                f"reject is intact ({fallback!r}); default config "
+                f"stays passive ({default_backend.__name__})"
+            )
     else:
-        assert verdict is False, (
-            f"probe must be a no-op off sm_110, got verdict={verdict}"
-        )
+        assert verdict is False, f"probe must be a no-op off sm_110, got verdict={verdict}"
         assert not gate
         assert fallback == "quantized KV cache dtype fp8_e4m3", (
-            f"the quantized-KV reject must stay stock off sm_110, got "
-            f"{fallback!r}"
+            f"the quantized-KV reject must stay stock off sm_110, got {fallback!r}"
         )
-        print(f"INERT-OK T11 FA4 hd256 FP8-KV: not an sm_110 device; "
-              f"probe is a no-op (False); gate {gate}; default "
-              f"selection {default_backend.__name__} (unchanged by the "
-              f"patch)")
+        print(
+            f"INERT-OK T11 FA4 hd256 FP8-KV: not an sm_110 device; "
+            f"probe is a no-op (False); gate {gate}; default "
+            f"selection {default_backend.__name__} (unchanged by the "
+            f"patch)"
+        )
 
 
 # T12 synthetic routed-expert layer: 8 experts, top-2, 48 tokens. H 2560 /
@@ -530,8 +539,7 @@ def main() -> int:
             "T11 FA4 hd256 FP8-KV",
             "T12 CuTe DSL NVFP4 MoE",
         ):
-            print(f"SKIP {name}: no CUDA device visible (re-run with "
-                  f"--gpus all on a Thor)")
+            print(f"SKIP {name}: no CUDA device visible (re-run with --gpus all on a Thor)")
     else:
         print(f"device capability: {torch.cuda.get_device_capability()}")
         for name, section in (

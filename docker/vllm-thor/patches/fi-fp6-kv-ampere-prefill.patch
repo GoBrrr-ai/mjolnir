@@ -165,8 +165,8 @@
  
  // Type trait to detect packed NVFP4 KV cache types (__nv_fp4x2_e2m1 stores 2 FP4 per byte).
  template <typename T>
-@@ -204,8 +207,10 @@
- // the policy it has always had.
+@@ -166,8 +169,10 @@
+ // mainloop never writes or reads. It only gates FP4: FP8 keeps the policy it has always had.
  template <typename DTypeKV, uint32_t CTA_TILE_Q, uint32_t HEAD_DIM_QK, uint32_t HEAD_DIM_VO>
  constexpr bool use_kv_repack(bool enable_fp4_repack) {
 -  return (sizeof(DTypeKV) == 1) && (HEAD_DIM_VO != 64) && (HEAD_DIM_VO <= 256) &&
@@ -178,7 +178,7 @@
           (!is_fp4_type_v<DTypeKV> || (HEAD_DIM_QK <= 256 && enable_fp4_repack));
  }
  
-@@ -578,6 +583,7 @@
+@@ -632,6 +637,7 @@
    // NOTE: for fp8, this function doesn't work for head_dim = 64 at the moment
    using DTypeKV = typename KTraits::DTypeKV;
    constexpr bool IS_FP4 = is_fp4_type_v<DTypeKV>;
@@ -186,7 +186,7 @@
    constexpr uint32_t CTA_TILE_KV = KTraits::CTA_TILE_KV;
    constexpr uint32_t NUM_WARPS = KTraits::NUM_WARPS;
    constexpr uint32_t NUM_WARPS_Q = KTraits::NUM_WARPS_Q;
-@@ -596,20 +602,27 @@
+@@ -650,20 +656,27 @@
  #pragma unroll
        for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DTypeKV)); ++j) {
          // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
@@ -216,7 +216,7 @@
      }
      *smem_offset -= CTA_TILE_KV * UPCAST_STRIDE;
    } else {
-@@ -619,8 +632,11 @@
+@@ -673,8 +686,11 @@
  #pragma unroll
      for (uint32_t i = 0; i < NUM_MMA_KV * 2 / NUM_WARPS_Q; ++i) {
        // FP4 GMEM rows are packed 2x denser; load 64b (upper 64b of smem slot zeroed).
@@ -228,7 +228,7 @@
        } else {
          smem.load_128b_async<fill_mode>(*smem_offset, *gptr, kv_idx < kv_len);
        }
-@@ -658,6 +674,7 @@
+@@ -712,6 +728,7 @@
    // Use a 64b async load (cp.async with src-size=8) and advance GMEM pointer by half the normal
    // amount, while SMEM addressing remains unchanged.
    constexpr bool IS_FP4 = is_fp4_type_v<DType>;
@@ -236,7 +236,7 @@
    if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
      uint32_t kv_idx = kv_idx_base + warp_idx * 4 + lane_idx / 8;
      // NOTE: NUM_MMA_KV * 4 / NUM_WARPS_Q = NUM_WARPS_KV * NUM_MMA_KV * 4 / num_warps
-@@ -667,15 +684,18 @@
+@@ -721,15 +738,18 @@
        DType* gptr = kv_ptr + thr_local_kv_offset[i];
  #pragma unroll
        for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
@@ -256,7 +256,7 @@
        }
        kv_idx += NUM_WARPS * 4;
        *smem_offset =
-@@ -692,6 +712,8 @@
+@@ -746,6 +766,8 @@
        DType* gptr = kv_ptr + thr_local_kv_offset[i];
        if constexpr (IS_FP4) {
          smem.load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
@@ -265,7 +265,7 @@
        } else {
          smem.load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
        }
-@@ -710,11 +732,14 @@
+@@ -764,11 +786,14 @@
      const uint32_t logical_row, const uint32_t lane_idx) {
    using DType = typename KTraits::DTypeKV;
    constexpr bool IS_FP4 = is_fp4_type_v<DType>;
@@ -282,7 +282,7 @@
    // The K and V pools may carry different strides (e.g. NVFP4 VO-split caches
    // where head_dim_qk != head_dim_vo), so route V rows through the V strides.
    if constexpr (produce_v) {
-@@ -745,6 +770,7 @@
+@@ -799,6 +824,7 @@
    constexpr uint32_t UPCAST_STRIDE =
        produce_v ? KTraits::UPCAST_STRIDE_V : KTraits::UPCAST_STRIDE_K;
    constexpr bool IS_FP4 = is_fp4_type_v<DType>;
@@ -290,7 +290,7 @@
  
    if constexpr (KTraits::SWIZZLE_MODE_KV == SwizzleMode::k128B) {
      constexpr uint32_t ROWS_PER_ITER = 4;
-@@ -761,11 +787,13 @@
+@@ -815,11 +841,13 @@
        for (uint32_t j = 0; j < NUM_MMA_D / (8 / sizeof(DType)); ++j) {
          if constexpr (IS_FP4) {
            smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
@@ -305,7 +305,7 @@
        }
        kv_idx += NUM_WARPS * ROWS_PER_ITER;
        *smem_offset = smem.template advance_offset_by_row<NUM_WARPS * ROWS_PER_ITER, UPCAST_STRIDE>(
-@@ -786,6 +814,8 @@
+@@ -840,6 +868,8 @@
                                   logical_row, lane_idx);
        if constexpr (IS_FP4) {
          smem.template load_64b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
@@ -314,7 +314,7 @@
        } else {
          smem.template load_128b_async<fill_mode>(*smem_offset, gptr, kv_idx < kv_len);
        }
-@@ -1361,6 +1391,58 @@
+@@ -1627,6 +1657,58 @@
    }
  }
  
@@ -373,9 +373,9 @@
  template <typename KTraits, bool REPACK_BF16 = false>
  __device__ __forceinline__ void compute_qk(
      smem_t<KTraits::SWIZZLE_MODE_Q>* q_smem, uint32_t* q_smem_offset_r,
-@@ -2377,6 +2459,16 @@
-     if constexpr (has_maybe_v_cache_sf_v<Params>) {
-       maybe_v_cache_sf = params.maybe_v_cache_sf;
+@@ -2729,6 +2811,16 @@
+         init_rope_freq<KTraits>(local_rope_freq, rope_rcp_scale, rope_rcp_theta, tid.x);
+       }
      }
 +    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
 +    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
@@ -388,9 +388,9 @@
 +      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
 +    }
  
-     static_assert(sizeof(DTypeQ) == 2);
-     const uint32_t lane_idx = tid.x, warp_idx = get_warp_idx<KTraits>(tid.y, tid.z);
-@@ -2595,6 +2687,19 @@
+     // cooperative fetch q fragment from gmem to reg
+     const uint32_t qo_packed_idx_base =
+@@ -2913,6 +3005,21 @@
                smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
                                           16 * KTraits::NUM_MMA_D_QK),
                lane_idx, s_frag);
@@ -406,14 +406,16 @@
 +              &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
 +              smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
 +                                         16 * KTraits::NUM_MMA_D_QK),
-+              lane_idx, s_frag);
++              lane_idx, s_frag,
++              smem_storage.k_scale_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
++                                            16));
          } else {
            compute_qk<KTraits>(
                &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
-@@ -2656,6 +2761,17 @@
-               smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
-                                          16 * KTraits::NUM_MMA_D_VO),
-               lane_idx, s_frag, o_frag, d, d_base);
+@@ -2989,6 +3096,19 @@
+               lane_idx, s_frag, o_frag, d, d_base,
+               smem_storage.v_scale_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
+                                             16));
 +        } else if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
 +          // MJOLNIR_FP6_KV: expand the V tile in place before the sfm*v read.
 +          expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_VO>(
@@ -424,13 +426,15 @@
 +              &v_smem, &v_smem_offset_r,
 +              smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
 +                                         16 * KTraits::NUM_MMA_D_VO),
-+              lane_idx, s_frag, o_frag, d, d_base);
++              lane_idx, s_frag, o_frag, d, d_base,
++              smem_storage.v_scale_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
++                                            16));
          } else {
            compute_sfm_v<KTraits>(
                &v_smem, &v_smem_offset_r,
-@@ -3081,6 +3197,16 @@
-     if constexpr (has_maybe_v_cache_sf_v<Params>) {
-       maybe_v_cache_sf = params.maybe_v_cache_sf;
+@@ -3485,6 +3605,16 @@
+         init_rope_freq<KTraits>(local_rope_freq, rope_rcp_scale, rope_rcp_theta, tid.x);
+       }
      }
 +    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
 +    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
@@ -443,11 +447,11 @@
 +      maybe_v_fp6_scales = params.maybe_v_fp6_scales;
 +    }
  
-     static_assert(sizeof(DTypeQ) == 2);
-     const uint32_t kv_chunk_size = *(params.kv_chunk_size_ptr);
-@@ -3869,6 +3995,16 @@
+     const uint32_t qo_packed_idx_base =
+         (qo_tile_idx * NUM_WARPS_Q + get_warp_idx_q<KTraits>(tid.y)) * NUM_MMA_Q * 16;
+@@ -4347,6 +4477,16 @@
      if constexpr (has_maybe_v_cache_sf_v<Params>) {
-       maybe_v_cache_sf = params.maybe_v_cache_sf;
+       maybe_v_cache_sf = reinterpret_cast<uint8_t*>(params.maybe_v_cache_sf);
      }
 +    // MJOLNIR_FP6_KV: per (kv_head, channel) float scales for the in-smem
 +    // e2m3 -> e4m3 expansion; only non-null for the fp6 dtype.
@@ -462,7 +466,7 @@
      const uint32_t k_sf_stride_page = params.k_sf_stride_page;
      const uint32_t k_sf_stride_n = params.k_sf_stride_n;
      const uint32_t k_sf_stride_h = params.k_sf_stride_h;
-@@ -4067,8 +4203,11 @@
+@@ -4545,8 +4685,11 @@
                                      page_iter, entry_idx);
            // FP4: GMEM is packed (2 FP4/byte), so the column byte offset is halved relative to fp8
            constexpr uint32_t fp4_pack_factor = is_fp4_type_v<DTypeKV> ? 2 : 1;
@@ -476,7 +480,7 @@
            thr_local_kv_offset_k[i] = paged_kv.protective_get_k_offset(
                page_iter, kv_head_idx, entry_idx, feat_idx, last_indptr);
            if constexpr (!SAME_KV_STRIDES) {
-@@ -4181,8 +4320,12 @@
+@@ -4668,8 +4811,12 @@
                                        page_iter, entry_idx);
              // FP4: GMEM is packed (2 FP4/byte), so the column byte offset is halved relative to fp8
              constexpr uint32_t fp4_pack_factor = is_fp4_type_v<DTypeKV> ? 2 : 1;
@@ -491,9 +495,9 @@
              thr_local_kv_offset_k[i] = paged_kv.protective_get_k_offset(
                  page_iter, kv_head_idx, entry_idx, feat_idx, last_indptr);
              if constexpr (!SAME_KV_STRIDES) {
-@@ -4235,6 +4378,15 @@
-                                          16 * KTraits::NUM_MMA_D_QK),
-               lane_idx, s_frag);
+@@ -4728,6 +4875,15 @@
+         } else if constexpr (KTraits::USE_FP8_MMA) {
+           compute_qk_fp8<KTraits>(&qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r, s_frag);
          } else {
 +          if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
 +            // MJOLNIR_FP6_KV: the produced slots hold packed e2m3 codes;
@@ -507,9 +511,9 @@
            compute_qk<KTraits>(
                &qo_smem, &q_smem_offset_r, &k_smem, &k_smem_offset_r,
                smem_storage.k_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
-@@ -4325,6 +4477,13 @@
-                                          16 * KTraits::NUM_MMA_D_VO),
-               lane_idx, s_frag, o_frag, d, d_base);
+@@ -4837,6 +4993,13 @@
+               smem_storage.v_scale_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
+                                             16));
          } else {
 +          if constexpr (is_mjolnir_fp6_type_v<DTypeKV>) {
 +            // MJOLNIR_FP6_KV: expand the packed V tile in place before compute_sfm_v reads it.
@@ -521,6 +525,13 @@
            compute_sfm_v<KTraits>(
                &v_smem, &v_smem_offset_r,
                smem_storage.v_sf_smem_ptr(get_warp_idx_kv<KTraits>(tid.z) * KTraits::NUM_MMA_KV *
+@@ -5432,3 +5595,6 @@
+ }  // namespace flashinfer
+ 
+ #endif  // FLASHINFER_PREFILL_CUH_
++
++// # Modified by the Mjolnir image (https://github.com/GoBrrr-ai/mjolnir):
++// fi-fp6-kv-ampere-prefill.patch (see /usr/share/doc/mjolnir/patches/).
 --- a/flashinfer/jit/attention/modules.py
 +++ b/flashinfer/jit/attention/modules.py
 @@ -53,26 +53,18 @@
@@ -564,7 +575,7 @@
          staging.copy_(scratch_bytes[:staged_int_workspace_bytes])
          with torch.cuda.device(int_workspace.device):
              device_bytes[:staged_int_workspace_bytes].copy_(staging, non_blocking=True)
-@@ -121,13 +111,10 @@
+@@ -147,13 +137,10 @@
  ) -> None:
      if paged_kv_stride_mode not in ("runtime", "equal", "independent"):
          raise ValueError(
@@ -580,7 +591,7 @@
      if (paged_kv_stride_mode, module_surface) not in _BATCH_PREFILL_MODULE_URI_SUFFIX:
          raise ValueError(
              "Unsupported batch-prefill mode/surface combination: "
-@@ -153,10 +140,7 @@
+@@ -179,10 +166,7 @@
  ) -> str:
      """Return a content-unique URI for one validated batch-prefill artifact."""
      _validate_batch_prefill_module_mode(backend, paged_kv_stride_mode, module_surface)
@@ -592,7 +603,7 @@
  
  
  def get_single_decode_uri(
-@@ -532,8 +516,19 @@
+@@ -566,10 +550,21 @@
              "maybe_alibi_slopes",
              "maybe_k_cache_sf",
              "maybe_v_cache_sf",
@@ -600,22 +611,24 @@
 +            # packed-fp6 (e2m3) KV cache; consumed by the in-smem expansion.
 +            "maybe_k_fp6_scales",
 +            "maybe_v_fp6_scales",
-+        ]
+         ]
+         # FP8 token-head scale is a float32 tensor; NVFP4 (or no scale) is packed uint8.
+         sf_dtype = "float" if use_token_head_sf else "uint8_t"
+-        additional_tensor_dtypes = ["uint8_t", "float", sf_dtype, sf_dtype]
 +        additional_tensor_dtypes = [
 +            "uint8_t",
 +            "float",
-+            "uint8_t",
-+            "uint8_t",
-+            "float",
-+            "float",
-         ]
--        additional_tensor_dtypes = ["uint8_t", "float", "uint8_t", "uint8_t"]
++            sf_dtype,
++            sf_dtype,
++            "float",  # MJOLNIR_FP6_KV
++            "float",  # MJOLNIR_FP6_KV
++        ]
          additional_scalar_names = [
              "logits_soft_cap",
              "sm_scale",
-@@ -996,18 +991,14 @@
-         use_logits_soft_cap,
+@@ -1035,18 +1030,14 @@
          use_fp16_qk_reduction,
+         use_token_head_sf,
      )
 -    uri = _get_batch_prefill_module_uri(
 -        base_uri, backend, paged_kv_stride_mode, module_surface
@@ -634,9 +647,9 @@
      assert dtype_o not in [torch.float8_e4m3fn, torch.float8_e5m2], (
          "FP8 output is not supported in fa2/fa3 backends yet"
      )
-@@ -1301,8 +1292,15 @@
-         use_profiler,
+@@ -1522,8 +1513,15 @@
      )
+     uri = _get_batch_attention_module_uri(uri, paged_kv_stride_mode)
  
 -    additional_tensor_names: List[str] = ["maybe_k_cache_sf", "maybe_v_cache_sf"]
 -    additional_tensor_dtypes: List[str] = ["uint8_t", "uint8_t"]
@@ -652,7 +665,7 @@
      additional_scalar_names: List[str] = []
      additional_scalar_dtypes: List[str] = []
      variant_name = f"StandardAttention<{str(use_logits_soft_cap).lower()}>"
-@@ -1424,9 +1416,7 @@
+@@ -1724,9 +1722,7 @@
          additional_scalar_dtypes,
      )
  
@@ -663,7 +676,7 @@
          config_templ = jinja2.Template(f.read())
  
      with open(jit_env.FLASHINFER_CSRC_DIR / "single_decode_kernel_inst.jinja") as f:
-@@ -1521,23 +1511,17 @@
+@@ -1823,23 +1819,17 @@
          raise ValueError("backend should not be auto when jit_args is provided")
      elif backend == "fa2":
          gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
@@ -694,7 +707,7 @@
              kernel_inst_templ = jinja2.Template(f.read())
  
          kwargs |= {
-@@ -1579,21 +1563,17 @@
+@@ -1881,21 +1871,17 @@
          return gen_jit_spec(
              uri,
              source_paths,
@@ -723,7 +736,7 @@
          )
  
          _file_config = "single_prefill_sm90_customize_config.jinja"
-@@ -1673,13 +1653,11 @@
+@@ -1975,13 +1961,11 @@
      use_logits_soft_cap: bool = False,
  ) -> JitSpec:
      gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
@@ -742,7 +755,7 @@
      )
  
      kwargs = {
-@@ -1765,9 +1743,7 @@
+@@ -2069,9 +2053,7 @@
      require_fp4_kv_cache = dtype_map_kv[dtype_kv] == "__nv_fp4x2_e2m1"
      if require_fp4_kv_cache:
          missing_sf_tensors = [
@@ -753,50 +766,7 @@
          ]
          if missing_sf_tensors:
              raise ValueError(
-@@ -1801,33 +1777,23 @@
-         raise ValueError("backend should not be auto when jit_args is provided")
-     elif backend == "fa2":
-         gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
--        (additional_params_decl, additional_func_params, additional_params_setter) = (
--            generate_additional_params(
--                additional_tensor_names,
--                additional_tensor_dtypes,
--                additional_scalar_names,
--                additional_scalar_dtypes,
--            )
--        )
--        additional_params_setter = _append_nvfp4_sf_stride_setter(
--            additional_params_setter, additional_tensor_names
-+        (additional_params_decl, additional_func_params, additional_params_setter) = generate_additional_params(
-+            additional_tensor_names,
-+            additional_tensor_dtypes,
-+            additional_scalar_names,
-+            additional_scalar_dtypes,
-         )
-+        additional_params_setter = _append_nvfp4_sf_stride_setter(additional_params_setter, additional_tensor_names)
- 
--        with open(
--            jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_customize_config.jinja"
--        ) as f:
-+        with open(jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_customize_config.jinja") as f:
-             config_templ = jinja2.Template(f.read())
- 
--        with open(
--            jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_paged_kernel_inst.jinja"
--        ) as f:
-+        with open(jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_paged_kernel_inst.jinja") as f:
-             paged_kernel_inst_templ = jinja2.Template(f.read())
- 
-         ragged_kernel_inst_templ = None
-         if module_surface == "full":
--            with open(
--                jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_ragged_kernel_inst.jinja"
--            ) as f:
-+            with open(jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_ragged_kernel_inst.jinja") as f:
-                 ragged_kernel_inst_templ = jinja2.Template(f.read())
- 
-         kwargs |= {
-@@ -1843,9 +1809,7 @@
+@@ -2164,9 +2146,7 @@
  
          source_paths = []
          for mask_mode in [0, 1, 2, 3]:
@@ -807,7 +777,7 @@
              source_paths.append(dest_path)
              source = paged_kernel_inst_templ.render(
                  mask_mode=mask_mode_literal[mask_mode],
-@@ -1854,9 +1818,7 @@
+@@ -2175,9 +2155,7 @@
              write_if_different(dest_path, source)
  
              if ragged_kernel_inst_templ is not None:
@@ -818,7 +788,7 @@
                  source_paths.append(dest_path)
                  source = ragged_kernel_inst_templ.render(
                      mask_mode=mask_mode_literal[mask_mode],
-@@ -1887,9 +1849,7 @@
+@@ -2208,9 +2186,7 @@
  
          generated_config_path = gen_directory / "batch_prefill_config.inc"
          write_if_different(generated_config_path, generated_inc_str)
@@ -829,7 +799,7 @@
          if kwargs["require_fp4_kv_cache"]:
              # NVFP4 KV kernels need FLASHINFER_ENABLE_FP4_E2M1 (common flags) even
              # when the head_dim helper returns no arch-specific flags.
-@@ -1901,14 +1861,12 @@
+@@ -2226,14 +2202,12 @@
          )
      elif backend == "fa3":
          gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
@@ -850,7 +820,7 @@
          )
  
          _file_config = "batch_prefill_sm90_customize_config.jinja"
-@@ -2071,8 +2029,7 @@
+@@ -2396,8 +2370,7 @@
              jit_env.FLASHINFER_CSRC_DIR / "trtllm_fmha_kernel_launcher.cu",
              jit_env.FLASHINFER_CSRC_DIR / "fmhaReduction.cu",
              jit_env.FLASHINFER_CSRC_DIR / "trtllm_sage_quant.cu",
@@ -860,7 +830,7 @@
          ],
          # link "include" sub-directory in cache
          extra_include_paths=[jit_env.FLASHINFER_CUBIN_DIR / include_path],
-@@ -2129,23 +2086,17 @@
+@@ -2503,23 +2476,17 @@
                  if var.startswith("maybe")
                  else f"params[i].{var} = static_cast<{dtype}*>({var}.data_ptr());"
              )
@@ -887,7 +857,7 @@
          paged_kernel_inst_templ = jinja2.Template(f.read())
  
      kwargs |= {
-@@ -2221,16 +2172,11 @@
+@@ -2596,16 +2563,11 @@
          "fmha_v2_flash_attention_e4m3_fp32_64_64_S_q_k_v_192x128_sm120.cu",
      ]
  
@@ -906,7 +876,7 @@
      nvcc_flags.append(f"-I{jit_env.FLASHINFER_CSRC_DIR / 'fmha_v2'}")
      nvcc_flags.append("-Wno-deprecated-gpu-targets")
  
-@@ -2241,9 +2187,7 @@
+@@ -2616,9 +2578,7 @@
      )
  
  
@@ -917,7 +887,7 @@
      # Setup generated source directory
      if output_dtype is None:
          output_dtype = input_dtype
-@@ -2289,9 +2233,7 @@
+@@ -2664,9 +2624,7 @@
      source_paths.append(binding_path)
  
      # Setup compilation flags
@@ -981,8 +951,7 @@
              f"The dtype of k {k.dtype} does not match the kv_data_type {dtype_kv} specified in plan function."
          )
 --- a/flashinfer/prefill.py
-+++ b/flashinfer/prefill.py
-@@ -3189,7 +3189,14 @@
+@@ -4864,7 +4864,14 @@
          if (
              k_cache.dtype == torch.uint8 or v_cache.dtype == torch.uint8
          ) and kv_cache_sf is None:
@@ -995,10 +964,10 @@
 +                and self._cached_kv_data_type.startswith("mjolnir_fp6")
 +            ):
 +                raise ValueError("kv_cache_sf must be provided for NVFP4 KV cache.")
-         key_block_scales, value_block_scales = (
-             _unpack_paged_kv_cache(kv_cache_sf, self._kv_layout)
-             if kv_cache_sf is not None
-@@ -3246,11 +3253,16 @@
+         if getattr(self, "_use_token_head_sf", False):
+             # FP8 per-(token, head) scale: kv_cache_sf is a (k_sf, v_sf) tuple of
+             # float32 tensors mirroring the KV layout minus head_dim (3-D paged).
+@@ -4990,11 +4997,16 @@
          # Using q.shape[-1] here assumed head_dim_vo == head_dim_qk and made
          # the kernel (which writes head_dim_vo-wide rows) garble a too-wide
          # output buffer whenever VO < QK.
@@ -1020,3 +989,5 @@
          if out is None:
              # Use cached output data type if available (for FP8 attention with FP16 output)
              out_dtype = getattr(self, "_cached_o_data_type", None) or q.dtype
+
+SECTION_END

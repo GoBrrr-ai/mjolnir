@@ -30,12 +30,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Order: re-based onto upstream vLLM 0.33.0 (2026-11 bump). 54165, 55519,
-# the fp6 e2m3 KV dtype and the split top-p sampler fix retired at this
-# bump — all four are in the base now (see PATCHES.md); the gdn-prefill
-# pair is retired too (the c4 stagger, commented STAGGER FIX below). The
-# fa4 sm_110 gate patches touch files disjoint from every other patch
-# (v1/attention/backends/fa_utils.py +
+# Order: re-based onto upstream vLLM 0.34.0 (2026-11 bump, tag 62d4bc3c7).
+# Retired at this bump (all four in the base now — see PATCHES.md): 49652
+# (the draft-decode capture shapes are explicit in the 0.34 speculator
+# managers), the two sm_110 MoE gates (#62133, #62275) and the qwen4 topk
+# gate (#56102). The fa4 sm_110 gate patches touch files disjoint from every
+# other patch (v1/attention/backends/fa_utils.py +
 # vllm_flash_attn/cute/interface.py; the hd256 patch additionally touches
 # vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py), so their position
 # among the middle patches is immaterial — except that the two fa4 sm_110
@@ -43,22 +43,20 @@ from pathlib import Path
 # (whose fa_utils hunks are diffed against the hd128-patched file) must
 # land after the hd128 one. The three Thor v1/attention/backends/flashinfer.py
 # patches land in sequence: 50885 (the FI-native uniform-multi-token FULL
-# grant — on 0.33.0 slimmed to the probe + the two gates; the wrapper
-# plumbing itself is upstream), the fused-draft-decode patch (its hunks
+# grant — the probe + the two gates; the wrapper plumbing itself is
+# upstream), the fused-draft-decode patch (its hunks
 # sit on top of 50885's), then the DSpark non-causal cudagraph patch
 # (its get_cudagraph_support hunk is diffed against 50885's grant).
 PATCH_ORDER = [
-    "49652-draft-decode-capture.patch",
     "50885-flashinfer-full-cudagraph.patch",
-    # STAGGER FIX (2026-11-04): the GDN
-    # prefill pair carries the c4 aggregate stagger — removed. Stock GDN
-    # prefill path serves correctly on 0.33 (kernelonly A/B, acc 3.59).
     "thor-fused-draft-decode-fi-native-update.patch",
     # Refreshes the T5 split-KV work plan when the fused draft loop replays
-    # its FULL cudagraph: the _fused_multi_step_decode FULL branch returns
+    # its FULL cudagraph: the _run_fused_multi_step_decode FULL branch returns
     # before building the draft metadata, so a host-side per-cycle plan
     # (ours) would stay baked at capture-time seq_lens. Same feature
     # family as the patch above; the speculator file is disjoint from it.
+    # 0.34: the fused machinery lives in spec_decode/autoregressive/
+    # speculator.py (moved out of target_dependent_ar).
     "thor-fused-draft-t5-plan-refresh.patch",
     "thor-dspark-draft-fi-noncausal-cudagraph.patch",
     # Disjoint from every patch except the hd256 one below (fa_utils.py) —
@@ -80,23 +78,18 @@ PATCH_ORDER = [
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
-    # touches — order-independent. Makes `--attention-backend MJOLNIR` parse.
+    # touches — order-independent EXCEPT that its fa_utils.py hunk assumes
+    # the fa4 patches' version of that file: it lands AFTER the fa4 pair
+    # (region-disjoint from them, but a reorder must keep this order).
+    # Makes `--attention-backend MJOLNIR` parse.
     "thor-mjolnir-attention-backend.patch",
-    # Two sm_110 MoE-backend gate fixes (drop each when the PR lands in a
-    # release we track): the OAI Triton MXFP4 MoE selector keeps MARLIN as
-    # the default on SM110 (the OAI Triton path fails to compile matmul_ogs
-    # at engine init, #61374) and the CUTLASS FP4 MoE backend must not
-    # auto-select on sm_110 (faults in profile_run, TMA descriptor init).
-    # #62133 is merged upstream (2026-10-27) but NOT in the 0.33.0 release
-    # branch — re-check at every bump. All five touched files are disjoint
-    # from every other patch — order-independent.
-    "thor-sm110-mxfp4-moe-gate.patch",
-    "thor-sm110-cutlass-fp4-moe-guard.patch",
     # CuTe DSL NVFP4 MoE on sm_110: vLLM's FlashInferCuteDSLExperts gate admits
     # family 110 (the FlashInfer-side capability checks are in
     # FLASHINFER_PATCH_ORDER). Only selected for W4A4 (activation-quantized)
     # NVFP4 experts; W4A16 checkpoints keep MARLIN. Touches only
-    # fused_moe/experts/flashinfer_cutedsl_moe.py - order-independent.
+    # fused_moe/experts/flashinfer_cutedsl_moe.py - order-independent. Still
+    # NOT base-covered in 0.34 (the gate is family(100)-only there); the two
+    # sm_110 MoE gate fixes above it were retired as 0.34-base-covered.
     "thor-sm110-cutedsl-moe-gate.patch",
     # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
     # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
@@ -110,15 +103,6 @@ PATCH_ORDER = [
     # sufficient (a new architectures registration is also needed) — see
     # task/research/qwen4-27b-upstream-prep/ (release-day checklist).
     "thor-qwen4-dense-model.patch",
-    # Sparse-indexer decode top-k on sm_110: v0.32.0's auto chain leads with
-    # cooperative_topk, whose thread-block-cluster launch is REJECTED on
-    # Thor (device-proven 2026-10-31: "cluster misconfiguration" ->
-    # EngineDeadError at the first decode top-k; the upstream SM120 report
-    # vllm-project/vllm#47266 Issue 8 is the same failure class and its fix
-    # excludes the family). The patch extends the exclusion to family 110 —
-    # the gate falls through to persistent_topk. Probe-gated: inert on every
-    # other arch.
-    "thor-qwen4-topk-sm110.patch",
     # The Mjolnir QSA decode: probe-gated (MJOLNIR_ATTN_QSA) impl swap inside
     # Qwen4ExpQSAAttention — wraps the stock impl and routes pure-decode steps
     # through the kernel package's scratch-gather (mjolnir.qsa_impl, which
@@ -137,11 +121,11 @@ PATCH_ORDER = [
 FLASHINFER_PATCH_ORDER = [
     # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",
-    # The FlashInfer half of the CuTe DSL MoE enablement: the two blockscaled
-    # grouped-GEMM wrappers accept major 11 (CuTe DSL compiles them for
-    # sm_110a natively) and the moe_utils JIT (moe_sort / unpermute) builds
-    # for major 11. Disjoint from the fp6 hunk.
-    "fi-cutedsl-moe-sm110.patch",
+    # The FlashInfer half of the CuTe DSL MoE enablement, the 0.34 port: the
+    # two top-level wrappers' hard major!=10 gate admits 11 (the moe_utils
+    # majors include 11 upstream -- no hunk). The 0.33-era
+    # fi-cutedsl-moe-sm110.patch is retired (its paths are gone).
+    "fi-cutedsl-moe-sm110-0.34.patch",
 ]
 
 
@@ -176,7 +160,7 @@ def apply_one(root: Path, patch_dir: Path, name: str) -> None:
     # -p1 strips the leading a/vllm/ so files land under <cwd>/vllm/...
     # --forward (-N): skip hunks already applied, keep going on the rest.
     result = subprocess.run(
-        ["patch", "-p1", "--forward", "-i", str(patch_file)],
+        ["patch", "-p1", "--forward", "--fuzz=3", "-i", str(patch_file)],
         cwd=root.parent,
         capture_output=True,
         text=True,

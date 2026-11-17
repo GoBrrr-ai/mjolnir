@@ -19,7 +19,7 @@ Scope of v1 (deliberate):
 
 Everything else (indexer scores, top-k, the K/V cache write, the output
 gate application contract) stays stock: the impl subclasses the stock
-impl and only overrides ``forward_qsa``.
+impl and only overrides ``forward``.
 """
 
 from __future__ import annotations
@@ -66,6 +66,27 @@ def _geometry_key(layer, page_size: int, device: torch.device) -> tuple:
 _IMPL_CLASS: type | None = None
 
 
+def _indexer_metadata(layer):
+    """The QSAIndexerMetadata of this step, via the forward context.
+
+    0.34 moved the per-request seq lens off the main QSA metadata onto the
+    indexer's side metadata; the owner layer reads it under the indexer
+    cache's key. Same lookup here, keyed off the layer's indexer. None on
+    any surprise - the caller falls back to the stock path.
+    """
+    try:
+        from vllm.forward_context import get_forward_context
+
+        md = get_forward_context().attn_metadata
+        if isinstance(md, list):
+            md = md[0]
+        if not isinstance(md, dict):
+            return None
+        return md.get(layer.indexer.raw_key_cache.prefix)
+    except Exception:  # noqa: BLE001 - any surprise degrades to stock
+        return None
+
+
 def build_impl_class() -> type:
     """Import + subclass the stock impl on first use.
 
@@ -79,24 +100,21 @@ def build_impl_class() -> type:
         # model.py, but not the reverse — importing model.py resolves the cycle
         import vllm.models.qwen4_exp.nvidia.model  # noqa: F401
 
-        from vllm.model_executor.layers.attention.attention import AttentionType
-        from vllm.models.qwen4_exp.nvidia.qsa import Qwen4ExpQSAFlashAttentionImpl
+        from vllm.models.qwen4_exp.nvidia.qsa import Qwen4ExpQSAImpl
 
-        class Qwen4ExpQSAMjolnirImpl(Qwen4ExpQSAFlashAttentionImpl):
+        class Qwen4ExpQSAMjolnirImpl(Qwen4ExpQSAImpl):
             """Stock QSA impl with the Mjolnir scratch-gather decode."""
 
             def __init__(self, layer, *, max_num_seqs: int = 256) -> None:
+                # 0.34 slimmed the impl ctor to (heads, head_size, scale,
+                # kv_heads, cache dtype); alibi/window/softcap et al moved
+                # into the layer.
                 super().__init__(
                     layer.num_heads,
                     layer.head_dim,
                     layer.scaling,
                     layer.num_kv_heads,
-                    None,  # alibi
-                    None,  # sliding window
                     layer.kv_cache_dtype,
-                    None,  # logits soft cap
-                    AttentionType.DECODER,
-                    None,  # kv sharing
                 )
                 self._spec = qsa.IndexerSpec()
                 self._max_num_seqs = max_num_seqs
@@ -161,32 +179,44 @@ def build_impl_class() -> type:
 
             # ---- the override ------------------------------------------------
 
-            def forward_qsa(
+            def forward(
                 self,
                 layer,
                 query: torch.Tensor,
-                key: torch.Tensor,
-                value: torch.Tensor,
                 kv_cache: torch.Tensor,
                 attn_metadata,
                 output: torch.Tensor,
+                *,
                 token_to_req: torch.Tensor,
                 use_prefill_config: bool,
                 output_gate: torch.Tensor,
-                output_scale=None,
-                output_block_scale=None,
             ) -> torch.Tensor:
                 num_tokens = attn_metadata.num_actual_tokens
-                # len(seq_lens) is the request count (the decode/prefill
-                # counters are QSA-builder-specific and unset here)
-                num_reqs = int(attn_metadata.seq_lens.shape[0])
+                # 0.34 main QSA metadata is slim (no seq_lens): the per-request
+                # lens live on the indexer's side metadata, reachable through
+                # the forward context under the indexer cache's key - the same
+                # lookup the owner layer does in _run_qsa.
+                indexer_md = _indexer_metadata(layer)
+                if indexer_md is None:
+                    _note_fallback("indexer metadata unavailable")
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
+                    )
+                num_reqs = int(indexer_md.seq_lens.shape[0])
                 # Guards → the stock Triton path. Prefill/verify/mixed batches
                 # have per-row selections the single scratch plan can't express;
                 # bf16 caches are not a kernel format.
                 reason = None
-                if output_scale is not None or output_block_scale is not None:
-                    reason = "fused output quantization"
-                elif use_prefill_config:
+                # (0.34 folded the fused output quantization into the impl
+                # itself via layer._k_scale_float - no per-call scale args.)
+                if use_prefill_config:
                     reason = "prefill/mixed step"
                 elif self.kv_cache_dtype not in ("fp8", "fp8_e4m3"):
                     reason = f"cache dtype {self.kv_cache_dtype}"
@@ -198,34 +228,28 @@ def build_impl_class() -> type:
                     reason = "empty batch"
                 if reason is not None:
                     _note_fallback(reason)
-                    return super().forward_qsa(
+                    return super().forward(
                         layer,
                         query,
-                        key,
-                        value,
                         kv_cache,
                         attn_metadata,
                         output,
-                        token_to_req,
-                        use_prefill_config,
-                        output_gate,
-                        output_scale,
-                        output_block_scale,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
                     )
                 key_cache, value_cache = self._split_cache(kv_cache)
                 if key_cache.ndim != 4:
                     _note_fallback(f"unexpected cache layout {tuple(kv_cache.shape)}")
-                    return super().forward_qsa(
+                    return super().forward(
                         layer,
                         query,
-                        key,
-                        value,
                         kv_cache,
                         attn_metadata,
                         output,
-                        token_to_req,
-                        use_prefill_config,
-                        output_gate,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
                     )
                 if self.kv_cache_dtype in ("fp8", "fp8_e4m3"):
                     key_cache = key_cache.view(torch.float8_e4m3fn)
@@ -241,17 +265,15 @@ def build_impl_class() -> type:
                         f"pool page size {page_size} not a multiple of the ratio"
                         f" (kv_cache {tuple(kv_cache.shape)}, key {tuple(key_cache.shape)})"
                     )
-                    return super().forward_qsa(
+                    return super().forward(
                         layer,
                         query,
-                        key,
-                        value,
                         kv_cache,
                         attn_metadata,
                         output,
-                        token_to_req,
-                        use_prefill_config,
-                        output_gate,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
                     )
                 dev = key_cache.device
                 spec = self._spec
@@ -262,39 +284,42 @@ def build_impl_class() -> type:
                 # bake into a captured graph — this path is eager-only by design
                 if torch.cuda.is_current_stream_capturing():
                     _note_fallback("cuda graph capture (per-step selection indices)")
-                    return super().forward_qsa(
-                        layer, query, key, value, kv_cache, attn_metadata, output, token_to_req, use_prefill_config
-                    )
-                sel = self._selection_blocks(layer, num_tokens, num_reqs, token_to_req)
-                seq_lens_cpu = attn_metadata.seq_lens.cpu()
-                if sel is None:
-                    _note_fallback("empty selection row")
-                    return super().forward_qsa(
+                    return super().forward(
                         layer,
                         query,
-                        key,
-                        value,
                         kv_cache,
                         attn_metadata,
                         output,
-                        token_to_req,
-                        use_prefill_config,
-                        output_gate,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
+                    )
+                sel = self._selection_blocks(layer, num_tokens, num_reqs, token_to_req)
+                seq_lens_cpu = indexer_md.seq_lens.cpu()
+                if sel is None:
+                    _note_fallback("empty selection row")
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
                     )
                 eff = qsa.effective_seq_lens(sel, seq_lens_cpu, spec)
                 if int(eff.min()) <= 0:
                     _note_fallback("empty effective selection")
-                    return super().forward_qsa(
+                    return super().forward(
                         layer,
                         query,
-                        key,
-                        value,
                         kv_cache,
                         attn_metadata,
                         output,
-                        token_to_req,
-                        use_prefill_config,
-                        output_gate,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
                     )
 
                 # ---- runner + scratch (shared across layers, grow-on-demand) --
@@ -393,8 +418,15 @@ def build_impl_class() -> type:
                     )
                 else:  # pragma: no cover - no triton: scratch_copy would need a
                     _note_fallback("no triton gather; stock path")  # contiguous pool copy we refuse to materialize
-                    return super().forward_qsa(
-                        layer, query, key, value, kv_cache, attn_metadata, output, token_to_req, use_prefill_config
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
                     )
 
                 k_buf, v_buf = self._scale_bufs_for(layer, dev)
@@ -408,7 +440,7 @@ def build_impl_class() -> type:
                     scratch_v,
                     k_buf,
                     v_buf,
-                    self.head_size**-0.5,
+                    self.scale,
                 )
 
                 # the stock Triton kernel applies the sigmoid output gate; the
