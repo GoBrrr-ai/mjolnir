@@ -121,12 +121,11 @@ PATCH_ORDER = [
 FLASHINFER_PATCH_ORDER = [
     # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",
-    # The FlashInfer half of the CuTe DSL MoE enablement -- RETIRED on 0.34:
-    # the moe_utils majors already include 11 and the blockscaled grouped-GEMM
-    # wrappers moved to fused_moe/cute_dsl/rubin/ with a hard major!=10 gate
-    # (the patch's paths no longer exist). The W4A4-on-0.34 FI rework is a
-    # follow-up; the file stays as the 0.33-era record.
-    # "fi-cutedsl-moe-sm110.patch",
+    # The FlashInfer half of the CuTe DSL MoE enablement, the 0.34 port: the
+    # two top-level wrappers' hard major!=10 gate admits 11 (the moe_utils
+    # majors include 11 upstream -- no hunk). The 0.33-era
+    # fi-cutedsl-moe-sm110.patch is retired (its paths are gone).
+    "fi-cutedsl-moe-sm110-0.34.patch",
 ]
 
 

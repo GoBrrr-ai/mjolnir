@@ -238,24 +238,16 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
-    "thor sm110 CuTe DSL MoE: grouped-GEMM wrappers + moe_utils JIT admit major 11 (THOR_SM110_CUTEDSL_MOE)": [
-        # 0.34 restructured the FI cute-dsl MoE (the wrappers moved to
-        # fused_moe/cute_dsl/ top-level with a hard `major != 10` gate and the
-        # moe_utils majors extended to [8..12]) -- the patch's 0.33-shape hunks
-        # are obsolete and the patch is out of the 0.34 apply order. These
-        # sentinels now pin the BARE-0.34 state: the drift alarm for the
-        # W4A4-on-0.34 port (the wrappers' 11-admission is the follow-up).
+    "thor sm110 CuTe DSL MoE: the 0.34 wrappers admit family 11 (THOR_SM110_CUTEDSL_MOE)": [
+        # The 0.34 port (fi-cutedsl-moe-sm110-0.34.patch): one sentinel per
+        # changed gate line. The moe_utils majors include 11 upstream.
         (
             "fused_moe/cute_dsl/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py",
-            "    if major != 10:",
+            "if major not in (10, 11):  # THOR_SM110_CUTEDSL_MOE",
         ),
         (
             "fused_moe/cute_dsl/blockscaled_contiguous_grouped_gemm_finalize_fusion.py",
-            "    if major != 10:",
-        ),
-        (
-            "jit/moe_utils.py",
-            "supported_major_versions=[8, 9, 10, 11, 12], map_sm107_to_100f=True",
+            "if major not in (10, 11):  # THOR_SM110_CUTEDSL_MOE",
         ),
     ],
     # STAGGER FIX: "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
