@@ -147,7 +147,7 @@ def apply_one(root: Path, patch_dir: Path, name: str) -> None:
     # -p1 strips the leading a/vllm/ so files land under <cwd>/vllm/...
     # --forward (-N): skip hunks already applied, keep going on the rest.
     result = subprocess.run(
-        ["patch", "-p1", "--forward", "-i", str(patch_file)],
+        ["patch", "-p1", "--forward", "--fuzz=3", "-i", str(patch_file)],
         cwd=root.parent,
         capture_output=True,
         text=True,

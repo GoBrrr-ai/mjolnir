@@ -530,11 +530,17 @@ bump-fragile parts — re-derive `upcast_size` and the fp4/fp8 scalars from the
 new base's `produce_kv` before re-adapting. **Validation status: patch
 applies to FlashInfer 0.7.3 (0.34.0 base, 2026-11-16 —
 `vec_dtypes/cp_async/permuted_smem/jit utils` are byte-identical
-0.7.2.post1→0.7.3; `prefill.cuh` churned but every hunk lands, the full
-sentinel set verifies and a re-run is a clean no-op) — the headers
+0.7.2.post1→0.7.3; `prefill.cuh` churned but every hunk lands) — the headers
 + the fp6 expand instantiation compile for sm_87 (nvcc, CPU-side; the
 `fp6-expand` image canary is bit-exact on Thor); runtime prefill canary +
-the vLLM-side `MJOLNIR_ATTN_FP6_DIRECT` wiring are pending.**
+the vLLM-side `MJOLNIR_ATTN_FP6_DIRECT` wiring are pending. The Python
+side needed a re-anchor for 0.7.3 (2026-11-17): the 0.32-era
+`_validate_workspace`/single-prefill-list hunks sat on pre-token-head-sf
+text, so the whole `jit/attention/modules.py` section is regenerated against
+the wheel (net diff; the dropped hunks were line-collapses) and
+`apply_patches.py` patches with `--fuzz=3` (one `prefill.py` context needs
+it). Clean-room: fresh-wheel apply 0 FAILED, full sentinel set green, all
+four Python files parse.**
 
 **Sentinel:** `verify_patches.py` checks the fp6 struct in `vec_dtypes.cuh`,
 the partial-src loader in `cp_async.cuh`, and — the "used, not just defined"

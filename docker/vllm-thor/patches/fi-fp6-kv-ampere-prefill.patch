@@ -564,7 +564,7 @@
          staging.copy_(scratch_bytes[:staged_int_workspace_bytes])
          with torch.cuda.device(int_workspace.device):
              device_bytes[:staged_int_workspace_bytes].copy_(staging, non_blocking=True)
-@@ -121,13 +111,10 @@
+@@ -147,13 +137,10 @@
  ) -> None:
      if paged_kv_stride_mode not in ("runtime", "equal", "independent"):
          raise ValueError(
@@ -580,7 +580,7 @@
      if (paged_kv_stride_mode, module_surface) not in _BATCH_PREFILL_MODULE_URI_SUFFIX:
          raise ValueError(
              "Unsupported batch-prefill mode/surface combination: "
-@@ -153,10 +140,7 @@
+@@ -179,10 +166,7 @@
  ) -> str:
      """Return a content-unique URI for one validated batch-prefill artifact."""
      _validate_batch_prefill_module_mode(backend, paged_kv_stride_mode, module_surface)
@@ -592,7 +592,7 @@
  
  
  def get_single_decode_uri(
-@@ -532,8 +516,19 @@
+@@ -566,10 +550,21 @@
              "maybe_alibi_slopes",
              "maybe_k_cache_sf",
              "maybe_v_cache_sf",
@@ -600,22 +600,24 @@
 +            # packed-fp6 (e2m3) KV cache; consumed by the in-smem expansion.
 +            "maybe_k_fp6_scales",
 +            "maybe_v_fp6_scales",
-+        ]
+         ]
+         # FP8 token-head scale is a float32 tensor; NVFP4 (or no scale) is packed uint8.
+         sf_dtype = "float" if use_token_head_sf else "uint8_t"
+-        additional_tensor_dtypes = ["uint8_t", "float", sf_dtype, sf_dtype]
 +        additional_tensor_dtypes = [
 +            "uint8_t",
 +            "float",
-+            "uint8_t",
-+            "uint8_t",
-+            "float",
-+            "float",
-         ]
--        additional_tensor_dtypes = ["uint8_t", "float", "uint8_t", "uint8_t"]
++            sf_dtype,
++            sf_dtype,
++            "float",  # MJOLNIR_FP6_KV
++            "float",  # MJOLNIR_FP6_KV
++        ]
          additional_scalar_names = [
              "logits_soft_cap",
              "sm_scale",
-@@ -996,18 +991,14 @@
-         use_logits_soft_cap,
+@@ -1035,18 +1030,14 @@
          use_fp16_qk_reduction,
+         use_token_head_sf,
      )
 -    uri = _get_batch_prefill_module_uri(
 -        base_uri, backend, paged_kv_stride_mode, module_surface
@@ -634,9 +636,9 @@
      assert dtype_o not in [torch.float8_e4m3fn, torch.float8_e5m2], (
          "FP8 output is not supported in fa2/fa3 backends yet"
      )
-@@ -1301,8 +1292,15 @@
-         use_profiler,
+@@ -1522,8 +1513,15 @@
      )
+     uri = _get_batch_attention_module_uri(uri, paged_kv_stride_mode)
  
 -    additional_tensor_names: List[str] = ["maybe_k_cache_sf", "maybe_v_cache_sf"]
 -    additional_tensor_dtypes: List[str] = ["uint8_t", "uint8_t"]
@@ -652,7 +654,7 @@
      additional_scalar_names: List[str] = []
      additional_scalar_dtypes: List[str] = []
      variant_name = f"StandardAttention<{str(use_logits_soft_cap).lower()}>"
-@@ -1424,9 +1416,7 @@
+@@ -1724,9 +1722,7 @@
          additional_scalar_dtypes,
      )
  
@@ -663,7 +665,7 @@
          config_templ = jinja2.Template(f.read())
  
      with open(jit_env.FLASHINFER_CSRC_DIR / "single_decode_kernel_inst.jinja") as f:
-@@ -1521,23 +1511,17 @@
+@@ -1823,23 +1819,17 @@
          raise ValueError("backend should not be auto when jit_args is provided")
      elif backend == "fa2":
          gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
@@ -694,7 +696,7 @@
              kernel_inst_templ = jinja2.Template(f.read())
  
          kwargs |= {
-@@ -1579,21 +1563,17 @@
+@@ -1881,21 +1871,17 @@
          return gen_jit_spec(
              uri,
              source_paths,
@@ -723,7 +725,7 @@
          )
  
          _file_config = "single_prefill_sm90_customize_config.jinja"
-@@ -1673,13 +1653,11 @@
+@@ -1975,13 +1961,11 @@
      use_logits_soft_cap: bool = False,
  ) -> JitSpec:
      gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
@@ -742,7 +744,7 @@
      )
  
      kwargs = {
-@@ -1765,9 +1743,7 @@
+@@ -2069,9 +2053,7 @@
      require_fp4_kv_cache = dtype_map_kv[dtype_kv] == "__nv_fp4x2_e2m1"
      if require_fp4_kv_cache:
          missing_sf_tensors = [
@@ -753,50 +755,7 @@
          ]
          if missing_sf_tensors:
              raise ValueError(
-@@ -1801,33 +1777,23 @@
-         raise ValueError("backend should not be auto when jit_args is provided")
-     elif backend == "fa2":
-         gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
--        (additional_params_decl, additional_func_params, additional_params_setter) = (
--            generate_additional_params(
--                additional_tensor_names,
--                additional_tensor_dtypes,
--                additional_scalar_names,
--                additional_scalar_dtypes,
--            )
--        )
--        additional_params_setter = _append_nvfp4_sf_stride_setter(
--            additional_params_setter, additional_tensor_names
-+        (additional_params_decl, additional_func_params, additional_params_setter) = generate_additional_params(
-+            additional_tensor_names,
-+            additional_tensor_dtypes,
-+            additional_scalar_names,
-+            additional_scalar_dtypes,
-         )
-+        additional_params_setter = _append_nvfp4_sf_stride_setter(additional_params_setter, additional_tensor_names)
- 
--        with open(
--            jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_customize_config.jinja"
--        ) as f:
-+        with open(jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_customize_config.jinja") as f:
-             config_templ = jinja2.Template(f.read())
- 
--        with open(
--            jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_paged_kernel_inst.jinja"
--        ) as f:
-+        with open(jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_paged_kernel_inst.jinja") as f:
-             paged_kernel_inst_templ = jinja2.Template(f.read())
- 
-         ragged_kernel_inst_templ = None
-         if module_surface == "full":
--            with open(
--                jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_ragged_kernel_inst.jinja"
--            ) as f:
-+            with open(jit_env.FLASHINFER_CSRC_DIR / "batch_prefill_ragged_kernel_inst.jinja") as f:
-                 ragged_kernel_inst_templ = jinja2.Template(f.read())
- 
-         kwargs |= {
-@@ -1843,9 +1809,7 @@
+@@ -2164,9 +2146,7 @@
  
          source_paths = []
          for mask_mode in [0, 1, 2, 3]:
@@ -807,7 +766,7 @@
              source_paths.append(dest_path)
              source = paged_kernel_inst_templ.render(
                  mask_mode=mask_mode_literal[mask_mode],
-@@ -1854,9 +1818,7 @@
+@@ -2175,9 +2155,7 @@
              write_if_different(dest_path, source)
  
              if ragged_kernel_inst_templ is not None:
@@ -818,7 +777,7 @@
                  source_paths.append(dest_path)
                  source = ragged_kernel_inst_templ.render(
                      mask_mode=mask_mode_literal[mask_mode],
-@@ -1887,9 +1849,7 @@
+@@ -2208,9 +2186,7 @@
  
          generated_config_path = gen_directory / "batch_prefill_config.inc"
          write_if_different(generated_config_path, generated_inc_str)
@@ -829,7 +788,7 @@
          if kwargs["require_fp4_kv_cache"]:
              # NVFP4 KV kernels need FLASHINFER_ENABLE_FP4_E2M1 (common flags) even
              # when the head_dim helper returns no arch-specific flags.
-@@ -1901,14 +1861,12 @@
+@@ -2226,14 +2202,12 @@
          )
      elif backend == "fa3":
          gen_directory = jit_env.FLASHINFER_GEN_SRC_DIR / uri
@@ -850,7 +809,7 @@
          )
  
          _file_config = "batch_prefill_sm90_customize_config.jinja"
-@@ -2071,8 +2029,7 @@
+@@ -2396,8 +2370,7 @@
              jit_env.FLASHINFER_CSRC_DIR / "trtllm_fmha_kernel_launcher.cu",
              jit_env.FLASHINFER_CSRC_DIR / "fmhaReduction.cu",
              jit_env.FLASHINFER_CSRC_DIR / "trtllm_sage_quant.cu",
@@ -860,7 +819,7 @@
          ],
          # link "include" sub-directory in cache
          extra_include_paths=[jit_env.FLASHINFER_CUBIN_DIR / include_path],
-@@ -2129,23 +2086,17 @@
+@@ -2503,23 +2476,17 @@
                  if var.startswith("maybe")
                  else f"params[i].{var} = static_cast<{dtype}*>({var}.data_ptr());"
              )
@@ -887,7 +846,7 @@
          paged_kernel_inst_templ = jinja2.Template(f.read())
  
      kwargs |= {
-@@ -2221,16 +2172,11 @@
+@@ -2596,16 +2563,11 @@
          "fmha_v2_flash_attention_e4m3_fp32_64_64_S_q_k_v_192x128_sm120.cu",
      ]
  
@@ -906,7 +865,7 @@
      nvcc_flags.append(f"-I{jit_env.FLASHINFER_CSRC_DIR / 'fmha_v2'}")
      nvcc_flags.append("-Wno-deprecated-gpu-targets")
  
-@@ -2241,9 +2187,7 @@
+@@ -2616,9 +2578,7 @@
      )
  
  
@@ -917,7 +876,7 @@
      # Setup generated source directory
      if output_dtype is None:
          output_dtype = input_dtype
-@@ -2289,9 +2233,7 @@
+@@ -2664,9 +2624,7 @@
      source_paths.append(binding_path)
  
      # Setup compilation flags
