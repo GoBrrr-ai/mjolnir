@@ -181,6 +181,9 @@ import inspect
 
 import mjolnir.qsa_impl as _qsa_impl
 
+# qsa <-> model is order-sensitive upstream (qsa does `from . import model`
+# mid-file): model must be imported first, as every vLLM runtime path does.
+import vllm.models.qwen4_exp.nvidia.model as _qsa_model_mod  # noqa: F401
 import vllm.models.qwen4_exp.nvidia.qsa as _qsa_mod
 
 _cls = _qsa_impl.build_impl_class()
