@@ -16,10 +16,12 @@ canary in `kernel_test_sm110_gates.py`), one hd256 1CTA decode carve-out
 **sm_110 MoE backend gate fixes** (see "Thor MoE backend gates on sm_110"
 below) and the three Thor-authored **qwen4_exp-family patches** (dense
 decoder, the sm_110 top-k guard and the probe-gated Mjolnir QSA decode —
-see "Thor qwen4 dense decoder" and the sections after it below).
-In total: **fifteen vLLM-side patches**, applied by `apply_patches.py` to
-the installed vllm package **and** the installed flashinfer package (one
-more patch there, plus one retired-and-commented); verified by
+see "Thor qwen4 dense decoder" and the sections after it below), and the
+**CuTe DSL NVFP4 MoE sm_110 pair** (one vLLM-side, one flashinfer-side — see
+"Thor CuTe DSL NVFP4 MoE on sm_110" below).
+In total: **sixteen vLLM-side patches**, applied by `apply_patches.py` to
+the installed vllm package **and** the installed flashinfer package (two
+more patches there, plus one retired-and-commented); verified by
 `verify_patches.py`.
 
 The retired GEMV decode kernel patch (`thor-fa4-hd256-gemv-decode-sm110.patch`)
@@ -67,6 +69,8 @@ FlashInfer 0.7.2.post1, torch 2.14.0+cu130.
 | `fi-fp6-kv-ampere-prefill.patch` | — (Mjolnir-authored, **FlashInfer-side**) | **Packed-fp6 (e2m3) KV direct-read for FlashInfer's Ampere (sm_80-family) FA2 prefill** — the scratchpad-free fp6 fallback: the produce stage stages 16 codes (12 bytes, partial-src cp.async) per smem slot and an in-place pass rewrites each slot to e4m3 (`code · s_channel`, per-(kv-head, channel) float scales via two new optional `maybe_{k,v}_fp6_scales` params), after which the tile is byte-identical to fp8 and **every** downstream path (per-fragment `vec_cast`, both tile shapes) runs unchanged. Inert unless the fp6 dtype string is requested; see "fp6 prefill direct-read (flashinfer side, sm_80/87)" below. **0.33.0 bump:** applies to FlashInfer 0.7.2.post1 (22/23 hunks verbatim; the one dropped hunk was a pure line-collapse in `jit/attention/modules.py`). |
 | `thor-sm110-mxfp4-moe-gate.patch` | [#62133](https://github.com/vllm-project/vllm/pull/62133) | **Fix OAI Triton MXFP4 MoE on SM110** (supersedes closed #61387). #58877 (in 0.32.0) widened the OAI-Triton device gate to `< (13, 0)`, admitting SM110 → `matmul_ogs` compile failure at engine init (upstream issue #61374). The final state keeps the device gate (TRITON opt-in) but: the GPT-OSS MXFP4 **selector** keeps **MARLIN** the default on SM110 (TRITON opt-in) and `_swizzle_mxfp4` applies the persistent + `epilogue_subtile=1` constraints on SM110 too. **#62133 merged 2026-10-27 (f03b704) but is NOT in the 0.33.0 release branch** (the device gate still admits SM110; the selector has no SM110 clause) — the patch applies and stays. Re-check at every bump; drop once a tracked release carries it. |
 | `thor-sm110-cutlass-fp4-moe-guard.patch` | [#62275](https://github.com/vllm-project/vllm/pull/62275) (open) | **Disable CUTLASS FP4 MoE backend on sm_110.** NVFP4 MoE auto-select picks `VLLM_CUTLASS` on Thor and faults in `profile_run` (TMA descriptor init); sm_110 is removed from `_supports_current_device`'s family allowlist so the fallback backend is chosen. Drop when upstream merges #62275 (still open as of the 0.33.0 bump). |
+| `thor-sm110-cutedsl-moe-gate.patch` | — (Thor-authored) | **Admit sm_110 to the CuTe DSL NVFP4 MoE.** `FlashInferCuteDSLExperts._supports_current_device` accepts device family 110 next to 100, so the NVFP4 MoE oracle can pick `FLASHINFER_CUTEDSL` for **activation-quantized (W4A4)** experts on Thor. W4A16 experts keep MARLIN (the CuTe DSL kernel needs FP4 activations). Pairs with the FlashInfer-side `fi-cutedsl-moe-sm110.patch`. Probe-gated: a no-op off sm_110. |
+| `fi-cutedsl-moe-sm110.patch` | — (Thor-authored, **FlashInfer-side**) | **FlashInfer half of the CuTe DSL MoE enablement.** The blockscaled contiguous grouped-GEMM wrappers (`…gather_grouped_gemm_act_fusion.py`, `…grouped_gemm_finalize_fusion.py`) accept major 11 (CuTe DSL compiles them for `sm_110a` natively), and the `moe_utils` JIT module (`moe_sort`/`unpermute`) builds for major 11. No behavior change on any other arch. |
 | `thor-qwen4-dense-model.patch` | Thor-authored (basis: the recovered Intel `fp8_dense.cpp` — Qwen4-27B is **dense**) | **Dense-decoder support for the qwen4_exp family.** v0.32.0 builds `Qwen4ExpSparseMoeBlock` for every layer and transformers rejects `num_experts <= 0`, so no dense Qwen4 checkpoint can load. The patch mirrors qwen3_next's own hybrid rule (`mlp_only_layers` + `(layer_idx + 1) % decoder_sparse_step`): a checkpoint that lists every layer in `mlp_only_layers` gets `Qwen3NextMLP` (`Qwen2MoeMLP`) with `config.intermediate_size`. The MTP drafter goes dense through the same layer class; `Qwen4ExpMixtureOfExperts` already handles zero MoE layers. **Inert** for every existing checkpoint (none set `mlp_only_layers` on qwen4_exp). See "Thor qwen4 dense decoder" below. |
 | `thor-qwen4-topk-sm110.patch` | Thor-authored (upstream precedent: [#47266](https://github.com/vllm-project/vllm/issues/47266) Issue 8, SM120) | **sm_110 excluded from `cooperative_topk`.** Device-proven 2026-10-31: v0.32.0's sparse-indexer `auto` chain leads with `cooperative_topk`, whose thread-block-cluster launch is **rejected on Thor** (`cluster misconfiguration`, `cooperative_topk.cu:48` → `EngineDeadError` at the first decode top-k; model loads and prefills fine). The patch extends the gate's family exclusion (`120` already there) to `110` — the dispatch falls through to `persistent_topk`. Inert on every other arch. See "Thor qwen4 topk sm110" below. |
 | `thor-qwen4-qsa-mjolnir.patch` | Thor-authored (kernel: `mjolnir.qsa_impl`) | **Probe-gated Mjolnir decode for the QSA layers** (`MJOLNIR_ATTN_QSA`). Wraps the stock impl — routes pure-decode steps through the tcgen05 scratch-gather (the measured 13.5×/11.7× path) and falls back to the stock Triton kernel for prefill/verify/mixed steps, bf16 caches, or anything else it does not own. The heavy logic ships in `mjolnir-kernel` (`src/mjolnir/mjolnir/qsa_impl.py`), not in the patch. INERT without the env var. |
@@ -134,6 +138,13 @@ sm_110 actually uses.
     passes `need_eager = is_profile or _thor_draft_cg_gate_wants_eager(num_reqs)`
     — below the threshold the existing `NONE`-descriptor eager path runs;
   - four one-shot `logger.info` lines (state / eager / cudagraph / error).
+- **thor CuTe DSL MoE** (Thor-authored): vLLM
+  `model_executor/layers/fused_moe/experts/flashinfer_cutedsl_moe.py`
+  (`_supports_current_device`: family 100 **or** 110); FlashInfer
+  `fused_moe/cute_dsl/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py`
+  and `…grouped_gemm_finalize_fusion.py` (capability check `major not in
+  (10, 11)`), `jit/moe_utils.py` (`supported_major_versions=[9, 10, 11]`).
+  One line each, sentinel `THOR_SM110_CUTEDSL_MOE` on every changed line.
 
 ## Verifying a new nightly before re-adapting
 
@@ -617,6 +628,69 @@ upstream; its patch applies at offset. The split top-p fix #58231 (merged
 `_topp_sb_mask_kernel` predicate is byte-identical to ours). Verified on a
 pristine `vllm/vllm-openai:v0.33.0` tree: full stack applies, all fixes
 verify (no GPU).
+
+## Thor CuTe DSL NVFP4 MoE on sm_110 — `patches/thor-sm110-cutedsl-moe-gate.patch` + `patches/fi-cutedsl-moe-sm110.patch` (2026-11-16)
+
+FlashInfer 0.7.2.post1's CuTe DSL NVFP4 MoE (fused gather/act FC1, fused
+finalize FC2) is written for SM100 and gated on `major == 10`, but CuTe DSL
+4.8 targets `sm_110a` natively: with the four one-line gates lifted it
+compiles and runs on Thor, matching a float reference (T12 below).
+The kernel is selected only for **W4A4** (activation-quantized) NVFP4
+experts; W4A16 experts stay on MARLIN. Note: with the gate open, a natively
+W4A4 NVFP4 MoE checkpoint on sm_110 now auto-selects FLASHINFER_CUTEDSL
+(second in vLLM 0.33's NVFP4 MoE order) without any switch, and pays the
+first-use `moe_utils` JIT below.
+
+**Opt-in for W4A16 checkpoints: `MJOLNIR_NVFP4_MOE_W4A4=1`** (`mjolnir/moew4a4.py`,
+installed from the plugin entry point; no vLLM file patch). ModelOpt exports
+calibrated per-expert `input_scale` tensors even for experts it declares
+`W4A16_NVFP4` (`nvidia/Qwen3.6-35B-A3B-NVFP4`: its `config_groups` record 4-bit
+input activations for them). The switch serves those routed experts as NVFP4
+(W4A4) with the checkpoint's own scales; linear layers, shared experts and the
+lm_head keep their declared algorithm. The input scales are created NaN and
+the load refuses if any is still NaN, so a checkpoint without them fails at
+startup. Config: `configs/nvidia/Qwen3.6-35B-A3B/NVFP4_MJOLNIR_W4A4` (YAML
+identical to `NVFP4_MJOLNIR`, the switch in its `.env`).
+
+**Measured** (Thor, 2026-11-16, `mjolnir bench perf`, c1, pp2048/tg128,
+6 runs + 1 warmup per cell, gated; two runs 2 h apart: `NVFP4_MJOLNIR` on the
+image without the patches, `NVFP4_MJOLNIR_W4A4` on the image with them). The
+two `history.jsonl` records are held for a follow-up PR (they would pair with
+the v0.31 official 35B baseline in the e2e tables); raw in
+`staging/perf-20261116T180418Z` and `staging/perf-20261116T200607Z`.
+
+| depth | TTFT ms, W4A16 (MARLIN) | TTFT ms, W4A4 (CuTe DSL) | decode t/s, W4A16 | decode t/s, W4A4 |
+|---|---|---|---|---|
+| 0 | 510 | 534 | 127.5 ± 8.0 | 136.8 ± 16.7 |
+| 8K | 1937 | **1223** (−37 %) | 145.1 ± 7.1 | 142.6 ± 8.3 |
+| 32K | 6743 | **4377** (−35 %) | 142.4 ± 5.4 | 141.3 ± 11.7 |
+| 128K | 31096 | **22371** (−28 %) | 101.9 ± 5.6 | 110.0 ± 9.3 |
+
+TTFT −37 % / −35 % / −28 % at 8K / 32K / 128K (1.58 / 1.54 / 1.39× time
+ratio); decode unchanged within the MTP spread.
+`mjolnir bench accuracy` (tool-eval-bench b60e2f00, `--trials 2`, both legs on the
+patched image, run `20261116-205937`): tool calls 90.2 (W4A16) vs 90.9 (W4A4),
+Hard Mode 74.1 vs 78.6 — level within the trial spread (the W4A16 leg had
+TC-45 excluded in one trial).
+
+**Canary:** `kernel_test_sm110_gates.py` T12 asserts the gate on sm_110 and runs a
+small synthetic NVFP4 MoE layer (8 experts, top-2, 48 tokens, H 2560 / I 640)
+through the server's FLASHINFER_CUTEDSL preparation path against a float
+reference: on Thor rel L2 0.0024 (bound 0.05), min token cosine 1.00000.
+`verify vllm` on the patched image: 39/39 (the graph smoke needed one retry for
+the known 0.33 startup memory assert, on its FLASHINFER leg).
+
+**First use:** `moe_utils` has no prebuilt `sm_110a` build in
+`flashinfer_jit_cache`; it JIT-compiles once (~9 min on 3 CPUs) into the
+mounted FlashInfer cache and is reused afterwards. The CuTe DSL kernels
+themselves JIT in ~1 s each.
+
+**Drop when** FlashInfer's CuTe DSL MoE wrappers and `moe_utils` admit SM110
+and vLLM's `FlashInferCuteDSLExperts` gate includes family 110. FlashInfer
+v0.7.4 / main already list major 11 in `jit/moe_utils.py`
+(`supported_major_versions=[8, 9, 10, 11, 12]`): that hunk retires at the next
+FlashInfer bump; the two wrapper checks (`major != 10`) and vLLM main's
+family-100 gate still need it.
 
 ## Thor qwen4 dense decoder — `patches/thor-qwen4-dense-model.patch` (2026-10-31)
 

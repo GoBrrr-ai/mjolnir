@@ -282,6 +282,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "THOR_QWEN4_QSA_MJOLNIR",
         ),
     ],
+    "thor sm110 CuTe DSL MoE: FlashInferCuteDSLExperts admits family 110 (THOR_SM110_CUTEDSL_MOE)": [
+        # The sentinel rides on the changed line of the one-line hunk.
+        (
+            "model_executor/layers/fused_moe/experts/flashinfer_cutedsl_moe.py",
+            "p.is_device_capability_family(110))  # THOR_SM110_CUTEDSL_MOE",
+        ),
+    ],
 }
 
 
@@ -290,6 +297,21 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
+    "thor sm110 CuTe DSL MoE: grouped-GEMM wrappers + moe_utils JIT admit major 11 (THOR_SM110_CUTEDSL_MOE)": [
+        # One sentinel per changed line (three one-line hunks).
+        (
+            "fused_moe/cute_dsl/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py",
+            "if major not in (10, 11):  # THOR_SM110_CUTEDSL_MOE",
+        ),
+        (
+            "fused_moe/cute_dsl/blockscaled_contiguous_grouped_gemm_finalize_fusion.py",
+            "if major not in (10, 11):  # THOR_SM110_CUTEDSL_MOE",
+        ),
+        (
+            "jit/moe_utils.py",
+            "supported_major_versions=[9, 10, 11], map_sm107_to_100f=True  # THOR_SM110_CUTEDSL_MOE",
+        ),
+    ],
     # STAGGER FIX: "thor sm110 GDN prefill: FI non-CP dispatch allowlist widened to major 11": [
     # STAGGER FIX:         # The single widened condition in chunk_gated_delta_rule's non-CP
     # STAGGER FIX:         # dispatch — the comment sentinel rides on the changed line, so it

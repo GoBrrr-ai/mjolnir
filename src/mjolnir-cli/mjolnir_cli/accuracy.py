@@ -221,7 +221,9 @@ def leg_label(rec: dict) -> str:
     if "MJOLNIR" not in cfg:
         return f"Mjolnir image · {BACKEND_LABELS.get(cfg, cfg)} · {kv}"
     extra = "".join(
-        f" + {name}" for tag, name in (("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab")) if tag in cfg.split("_")
+        f" + {name}"
+        for tag, name in (("W4A4", "W4A4 experts"), ("LMH8", "fp8 lm_head"), ("VT64K", "64K draft vocab"))
+        if tag in cfg.split("_")
     )
     return f"Mjolnir · {kv}{extra}"
 

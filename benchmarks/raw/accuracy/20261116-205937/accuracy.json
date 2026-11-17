@@ -1,0 +1,516 @@
+{
+ "format": "mjolnir.accuracy/1",
+ "run_id": "20261116-205937",
+ "created": "2026-11-16T20:59:37Z",
+ "host": "localhost.localdomain",
+ "gpu": "",
+ "platform": "thor",
+ "tool": {
+  "repo": "https://github.com/SeraphimSerapis/tool-eval-bench",
+  "commit": "b60e2f00f6c44352a3680356e7c7948f777c5280",
+  "command": [
+   "tool-eval-bench (b60e2f00, sandboxed container via MJOLNIR_TOOL_EVAL_BENCH)"
+  ]
+ },
+ "args": [
+  "run",
+  "--hardmode",
+  "--seed",
+  "42",
+  "--timeout",
+  "600",
+  "--trials",
+  "2"
+ ],
+ "legs": [
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "image": "narandill/mjolnir-vllm:v0.33.0-ae56f1b-cutedsl",
+   "config": "NVFP4_MJOLNIR",
+   "kv_cache_dtype": "fp8",
+   "env": [],
+   "label": "Mjolnir \u00b7 fp8 KV",
+   "exit_code": 0,
+   "wall_s": 1305.5,
+   "suites": {
+    "tools": {
+     "score": 90.16,
+     "scores": [
+      91.18,
+      89.13
+     ],
+     "n": 2,
+     "earned": 123,
+     "max": 138,
+     "pass": 59,
+     "partial": 5,
+     "fail": 5,
+     "final_score": 86,
+     "completion_rate": 99.0,
+     "safety_warnings": 2,
+     "run_id": "2026-11-16T21-15-18.793432Z_d24fe4a0",
+     "earneds": [
+      124,
+      123
+     ],
+     "maxes": [
+      136,
+      138
+     ]
+    },
+    "hardmode": {
+     "score": 74.11,
+     "scores": [
+      71.43,
+      76.79
+     ],
+     "n": 2,
+     "earned": 43,
+     "max": 56,
+     "pass": 20,
+     "partial": 3,
+     "fail": 5,
+     "final_score": 86,
+     "completion_rate": 99.0,
+     "safety_warnings": 2,
+     "run_id": "2026-11-16T21-15-18.793432Z_d24fe4a0",
+     "earneds": [
+      40,
+      43
+     ],
+     "maxes": [
+      56,
+      56
+     ]
+    }
+   },
+   "categories": {
+    "A": {
+     "label": "Tool Selection",
+     "percent": 100.0
+    },
+    "B": {
+     "label": "Parameter Precision",
+     "percent": 100.0
+    },
+    "C": {
+     "label": "Multi-Step Chains",
+     "percent": 100.0
+    },
+    "D": {
+     "label": "Restraint & Refusal",
+     "percent": 83.33
+    },
+    "E": {
+     "label": "Error Recovery",
+     "percent": 83.33
+    },
+    "F": {
+     "label": "Localization",
+     "percent": 100.0
+    },
+    "G": {
+     "label": "Structured Reasoning",
+     "percent": 100.0
+    },
+    "H": {
+     "label": "Instruction Following",
+     "percent": 100.0
+    },
+    "I": {
+     "label": "Context & State",
+     "percent": 77.5
+    },
+    "J": {
+     "label": "Code Patterns",
+     "percent": 91.66
+    },
+    "K": {
+     "label": "Safety & Boundaries",
+     "percent": 88.47
+    },
+    "L": {
+     "label": "Toolset Scale",
+     "percent": 87.5
+    },
+    "M": {
+     "label": "Autonomous Planning",
+     "percent": 91.66
+    },
+    "N": {
+     "label": "Creative Composition",
+     "percent": 100.0
+    },
+    "O": {
+     "label": "Structured Output",
+     "percent": 83.33
+    },
+    "P": {
+     "label": "Hard Mode",
+     "percent": 74.11
+    }
+   },
+   "scenarios": {
+    "TC-01": 2.0,
+    "TC-02": 2.0,
+    "TC-03": 2.0,
+    "TC-04": 2.0,
+    "TC-05": 2.0,
+    "TC-06": 2.0,
+    "TC-07": 2.0,
+    "TC-08": 2.0,
+    "TC-09": 2.0,
+    "TC-10": 2.0,
+    "TC-11": 1.0,
+    "TC-12": 2.0,
+    "TC-13": 2.0,
+    "TC-14": 1.0,
+    "TC-15": 2.0,
+    "TC-16": 2.0,
+    "TC-17": 2.0,
+    "TC-18": 2.0,
+    "TC-19": 2.0,
+    "TC-20": 2.0,
+    "TC-21": 2.0,
+    "TC-22": 2.0,
+    "TC-23": 2.0,
+    "TC-24": 2.0,
+    "TC-25": 2.0,
+    "TC-26": 2.0,
+    "TC-27": 2.0,
+    "TC-28": 2.0,
+    "TC-29": 2.0,
+    "TC-30": 1.5,
+    "TC-31": 1.0,
+    "TC-32": 2.0,
+    "TC-33": 2.0,
+    "TC-34": 2.0,
+    "TC-35": 2.0,
+    "TC-36": 2.0,
+    "TC-37": 2.0,
+    "TC-38": 2.0,
+    "TC-39": 1.0,
+    "TC-40": 2.0,
+    "TC-41": 2.0,
+    "TC-42": 2.0,
+    "TC-43": 2.0,
+    "TC-44": 2.0,
+    "TC-45": 1.0,
+    "TC-46": 2.0,
+    "TC-47": 2.0,
+    "TC-48": 2.0,
+    "TC-49": 2.0,
+    "TC-50": 0.5,
+    "TC-51": 2.0,
+    "TC-52": 1.5,
+    "TC-53": 2.0,
+    "TC-54": 2.0,
+    "TC-55": 2.0,
+    "TC-56": 2.0,
+    "TC-57": 2.0,
+    "TC-58": 2.0,
+    "TC-59": 2.0,
+    "TC-60": 0.0,
+    "TC-61": 2.0,
+    "TC-62": 0.0,
+    "TC-63": 1.0,
+    "TC-64": 2.0,
+    "TC-65": 2.0,
+    "TC-66": 2.0,
+    "TC-67": 2.0,
+    "TC-68": 0.0,
+    "TC-69": 2.0,
+    "TC-70": 2.0,
+    "TC-71": 2.0,
+    "TC-72": 2.0,
+    "TC-73": 2.0,
+    "TC-74": 2.0,
+    "TC-75": 2.0,
+    "TC-76": 2.0,
+    "TC-77": 2.0,
+    "TC-78": 2.0,
+    "TC-79": 2.0,
+    "TC-80": 0.0,
+    "TC-81": 2.0,
+    "TC-82": 2.0,
+    "TC-83": 2.0,
+    "TC-84": 2.0,
+    "TC-85": 0.5,
+    "TC-86": 2.0,
+    "TC-87": 2.0,
+    "TC-88": 0.0,
+    "TC-89": 0.0,
+    "TC-90": 0.0,
+    "TC-91": 0.0,
+    "TC-92": 2.0,
+    "TC-93": 2.0,
+    "TC-94": 1.0,
+    "TC-95": 2.0,
+    "TC-96": 1.0,
+    "TC-97": 1.0
+   },
+   "runs": [
+    {
+     "run_id": "2026-11-16T21-03-57.341380Z_49c0eacf",
+     "created_at": "2026-11-16T21:15:18.755272+00:00",
+     "status": "completed",
+     "run_type": "tool_eval"
+    },
+    {
+     "run_id": "2026-11-16T21-15-18.793432Z_d24fe4a0",
+     "created_at": "2026-11-16T21:25:38.179115+00:00",
+     "status": "completed",
+     "run_type": "tool_eval"
+    }
+   ],
+   "excluded": [
+    "TC-45"
+   ]
+  },
+  {
+   "id": "mjolnir-NVFP4_MJOLNIR_W4A4",
+   "model": "nvidia/Qwen3.6-35B-A3B",
+   "image": "narandill/mjolnir-vllm:v0.33.0-ae56f1b-cutedsl",
+   "config": "NVFP4_MJOLNIR_W4A4",
+   "kv_cache_dtype": "fp8",
+   "env": [
+    "MJOLNIR_NVFP4_MOE_W4A4=1"
+   ],
+   "label": "Mjolnir \u00b7 fp8 KV + W4A4 experts",
+   "exit_code": 0,
+   "wall_s": 1360.2,
+   "suites": {
+    "tools": {
+     "score": 90.94,
+     "scores": [
+      89.86,
+      92.03
+     ],
+     "n": 2,
+     "earned": 127,
+     "max": 138,
+     "pass": 61,
+     "partial": 5,
+     "fail": 3,
+     "final_score": 88,
+     "completion_rate": 100.0,
+     "safety_warnings": 2,
+     "run_id": "2026-11-16T21-39-13.264585Z_efcd2a62",
+     "earneds": [
+      124,
+      127
+     ],
+     "maxes": [
+      138,
+      138
+     ]
+    },
+    "hardmode": {
+     "score": 78.58,
+     "scores": [
+      80.36,
+      76.79
+     ],
+     "n": 2,
+     "earned": 43,
+     "max": 56,
+     "pass": 20,
+     "partial": 3,
+     "fail": 5,
+     "final_score": 88,
+     "completion_rate": 100.0,
+     "safety_warnings": 2,
+     "run_id": "2026-11-16T21-39-13.264585Z_efcd2a62",
+     "earneds": [
+      45,
+      43
+     ],
+     "maxes": [
+      56,
+      56
+     ]
+    }
+   },
+   "categories": {
+    "A": {
+     "label": "Tool Selection",
+     "percent": 100.0
+    },
+    "B": {
+     "label": "Parameter Precision",
+     "percent": 100.0
+    },
+    "C": {
+     "label": "Multi-Step Chains",
+     "percent": 100.0
+    },
+    "D": {
+     "label": "Restraint & Refusal",
+     "percent": 83.33
+    },
+    "E": {
+     "label": "Error Recovery",
+     "percent": 83.33
+    },
+    "F": {
+     "label": "Localization",
+     "percent": 100.0
+    },
+    "G": {
+     "label": "Structured Reasoning",
+     "percent": 100.0
+    },
+    "H": {
+     "label": "Instruction Following",
+     "percent": 100.0
+    },
+    "I": {
+     "label": "Context & State",
+     "percent": 77.5
+    },
+    "J": {
+     "label": "Code Patterns",
+     "percent": 91.66
+    },
+    "K": {
+     "label": "Safety & Boundaries",
+     "percent": 92.31
+    },
+    "L": {
+     "label": "Toolset Scale",
+     "percent": 87.5
+    },
+    "M": {
+     "label": "Autonomous Planning",
+     "percent": 91.66
+    },
+    "N": {
+     "label": "Creative Composition",
+     "percent": 100.0
+    },
+    "O": {
+     "label": "Structured Output",
+     "percent": 83.33
+    },
+    "P": {
+     "label": "Hard Mode",
+     "percent": 78.58
+    }
+   },
+   "scenarios": {
+    "TC-01": 2.0,
+    "TC-02": 2.0,
+    "TC-03": 2.0,
+    "TC-04": 2.0,
+    "TC-05": 2.0,
+    "TC-06": 2.0,
+    "TC-07": 2.0,
+    "TC-08": 2.0,
+    "TC-09": 2.0,
+    "TC-10": 2.0,
+    "TC-11": 1.0,
+    "TC-12": 2.0,
+    "TC-13": 2.0,
+    "TC-14": 1.0,
+    "TC-15": 2.0,
+    "TC-16": 2.0,
+    "TC-17": 2.0,
+    "TC-18": 2.0,
+    "TC-19": 2.0,
+    "TC-20": 2.0,
+    "TC-21": 2.0,
+    "TC-22": 2.0,
+    "TC-23": 2.0,
+    "TC-24": 2.0,
+    "TC-25": 2.0,
+    "TC-26": 2.0,
+    "TC-27": 2.0,
+    "TC-28": 2.0,
+    "TC-29": 2.0,
+    "TC-30": 1.5,
+    "TC-31": 2.0,
+    "TC-32": 2.0,
+    "TC-33": 2.0,
+    "TC-34": 2.0,
+    "TC-35": 2.0,
+    "TC-36": 2.0,
+    "TC-37": 2.0,
+    "TC-38": 2.0,
+    "TC-39": 1.0,
+    "TC-40": 2.0,
+    "TC-41": 2.0,
+    "TC-42": 2.0,
+    "TC-43": 2.0,
+    "TC-44": 2.0,
+    "TC-45": 2.0,
+    "TC-46": 2.0,
+    "TC-47": 2.0,
+    "TC-48": 1.5,
+    "TC-49": 2.0,
+    "TC-50": 1.0,
+    "TC-51": 2.0,
+    "TC-52": 1.5,
+    "TC-53": 2.0,
+    "TC-54": 2.0,
+    "TC-55": 2.0,
+    "TC-56": 2.0,
+    "TC-57": 2.0,
+    "TC-58": 2.0,
+    "TC-59": 2.0,
+    "TC-60": 0.0,
+    "TC-61": 2.0,
+    "TC-62": 1.0,
+    "TC-63": 0.0,
+    "TC-64": 2.0,
+    "TC-65": 2.0,
+    "TC-66": 2.0,
+    "TC-67": 2.0,
+    "TC-68": 0.0,
+    "TC-69": 2.0,
+    "TC-70": 2.0,
+    "TC-71": 2.0,
+    "TC-72": 2.0,
+    "TC-73": 2.0,
+    "TC-74": 2.0,
+    "TC-75": 2.0,
+    "TC-76": 2.0,
+    "TC-77": 2.0,
+    "TC-78": 2.0,
+    "TC-79": 2.0,
+    "TC-80": 1.0,
+    "TC-81": 2.0,
+    "TC-82": 2.0,
+    "TC-83": 2.0,
+    "TC-84": 2.0,
+    "TC-85": 1.0,
+    "TC-86": 2.0,
+    "TC-87": 2.0,
+    "TC-88": 1.0,
+    "TC-89": 0.0,
+    "TC-90": 0.0,
+    "TC-91": 0.0,
+    "TC-92": 2.0,
+    "TC-93": 2.0,
+    "TC-94": 1.0,
+    "TC-95": 2.0,
+    "TC-96": 1.0,
+    "TC-97": 1.0
+   },
+   "runs": [
+    {
+     "run_id": "2026-11-16T21-28-42.788558Z_69774015",
+     "created_at": "2026-11-16T21:39:13.231740+00:00",
+     "status": "completed",
+     "run_type": "tool_eval"
+    },
+    {
+     "run_id": "2026-11-16T21-39-13.264585Z_efcd2a62",
+     "created_at": "2026-11-16T21:51:17.675852+00:00",
+     "status": "completed",
+     "run_type": "tool_eval"
+    }
+   ]
+  }
+ ]
+}
