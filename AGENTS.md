@@ -563,8 +563,10 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   vllm-flash-attn pin `b273a02`→`d8dca8f06c74`: the hd256 forward kernel
   is byte-identical, `interface.py` churn is SM90-side only. No-GPU gate
   green: 11/11 apply on the pristine tag, every `verify_patches` sentinel
-  passes, all 9 touched files py_compile. **Pending device work: the
-  0.34 image build (awaits the hub mirror), the serve smoke (qwen4 QSA
+  passes, all 9 touched files py_compile. **The hub mirror landed
+  (2026-11-16 22:23Z; index `20fdb089…`, arm64 leaf `e40eb982…` — pinned
+  in the Dockerfile). Pending device work: the
+  0.34 image build, the serve smoke (qwen4 QSA
   impl swap + `persistent_topk` on sm_110 now that #56102 landed), the
   spec/cudagraph canaries, and the e2e re-baseline.**
 

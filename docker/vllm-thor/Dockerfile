@@ -61,15 +61,11 @@
 # version tag IS the ubuntu2404 aarch64 build.)
 
 ARG BASE_IMAGE=vllm/vllm-openai:v0.34.0
-# Pinned digest so the default build is reproducible. Empty until the
-# release image hits the registry — an EMPTY default makes
-# FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}} resolve the floating tag
-# (v0.34.0), which is the intended pre-pin state; the tag sha is
-# 62d4bc3c7 (2026-11-13). Fill from
-# `docker buildx imagetools inspect vllm/vllm-openai:v0.34.0` — and note
-# that while this ARG holds any value it WINS over BASE_IMAGE, so the
-# --build-arg BASE_IMAGE= override requires emptying this one first.
-ARG BASE_IMAGE_DIGEST=
+# Pinned digest so the default build is reproducible: the release
+# multi-arch INDEX (arm64 leaf e40eb98263fa…, published 2026-11-16
+# 22:23 UTC; tag sha 62d4bc3c7). While this ARG holds a value it WINS
+# over BASE_IMAGE — override THIS one (or empty it) to float.
+ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
