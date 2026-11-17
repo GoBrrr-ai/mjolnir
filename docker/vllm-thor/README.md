@@ -27,6 +27,7 @@ The Mjolnir kernel takes over single-token and speculative-verify steps; prefill
 ## ⚡ Patches
 
 `1` hand-adapted vLLM PR fixes and `15` Thor-/FlashInfer-authored patches, applied to the installed vLLM `0.34.0` and FlashInfer at build time (the sm_110-only ones probe-gate themselves inert on other devices):
+
 | File | PR | What it fixes |
 |------|----|---------------|
 | `50885-flashinfer-full-cudagraph.patch` | [#50885](https://github.com/vllm-project/vllm/pull/50885) (closed unmerged) | Capture **FULL** decode cudagraphs for spec-decode on the FlashInfer **native** (non-trtllm) path — uniform multi-token verify batches. **0.33.0 slim-down:** the base now carries the wrapper plumbing itself (`_get_decode_wrapper(batch_size, use_cudagraph, q_len_per_req)`, the tuple-keyed `_decode_wrappers_cudagraph`, `fast_plan_decode` threading `q_len_per_req` into FlashInfer's `fast_decode_plan` — which since 0.7.2 plans uniform multi-token queries on the fa2 tensor-core backend). What remains Thor-side is the *policy*: the `flashinfer_supports_uniform_multi_token_decode()` probe (does the installed FI accept `q_len_per_req`), the `supports_spec_as_decode` OR-term and the `get_cudagraph_support` UNIFORM_BATCH grant (both gated on the probe + non-trtllm + causal) and the `build()` per-request `num_input_tokens`/`q_len_per_req` computation (previously fa2-native-only, pre-SM90). Without it sm_110 spec decode still falls to PIECEWISE graphs. Unchanged on 0.34 (`get_cudagraph_support` is byte-identical 0.33→0.34). |
