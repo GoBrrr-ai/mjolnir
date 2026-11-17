@@ -376,18 +376,24 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
 `docs/faq/releasing.md`.
 
 ## Open work
-- [ ] **0.34.0 correctness + smoke — the bump proof**: once the hub mirror
-      lands, pin the digest in the Dockerfile and `mjolnir image build`;
-      on-device run `mjolnir image gates` (T6/T9/T10/T11 +
-      `kernel_test_fi_update` + the dspark non-causal graph canary) and the
-      serve smokes: the qwen4 QSA swap (`MJOLNIR_ATTN_QSA` on the renamed
-      `Qwen4ExpQSAImpl` / kw-only-`forward` / side-metadata API — the
-      0.34 port is device-untested), `persistent_topk` on sm_110 (first
-      device exercise now that #56102 landed), the fused-draft path
-      (`verify spec`: MTP acceptance per position + the c1 gate on the
-      re-anchored `fused-draft-decode`/`t5-refresh` pair), fp6 e2m3
-      (`verify vllm` mode e2m3) and the Orin fp8/fp6 legs — then the
-      0.34 e2e re-baseline (`bench ab`/`e2e`, both images same-run).
+- [x] **0.34.0 correctness + smoke — the bump proof (2026-11-17)**: base pinned
+      (`v0.34.0`, digest `e40eb982…` arm64), image builds clean; device gates
+      green (T9/T10/T11, T6 honestly skipped — the gdn pair is retired-0.33,
+      fi-update 7/7, dspark-noncausal 5/5, fp6-expand bit-exact 4/4);
+      `verify vllm` **39/39** (30 kernel tests + graph/eager/e2m3/lmh8 smokes).
+      The one real regression found+fixed: **0.34's FA4 fallback composes
+      wrongly with the fp6 scratch** (period-1 token loops; 10-point on-device
+      bisect exonerated every component; PATCHES.md §"0.34 fp6 fallback pin")
+      — the 0.34 image pins `MJOLNIR_ATTN_FALLBACK=FLASHINFER` (fp8 legs
+      verified on it too; the e2e carries the fallback switch as a declared
+      prefill-side confound). Also en route: the fi-fp6 patch's Python side
+      re-anchored to 0.7.3 (modules.py regenerated, `--fuzz=3`), prefill.cuh
+      fp6 arms mirrored to the 0.7.3 else-shape (`*_scale_smem_ptr` args),
+      the QSA-smoke import order (upstream `qsa`↔`model` pair), the
+      smoke's `MJOLNIR_SMOKE_BLOCK`/`MJOLNIR_PROBE` diagnostic hooks. The
+      0.34 e2e re-baseline (`bench e2e`, depths ≤32K) runs separately — the
+      Orin fp8/fp6 legs and the `verify spec` fused-draft c1 gate remain
+      open above.
 - [ ] **Upstream PR sweep (the post-0.34 watch, re-run at every bump)**:
       work the list in `docker/vllm-thor/PATCHES.md` §Open upstream
       watch — take #67571 (spec-decode dummy-run cap, merged 2026-11-16
