@@ -587,6 +587,17 @@ semantics (always a real expanded tensor) — FA4 stays the fallback, no image
 env, the fp8 legs untouched. The upstream-shaped fix (materialize missing
 descale slots in the `is_fp8` branch too) is the candidate vLLM PR.**
 
+**The upstream candidate, concretely** (`vllm/vllm_flash_attn/cute/
+interface.py`, extend the existing materialization to both paths):
+
+```python
+-if fp8_kv_dequant and any(t is None for t in (q_descale, k_descale, v_descale)):
++if any(t is None for t in (q_descale, k_descale, v_descale)) and (
++        fp8_kv_dequant or is_fp8):
+     # DescaleTensors' MLIR reconstruction packs present values positionally.
+     # ... (unchanged)
+```
+
 ## The Mjolnir attention backend — `patches/thor-mjolnir-attention-backend.patch`
 
 **What:** one enum member. `vllm serve` parses `--attention-backend` with
