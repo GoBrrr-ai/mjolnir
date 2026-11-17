@@ -93,7 +93,6 @@ RUN apt-get update && \
 ENV TORCH_CUDA_ARCH_LIST=11.0a \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     FLASHINFER_CUDA_ARCH_LIST=11.0a \
-    MJOLNIR_ATTN_FALLBACK=FLASHINFER \
     LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # ── Apply the hand-adapted PR fixes to the installed vllm package ───────────

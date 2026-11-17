@@ -381,12 +381,14 @@ unless you want a jump), `docker-image.yml` (tag = the pinned vLLM version) and
       green (T9/T10/T11, T6 honestly skipped — the gdn pair is retired-0.33,
       fi-update 7/7, dspark-noncausal 5/5, fp6-expand bit-exact 4/4);
       `verify vllm` **39/39** (30 kernel tests + graph/eager/e2m3/lmh8 smokes).
-      The one real regression found+fixed: **0.34's FA4 fallback composes
-      wrongly with the fp6 scratch** (period-1 token loops; 10-point on-device
-      bisect exonerated every component; PATCHES.md §"0.34 fp6 fallback pin")
-      — the 0.34 image pins `MJOLNIR_ATTN_FALLBACK=FLASHINFER` (fp8 legs
-      verified on it too; the e2e carries the fallback switch as a declared
-      prefill-side confound). Also en route: the fi-fp6 patch's Python side
+      The one real regression found+root-caused: **vLLM #63232 (0.34) passes
+      None for scalar-1 FA4 descales; the cute interface packs descales
+      positionally and only the SM90 branch materializes missing slots — the
+      is_fp8 path shifts K/V scales and corrupts the fp6 fallback's
+      attention** (period-1 token loops; the full bisect in PATCHES.md §"0.34
+      fp6 fallback regression"). Fix: `MjolnirImpl._descale` overrides with
+      the 0.33 never-None semantics — FA4 stays the fallback. Also en route:
+      the fi-fp6 patch's Python side
       re-anchored to 0.7.3 (modules.py regenerated, `--fuzz=3`), prefill.cuh
       fp6 arms mirrored to the 0.7.3 else-shape (`*_scale_smem_ptr` args),
       the QSA-smoke import order (upstream `qsa`↔`model` pair), the

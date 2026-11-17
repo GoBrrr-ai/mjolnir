@@ -556,26 +556,36 @@ sentinel — the `expand_fp6_tile_to_fp8<KTraits, KTraits::HEAD_DIM_QK>` call
 site in `prefill.cuh` (a partial apply lands the helper without the
 compute-side call would compile and silently no-op).
 
-## The 0.34 fp6 fallback pin — `MJOLNIR_ATTN_FALLBACK=FLASHINFER` (2026-11-17)
+## The 0.34 fp6 fallback regression — root-caused: vLLM #63232 (2026-11-17)
 
-**The 0.34 image defaults the fallback to FlashInfer (Dockerfile `ENV`).** The
-0.34 FA4 fallback *composes wrongly* with the fp6 scratch path: the smoke
-degrades to period-1 token loops from ~token 2 (`authority authority…`,
-`.def.def.def…`) on every page (16 and 64), eager and graphs alike, while the
-0.33 image is clean on the same tree. A 10-point on-device bisect exonerated
-every component — slot topology and written bytes (byte-identical prefill md5
-cross-version), the in-scratch expansion (pool-decode vs ratio-math, rel p90
-4.1 % = pure e4m3 rounding), the scale install, the metadata contract (20+
-fields), the page-map/remap/bake chain, the base-forward entry state, the FA4
-kernel + descales (direct `flash_attn_varlen_func`, 8-seq page-64 fp8-Q:
-bit-identical 0.33 vs 0.34), and the T5 fp6 kernel (harness, pages 16/64/128,
-vs-emulator 5e-4) — an all-fallback fork (`t5_steps=0`) still reproduces the
-garbage, pinning it inside the FA4-fallback composition. The FlashInfer
-fallback, same scratch mechanism, is green: fp6 8/8 near-ties (eager *and*
-graphs) and fp8 6/6. The pin is image-level because the fallback class bakes
-at import, before the kv dtype is known; the fp8 legs ride it too (verified
-green) — the e2e 0.34-vs-0.33 comparison carries that fallback switch as a
-declared confound on the prefill side.
+**The change: vLLM [`23b898419` — "FA4: pass no FP8 descale for a unit
+per-tensor scale" (#63232)]**, new in 0.34. It makes
+`FlashAttentionImpl._descale` return **None** instead of a ones tensor when
+the layer scale is scalar-1 — and the cute interface's `DescaleTensors`
+handling of that None is incomplete on the path we ride:
+
+- the interface **packs the present descales positionally** (its own comment:
+  values "cannot shift … and silently corrupt QK/PV scaling");
+- the missing-slot materialization exists **only in the SM90
+  `fp8_kv_dequant` branch** — the `is_fp8` path (sm_100/**110**, every FA4
+  fallback call) passes Nones straight through;
+- our fp6 fallback hands it `q_descale=None` (scalar-1 `_q_scale`) plus
+  per-head K/V tensors ⇒ **the K/V descales land in the wrong slots** ⇒
+  corrupted attention ⇒ the smoke's period-1 token loops
+  (`authority authority…`, `.def.def.def…`) on every page size, graphs and
+  eager alike. 0.33 always passed real tensors: no shift, green.
+
+**Proven by staged revert on the 0.34 image (FA4 fallback forced):**
+the whole-`vllm_flash_attn` 0.33 package over 0.34 → still red (package
+exonerated; the CuTe kernels are unchanged 0.33→0.34); the `_descale` hunk
+alone reverted to `scale.expand(shape)` → **8/8 near-ties**; the
+`canonicalize_singleton_dim_strides` rider kept with only the None branch
+dropped → **8/8** — the None is the bug, the stride walk innocent.
+
+**The fix (ours): `MjolnirImpl._descale` overrides the base with the 0.33
+semantics (always a real expanded tensor) — FA4 stays the fallback, no image
+env, the fp8 legs untouched. The upstream-shaped fix (materialize missing
+descale slots in the `is_fp8` branch too) is the candidate vLLM PR.**
 
 ## The Mjolnir attention backend — `patches/thor-mjolnir-attention-backend.patch`
 
