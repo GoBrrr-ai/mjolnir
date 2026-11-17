@@ -159,7 +159,9 @@ arch family. Any change there must keep **both** fallbacks working:
   (Mjolnir, fp6 KV, MTP=5; the lm_head is already ModelOpt-quantized, so no
   LMH8), `NVFP4_MJOLNIR_E2M3_VT64K` (+ the calibrated 64K draft vocab) and
   `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` (+ the fp8-quantized drafter head),
-  `NVFP4_MJOLNIR` (fp8 KV; the calibration config) and `NVFP4_DFLASH`
+  `NVFP4_MJOLNIR` (fp8 KV; the calibration config),
+  `NVFP4_MJOLNIR_W4A4` (opt-in: `NVFP4_MJOLNIR` with the routed experts served
+  W4A4 on the CuTe DSL MoE, `MJOLNIR_NVFP4_MOE_W4A4` in its `.env`) and `NVFP4_DFLASH`
   (native baseline: a production server's flags, fp8 KV, DFlash K=12,
   official image only). Production shape: 262K, one sequence, 0.45. Keep the
   Qwen3.8 extras (perf-mode, opt-level 3, 16K batching, TORCH_SDPA ViT,

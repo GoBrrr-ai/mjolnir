@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Thor sm_110 gate-probe canary: T6 (GDN prefill), T9 (FA4 FP8-KV),
 T10 (draft-CG gate decision, pure python — runs without a GPU),
-T11 (FA4 hd256 FP8-KV — the dedicated head_dim=256 kernel gate).
+T11 (FA4 hd256 FP8-KV — the dedicated head_dim=256 kernel gate),
+T12 (CuTe DSL NVFP4 MoE — the device gate + one synthetic W4A4 layer
+against a dequantized float reference).
 
 A single manual GPU test for the Thor sm_110 gate probes (patches
 `thor-gdn-prefill-sm110`, `thor-fa4-fp8kv-sm110`,
-`thor-fa4-hd256-fp8-sm110`). It imports the installed (patched) vllm and
+`thor-fa4-hd256-fp8-sm110`, `thor-sm110-cutedsl-moe-gate` +
+`fi-cutedsl-moe-sm110`). It imports the installed (patched) vllm and
 triggers each probe's cached path with a small synthetic input — it does
 NOT spin up a server. T9 additionally asserts the passive-by-default
 invariant: with no explicit FA4 attention-config, the FP8-KV gate stays
@@ -31,12 +34,21 @@ Run it on a Thor (or any CUDA box) against the patched image:
     -v <repo>/docker/vllm-thor/kernel_test_sm110_gates.py:\
 /tmp/kernel_test_sm110_gates.py:ro \
     mjolnir/vllm-thor:qwen38-sm110-v6 /tmp/kernel_test_sm110_gates.py
+
+T12 JIT-compiles FlashInfer's `moe_utils` on first use (~9 min on a Thor).
+To reuse the serving build, add the serving container's FlashInfer cache
+mount and env (see the T12 docstring):
+
+    -e FLASHINFER_WORKSPACE_BASE=/data/flashinfer-cache \
+    -e FLASHINFER_NVCC_THREADS=2 \
+    -v <data-dir>/flashinfer-cache:/data/flashinfer-cache
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import time
 import types
 import traceback
 
@@ -292,6 +304,200 @@ def _t11_fa4_hd256_fp8kv() -> None:
         )
 
 
+# T12 synthetic routed-expert layer: 8 experts, top-2, 48 tokens. H 2560 /
+# I 640 is a routed-expert shape this kernel has run on a Thor; H % 256 == 0
+# and 2I % 128 == 0, so vLLM's CuTe DSL weight prep pads nothing.
+_T12_E, _T12_TOPK, _T12_T, _T12_H, _T12_I = 8, 2, 48, 2560, 640
+# Bounds against the float reference. For this seed a torch emulation of the
+# kernel's own math lands at rel L2 0.002 (BF16 output rounding); leaving out
+# the FC2 activation quantization moves it to 0.078 / cosine 0.996, swapped
+# gate/up to 1.0 / 0.36. The bounds sit between: room for the kernel's
+# rounding differences, none for a W4A16 or mis-laid-out result.
+_T12_REL_L2_MAX, _T12_COS_MIN = 0.05, 0.998
+
+
+def _t12_dequant(codes: torch.Tensor, block_scale: torch.Tensor, scale_2: torch.Tensor) -> torch.Tensor:
+    """NVFP4 weight rows (packed u8 codes, E4M3 block scales, global scale) -> fp32."""
+    from vllm.model_executor.layers.quantization.utils.nvfp4_emulation_utils import break_fp4_bytes
+
+    values = break_fp4_bytes(codes, torch.float32).reshape(codes.shape[0], -1, 16)
+    return (values * block_scale.float().unsqueeze(-1)).reshape(codes.shape[0], -1) * scale_2
+
+
+def _t12_qdq(t: torch.Tensor, input_scale: torch.Tensor) -> torch.Tensor:
+    """NVFP4 quantize-dequantize of activations (global scale = 1 / input_scale)."""
+    from vllm.model_executor.layers.quantization.utils.nvfp4_emulation_utils import ref_nvfp4_quant
+
+    gscale = (1.0 / input_scale).reshape(1).float()
+    q, block_scale = ref_nvfp4_quant(t.float(), gscale, 16)
+    return (q.reshape(t.shape[0], -1, 16) * (block_scale.unsqueeze(-1) / gscale)).reshape(t.shape)
+
+
+def _t12_cutedsl_nvfp4_moe() -> None:
+    """T12 — CuTe DSL NVFP4 MoE: the vLLM device gate + one synthetic W4A4 layer.
+
+    Patches `thor-sm110-cutedsl-moe-gate` (vLLM) and `fi-cutedsl-moe-sm110`
+    (FlashInfer). On sm_110 the gate must be open, and a small random NVFP4
+    routed-expert layer — prepared by the functions the server runs for
+    FLASHINFER_CUTEDSL and launched with the arguments of
+    `FlashInferCuteDSLExperts.apply` — must match a torch fp32 reference of
+    the same checkpoint tensors (dequantized weights, NVFP4
+    quantize-dequantize of the FC1 and FC2 inputs).
+
+    FlashInfer's `moe_utils` module (moe_sort / unpermute) JIT-compiles on
+    first use: ~9 min on a Thor, unless the FlashInfer cache already holds
+    it. The build is keyed by its ninja file, which carries the cache path
+    and `--threads`: it is reused only with the serving container's
+    FLASHINFER_WORKSPACE_BASE (same mount path) and FLASHINFER_NVCC_THREADS.
+    The CuTe DSL kernels themselves compile in seconds.
+    """
+    from vllm.model_executor.layers.fused_moe.activation import MoEActivation
+    from vllm.model_executor.layers.fused_moe.experts.flashinfer_cutedsl_moe import FlashInferCuteDSLExperts
+    from vllm.model_executor.layers.fused_moe.oracle.nvfp4 import (
+        NvFp4MoeBackend,
+        convert_to_nvfp4_moe_kernel_format,
+        make_nvfp4_moe_quant_config,
+    )
+    from vllm.model_executor.layers.fused_moe.utils import moe_kernel_quantize_input
+    from vllm.model_executor.layers.quantization.utils.flashinfer_utils import activation_to_flashinfer_int
+    from vllm.platforms import current_platform
+    from vllm.utils.flashinfer import flashinfer_cute_dsl_fused_moe_nvfp4, has_flashinfer_cutedsl_moe_nvfp4
+
+    gate = FlashInferCuteDSLExperts._supports_current_device()
+    if not current_platform.is_device_capability_family(110):
+        stock = current_platform.is_device_capability_family(100) and has_flashinfer_cutedsl_moe_nvfp4()
+        assert gate == stock, f"the CuTe DSL MoE gate must stay stock off sm_110: got {gate}, stock {stock}"
+        print(f"INERT-OK T12 CuTe DSL NVFP4 MoE: not an sm_110 device; gate {gate} (unchanged by the patch)")
+        return
+    assert gate, (
+        "FlashInferCuteDSLExperts._supports_current_device() is False on sm_110 — "
+        "thor-sm110-cutedsl-moe-gate.patch missing, or FlashInfer has no cute_dsl_fused_moe_nvfp4"
+    )
+
+    E, K, T, H, I = _T12_E, _T12_TOPK, _T12_T, _T12_H, _T12_I  # noqa: E741
+    dev = torch.device("cuda")
+    gen = torch.Generator().manual_seed(12)
+
+    # Checkpoint-format tensors, as ModelOptNvFp4FusedMoE holds them before
+    # process_weights_after_loading (w13 rows = [gate; up]): random FP4 codes,
+    # E4M3 block scales in 100..448, global scales of realistic magnitude.
+    w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8, generator=gen).to(dev)
+    w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8, generator=gen).to(dev)
+    w13_sf = (torch.rand(E, 2 * I, H // 16, generator=gen) * 348 + 100).to(torch.float8_e4m3fn).to(dev)
+    w2_sf = (torch.rand(E, H, I // 16, generator=gen) * 348 + 100).to(torch.float8_e4m3fn).to(dev)
+    w13_s2 = (torch.rand(E, generator=gen) * 2.2e-4 + 2.5e-5).to(dev)
+    w2_s2 = (torch.rand(E, generator=gen) * 1.1e-4 + 2.3e-5).to(dev)
+    a13 = torch.full((E, 2), 0.006045, device=dev)  # FC1 input scale: amax = scale * 448 * 6
+    x = (torch.randn(T, H, generator=gen) * (0.006045 * 448.0)).to(torch.bfloat16).to(dev)  # 6 sigma = amax
+    ids = torch.rand(T, E, generator=gen).topk(K, dim=-1).indices.to(torch.int32).to(dev)
+    wts = torch.softmax(torch.randn(T, K, generator=gen), dim=-1).to(dev)
+
+    # Reference FC1: quantized input -> per expert dequantized W13 -> silu(gate) * up.
+    xq_ref = _t12_qdq(x, a13.max())
+    acts = {}
+    for e in ids.unique().tolist():
+        tok, slot = (ids == e).nonzero(as_tuple=True)
+        h = xq_ref[tok] @ _t12_dequant(w13[e], w13_sf[e], w13_s2[e]).t()
+        acts[e] = (tok, slot, torch.nn.functional.silu(h[:, :I]) * h[:, I:])
+    # FC2 input scale: calibrated on these activations, as a checkpoint's is
+    # (25 % headroom keeps every block scale below the E4M3 maximum).
+    act_amax = max(float(act.abs().max()) for _, _, act in acts.values())
+    a2 = torch.full((E,), 1.25 * act_amax / (448.0 * 6.0), device=dev)
+    # Reference FC2: quantized activation -> dequantized W2 -> router weight -> sum over top-k.
+    ref = torch.zeros(T, H, dtype=torch.float32, device=dev)
+    for e, (tok, slot, act) in acts.items():
+        y = _t12_qdq(act, a2.max()) @ _t12_dequant(w2[e], w2_sf[e], w2_s2[e]).t()
+        ref.index_add_(0, tok, y * wts[tok, slot].unsqueeze(-1))
+
+    # The server's FLASHINFER_CUTEDSL preparation (modelopt.py,
+    # ModelOptNvFp4FusedMoE.process_weights_after_loading): kernel weight
+    # format, quant config, then the experts class's in-place alpha fold.
+    layer = types.SimpleNamespace(
+        activation=MoEActivation.SILU,
+        moe_config=types.SimpleNamespace(
+            moe_parallel_config=types.SimpleNamespace(enable_eplb=False),
+            intermediate_size_per_partition=I,
+            hidden_dim=H,
+            hidden_dim_unpadded=None,
+            num_experts=E,
+        ),
+    )
+    backend = NvFp4MoeBackend.FLASHINFER_CUTEDSL
+    w13_k, w13_sf_k, w13_s2_k, a13_k, w2_k, w2_sf_k, w2_s2_k, a2_k = convert_to_nvfp4_moe_kernel_format(
+        nvfp4_backend=backend,
+        layer=layer,
+        w13=w13,
+        w13_scale=w13_sf,
+        w13_scale_2=w13_s2.clone(),
+        a13_scale=a13,
+        w2=w2,
+        w2_scale=w2_sf,
+        w2_scale_2=w2_s2.clone(),
+        a2_scale=a2,
+        is_act_and_mul=True,
+    )
+    assert (layer.moe_config.hidden_dim, layer.moe_config.intermediate_size_per_partition) == (H, I), (
+        f"unexpected padding: {layer.moe_config}"
+    )
+    qc = make_nvfp4_moe_quant_config(
+        backend=backend,
+        w13_scale=w13_sf_k,
+        w2_scale=w2_sf_k,
+        w13_scale_2=w13_s2_k,
+        w2_scale_2=w2_s2_k,
+        a13_scale=a13_k,
+        a2_scale=a2_k,
+    )
+    w13_s2_k.mul_(a13_k)  # FlashInferCuteDSLExperts.process_weights_after_loading
+    w2_s2_k.mul_(a2_k)
+
+    # The server's step: quantize the input (prepare/finalize), then the
+    # kernel with the arguments of FlashInferCuteDSLExperts.apply (SILU).
+    xq, x_sf = moe_kernel_quantize_input(
+        x, qc.a1_gscale, quant_dtype=qc.quant_dtype, per_act_token_quant=False, is_scale_swizzled=qc.is_scale_swizzled
+    )
+    out = torch.full((T, H), float("nan"), dtype=torch.bfloat16, device=dev)
+    print("T12 first kernel call (JIT-compiles moe_utils, ~9 min on a Thor, unless the FlashInfer cache holds it) ...")
+    t0 = time.time()
+    flashinfer_cute_dsl_fused_moe_nvfp4(
+        x=xq,
+        x_sf=x_sf.unsqueeze(-1),
+        token_selected_experts=ids,
+        token_final_scales=wts.float(),
+        w1_weight=w13_k,
+        w1_weight_sf=qc.w1_scale,
+        w1_alpha=qc.g1_alphas,
+        fc2_input_scale=qc.a2_gscale,
+        w2_weight=w2_k,
+        w2_weight_sf=qc.w2_scale,
+        w2_alpha=qc.g2_alphas,
+        num_experts=E,
+        top_k=K,
+        num_local_experts=E,
+        local_expert_offset=0,
+        moe_output=out,
+        activation_type=activation_to_flashinfer_int(MoEActivation.SILU),
+    )
+    torch.cuda.synchronize()
+    seconds = time.time() - t0
+
+    y = out.float()
+    nonfinite = int((~torch.isfinite(y)).sum())
+    rel_l2 = float(torch.linalg.vector_norm(y - ref) / torch.linalg.vector_norm(ref))
+    cos_min = float(torch.nn.functional.cosine_similarity(y, ref, dim=-1).min())
+    numbers = (
+        f"rel L2 {rel_l2:.4g} (max {_T12_REL_L2_MAX}), min token cosine {cos_min:.5f} "
+        f"(min {_T12_COS_MIN}), {nonfinite} non-finite; first call {seconds:.1f} s"
+    )
+    assert nonfinite == 0 and rel_l2 <= _T12_REL_L2_MAX and cos_min >= _T12_COS_MIN, (
+        f"CuTe DSL NVFP4 MoE output disagrees with the float reference: {numbers}"
+    )
+    print(
+        f"PASS T12 CuTe DSL NVFP4 MoE: gate open on sm_110; {E} experts top-{K}, {T} tokens, "
+        f"H {H} / I {I} vs the float reference: {numbers}"
+    )
+
+
 def _t10_draft_cg_gate() -> None:
     """T10 — the draft-CG gate's decision logic (pure python, no GPU).
 
@@ -331,6 +537,7 @@ def main() -> int:
             "T6 GDN prefill",
             "T9 FA4 FP8-KV",
             "T11 FA4 hd256 FP8-KV",
+            "T12 CuTe DSL NVFP4 MoE",
         ):
             print(f"SKIP {name}: no CUDA device visible (re-run with --gpus all on a Thor)")
     else:
@@ -339,6 +546,7 @@ def main() -> int:
             ("T6 GDN prefill", _t6_gdn_prefill),
             ("T9 FA4 FP8-KV", _t9_fa4_fp8kv),
             ("T11 FA4 hd256 FP8-KV", _t11_fa4_hd256_fp8kv),
+            ("T12 CuTe DSL NVFP4 MoE", _t12_cutedsl_nvfp4_moe),
         ):
             try:
                 section()

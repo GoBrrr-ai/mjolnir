@@ -1,0 +1,12 @@
+diff --git a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutedsl_moe.py b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutedsl_moe.py
+--- a/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutedsl_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/flashinfer_cutedsl_moe.py
+@@ -89,7 +89,7 @@
+         p = current_platform
+         return (
+             p.is_cuda()
+-            and p.is_device_capability_family(100)
++            and (p.is_device_capability_family(100) or p.is_device_capability_family(110))  # THOR_SM110_CUTEDSL_MOE
+             and has_flashinfer_cutedsl_moe_nvfp4()
+         )
+ 

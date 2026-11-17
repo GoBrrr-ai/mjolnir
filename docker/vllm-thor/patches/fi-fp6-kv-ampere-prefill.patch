@@ -951,8 +951,7 @@
              f"The dtype of k {k.dtype} does not match the kv_data_type {dtype_kv} specified in plan function."
          )
 --- a/flashinfer/prefill.py
-+++ b/flashinfer/prefill.py
-@@ -3189,7 +3189,14 @@
+@@ -4864,7 +4864,14 @@
          if (
              k_cache.dtype == torch.uint8 or v_cache.dtype == torch.uint8
          ) and kv_cache_sf is None:
@@ -965,10 +964,10 @@
 +                and self._cached_kv_data_type.startswith("mjolnir_fp6")
 +            ):
 +                raise ValueError("kv_cache_sf must be provided for NVFP4 KV cache.")
-         key_block_scales, value_block_scales = (
-             _unpack_paged_kv_cache(kv_cache_sf, self._kv_layout)
-             if kv_cache_sf is not None
-@@ -3246,11 +3253,16 @@
+         if getattr(self, "_use_token_head_sf", False):
+             # FP8 per-(token, head) scale: kv_cache_sf is a (k_sf, v_sf) tuple of
+             # float32 tensors mirroring the KV layout minus head_dim (3-D paged).
+@@ -4990,11 +4997,16 @@
          # Using q.shape[-1] here assumed head_dim_vo == head_dim_qk and made
          # the kernel (which writes head_dim_vo-wide rows) garble a too-wide
          # output buffer whenever VO < QK.
@@ -990,3 +989,5 @@
          if out is None:
              # Use cached output data type if available (for FP8 attention with FP16 output)
              out_dtype = getattr(self, "_cached_o_data_type", None) or q.dtype
+
+SECTION_END

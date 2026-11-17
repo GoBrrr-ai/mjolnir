@@ -83,6 +83,14 @@ PATCH_ORDER = [
     # (region-disjoint from them, but a reorder must keep this order).
     # Makes `--attention-backend MJOLNIR` parse.
     "thor-mjolnir-attention-backend.patch",
+    # CuTe DSL NVFP4 MoE on sm_110: vLLM's FlashInferCuteDSLExperts gate admits
+    # family 110 (the FlashInfer-side capability checks are in
+    # FLASHINFER_PATCH_ORDER). Only selected for W4A4 (activation-quantized)
+    # NVFP4 experts; W4A16 checkpoints keep MARLIN. Touches only
+    # fused_moe/experts/flashinfer_cutedsl_moe.py - order-independent. Still
+    # NOT base-covered in 0.34 (the gate is family(100)-only there); the two
+    # sm_110 MoE gate fixes above it were retired as 0.34-base-covered.
+    "thor-sm110-cutedsl-moe-gate.patch",
     # Dense-decoder support for the qwen4_exp family (the confirmed Qwen4-27B
     # shape IS dense — recovered Intel fp8_dense.cpp): v0.32.0 builds a sparse
     # MoE block for every layer and transformers rejects num_experts <= 0, so
@@ -113,6 +121,12 @@ PATCH_ORDER = [
 FLASHINFER_PATCH_ORDER = [
     # STAGGER FIX: "thor-gdn-prefill-fi-sm110.patch",
     "fi-fp6-kv-ampere-prefill.patch",
+    # The FlashInfer half of the CuTe DSL MoE enablement -- RETIRED on 0.34:
+    # the moe_utils majors already include 11 and the blockscaled grouped-GEMM
+    # wrappers moved to fused_moe/cute_dsl/rubin/ with a hard major!=10 gate
+    # (the patch's paths no longer exist). The W4A4-on-0.34 FI rework is a
+    # follow-up; the file stays as the 0.33-era record.
+    # "fi-cutedsl-moe-sm110.patch",
 ]
 
 
