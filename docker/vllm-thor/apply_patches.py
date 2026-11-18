@@ -145,6 +145,9 @@ PATCH_ORDER = [
     # thor-fused-draft-t5-plan-refresh (same file, disjoint hunks). Env-gated
     # only, any model.
     "thor-draft-full-cg-piecewise.patch",
+    # FlashInfer CUTLASS MXFP8 tactic pin by M bucket (MJOLNIR_MXFP8_TACTIC):
+    # model_executor/kernels/linear/mxfp8/flashinfer.py, no other patch.
+    "thor-mxfp8-tactic-sm110.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
