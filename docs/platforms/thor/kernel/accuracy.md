@@ -1,6 +1,6 @@
 # Accuracy
 
-> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-131320`, `20261017-180105`, `20261017-210613`, `20261116-205937`
+> Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), and GSM8K / MMLU / IFEval on demand · `mjolnir bench accuracy` · runs `20261013-112727`, `20261017-131320`, `20261017-180105`, `20261017-210613`, `20261116-205937`, `20261118-004148`
 
 ## The question
 
@@ -29,6 +29,7 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 - **Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls +0.7, Hard Mode -3.6 points (4 scenarios scored lower, 3 higher of 97).
 - **Qwen3.6-35B-A3B · Mjolnir · fp8 KV** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls -1.1‡, Hard Mode -2.7 points (6 scenarios scored lower, 4 higher of 97; excluded TC-45 counted as zero).
 - **Qwen3.6-35B-A3B · Mjolnir · fp8 KV + W4A4 experts** vs Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV: Tool calls +0.4, Hard Mode +1.8 points (4 scenarios scored lower, 4 higher of 97).
+- **Qwen3.8-Flash-Next · Mjolnir image · QSA + FP8 side layers and hyperconnections · bf16 KV** vs Qwen3.8-Flash-Next · Mjolnir image · QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections · bf16 KV: Tool calls +1.5, Hard Mode -2.7 points (6 scenarios scored lower, 8 higher of 97).
 
 | config | KV | Tool calls % | Hard Mode % | completion |
 |---|---|--:|--:|--:|
@@ -41,6 +42,8 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | fp6 e2m3 | 91.3 (+0.7) | 73.2 (-3.6) | 100% |
 | Qwen3.6-35B-A3B · Mjolnir · fp8 KV | fp8 | 90.2 <sub>n=2</sub> (-1.1‡) | 74.1 <sub>n=2</sub> (-2.7) | 99% |
 | Qwen3.6-35B-A3B · Mjolnir · fp8 KV + W4A4 experts | fp8 | 90.9 <sub>n=2</sub> (+0.4) | 78.6 <sub>n=2</sub> (+1.8) | 100% |
+| **Qwen3.8-Flash-Next · Mjolnir image · QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections · bf16 KV** | bf16 | 90.9 <sub>n=2</sub> | 86.6 <sub>n=2</sub> | 100% |
+| Qwen3.8-Flash-Next · Mjolnir image · QSA + FP8 side layers and hyperconnections · bf16 KV | bf16 | 92.4 <sub>n=2</sub> (+1.5) | 83.9 <sub>n=2</sub> (-2.7) | 100% |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -51,30 +54,30 @@ Sampling is greedy (temperature 0) with a fixed seed, so two configs see the sam
 
 </details><br />
 
-<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV**), never across models; ‡ = tool-eval-bench excluded a scenario on one of the two legs; the delta scores both on the full max, the excluded points counting as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../../../benchmarks/raw/accuracy/20261017-131320/accuracy.json), [`benchmarks/raw/accuracy/20261017-180105/accuracy.json`](../../../../benchmarks/raw/accuracy/20261017-180105/accuracy.json), [`benchmarks/raw/accuracy/20261017-210613/accuracy.json`](../../../../benchmarks/raw/accuracy/20261017-210613/accuracy.json), [`benchmarks/raw/accuracy/20261116-205937/accuracy.json`](../../../../benchmarks/raw/accuracy/20261116-205937/accuracy.json).</sub>
+<sub>Score in %, (±) = points vs the bold row of the same model (**Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV / Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV / Qwen3.8-Flash-Next · Mjolnir image · QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections · bf16 KV**), never across models; ‡ = tool-eval-bench excluded a scenario on one of the two legs; the delta scores both on the full max, the excluded points counting as zero; n = averaged runs (`--trials`). Each row takes every suite from the newest run that measured it. tool-eval-bench arguments: Tool calls: `run --hardmode --seed 42 --timeout 600`; Hard Mode: `run --hardmode --seed 42 --timeout 600`. Rendered from [`benchmarks/raw/accuracy/20261013-112727/accuracy.json`](../../../../benchmarks/raw/accuracy/20261013-112727/accuracy.json), [`benchmarks/raw/accuracy/20261017-131320/accuracy.json`](../../../../benchmarks/raw/accuracy/20261017-131320/accuracy.json), [`benchmarks/raw/accuracy/20261017-180105/accuracy.json`](../../../../benchmarks/raw/accuracy/20261017-180105/accuracy.json), [`benchmarks/raw/accuracy/20261017-210613/accuracy.json`](../../../../benchmarks/raw/accuracy/20261017-210613/accuracy.json), [`benchmarks/raw/accuracy/20261116-205937/accuracy.json`](../../../../benchmarks/raw/accuracy/20261116-205937/accuracy.json), [`benchmarks/raw/accuracy/20261118-004148/accuracy.json`](../../../../benchmarks/raw/accuracy/20261118-004148/accuracy.json).</sub>
 
 ### By tool-call category
 
 <img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/accuracy-categories.png" alt="Tool-call categories per serving config" width="100%">
 
-| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · Mjolnir · fp8 KV ‡ | Qwen3.6-35B-A3B · Mjolnir · fp8 KV + W4A4 experts |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| A · Tool Selection | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| B · Parameter Precision | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| C · Multi-Step Chains | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| D · Restraint & Refusal | 100 | 100 | 100 | 100 | 83 | 100 | 83 | 83 | 83 |
-| E · Error Recovery | 100 | 100 | 100 | 100 | 83 | 83 | 83 | 83 | 83 |
-| F · Localization | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| G · Structured Reasoning | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| H · Instruction Following | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| I · Context & State | 90 | 95 | 100 | 90 | 85 | 70 | 75 | 78 | 78 |
-| J · Code Patterns | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 92 | 92 |
-| K · Safety & Boundaries | 100 | 88 | 100 | 96 | 85 | 92 | 92 | 88 | 92 |
-| L · Toolset Scale | 100 | 100 | 100 | 100 | 88 | 88 | 88 | 88 | 88 |
-| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 83 | 100 | 92 | 92 |
-| N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 | 83 | 83 | 83 |
-| P · Hard Mode | 82 | 79 | 84 | 86 | 77 | 77 | 73 | 74 | 79 |
+| category | Qwen3.8-27B · official vLLM · FlashInfer · fp8 KV | Qwen3.8-27B · Mjolnir · fp8 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV | Qwen3.8-27B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · official vLLM · FlashInfer + DFlash · fp8 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV | Qwen3.6-35B-A3B · Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab | Qwen3.6-35B-A3B · Mjolnir · fp8 KV ‡ | Qwen3.6-35B-A3B · Mjolnir · fp8 KV + W4A4 experts | Qwen3.8-Flash-Next · Mjolnir image · QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections · bf16 KV | Qwen3.8-Flash-Next · Mjolnir image · QSA + FP8 side layers and hyperconnections · bf16 KV |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| A · Tool Selection | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| B · Parameter Precision | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| C · Multi-Step Chains | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| D · Restraint & Refusal | 100 | 100 | 100 | 100 | 83 | 100 | 83 | 83 | 83 | 100 | 100 |
+| E · Error Recovery | 100 | 100 | 100 | 100 | 83 | 83 | 83 | 83 | 83 | 100 | 100 |
+| F · Localization | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| G · Structured Reasoning | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| H · Instruction Following | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| I · Context & State | 90 | 95 | 100 | 90 | 85 | 70 | 75 | 78 | 78 | 88 | 90 |
+| J · Code Patterns | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 92 | 92 | 67 | 100 |
+| K · Safety & Boundaries | 100 | 88 | 100 | 96 | 85 | 92 | 92 | 88 | 92 | 83 | 83 |
+| L · Toolset Scale | 100 | 100 | 100 | 100 | 88 | 88 | 88 | 88 | 88 | 100 | 88 |
+| M · Autonomous Planning | 100 | 100 | 100 | 100 | 83 | 83 | 100 | 92 | 92 | 83 | 83 |
+| N · Creative Composition | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 92 | 100 |
+| O · Structured Output | 83 | 83 | 83 | 83 | 83 | 83 | 83 | 83 | 83 | 83 | 83 |
+| P · Hard Mode | 82 | 79 | 84 | 86 | 77 | 77 | 73 | 74 | 79 | 87 | 84 |
 
 <sub>‡ = this leg had a scenario excluded: its category % divides by the smaller max, so one category reads high.</sub>
 
