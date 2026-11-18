@@ -282,6 +282,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "self.screened_head = ScreenedLMHead.build(",
         ),
     ],
+    "thor qwen4 side FP8: online FP8 side layers (THOR_QWEN4_SIDE_FP8)": [
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_SIDE_FP8",
+        ),
+        # used: composed before the decoder layers are built
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "side_fp8 = maybe_quantize_side_layers(self.quant_config)",
+        ),
+    ],
 }
 
 

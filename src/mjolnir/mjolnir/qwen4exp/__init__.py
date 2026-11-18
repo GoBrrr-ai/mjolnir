@@ -11,4 +11,6 @@ stack"). Each is inert unless its environment switch is set:
   (``MJOLNIR_DRAFT_VOCAB``) and its 8-bit options.
 * ``screened_head`` — the screened target lm_head
   (``QWEN4EXP_LM_HEAD_SCREENED``, a backport of vLLM #60566).
+* ``side_fp8`` — online FP8 for the target's BF16 dense side layers
+  (``QWEN4EXP_SIDE_FP8``).
 """
