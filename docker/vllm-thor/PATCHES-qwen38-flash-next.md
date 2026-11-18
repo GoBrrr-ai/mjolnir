@@ -126,3 +126,15 @@ subclass of the QSA layer) that 0.34 no longer needs; they are re-measured on
 own `--quantization-config` targets refuse quantized layers (then
 config-only).
 
+**C2: FP8 hyperconnections (`thor-qwen4-hc-fp8`).** The HC GEMMs read
+1.279 GB BF16 per target step; online 8-bit cuts that to 0.661 GB (and the
+resident weights by ~0.6 GB). Measured on Thor (interleaved runs in one
+session): GPU time per step −1.3 ms (N3 + C1) / −1.4 ms (R8b + C3), step
+47.3 → 46.2 ms on R8b + C3, unchanged on N3 + C1 (host-bound there), warm
+7.6K prefill +0.13 s, KV +21–25K tokens; Tool Eval in noise (R8b 92, 91;
+N3 + C1 94, 94). Changes target outputs (W8A8 in every layer's residual
+mixing): opt-in per config. **Drop when** upstream quantizes the qwen4_exp
+HC projections. On 0.34 a converted up projection also skips the new fused
+`hc_up_gate_mix` kernel (SM100 family only, so inert on Thor), which checks the
+weight dtype at build time and would otherwise read the quantized weight.
+

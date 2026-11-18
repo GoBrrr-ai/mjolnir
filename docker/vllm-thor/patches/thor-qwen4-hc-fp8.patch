@@ -1,0 +1,96 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/hyperconnection.py b/vllm/models/qwen4_exp/nvidia/hyperconnection.py
+--- a/vllm/models/qwen4_exp/nvidia/hyperconnection.py
++++ b/vllm/models/qwen4_exp/nvidia/hyperconnection.py
+@@ -22,6 +22,8 @@
+     )
+ """
+ 
++import os  # [hc-fp8]
++
+ import torch
+ from torch import nn
+ 
+@@ -99,21 +101,33 @@
+         # The merged skinny-GEMM shape is physically padded to 16 rows to ensure
+         # good alignment and performant implementation chosen by CuBLAS heuristics.
+         self.pad_size = (-(self.hc_lowrank + self.hc_count)) % 16 if use_combine else 0
++        # [hc-fp8] THOR_QWEN4_HC_FP8: QWEN4EXP_HC_FP8 gives the target HC
++        # projections online 8-bit (None = stock BF16); the module is imported
++        # only with the switch on.
++        if os.environ.get("QWEN4EXP_HC_FP8", "0") not in ("", "0"):
++            from mjolnir.qwen4exp.hc_fp8 import hc_fp8_quant_config, load_hc_pad
++        else:
++            hc_fp8_quant_config, load_hc_pad = (lambda prefix: None), None
+         if use_combine:
++            down_prefix = maybe_prefix(prefix, "input_mix_weight_down_block_inject")
++            down_quant = hc_fp8_quant_config(down_prefix)
+             self.input_mix_weight_down_block_inject = MergedColumnParallelLinear(
+                 self.hyper_hidden_size,
+                 [self.hc_lowrank, self.hc_count]
+                 + ([self.pad_size] if self.pad_size else []),
+                 bias=False,
+                 params_dtype=config.params_dtype,
+-                quant_config=None,
+-                prefix=maybe_prefix(prefix, "input_mix_weight_down_block_inject"),
++                quant_config=down_quant,  # [hc-fp8] stock: None
++                prefix=down_prefix,
+                 return_bias=False,
+                 disable_tp=True,
+             )
++            if down_quant is not None and self.pad_size:
++                load_hc_pad(self.input_mix_weight_down_block_inject, self.pad_size)
+             weight = self.input_mix_weight_down_block_inject.weight
+             self._use_hc_down_silu = (
+-                weight.shape[1] % 8 == 0
++                down_quant is None  # [hc-fp8] the fused kernel needs a BF16 weight
++                and weight.shape[1] % 8 == 0
+                 and weight.dtype == torch.bfloat16
+                 and current_platform.has_device_capability(90)
+             )
+@@ -123,21 +137,26 @@
+                 self.hc_lowrank,
+                 bias=False,
+                 params_dtype=config.params_dtype,
+-                quant_config=None,
++                quant_config=hc_fp8_quant_config(  # [hc-fp8] stock: None
++                    maybe_prefix(prefix, "input_mix_weight_down")
++                ),
+                 prefix=maybe_prefix(prefix, "input_mix_weight_down"),
+                 return_bias=False,
+             )
++        up_quant = hc_fp8_quant_config(maybe_prefix(prefix, "input_mix_weight_up"))
+         self.input_mix_weight_up = ReplicatedLinear(
+             self.hc_lowrank,
+             self.hyper_hidden_size,
+             bias=False,
+             params_dtype=config.params_dtype,
+-            quant_config=None,
++            quant_config=up_quant,  # [hc-fp8] stock: None
+             prefix=maybe_prefix(prefix, "input_mix_weight_up"),
+             return_bias=False,
+         )
+-        self._use_hc_up_gate_mix = not envs.VLLM_BATCH_INVARIANT and (
+-            hc_up_gate_mix_supported(self.input_mix_weight_up.weight, self.hc_count)
++        self._use_hc_up_gate_mix = (
++            up_quant is None  # [hc-fp8] the fused kernel reads a BF16 weight
++            and not envs.VLLM_BATCH_INVARIANT
++            and hc_up_gate_mix_supported(self.input_mix_weight_up.weight, self.hc_count)
+         )
+ 
+     def _down_and_inject(
+diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
+--- a/vllm/models/qwen4_exp/nvidia/model.py
++++ b/vllm/models/qwen4_exp/nvidia/model.py
+@@ -795,6 +795,12 @@
+             from mjolnir.qwen4exp.side_fp8 import log_side_layers
+ 
+             log_side_layers(self.model)  # [side-fp8]
++        # [hc-fp8] QWEN4EXP_HC_FP8: the HC layers chose their method while
++        # Qwen4ExpModel was built (hyperconnection.py); one summary line.
++        if os.environ.get("QWEN4EXP_HC_FP8", "0") not in ("", "0"):
++            from mjolnir.qwen4exp.hc_fp8 import log_hc_fp8
++
++            log_hc_fp8(self.model)
+         self.lm_head: ParallelLMHead | PPMissingLayer
+         if get_pp_group().is_last_rank:
+             self.lm_head = ParallelLMHead(
