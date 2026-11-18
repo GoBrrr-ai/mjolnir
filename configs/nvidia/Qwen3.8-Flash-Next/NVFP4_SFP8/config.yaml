@@ -1,0 +1,69 @@
+# NVFP4_SFP8 — Qwen3.8-Flash-Next on the NVIDIA NVFP4 checkpoint, one sequence
+# (the contributor's recipe "N3 + C1 + C2", the better Tool Eval of the two on
+# 0.33). On Thor with vLLM 0.34: 44.4 / 45.5 / 46.4 / 45.5 decode t/s at 0 /
+# 8K / 32K / 128K context, Tool Eval 92.4 (hard mode 83.9, 2 trials). The
+# routed experts are NVFP4 W4A4 (CuTe DSL MoE, thor-sm110-cutedsl-moe-gate +
+# fi-cutedsl-moe-sm110); the side
+# layers ship BF16 and are quantized online to FP8 at load, the QSA indexer
+# projections stay BF16 (QWEN4EXP_SIDE_FP8 + QWEN4EXP_SIDE_FP8_SKIP; vLLM 0.34
+# then leaves the indexer out of the fused qkv GEMM), the hyperconnection GEMMs
+# 8-bit (QWEN4EXP_HC_FP8), their MXFP8 up projections on a pinned
+# CUTLASS tactic at decode M (MJOLNIR_MXFP8_TACTIC=256:8, C3, bit-identical;
+# added after the recipe was measured: HC chain −1.1 ms at M=4). The drafter (MTP K=3) scores a
+# 47K draft vocabulary through an FP8 head and replays FULL CUDA graphs; the
+# target head is the screened one (exact top-k). The PLE n-gram table stays on
+# NVMe (vLLM's disk_offload + a 0.5 GiB GPU slot pool). Every other switch is
+# in the .env sidecar; docker/vllm-thor/PATCHES-qwen38-flash-next.md explains
+# each.
+#
+# Before the first `mjolnir serve up`, install the page-cache grant once
+# (`mjolnir grant-permissions`): at share 0.75 a start on a full page cache is
+# the likely first failure, and the CLI clears it before `serve up` only with
+# the grant.
+# Attention: QSA (its own sparse kernels) on 12 layers + Gated-DeltaNet on 36;
+# --attention-backend does not route QSA, so none is set. KV stays BF16 (QSA
+# accepts BF16 or fp8 only; fp8 not yet measured here).
+model: nvidia/Qwen3.8-Flash-Next-NVFP4
+revision: fc694b54fb0174e0913e6adf86691ef85a4ead47
+served-model-name: nvidia/Qwen3.8-Flash-Next
+language-model-only: true
+# PLE n-gram table read from the checkpoint files (vLLM's disk table, its
+# on/off switch); the .env's MJOLNIR_PLE_DISK_CACHE_GB puts mjolnir's slot-pool
+# reader in front of it.
+engram-config:
+  disk_offload: true
+
+dtype: bfloat16
+performance-mode: throughput
+optimization-level: 3
+# PIECEWISE only: the PLE lookup and QSA are host-side eager breaks of the
+# breakable CUDA graph (VLLM_USE_BREAKABLE_CUDAGRAPH=1 in the .env); the
+# drafter's decode passes still replay FULL graphs.
+compilation-config:
+  cudagraph_mode: PIECEWISE
+  cudagraph_num_of_warmups: 5
+
+# ── Memory: one sequence, 256K context, share 0.75 (KV 390K-407K tokens on
+#    Thor with 0.34, varying per start)
+max-num-seqs: 1
+max-model-len: 262144
+max-num-batched-tokens: 8192
+gpu-memory-utilization: 0.75
+
+kv-cache-dtype: auto   # = the model dtype, bfloat16 (the recipe's --kv-cache-dtype bfloat16)
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+async-scheduling: true
+enable-flashinfer-autotune: false   # the CUTLASS MXFP8 / FP8 tactic choice stays deterministic
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_xml
+reasoning-parser: qwen3
+
+# MTP K=3: K=4 measured no better (an extra verify token reads more distinct
+# experts); K=5 could not start on 0.33 (the QSA ring capacity must divide the
+# attention block size: 848 tokens there, 832 on 0.34; not retried).
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
