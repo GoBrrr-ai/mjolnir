@@ -129,6 +129,10 @@ PATCH_ORDER = [
     # #60566 into mjolnir.qwen4exp.screened_head): nvidia/model.py hunks
     # diffed against thor-qwen4-draft-head.
     "thor-qwen4-screened-head.patch",
+    # Online FP8 for the target's BF16 dense side layers (QWEN4EXP_SIDE_FP8):
+    # one nvidia/model.py hunk diffed against the screened-head patch;
+    # mjolnir.qwen4exp.side_fp8.
+    "thor-qwen4-side-fp8.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

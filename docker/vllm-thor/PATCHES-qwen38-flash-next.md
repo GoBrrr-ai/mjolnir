@@ -104,3 +104,25 @@ The `Sampler.add_request` replacement mirrors vLLM 0.34's, including
 adds only #60566's logits-processor split; re-check it at every bump.
 **Drop when** the base carries #60566 (then `--screened-lm-head`).
 
+**Side FP8 and C1 (`thor-qwen4-side-fp8`).** The NVFP4 checkpoint leaves 192
+dense target modules BF16 (5.86 GB read per step). `QWEN4EXP_SIDE_FP8=1`
+quantizes them online at load (128×128 block FP8 by default, CUTLASS
+block-scaled GEMM, no resident BF16 copy) through the stock composition that
+`--quantization-config '{"targets": …}'` uses, plus the guard the flag lacks:
+it refuses to re-quantize layers the checkpoint already quantizes. N1 → N2
+(all kinds): step GPU 57.4–57.6 → 45.6–46.2 ms, but Tool Eval 91 → 86. The
+QSA indexer shares the QSA `qkv_proj` GEMM; keeping that GEMM BF16 (N3,
+`QWEN4EXP_SIDE_FP8_SKIP=self_attn.qkv_proj`, which keeps the indexer BF16 too)
+restored 93; C1 keeps only the 12 indexer projections BF16 (2.950 instead of
+3.359 GB per step): −1.3…−1.5 ms per step, Tool Eval 94, 94 (N3 + C1 + C2).
+**On vLLM 0.34** `Qwen4ExpQSAAttention` fuses the indexer into `qkv_proj` only
+when both resolve to the same quant method type (`nvidia/qsa.py`), so C1 is
+just `QWEN4EXP_SIDE_FP8_SKIP=self_attn.indexer.index_qk_proj`: the indexer
+stays BF16 and its own linear. Without a skip the indexer is a target too and
+stays FP8 inside the fused GEMM, as on 0.33. These numbers were measured on
+0.33, where C1 needed an unfuse switch (`QWEN4EXP_QSA_UNFUSE_INDEXER`, an init
+subclass of the QSA layer) that 0.34 no longer needs; they are re-measured on
+0.34. Changes target outputs (W8A8): opt-in per config. **Drop when** vLLM's
+own `--quantization-config` targets refuse quantized layers (then
+config-only).
+

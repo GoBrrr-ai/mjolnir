@@ -1,13 +1,13 @@
 # vLLM Thor PR Patches
 
-Sixteen vLLM-side patches (**sixteen** files under `patches/` carry them; two
+Seventeen vLLM-side patches (**seventeen** files under `patches/` carry them; two
 more are retired-on-file keepers for the GDN retest), **hand-adapted** onto
 the vLLM base (not a raw `git apply` of the upstream PR diffs — the two
 originals because the base code has diverged from each PR's base, the
 Thor-authored ones to add capabilities the stock backends don't have), plus
 the **Mjolnir attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see
 "The Mjolnir attention backend" below) and one **flashinfer-side** fp6 hunk
-(see "fp6 prefill direct-read" below). In total: **sixteen vLLM-side
+(see "fp6 prefill direct-read" below). In total: **seventeen vLLM-side
 patches** (incl. the CuTe DSL NVFP4 MoE sm_110 pair below and the
 **Qwen3.8-Flash-Next (qwen4_exp) stack**: an upstream backport plus env-gated
 hooks into the `mjolnir.qwen4exp` modules — see "Qwen3.8-Flash-Next
@@ -89,6 +89,7 @@ awaits the release image on the hub.
 | `thor-qwen4-ple-disk.patch` | Thor-authored (layer: `mjolnir.qwen4exp.ple_disk`) | **GPU slot-pool cache + prefetch in front of vLLM's PLE disk table** (`--engram-config '{"disk_offload": true}'` + `MJOLNIR_PLE_DISK_CACHE_GB` > 0). `Qwen4ExpNGramEmbedding` builds `Qwen4ExpPLEDiskEmbedding` instead of upstream's `Qwen4ExpPLEDiskOffloadEmbedding`: zero-row placeholders, the weight loader records each table shard's file and offset from the loader's view (as upstream does), `bind_file_shards` opens a GPU CLOCK slot pool, each lookup reads only missed rows (parallel `pread`) on a prefetch thread, no per-step stream sync. One hunk in `nvidia/ngram_embedding.py` (the modules are imported only on that branch); INERT without `disk_offload` or with the cache at 0 (upstream's reader then runs unchanged). |
 | `thor-qwen4-draft-head.patch` | Thor-authored (logic: `mjolnir.qwen4exp.draft_head`) | **Reduced MTP draft vocabulary and 8-bit drafter.** With `MJOLNIR_DRAFT_VOCAB` (the same `draft_vocab.json` and loader as `mjolnir.lmhead`) `Qwen4ExpMTP` builds its own `draft_head` from those `lm_head` rows during the weight load and scores only them (`-inf` elsewhere; verification keeps the full vocabulary, so output is unchanged). `QWEN4EXP_DRAFT_HEAD_FP8` quantizes that head online, `QWEN4EXP_MTP_DENSE_FP8` the drafter's BF16 dense projections (stock online methods, `QWEN4EXP_FP8_FORMAT`, default 128x128 block FP8). `nvidia/mtp.py`; INERT without the env vars. |
 | `thor-qwen4-screened-head.patch` | backport of [#60566](https://github.com/vllm-project/vllm/pull/60566) (open; logic: `mjolnir.qwen4exp.screened_head`) | **Screened target lm_head** (`QWEN4EXP_LM_HEAD_SCREENED=1`): an FP8 copy of the head with a rigorous per-row error bound selects the rows that can be in the top k; only those get exact BF16-weight logits, the rest `-inf`. Used for greedy / `top_k <= QWEN4EXP_LM_HEAD_SCREEN_K` (32) batches without logprobs, penalties or other logits processors; every other batch takes the full head. `nvidia/model.py` (`compute_logits`, `load_weights`) + wrappers on `GPUModelRunner.sample` / `Sampler.add_request` installed at load; INERT without the env var. |
+| `thor-qwen4-side-fp8.patch` | Thor-authored (logic: `mjolnir.qwen4exp.side_fp8`) | **Online FP8 side layers** for `nvidia/Qwen3.8-Flash-Next-NVFP4` (ModelOpt MIXED_PRECISION, side layers BF16). `QWEN4EXP_SIDE_FP8=1` composes vLLM's stock `OnlineQuantizationConfig` onto the target's quant config for GDN in/out, QSA qkv/o/indexer and shared-expert projections (a no-op when the checkpoint already quantizes them, e.g. FP4-Local's MXFP8); `QWEN4EXP_SIDE_FP8_SKIP=self_attn.indexer.index_qk_proj` keeps only the QSA indexer BF16, which vLLM 0.34's own fusion rule then leaves unfused. `nvidia/model.py`; INERT without the env var. |
 
 ## Why "hand-adapted" and not the raw diff
 

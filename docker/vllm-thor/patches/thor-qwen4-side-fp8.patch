@@ -1,0 +1,26 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
+--- a/vllm/models/qwen4_exp/nvidia/model.py
++++ b/vllm/models/qwen4_exp/nvidia/model.py
+@@ -779,9 +779,22 @@
+         self.quant_config = vllm_config.quant_config
+         self.config = config
+         self.scheduler_config = vllm_config.scheduler_config
++        # [side-fp8] THOR_QWEN4_SIDE_FP8: QWEN4EXP_SIDE_FP8, online FP8 for the
++        # BF16 dense side layers. Must precede the decoder layers, which resolve
++        # their methods (and the QSA indexer fusion, qsa.py); the module is
++        # imported only when set.
++        side_fp8 = False
++        if os.environ.get("QWEN4EXP_SIDE_FP8", "0") not in ("", "0"):
++            from mjolnir.qwen4exp.side_fp8 import maybe_quantize_side_layers
++
++            side_fp8 = maybe_quantize_side_layers(self.quant_config)
+         self.model = Qwen4ExpModel(
+             vllm_config=vllm_config, prefix=maybe_prefix(prefix, "model")
+         )
++        if side_fp8:
++            from mjolnir.qwen4exp.side_fp8 import log_side_layers
++
++            log_side_layers(self.model)  # [side-fp8]
+         self.lm_head: ParallelLMHead | PPMissingLayer
+         if get_pp_group().is_last_rank:
+             self.lm_head = ParallelLMHead(
