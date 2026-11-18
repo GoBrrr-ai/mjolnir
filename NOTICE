@@ -31,7 +31,8 @@ https://github.com/vllm-project/vllm — Copyright the vLLM project contributors
   the vLLM package of the official vllm/vllm-openai image, and marks every file
   it changes (see docker/vllm-thor/apply_patches.py). Patches 49652, 50885,
   54165 and 55519 are adapted from the corresponding (unmerged) vLLM pull
-  requests.
+  requests; patch 64739 is a backport of the corresponding (open) vLLM pull
+  request.
 - docker/perses/dashboards/performance_statistics.yaml and
   query_statistics.yaml are adapted from
   examples/observability/dashboards/perses/ (changes listed in their headers).

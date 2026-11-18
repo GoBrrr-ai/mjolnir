@@ -109,6 +109,12 @@ PATCH_ORDER = [
     # ships in mjolnir-kernel and degrades to the stock Triton path whenever
     # a guard fails). INERT unless the env var is set.
     "thor-qwen4-qsa-mjolnir.patch",
+    # Qwen3.8-Flash-Next (qwen4_exp) serving stack. One upstream backport
+    # first: #64739 (open): the default loader finds safetensors shards that
+    # model.safetensors.index.json lists in a subdirectory (FP4-Local keeps
+    # all 21 under tensors/). model_loader/{default_loader,weight_utils}.py,
+    # disjoint from every other patch; a no-op for root-level shards.
+    "64739-safetensors-index-subdir.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
