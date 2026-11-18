@@ -86,3 +86,21 @@ vocabulary covers number words less well); the FP8 draft head ~1.9 ms per step
 target output is unchanged. **Drop when** vLLM carries a reduced draft
 vocabulary for MTP (#58578 is a feature request).
 
+**Screened target head (`thor-qwen4-screened-head`).** PR #60566's bound and
+three Triton kernels, unchanged; switched by env instead of
+`--screened-lm-head`, built at the end of `Qwen4ExpForCausalLM.load_weights`
+(so the 0.64 GB FP8 copy is profiled model memory) and decided per target
+`sample()` call from host-side state only (no sync; persistent buffers, every
+row count pre-compiled). Exact except BF16 rounding ties (the PR measured 12
+greedy flips in 1.36M live rows, all ties); the rejection sampler reads the
+same top-k target probabilities, so MTP stays exact. Refuses next to
+`MJOLNIR_LM_HEAD=fp8` (full-head calls would then use the fp8 head while the
+exact pass keeps the BF16 rows). Measured (FP4-Local, R5 → R6): sampling incl. head GPU
+5.3 → 2.6 ms per step. Opt-in only, as the watch list below asks for #60566.
+`QWEN4EXP_LM_HEAD_SCREEN_CHECK=N` compares with the full head in-server,
+`QWEN4EXP_LM_HEAD_SCREEN_STATS=<s>` counts screened / full-head calls.
+The `Sampler.add_request` replacement mirrors vLLM 0.34's, including
+`may_mask_logits` (the rejection sampler's masked-vocabulary-block skip), and
+adds only #60566's logits-processor split; re-check it at every bump.
+**Drop when** the base carries #60566 (then `--screened-lm-head`).
+

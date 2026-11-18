@@ -125,6 +125,10 @@ PATCH_ORDER = [
     # models/qwen4_exp/nvidia/mtp.py, which no other patch touches. Logic in
     # mjolnir.qwen4exp.draft_head.
     "thor-qwen4-draft-head.patch",
+    # Screened target lm_head (QWEN4EXP_LM_HEAD_SCREENED, backport of vLLM
+    # #60566 into mjolnir.qwen4exp.screened_head): nvidia/model.py hunks
+    # diffed against thor-qwen4-draft-head.
+    "thor-qwen4-screened-head.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

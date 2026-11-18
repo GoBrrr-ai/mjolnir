@@ -267,6 +267,21 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "maybe_quantize_mtp_dense(draft_quant_config)",
         ),
     ],
+    "thor qwen4 screened head: exact top-k logits from an FP8 screen (THOR_QWEN4_SCREENED_HEAD)": [
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_SCREENED_HEAD",
+        ),
+        # used: compute_logits takes the screen, load_weights builds it
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "logits = head(hidden_states, head.top_k)",
+        ),
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "self.screened_head = ScreenedLMHead.build(",
+        ),
+    ],
 }
 
 
