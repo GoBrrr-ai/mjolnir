@@ -163,6 +163,7 @@ touched = [
     "model_executor/model_loader/default_loader.py",
     "model_executor/model_loader/weight_utils.py",
     "models/qwen4_exp/nvidia/ngram_embedding.py",
+    "models/qwen4_exp/nvidia/mtp.py",
 ]
 for rel in touched:
     py_compile.compile(str(root / rel), doraise=True)

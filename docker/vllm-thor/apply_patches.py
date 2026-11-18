@@ -120,6 +120,11 @@ PATCH_ORDER = [
     # models/qwen4_exp/nvidia/ngram_embedding.py, which no other patch
     # touches; the layer itself is mjolnir.qwen4exp.ple_disk.
     "thor-qwen4-ple-disk.patch",
+    # Reduced MTP draft vocabulary (MJOLNIR_DRAFT_VOCAB) + 8-bit draft head /
+    # MTP dense layers (QWEN4EXP_DRAFT_HEAD_FP8, QWEN4EXP_MTP_DENSE_FP8):
+    # models/qwen4_exp/nvidia/mtp.py, which no other patch touches. Logic in
+    # mjolnir.qwen4exp.draft_head.
+    "thor-qwen4-draft-head.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
