@@ -347,6 +347,8 @@ def spec_label(cfg: str, side: str | None = None) -> str:
         "NVFP4_MJOLNIR_E2M3": "Mjolnir · fp6 KV",
         "NVFP4_MJOLNIR_E2M3_LMH8_VT64K": "Mjolnir · fp6 KV + fp8 lm_head + 64K draft vocab",
         "NVFP4_MJOLNIR_W4A4": "Mjolnir · fp8 KV + W4A4 experts",
+        "NVFP4_SFP8": "QSA · bf16 KV + FP8 side layers and hyperconnections",
+        "NVFP4_SFP8_C6": "QSA · bf16 KV + FP8 side layers and hyperconnections, 6 sequences",
     }.get(cfg, cfg)
 
 

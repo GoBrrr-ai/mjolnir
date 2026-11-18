@@ -168,6 +168,17 @@ arch family. Any change there must keep **both** fallbacks working:
   mamba align) out. #25 (VocabTrim on a quantized head adding ~40 GB at
   startup) predates the native-quant VT path — the LMH8_VT64K retest came up
   healthy. Open: a silent Thor hard hang with the E2M3 worker idle (#27).
+- **Configs** (`configs/nvidia/Qwen3.8-Flash-Next/`, `qwen4_exp`: 36 GDN + 12
+  QSA sparse-attention layers, MoE 512x10, hyperconnections, a PLE n-gram
+  table): `NVFP4_SFP8` (`nvidia/Qwen3.8-Flash-Next-NVFP4`, one sequence) and
+  `NVFP4_SFP8_C6` (6 sequences, 29.6 GB KV pool). Stock QSA attention (no
+  Mjolnir kernel), BF16 KV, MTP=3, PIECEWISE graphs; everything else is the
+  `mjolnir.qwen4exp` stack switched on in the `.env` (PLE table on NVMe,
+  47K draft vocab + FP8 draft head, screened head, FP8 side layers and
+  hyperconnections, the MXFP8 tactic pin on the HC up projections; `docker/vllm-thor/PATCHES-qwen38-flash-next.md`). No
+  official-image baseline exists yet (stock 0.33 cannot load the PLE table on
+  Thor; 0.34's own `disk_offload` can, without the slot pool). Not yet run
+  through `mjolnir bench`.
 - **Platform layer (detection-first)**: no `platform set`/remembered state — every command
   resolves flag > `MJOLNIR_PLATFORM` env > two-source detection (`mjolnir platform` is
   read-only list/show with confidence + provenance). Config overlays

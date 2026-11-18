@@ -182,6 +182,7 @@ kernel results exist for its headline model — its own kernel case study.
   <tbody>
     <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 40.7 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 24.3 t/s</span></td></tr>
     <tr><td align="left"><a href="configs/nvidia/Qwen3.6-35B-A3B/README.md">Qwen3.6-35B-A3B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span></td><td align="center">—</td><td align="center">—</td></tr>
+    <tr><td align="left"><a href="configs/nvidia/Qwen3.8-Flash-Next/README.md">Qwen3.8-Flash-Next</a></td><td align="center">✅</td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
 
