@@ -579,6 +579,15 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   0.34 image build, the serve smoke (qwen4 QSA
   impl swap + `persistent_topk` on sm_110 now that #56102 landed), the
   spec/cudagraph canaries, and the e2e re-baseline.**
+- `mjolnir/moew4a4.py` (`MJOLNIR_NVFP4_MOE_W4A4`) sits on private vLLM
+  internals: `ModelOptMixedPrecisionConfig._resolve_quant_algo` /
+  `.nvfp4_config`, the `ModelOptNvFp4FusedMoE(quant_config=…, moe_config=…)`
+  signature, the `w13_input_scale` / `w2_input_scale` names and
+  `process_weights_after_loading(layer)`. Re-checked against v0.34.0
+  (2026-11-17): all unchanged, as are `get_quant_method(layer, prefix)` and
+  `RoutedExperts`. Re-check them at every bump; a rename fails as an
+  `AttributeError` at model build that reads like a vLLM bug, not the hook
+  (smoke `NVFP4_MJOLNIR_W4A4`).
 
 ## Conventions
 - **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**
