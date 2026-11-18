@@ -1,0 +1,56 @@
+diff --git a/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py b/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py
+--- a/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py
++++ b/vllm/v1/worker/gpu/spec_decode/autoregressive/speculator.py
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++import os
+ from abc import abstractmethod
+ from typing import Any
+ 
+@@ -8,6 +9,7 @@
+ from vllm.config import VllmConfig
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.logger import init_logger
++from vllm.v1.attention.backend import AttentionCGSupport
+ from vllm.v1.worker.gpu.attn_utils import build_slot_mappings_by_layer
+ from vllm.v1.worker.gpu.cudagraph_utils import BatchExecutionDescriptor
+ from vllm.v1.worker.gpu.dp_utils import DPSyncState, dispatch_cg_and_sync_dp
+@@ -20,6 +22,10 @@
+ 
+ logger = init_logger(__name__)
+ 
++# THOR_DRAFT_FULL_CG: capture the draft decode steps as FULL graphs even when
++# the target runs PIECEWISE only (e.g. host-side eager breaks in the target).
++_DRAFT_FULL_CG = os.environ.get("MJOLNIR_SPEC_STEP_DRAFT_FULL_CG", "0") == "1"
++
+ 
+ class AutoRegressiveSpeculator(DraftModelSpeculator):
+     """Shared CUDA graph and decode loop for autoregressive speculators."""
+@@ -36,9 +42,25 @@
+     def init_cudagraph_manager(self, cudagraph_mode: CUDAGraphMode) -> None:
+         # Subclasses create prefill_cudagraph_manager before calling this.
+         # PIECEWISE cudagraphs are not supported for draft decodes.
++        # THOR_DRAFT_FULL_CG: the draft decode is a uniform 1-token batch, so
++        # it can take a FULL graph whenever its own attention supports one,
++        # even if the target is held at PIECEWISE.
++        draft_full_cg = (
++            _DRAFT_FULL_CG
++            and cudagraph_mode != CUDAGraphMode.NONE
++            and self.attn_cg_support.min_cg_support.value
++            >= AttentionCGSupport.UNIFORM_SINGLE_TOKEN_DECODE.value
++        )
++        if draft_full_cg:
++            logger.info(
++                "[spec-step] draft decode: FULL CUDA graphs (target mode %s, "
++                "draft attention %s)",
++                cudagraph_mode.name,
++                self.attn_cg_support.min_cg_support.name,
++            )
+         decode_mode = (
+             CUDAGraphMode.FULL_DECODE_ONLY
+-            if cudagraph_mode.decode_mode() == CUDAGraphMode.FULL
++            if cudagraph_mode.decode_mode() == CUDAGraphMode.FULL or draft_full_cg
+             else CUDAGraphMode.NONE
+         )
+         self.decode_cudagraph_manager = SpeculatorCudaGraphManager(

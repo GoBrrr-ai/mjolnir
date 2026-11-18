@@ -318,6 +318,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "log_hc_fp8(self.model)",
         ),
     ],
+    "thor draft FULL CG under a PIECEWISE target (THOR_DRAFT_FULL_CG)": [
+        (
+            "v1/worker/gpu/spec_decode/autoregressive/speculator.py",
+            "THOR_DRAFT_FULL_CG",
+        ),
+        # used: the gate feeds the draft decode manager's mode
+        (
+            "v1/worker/gpu/spec_decode/autoregressive/speculator.py",
+            "if cudagraph_mode.decode_mode() == CUDAGraphMode.FULL or draft_full_cg",
+        ),
+    ],
 }
 
 
