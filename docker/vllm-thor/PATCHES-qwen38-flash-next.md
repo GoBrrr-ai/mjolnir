@@ -138,3 +138,28 @@ HC projections. On 0.34 a converted up projection also skips the new fused
 `hc_up_gate_mix` kernel (SM100 family only, so inert on Thor), which checks the
 weight dtype at build time and would otherwise read the quantized weight.
 
+**Draft FULL graphs (`thor-draft-full-cg-piecewise`).** Qwen3.8-Flash-Next's
+target must stay PIECEWISE (the PLE lookup and QSA are host-side eager
+breaks), which in 0.33 leaves draft passes 1..K-1 eager: ~100+ launches each
+including the head. The draft decode of an MTP drafter is a uniform 1-token
+batch whose QSA layer replays from persistent buffers only, so it can take a
+FULL graph regardless of the target's mode. vLLM #60989 (0.34) moved the
+decode-graph decision into `AutoRegressiveSpeculator.init_cudagraph_manager`
+(`spec_decode/autoregressive/speculator.py`), so the gate sits there and the
+switch now applies to every autoregressive drafter (MTP, EAGLE/EAGLE3,
+standalone draft models, Gemma4); `multi_module_mtp`, `dflash` and `ngram`
+keep their own gates. On 0.34 the QFN drafter does not take the fused
+multi-step decode: on Thor vLLM logs `Attention backend(s)
+QWEN4_EXP_QSA_INDEXER cannot update draft decode metadata in place; falling
+back to rebuilding attention metadata eagerly`, then `[spec-step] draft
+decode: FULL CUDA graphs` — each draft pass rebuilds its metadata on the host
+and replays a FULL graph (Mjolnir's `thor-fused-draft-t5-plan-refresh`, which
+targets the fused path, is not involved). Measured on
+0.33 (FP4-Local, one stream): eager draft passes 2–4 took
+1.8 ms GPU / 4.5–6 ms host each plus ~0.9 ms host metadata (R3); with the
+graphs (R5) 1.2–1.3 ms GPU / ~0.1 ms host. Step GPU time did not change
+(R4b-K3 54.8 → 54.9 ms): the gain is host time, which counts once the host
+no longer runs ahead. Drafter-only: target output unchanged. Mjolnir's sm_110 draft-CG gate found a *small* graphed
+drafter slower than eager at N=1, hence off by default. The 0.34 draft path
+is re-measured on Thor.
+

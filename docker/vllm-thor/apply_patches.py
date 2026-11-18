@@ -137,6 +137,14 @@ PATCH_ORDER = [
     # nvidia/hyperconnection.py (no other patch) + one nvidia/model.py log
     # hunk diffed against the side-fp8 patch; mjolnir.qwen4exp.hc_fp8.
     "thor-qwen4-hc-fp8.patch",
+    # FULL CUDA graphs for the MTP draft decode steps under a PIECEWISE
+    # target (MJOLNIR_SPEC_STEP_DRAFT_FULL_CG): one gate in
+    # autoregressive/speculator.py AutoRegressiveSpeculator.init_cudagraph_manager
+    # (vLLM #60989 moved it to the AR base class, so it covers every
+    # autoregressive drafter); diffed on top of
+    # thor-fused-draft-t5-plan-refresh (same file, disjoint hunks). Env-gated
+    # only, any model.
+    "thor-draft-full-cg-piecewise.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
