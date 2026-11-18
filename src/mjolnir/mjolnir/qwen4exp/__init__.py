@@ -7,4 +7,6 @@ stack"). Each is inert unless its environment switch is set:
 * ``ple_disk`` / ``ple_disk_table`` / ``ple_disk_cache`` — a GPU slot-pool
   cache and prefetch in front of vLLM's PLE disk table (``disk_offload`` +
   ``MJOLNIR_PLE_DISK_CACHE_GB``).
+* ``draft_head`` — the MTP drafter's reduced vocabulary head
+  (``MJOLNIR_DRAFT_VOCAB``) and its 8-bit options.
 """

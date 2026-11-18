@@ -252,6 +252,21 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "embedding_cls = Qwen4ExpPLEDiskEmbedding",
         ),
     ],
+    "thor qwen4 draft head: reduced draft vocabulary + 8-bit drafter (THOR_QWEN4_DRAFT_HEAD)": [
+        (
+            "models/qwen4_exp/nvidia/mtp.py",
+            "THOR_QWEN4_DRAFT_HEAD",
+        ),
+        # used: the drafter scores the reduced head and scatters it
+        (
+            "models/qwen4_exp/nvidia/mtp.py",
+            "return logits.index_copy_(1, self.draft_vocab_ids, draft_logits)",
+        ),
+        (
+            "models/qwen4_exp/nvidia/mtp.py",
+            "maybe_quantize_mtp_dense(draft_quant_config)",
+        ),
+    ],
 }
 
 

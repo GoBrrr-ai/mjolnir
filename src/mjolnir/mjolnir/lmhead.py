@@ -804,7 +804,11 @@ def after_load(runner) -> None:
     spec = getattr(runner, "speculator", None)
     draft = getattr(spec, "model", None) if spec is not None else None
     vocab_path = os.environ.get(ENV_DRAFT_VOCAB, "").strip()
-    if vocab_path and draft is not None:  # before fp8 may free the bf16 weight
+    if vocab_path and getattr(draft, "draft_vocab_ids", None) is not None:
+        # a drafter that loads its own reduced head from the same file
+        # (qwen4_exp: mjolnir.qwen4exp.draft_head) is already trimmed
+        _log.info("Mjolnir draft vocab: the drafter carries its own reduced head; left as is")
+    elif vocab_path and draft is not None:  # before fp8 may free the bf16 weight
         try:
             size = int(os.environ.get(ENV_DRAFT_VOCAB_SIZE, "0") or 0) or None
             install_draft_vocab(draft, load_vocab(vocab_path), size)
