@@ -17,6 +17,26 @@ they are not Mjolnir evidence until `mjolnir bench` reproduces them, and they
 are re-measured on 0.34. vLLM 0.34 carries the CSF-compressed NVFP4 scales
 FP4-Local needs (#64312 + #64869), so no backport is needed for them.
 
+**Legend.** The run labels below are the contributor's 0.33 measurement steps
+(named as in the NemoClaw-Thor docs above); each adds to the previous one.
+
+| label | what it is | config it led to |
+|---|---|---|
+| R2 | FP4-Local, PLE table on NVMe with prefetched lookups, MTP 4 | |
+| R3 | R2 + reduced draft vocabulary + online FP8 MTP dense layers | |
+| R4b (-K3) | all routed experts on Marlin W4A16 (K3: MTP 3) | |
+| R5 | Marlin MoE + FlashInfer MXFP8 side layers, FP8 draft head, draft FULL graphs | |
+| R6 | R5 + screened target head + FlashInfer MoE | |
+| R7b | R6 at memory share 0.70 + PLE prewarm | |
+| R8a | R7b + the PLE slot-pool cache (0.5 GiB) at memory share 0.75 | |
+| R8b | R8a + CuTe DSL W4A4 routed experts | `FP4LOCAL` (+ C2 + C3) |
+| N1 | the NVFP4 checkpoint on the R8b stack, side layers BF16 | |
+| N2 | N1 + online FP8 side layers (incl. the QSA `qkv_proj` with its fused indexer) | |
+| N3 | N2 with the QSA `qkv_proj` kept BF16 | `NVFP4_SFP8` (+ C1 + C2 + C3) |
+| C1 | only the QSA indexer kept BF16, the rest of `qkv_proj` FP8 | `NVFP4_SFP8` |
+| C2 | FP8 hyperconnection GEMMs (`QWEN4EXP_HC_FP8`) | both |
+| C3 | MXFP8 CUTLASS tactic pin (`MJOLNIR_MXFP8_TACTIC`) | both |
+
 **Index subdirectory (`64739`).** Upstream backport (open PR, split out of
 #64312), test files left out. Without it the FP4-Local checkpoint needs a
 hand-made directory with the shards linked at the top level (how it was
