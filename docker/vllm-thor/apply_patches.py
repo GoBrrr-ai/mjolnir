@@ -115,6 +115,11 @@ PATCH_ORDER = [
     # all 21 under tensors/). model_loader/{default_loader,weight_utils}.py,
     # disjoint from every other patch; a no-op for root-level shards.
     "64739-safetensors-index-subdir.patch",
+    # Qwen4Exp PLE slot-pool cache in front of vLLM's disk table
+    # (disk_offload + MJOLNIR_PLE_DISK_CACHE_GB): one hunk in
+    # models/qwen4_exp/nvidia/ngram_embedding.py, which no other patch
+    # touches; the layer itself is mjolnir.qwen4exp.ple_disk.
+    "thor-qwen4-ple-disk.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
