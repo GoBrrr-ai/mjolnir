@@ -1,0 +1,121 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/mtp.py b/vllm/models/qwen4_exp/nvidia/mtp.py
+--- a/vllm/models/qwen4_exp/nvidia/mtp.py
++++ b/vllm/models/qwen4_exp/nvidia/mtp.py
+@@ -13,6 +13,7 @@
+     multi stream [T, hc_count*H] (fed to the next draft step).
+ """
+ 
++import os  # [draft-head]
+ from collections.abc import Iterable
+ 
+ import regex as re
+@@ -24,6 +25,7 @@
+ from vllm.config import VllmConfig, replace, set_current_vllm_config
+ from vllm.distributed import get_pp_group
+ from vllm.forward_context import get_forward_context, is_forward_context_available
++from vllm.logger import init_logger
+ from vllm.model_executor.layers.layernorm import GemmaRMSNorm
+ from vllm.model_executor.layers.linear import ColumnParallelLinear
+ from vllm.model_executor.layers.logits_processor import LogitsProcessor
+@@ -63,6 +65,13 @@
+     get_qsa_topk_buffer_width,
+ )
+ 
++logger = init_logger(__name__)
++
++# [draft-head] THOR_QWEN4_DRAFT_HEAD: mjolnir.qwen4exp.draft_head is imported
++# only inside the switched branches below.
++def _mtp_dense_fp8() -> bool:
++    return os.environ.get("QWEN4EXP_MTP_DENSE_FP8", "0") not in ("", "0")
++
+ 
+ def _remap_ignored_layers(
+     ignored_layers: list[str],
+@@ -167,6 +176,11 @@
+                     }
+                 )
+             )
++        # [draft-head] Online 8-bit for the BF16 dense MTP projections.
++        if _mtp_dense_fp8():
++            from mjolnir.qwen4exp.draft_head import maybe_quantize_mtp_dense
++
++            maybe_quantize_mtp_dense(draft_quant_config)
+ 
+     draft_vllm_config = replace(
+         vllm_config,
+@@ -247,6 +261,10 @@
+                 )
+                 for idx in range(self.num_mtp_layers)
+             )
++        if _mtp_dense_fp8():  # [draft-head]
++            from mjolnir.qwen4exp.draft_head import log_mtp_dense
++
++            log_mtp_dense(draft_vllm_config.quant_config)
+         self.fused_shared_expert_layers = get_fused_shared_expert_layers(
+             self,
+             Qwen4ExpSparseMoeBlock,
+@@ -456,6 +474,27 @@
+             self.lm_head = PPMissingLayer()
+ 
+         self.logits_processor = LogitsProcessor(config.vocab_size)
++        # [draft-head] Reduced draft vocabulary (MJOLNIR_DRAFT_VOCAB): its own
++        # head holding only those lm_head rows, loaded from the checkpoint
++        # lm_head. Target verification keeps the full vocabulary.
++        draft_vocab_ids = None
++        if (
++            os.environ.get("MJOLNIR_DRAFT_VOCAB", "").strip()
++            and get_pp_group().is_last_rank
++            and not config.tie_word_embeddings
++        ):
++            from mjolnir.qwen4exp.draft_head import load_draft_vocab, make_draft_head
++
++            draft_vocab_ids = load_draft_vocab(config.vocab_size)
++        self.register_buffer("draft_vocab_ids", draft_vocab_ids, persistent=False)
++        if draft_vocab_ids is not None:
++            # QWEN4EXP_DRAFT_HEAD_FP8 quantizes only this reduced draft head.
++            self.draft_head = make_draft_head(
++                draft_vocab_ids.numel(),
++                config.hidden_size,
++                prefix=maybe_prefix(prefix, "draft_head"),
++            )
++            self.draft_logits_processor = LogitsProcessor(draft_vocab_ids.numel())
+         self.make_empty_intermediate_tensors = (
+             self.model.make_empty_intermediate_tensors
+         )
+@@ -486,7 +525,17 @@
+     def compute_logits(
+         self, hidden_states: torch.Tensor, spec_step_idx: int = 0
+     ) -> torch.Tensor | None:
+-        return self.logits_processor(self.lm_head, hidden_states)
++        if self.draft_vocab_ids is None:
++            return self.logits_processor(self.lm_head, hidden_states)
++        # [draft-head] Score the reduced vocabulary and scatter it into
++        # full-vocabulary logits; every other token gets -inf, so greedy and
++        # probabilistic drafting both propose target-vocabulary ids.
++        draft_logits = self.draft_logits_processor(self.draft_head, hidden_states)
++        logits = draft_logits.new_full(
++            (draft_logits.shape[0], self.logits_processor.org_vocab_size),
++            float("-inf"),
++        )
++        return logits.index_copy_(1, self.draft_vocab_ids, draft_logits)
+ 
+     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
+         def remap_weight_names():
+@@ -494,6 +543,17 @@
+                 remapped_name = _remap_mtp_weight_name(name)
+                 if remapped_name is not None:
+                     yield remapped_name, weight
++                # [draft-head] The reduced draft head takes its lm_head rows.
++                if (
++                    remapped_name == "lm_head.weight"
++                    and self.draft_vocab_ids is not None
++                ):
++                    ids = self.draft_vocab_ids.to(weight.device)
++                    logger.info(
++                        "[draft-head] Loading %d draft_head rows from lm_head.",
++                        ids.numel(),
++                    )
++                    yield "draft_head.weight", weight.index_select(0, ids)
+ 
+         mapper = WeightsMapper(
+             orig_to_new_substr={"hyper_connection_mixer.block_inject_weight": None}

@@ -54,3 +54,35 @@ reservation that held the share at 0.70). CPU tests:
 `tests/cli/test_qwen4exp_ple_disk_{table,cache,layer}.py`. **Drop when**
 upstream's disk table gains a row pool and asynchronous prefetch (e.g. vLLM
 #66941, #66464); the switch then stays `disk_offload` alone.
+
+**Draft vocabulary and 8-bit drafter (`thor-qwen4-draft-head`).** The head
+(248,320 × 2,560 BF16, 1.27 GB) is read by the target and by every MTP draft
+pass. The draft passes score only the configured vocabulary
+(`configs/nvidia/Qwen3.8-Flash-Next/draft_vocab.json`: the contributor's
+47,149-id coding vocabulary — all byte and special tokens — padded to 47,232
+rows) through their own head, built from the checkpoint's `lm_head` rows while
+the drafter loads, so it is in the profiled model memory and, with
+`QWEN4EXP_DRAFT_HEAD_FP8=1`, quantized online (block FP8, 0.125 GB per pass
+instead of 1.27 GB) without a resident BF16 copy. `QWEN4EXP_MTP_DENSE_FP8=1`
+does the same for the drafter's dense projections (fc_embedding/fc_hidden,
+QSA qkv/o, shared expert: 0.139 → 0.072 GB per pass; estimated ~0.3 ms, not
+measured alone; the QSA indexer projection is a target too, so vLLM 0.34,
+which fuses it into `qkv_proj` only when both get the same method, keeps it
+FP8 inside the fused GEMM as on 0.33). The file format, `MJOLNIR_DRAFT_VOCAB(_SIZE)` and
+`mjolnir calibrate --draft-vocab` are `mjolnir.lmhead`'s. **For every
+qwen4_exp model** `MJOLNIR_DRAFT_VOCAB` therefore builds this drafter-owned
+head and `mjolnir.lmhead` skips its own VocabTrim for that drafter;
+`MJOLNIR_LM_HEAD` does not cover the reduced head (`QWEN4EXP_DRAFT_HEAD_FP8`
+does), and a checkpoint with a quantized `lm_head` is not supported by this
+path (the rows are sliced from the BF16 checkpoint tensor). lmhead's VocabTrim
+cannot serve qwen4_exp as is: its BF16 → fp8 kept head needs
+`MJOLNIR_LM_HEAD=fp8`, which also re-quantizes the target head (changed target
+logits, and no BF16 head left for the screened head below), and its per-row
+Triton GEMV was never measured on this model. Measured (FP4-Local, one
+stream): draft vocabulary + MTP dense FP8 (R2 → R3) bench prose / code / count
+29.4 / 45.9 / 54.9 → 37.5 / 56.7 / 51.1 tok/s (counting drops: the coding
+vocabulary covers number words less well); the FP8 draft head ~1.9 ms per step
+(R5); a 47K vs 65K vocabulary A/B showed no difference. Drafter-only: the
+target output is unchanged. **Drop when** vLLM carries a reduced draft
+vocabulary for MTP (#58578 is a feature request).
+

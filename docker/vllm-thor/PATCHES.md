@@ -1,13 +1,13 @@
 # vLLM Thor PR Patches
 
-Fourteen vLLM-side patches (**fourteen** files under `patches/` carry them; two
+Fifteen vLLM-side patches (**fifteen** files under `patches/` carry them; two
 more are retired-on-file keepers for the GDN retest), **hand-adapted** onto
 the vLLM base (not a raw `git apply` of the upstream PR diffs — the two
 originals because the base code has diverged from each PR's base, the
 Thor-authored ones to add capabilities the stock backends don't have), plus
 the **Mjolnir attention-backend name** (`AttentionBackendEnum.MJOLNIR` — see
 "The Mjolnir attention backend" below) and one **flashinfer-side** fp6 hunk
-(see "fp6 prefill direct-read" below). In total: **fourteen vLLM-side
+(see "fp6 prefill direct-read" below). In total: **fifteen vLLM-side
 patches** (incl. the CuTe DSL NVFP4 MoE sm_110 pair below and the
 **Qwen3.8-Flash-Next (qwen4_exp) stack**: an upstream backport plus env-gated
 hooks into the `mjolnir.qwen4exp` modules — see "Qwen3.8-Flash-Next
@@ -87,6 +87,7 @@ awaits the release image on the hub.
 | `thor-qwen4-qsa-mjolnir.patch` | Thor-authored (kernel: `mjolnir.qsa_impl`) | **Probe-gated Mjolnir decode for the QSA layers** (`MJOLNIR_ATTN_QSA`). Wraps the stock impl — routes pure-decode steps through the tcgen05 scratch-gather (the measured 13.5×/11.7× path) and falls back to the stock Triton kernel for prefill/verify/mixed steps, bf16 caches, or anything else it does not own. The heavy logic ships in `mjolnir-kernel` (`src/mjolnir/mjolnir/qsa_impl.py`), not in the patch. INERT without the env var. |
 | `64739-safetensors-index-subdir.patch` | [#64739](https://github.com/vllm-project/vllm/pull/64739) (open) | **Shards listed in an index subdirectory.** The default loader only globs the model root; FP4-Local keeps its 21 shards under `tensors/` (the index names `tensors/model-000NN-of-00021.safetensors`), so stock vLLM (0.33 and 0.34) finds no weights. With the index present, `_prepare_weights` and `filter_duplicate_safetensors_files` take the index's file list (paths outside the model folder raise); root-level checkpoints are unchanged. Lets the FP4-Local config load from the Hub id. Qwen3.8-Flash-Next stack, see below. |
 | `thor-qwen4-ple-disk.patch` | Thor-authored (layer: `mjolnir.qwen4exp.ple_disk`) | **GPU slot-pool cache + prefetch in front of vLLM's PLE disk table** (`--engram-config '{"disk_offload": true}'` + `MJOLNIR_PLE_DISK_CACHE_GB` > 0). `Qwen4ExpNGramEmbedding` builds `Qwen4ExpPLEDiskEmbedding` instead of upstream's `Qwen4ExpPLEDiskOffloadEmbedding`: zero-row placeholders, the weight loader records each table shard's file and offset from the loader's view (as upstream does), `bind_file_shards` opens a GPU CLOCK slot pool, each lookup reads only missed rows (parallel `pread`) on a prefetch thread, no per-step stream sync. One hunk in `nvidia/ngram_embedding.py` (the modules are imported only on that branch); INERT without `disk_offload` or with the cache at 0 (upstream's reader then runs unchanged). |
+| `thor-qwen4-draft-head.patch` | Thor-authored (logic: `mjolnir.qwen4exp.draft_head`) | **Reduced MTP draft vocabulary and 8-bit drafter.** With `MJOLNIR_DRAFT_VOCAB` (the same `draft_vocab.json` and loader as `mjolnir.lmhead`) `Qwen4ExpMTP` builds its own `draft_head` from those `lm_head` rows during the weight load and scores only them (`-inf` elsewhere; verification keeps the full vocabulary, so output is unchanged). `QWEN4EXP_DRAFT_HEAD_FP8` quantizes that head online, `QWEN4EXP_MTP_DENSE_FP8` the drafter's BF16 dense projections (stock online methods, `QWEN4EXP_FP8_FORMAT`, default 128x128 block FP8). `nvidia/mtp.py`; INERT without the env vars. |
 
 ## Why "hand-adapted" and not the raw diff
 
