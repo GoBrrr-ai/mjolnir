@@ -171,11 +171,14 @@ arch family. Any change there must keep **both** fallbacks working:
 - **Configs** (`configs/nvidia/Qwen3.8-Flash-Next/`, `qwen4_exp`: 36 GDN + 12
   QSA sparse-attention layers, MoE 512x10, hyperconnections, a PLE n-gram
   table): `NVFP4_SFP8` (`nvidia/Qwen3.8-Flash-Next-NVFP4`, one sequence) and
-  `NVFP4_SFP8_C6` (6 sequences, 29.6 GB KV pool). Stock QSA attention (no
+  `NVFP4_SFP8_C6` (6 sequences, 29.6 GB KV pool); `FP4LOCAL` / `FP4LOCAL_C6`
+  (`nvidia/Qwen3.8-Flash-Next-FP4-Local`: MXFP8 side layers as shipped, also
+  under the MXFP8 tactic pin; needs patch 64739, the CSF scales are upstream since
+  0.34). Stock QSA attention (no
   Mjolnir kernel), BF16 KV, MTP=3, PIECEWISE graphs; everything else is the
   `mjolnir.qwen4exp` stack switched on in the `.env` (PLE table on NVMe,
   47K draft vocab + FP8 draft head, screened head, FP8 side layers and
-  hyperconnections, the MXFP8 tactic pin on the HC up projections; `docker/vllm-thor/PATCHES-qwen38-flash-next.md`). No
+  hyperconnections; `docker/vllm-thor/PATCHES-qwen38-flash-next.md`). No
   official-image baseline exists yet (stock 0.33 cannot load the PLE table on
   Thor; 0.34's own `disk_offload` can, without the slot pool). Not yet run
   through `mjolnir bench`.
