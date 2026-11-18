@@ -29,7 +29,32 @@ Availability: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend 
 Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_SFP8).
 
 ## Benchmarks
+### End to end (NVFP4_SFP8, 1 request · 128K context)
 
-**no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `nvidia/Qwen3.8-Flash-Next` / `NVFP4_SFP8` on Jetson AGX Thor so far.
+
+| metric | `NVFP4_SFP8` |
+|---|--:|
+| decode (t/s) | 45.5 |
+| prefill (t/s) | 3,106 |
+| TTFT (ms) | 39,302 |
+| ITL (ms) | 22.4 |
+
+<details>
+<summary>Model quality (per suite)</summary>
+
+| suite | score |
+|---|--:|
+| Tool calls | 92.4 |
+| Hard Mode | 83.9 |
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **Score** = points ÷ maximum points × 100, each scenario 2 (pass), 1 (partial) or 0 (fail); GSM8K / MMLU = accuracy in %; IFEval = prompt-level accuracy in %.
+- **(±)** = this row's score − the baseline row's score, in percentage **points**, not a relative change: 86.5 vs 88.0 is −1.5 points (a relative change would be −1.7%).
+- **n** = runs averaged (`--trials`); **completion** = the share of scenarios the endpoint answered — compare rows only at equal completion.
+
+</details><br />
+</details>
 
 The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.
