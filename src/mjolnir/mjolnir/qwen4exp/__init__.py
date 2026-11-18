@@ -9,4 +9,6 @@ stack"). Each is inert unless its environment switch is set:
   ``MJOLNIR_PLE_DISK_CACHE_GB``).
 * ``draft_head`` — the MTP drafter's reduced vocabulary head
   (``MJOLNIR_DRAFT_VOCAB``) and its 8-bit options.
+* ``screened_head`` — the screened target lm_head
+  (``QWEN4EXP_LM_HEAD_SCREENED``, a backport of vLLM #60566).
 """

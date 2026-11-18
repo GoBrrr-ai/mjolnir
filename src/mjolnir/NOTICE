@@ -36,6 +36,10 @@ https://github.com/vllm-project/vllm — Copyright the vLLM project contributors
 - src/mjolnir/mjolnir/qwen4exp/ple_disk.py adapts vLLM's qwen4_exp PLE
   embedding (it keeps vLLM's header); maps_entry in ple_disk_table.py is
   copied from vLLM's qwen4_exp ngram_embedding.py (_maps_entry).
+- src/mjolnir/mjolnir/qwen4exp/screened_head.py is a backport of vLLM pull
+  request #60566 (screened lm_head: its error bound and Triton kernels; it
+  keeps vLLM's header); the other qwen4exp modules build on vLLM's qwen4_exp
+  classes.
 - docker/perses/dashboards/performance_statistics.yaml and
   query_statistics.yaml are adapted from
   examples/observability/dashboards/perses/ (changes listed in their headers).

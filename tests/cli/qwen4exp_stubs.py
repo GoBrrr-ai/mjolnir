@@ -44,6 +44,8 @@ VLLM_MODULES = (
     "vllm.v1.worker",
     "vllm.v1.worker.gpu",
     "vllm.v1.worker.gpu.model_runner",
+    "vllm.v1.worker.gpu.sample",
+    "vllm.v1.worker.gpu.sample.sampler",
 )
 
 
