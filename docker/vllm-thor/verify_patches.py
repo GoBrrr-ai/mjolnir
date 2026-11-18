@@ -329,6 +329,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "if cudagraph_mode.decode_mode() == CUDAGraphMode.FULL or draft_full_cg",
         ),
     ],
+    "thor MXFP8 CUTLASS tactic pin by M bucket (THOR_MXFP8_TACTIC)": [
+        (
+            "model_executor/kernels/linear/mxfp8/flashinfer.py",
+            "THOR_MXFP8_TACTIC",
+        ),
+        # used: apply_weights routes through the pinned-tactic op
+        (
+            "model_executor/kernels/linear/mxfp8/flashinfer.py",
+            "output = torch.ops.vllm.thor_mm_mxfp8_tactic(",
+        ),
+    ],
 }
 
 

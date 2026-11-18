@@ -1,0 +1,99 @@
+diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py
+--- a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py
++++ b/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py
+@@ -23,6 +23,67 @@
+ 
+ from .Mxfp8LinearKernel import Mxfp8LinearKernel, Mxfp8LinearLayerConfig
+ 
++# [thor] begin: optional CUTLASS MXFP8 tactic pin by M bucket (default off). THOR_MXFP8_TACTIC
++# MJOLNIR_MXFP8_TACTIC="<max_m>:<tactic>[,<max_m>:<tactic>...]", e.g. "256:8": calls with
++# M <= 256 run FlashInfer CUTLASS tactic 8; larger M keep the stock mm_mxfp8 call.
++# Kernel choice only: every tactic computes bit-identical output (see README).
++import functools
++import os
++
++from vllm.logger import init_logger
++
++_thor_logger = init_logger(__name__)
++_THOR_TACTICS = sorted(
++    (int(m), int(t))
++    for m, t in (
++        b.split(":") for b in os.environ.get("MJOLNIR_MXFP8_TACTIC", "").split(",") if b
++    )
++)
++if _THOR_TACTICS:
++
++    @functools.cache
++    def _thor_cutlass_runner(major: int):
++        from flashinfer.gemm.gemm_base import get_cutlass_mxfp8_gemm_module
++
++        _thor_logger.info(  # first call, not import: vLLM's logging is set up by then
++            "[thor] MXFP8 CUTLASS tactic pins (MJOLNIR_MXFP8_TACTIC): %s; larger M stock",
++            ", ".join(f"M<={m} -> tactic {t}" for m, t in _THOR_TACTICS),
++        )
++        return get_cutlass_mxfp8_gemm_module(major).cutlass_mxfp8_gemm_runner()
++
++    @torch.library.custom_op(
++        "vllm::thor_mm_mxfp8_tactic", mutates_args=[], device_types="cuda"
++    )
++    def _thor_mm_mxfp8_tactic(
++        A: torch.Tensor,
++        B: torch.Tensor,
++        A_scale: torch.Tensor,
++        B_scale: torch.Tensor,
++        out_dtype: torch.dtype,
++    ) -> torch.Tensor:
++        m = A.shape[0]
++        tactic = next((t for max_m, t in _THOR_TACTICS if m <= max_m), None)
++        if tactic is None:
++            from flashinfer import mm_mxfp8
++
++            return mm_mxfp8(
++                A, B, A_scale, B_scale, out_dtype=out_dtype, backend="cutlass"
++            )
++        from flashinfer.gemm.gemm_base import DEFAULT_WORKSPACE_SIZE, _get_cache_buf
++
++        out = torch.empty((m, B.shape[1]), device=A.device, dtype=out_dtype)
++        workspace = _get_cache_buf("mm_mxfp8_workspace", DEFAULT_WORKSPACE_SIZE, A.device)
++        runner = _thor_cutlass_runner(torch.cuda.get_device_capability(A.device)[0])
++        runner.forward(
++            [A, B, A_scale, B_scale, out_dtype, out, workspace], tactic=tactic
++        )
++        return out
++
++    @torch.library.register_fake("vllm::thor_mm_mxfp8_tactic")
++    def _thor_mm_mxfp8_tactic_fake(A, B, A_scale, B_scale, out_dtype):
++        return torch.empty(A.shape[0], B.shape[1], dtype=out_dtype, device=A.device)
++# [thor] end
++
+ 
+ def _check_mm_mxfp8_shape(weight_shape: tuple[int, int]) -> tuple[bool, str | None]:
+     N, K = weight_shape
+@@ -107,14 +168,19 @@
+         if not weight.is_contiguous():
+             weight = weight.contiguous()
+ 
+-        output = vllm_flashinfer.mm_mxfp8(
+-            input_mxfp8,
+-            weight.t(),
+-            input_scale,
+-            weight_scale,
+-            out_dtype=out_dtype,
+-            backend="cutlass",
+-        )
++        if _THOR_TACTICS:  # [thor] tactic pin by M bucket
++            output = torch.ops.vllm.thor_mm_mxfp8_tactic(
++                input_mxfp8, weight.t(), input_scale, weight_scale, out_dtype
++            )
++        else:
++            output = vllm_flashinfer.mm_mxfp8(
++                input_mxfp8,
++                weight.t(),
++                input_scale,
++                weight_scale,
++                out_dtype=out_dtype,
++                backend="cutlass",
++            )
+ 
+         if bias is not None:
+             output = output + bias

@@ -163,3 +163,26 @@ no longer runs ahead. Drafter-only: target output unchanged. Mjolnir's sm_110 dr
 drafter slower than eager at N=1, hence off by default. The 0.34 draft path
 is re-measured on Thor.
 
+**C3: MXFP8 tactic pin (`thor-mxfp8-tactic-sm110`).** FP4-Local ships its 192
+side matrices MXFP8 (`FlashInferCutlassMxfp8LinearKernel`). GPU micro-bench
+over those 192 matrices per forward, streamed from DRAM: tactic 0 vs 8 is
+14,014 → 12,209 µs at M=4 (one stream, MTP 3), 13,931 → 12,311 µs at M=16,
+15,318 → 14,524 µs at M=256; tactic 8 (tile 128×64×128, cluster 2×2×1) is
+within 0.5 % of the best tactic per shape up to M=256, larger tiles win above,
+so `256:8` keeps prefill on the stock call. Bit-identical to the stock call
+(eager and `torch.compile`, M = 1…8192). Serving (R8b → R8b + C3, without
+C2): cycle 48.8 → 47.0 ms per decode step. With C2 the 97 HC up projections are MXFP8
+too (`QWEN4EXP_HC_FP8_FORMAT` default `fp8_per_block,mxfp8`), on both
+checkpoints, so the pin covers them as well: on Thor (2026-11-17, the HC
+chain alone) tactic 8 cuts it 5.97 → 4.86 ms at M=4 (−1.11 ms; −1.08 / −1.07 ms
+at M=16 / 24), bit-identical (`torch.equal` on state and output, per site and
+over the chain, every M). Both recipes therefore set `MJOLNIR_MXFP8_TACTIC=256:8`;
+on NVFP4 it covers only the HC up projections (its side layers are block FP8). A plugin hook was not used: the pin sits inside
+`apply_weights` (a wrapper would copy its body or replace the module-global
+`mm_mxfp8` for every caller). Keep `enable-flashinfer-autotune: false`. Canary:
+`kernel_test_sm110_gates.py` T13 (bit-identity vs the stock call). FlashInfer
+0.7.3 (vLLM 0.34) carries byte-identical CUTLASS MXFP8 sources and the same
+private runner API as the 0.7.2.post1 the numbers come from; T13 re-checks
+bit-identity on the 0.34 image. **Drop
+when** FlashInfer's default tactic choice for small M on sm_110 matches it.
+
