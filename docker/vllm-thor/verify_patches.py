@@ -241,6 +241,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "index_files = get_safetensors_files_in_index(hf_folder, index_file)",
         ),
     ],
+    "thor qwen4 PLE disk: slot-pool cache in front of the disk table (THOR_QWEN4_PLE_DISK)": [
+        (
+            "models/qwen4_exp/nvidia/ngram_embedding.py",
+            "# [ple-disk] THOR_QWEN4_PLE_DISK: with disk_offload and a slot-pool",
+        ),
+        # used, not just imported: the embedding class swap
+        (
+            "models/qwen4_exp/nvidia/ngram_embedding.py",
+            "embedding_cls = Qwen4ExpPLEDiskEmbedding",
+        ),
+    ],
 }
 
 
