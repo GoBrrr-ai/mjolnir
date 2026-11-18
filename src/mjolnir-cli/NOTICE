@@ -33,6 +33,9 @@ https://github.com/vllm-project/vllm — Copyright the vLLM project contributors
   54165 and 55519 are adapted from the corresponding (unmerged) vLLM pull
   requests; patch 64739 is a backport of the corresponding (open) vLLM pull
   request.
+- src/mjolnir/mjolnir/qwen4exp/ple_disk.py adapts vLLM's qwen4_exp PLE
+  embedding (it keeps vLLM's header); maps_entry in ple_disk_table.py is
+  copied from vLLM's qwen4_exp ngram_embedding.py (_maps_entry).
 - docker/perses/dashboards/performance_statistics.yaml and
   query_statistics.yaml are adapted from
   examples/observability/dashboards/perses/ (changes listed in their headers).
@@ -66,7 +69,19 @@ comment that first ships it (per the repo convention: new third-party
 derivation -> this file). The qwen4 gap analysis
 (docs/faq/qwen4-27b.md, "The NemoClaw-Thor gap analysis") is the design
 record; the upstream PLE disk offload itself is vLLM #59958, in the base
-since 0.34.0.
+since 0.34.0. The first such implementation is src/mjolnir/mjolnir/qwen4exp/
+ple_disk.py, ple_disk_table.py and ple_disk_cache.py (the slot-pool cache and
+prefetch in front of that upstream disk table).
+
+-------------------------------------------------------------------------------
+6. NVIDIA TensorRT Edge-LLM                                      Apache-2.0
+-------------------------------------------------------------------------------
+https://github.com/NVIDIA/TensorRT-Edge-LLM — Copyright NVIDIA CORPORATION &
+AFFILIATES. The GPU slot pool of src/mjolnir/mjolnir/qwen4exp/ple_disk_cache.py
+follows the design of its 0.12 PLE cache (`--ple-residency cached`: CLOCK slot
+index, page-aligned read planner, parallel pread readers), and
+tests/cli/test_qwen4exp_ple_disk_cache.py carries a sequential Python port of
+its PleCache as the reference the slot index is checked against.
 
 -------------------------------------------------------------------------------
 The narandill/mjolnir-vllm container image
