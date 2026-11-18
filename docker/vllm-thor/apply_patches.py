@@ -133,6 +133,10 @@ PATCH_ORDER = [
     # one nvidia/model.py hunk diffed against the screened-head patch;
     # mjolnir.qwen4exp.side_fp8.
     "thor-qwen4-side-fp8.patch",
+    # Online 8-bit hyperconnection GEMMs (QWEN4EXP_HC_FP8):
+    # nvidia/hyperconnection.py (no other patch) + one nvidia/model.py log
+    # hunk diffed against the side-fp8 patch; mjolnir.qwen4exp.hc_fp8.
+    "thor-qwen4-hc-fp8.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
