@@ -158,6 +158,9 @@ touched = [
     "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
     "models/qwen4_exp/nvidia/model.py",
     "models/qwen4_exp/nvidia/qsa.py",
+    # the Qwen3.8-Flash-Next stack
+    "model_executor/model_loader/default_loader.py",
+    "model_executor/model_loader/weight_utils.py",
 ]
 for rel in touched:
     py_compile.compile(str(root / rel), doraise=True)

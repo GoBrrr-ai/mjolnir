@@ -230,6 +230,17 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "p.is_device_capability_family(110))  # THOR_SM110_CUTEDSL_MOE",
         ),
     ],
+    "64739 safetensors shards listed in an index subdirectory (tensors/)": [
+        (
+            "model_executor/model_loader/weight_utils.py",
+            "def get_safetensors_files_in_index(",
+        ),
+        # used by the loader's glob fallback, not just defined
+        (
+            "model_executor/model_loader/default_loader.py",
+            "index_files = get_safetensors_files_in_index(hf_folder, index_file)",
+        ),
+    ],
 }
 
 
