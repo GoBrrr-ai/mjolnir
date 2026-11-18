@@ -115,6 +115,8 @@ BACKEND_LABELS = {
     "NVFP4_MJOLNIR_W4A4": "Mjolnir + W4A4 experts",
     "NVFP4_SFP8": "QSA + FP8 side layers and hyperconnections",
     "NVFP4_SFP8_C6": "QSA + FP8 side layers and hyperconnections, 6 sequences",
+    "FP4LOCAL": "QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections",
+    "FP4LOCAL_C6": "QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections, 6 sequences",
     "NVFP4": "FlashInfer",
     "NVFP4_DFLASH": "FlashInfer + DFlash",
     "NVFP4_DSPARK": "FlashInfer + DSpark",

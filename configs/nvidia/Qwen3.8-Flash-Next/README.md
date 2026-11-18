@@ -1,6 +1,6 @@
 # Qwen3.8-Flash-Next
 
-`nvidia/Qwen3.8-Flash-Next` — served as `nvidia/Qwen3.8-Flash-Next` — with 2
+`nvidia/Qwen3.8-Flash-Next` — served as `nvidia/Qwen3.8-Flash-Next` — with 4
 serving configs in `configs/nvidia/Qwen3.8-Flash-Next/`. Everything on this page is
 derived from the config tree and the raw results; there is no hand-written
 model prose (decision 7).
@@ -14,10 +14,14 @@ format) on each platform.
 
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
+| [`FP4LOCAL`](FP4LOCAL/README.md) | QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections | ✅ | — | — |
+| [`FP4LOCAL_C6`](FP4LOCAL_C6/README.md) | QSA + FP4-Local (MXFP8 side layers) + FP8 hyperconnections, 6 sequences | ✅ | — | — |
 | [`NVFP4_SFP8`](NVFP4_SFP8/README.md) | QSA + FP8 side layers and hyperconnections | ✅ | — | — |
 | [`NVFP4_SFP8_C6`](NVFP4_SFP8_C6/README.md) | QSA + FP8 side layers and hyperconnections, 6 sequences | ✅ | — | — |
 
 
+- `FP4LOCAL` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
+- `FP4LOCAL_C6` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
 - `NVFP4_SFP8` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
 - `NVFP4_SFP8_C6` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
 
@@ -25,7 +29,7 @@ format) on each platform.
 ## Quickstart
 
 ```bash
-mjolnir serve up --config NVFP4_SFP8
+mjolnir serve up --config FP4LOCAL
 ```
 
 Any config the platform's overlays allow; the full list is the table above.
