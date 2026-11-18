@@ -1,0 +1,52 @@
+# FP4LOCAL_C6 — FP4LOCAL for up to 6 sequences: the same model, switches and
+# .env; the KV pool fixed at 29.6 GB (1,007,348 tokens on 0.34), share 0.90,
+# CUDA graphs up to 24 rows. 4 requests on Thor with vLLM 0.34: 103.5 / 61.9 /
+# 17.7 decode t/s in total at 0 / 8K / 32K context. A single stream ran as
+# fast as on FP4LOCAL (0.33: agent replay 59.2 vs 59.6 tok/s); FP4LOCAL only
+# buys memory headroom (9-13 GiB left here). Base: FP4LOCAL (see its header).
+model: nvidia/Qwen3.8-Flash-Next-FP4-Local
+revision: b9ce18a6887e18c089fdea8509a33e63429a3300
+served-model-name: nvidia/Qwen3.8-Flash-Next
+language-model-only: true
+# PLE n-gram table read from the checkpoint files (vLLM's disk table, its
+# on/off switch); the .env's MJOLNIR_PLE_DISK_CACHE_GB puts mjolnir's slot-pool
+# reader in front of it.
+engram-config:
+  disk_offload: true
+
+dtype: bfloat16
+performance-mode: throughput
+optimization-level: 3
+# PIECEWISE only: the PLE lookup and QSA are host-side eager breaks of the
+# breakable CUDA graph (VLLM_USE_BREAKABLE_CUDAGRAPH=1 in the .env); the
+# drafter's decode passes still replay FULL graphs.
+compilation-config:
+  cudagraph_mode: PIECEWISE
+  cudagraph_num_of_warmups: 5
+  cudagraph_capture_sizes: [1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24]
+
+# ── Memory: up to 6 sequences, 256K context each, KV pool 29.6 GB (1,007,348
+#    tokens with 0.34)
+max-num-seqs: 6
+max-model-len: 262144
+max-num-batched-tokens: 8192
+gpu-memory-utilization: 0.90
+kv-cache-memory-bytes: 29600000000
+
+kv-cache-dtype: auto   # = the model dtype, bfloat16 (the recipe's --kv-cache-dtype bfloat16)
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+async-scheduling: true
+enable-flashinfer-autotune: false   # the CUTLASS MXFP8 / FP8 tactic choice stays deterministic
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_xml
+reasoning-parser: qwen3
+
+# MTP K=3: K=4 measured no better (an extra verify token reads more distinct
+# experts); K=5 could not start on 0.33 (the QSA ring capacity must divide the
+# attention block size: 848 tokens there, 832 on 0.34; not retried).
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
