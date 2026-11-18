@@ -293,6 +293,31 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "side_fp8 = maybe_quantize_side_layers(self.quant_config)",
         ),
     ],
+    "thor qwen4 HC FP8: online 8-bit hyperconnection GEMMs (THOR_QWEN4_HC_FP8)": [
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "THOR_QWEN4_HC_FP8",
+        ),
+        # used: the down/up Linears take the online config, the fused BF16
+        # down+SiLU (and 0.34's SM100 up+gate+mix) kernel is skipped for a
+        # converted layer
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "quant_config=down_quant,  # [hc-fp8] stock: None",
+        ),
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "down_quant is None  # [hc-fp8] the fused kernel needs a BF16 weight",
+        ),
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "up_quant is None  # [hc-fp8] the fused kernel reads a BF16 weight",
+        ),
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "log_hc_fp8(self.model)",
+        ),
+    ],
 }
 
 
