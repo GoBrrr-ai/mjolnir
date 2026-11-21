@@ -21,6 +21,12 @@
    "stage": "accuracy"
   },
   {
+   "dark": "assets/benchmarks/thor/Qwen3.8-Flash-Next/accuracy-categories.png",
+   "model": "nvidia/Qwen3.8-Flash-Next",
+   "platform": "thor",
+   "stage": "accuracy"
+  },
+  {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-categories.png",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
@@ -31,6 +37,12 @@
   {
    "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-suites.png",
    "model": "nvidia/Qwen3.6-35B-A3B",
+   "platform": "thor",
+   "stage": "accuracy"
+  },
+  {
+   "dark": "assets/benchmarks/thor/Qwen3.8-Flash-Next/accuracy-suites.png",
+   "model": "nvidia/Qwen3.8-Flash-Next",
    "platform": "thor",
    "stage": "accuracy"
   },

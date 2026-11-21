@@ -1,0 +1,64 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/model.py b/vllm/models/qwen4_exp/nvidia/model.py
+--- a/vllm/models/qwen4_exp/nvidia/model.py
++++ b/vllm/models/qwen4_exp/nvidia/model.py
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ """Inference-only Qwen4Exp model."""
+ 
++import os  # [screened-head]
+ from collections.abc import Iterable
+ from itertools import islice
+ 
+@@ -791,6 +792,15 @@
+         else:
+             self.lm_head = PPMissingLayer()
+         self.logits_processor = LogitsProcessor(config.vocab_size)
++        # [screened-head] THOR_QWEN4_SCREENED_HEAD: QWEN4EXP_LM_HEAD_SCREENED;
++        # the screen is built after load_weights, the module imported only
++        # with the switch on.
++        self.screened_head = None
++        self._screened_settings = None
++        if os.environ.get("QWEN4EXP_LM_HEAD_SCREENED", "0") not in ("", "0"):
++            from mjolnir.qwen4exp.screened_head import screened_head_settings
++
++            self._screened_settings = screened_head_settings(vllm_config)
+         self.make_empty_intermediate_tensors = (
+             self.model.make_empty_intermediate_tensors
+         )
+@@ -958,6 +968,15 @@
+         )
+ 
+     def compute_logits(self, hidden_states: torch.Tensor) -> torch.Tensor | None:
++        # [screened-head] The sample() hook sets top_k for target batches
++        # whose sampling reads only the top k logits.
++        head = self.screened_head
++        if head is not None and head.top_k is not None:
++            logits = head(hidden_states, head.top_k)
++            if head.check is not None:
++                full = self.logits_processor(self.lm_head, hidden_states)
++                head.check.update(logits, full, head.top_k, head.num_cand)
++            return logits
+         return self.logits_processor(self.lm_head, hidden_states)
+ 
+     def get_mtp_target_hidden_states(self) -> torch.Tensor | None:
+@@ -979,7 +998,19 @@
+             self,
+             ignore_unexpected_suffixes=_QWEN4_EXP_IGNORED_MISSING_SUFFIXES.copy(),
+         )
+-        return loader.load_weights(weights, mapper=mapper)
++        loaded = loader.load_weights(weights, mapper=mapper)
++        # [screened-head] FP8 screen from the loaded BF16 lm_head.
++        if self._screened_settings is not None:
++            from mjolnir.qwen4exp.screened_head import ScreenedLMHead
++
++            self.screened_head = ScreenedLMHead.build(
++                self.lm_head,
++                self.logits_processor,
++                self.config.vocab_size,
++                self._screened_settings,
++                self.vllm_config,
++            )
++        return loaded
+ 
+ 
+ class Qwen4ExpProcessingInfo(Qwen3VLProcessingInfo):

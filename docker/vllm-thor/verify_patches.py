@@ -230,6 +230,116 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "p.is_device_capability_family(110))  # THOR_SM110_CUTEDSL_MOE",
         ),
     ],
+    "64739 safetensors shards listed in an index subdirectory (tensors/)": [
+        (
+            "model_executor/model_loader/weight_utils.py",
+            "def get_safetensors_files_in_index(",
+        ),
+        # used by the loader's glob fallback, not just defined
+        (
+            "model_executor/model_loader/default_loader.py",
+            "index_files = get_safetensors_files_in_index(hf_folder, index_file)",
+        ),
+    ],
+    "thor qwen4 PLE disk: slot-pool cache in front of the disk table (THOR_QWEN4_PLE_DISK)": [
+        (
+            "models/qwen4_exp/nvidia/ngram_embedding.py",
+            "# [ple-disk] THOR_QWEN4_PLE_DISK: with disk_offload and a slot-pool",
+        ),
+        # used, not just imported: the embedding class swap
+        (
+            "models/qwen4_exp/nvidia/ngram_embedding.py",
+            "embedding_cls = Qwen4ExpPLEDiskEmbedding",
+        ),
+    ],
+    "thor qwen4 draft head: reduced draft vocabulary + 8-bit drafter (THOR_QWEN4_DRAFT_HEAD)": [
+        (
+            "models/qwen4_exp/nvidia/mtp.py",
+            "THOR_QWEN4_DRAFT_HEAD",
+        ),
+        # used: the drafter scores the reduced head and scatters it
+        (
+            "models/qwen4_exp/nvidia/mtp.py",
+            "return logits.index_copy_(1, self.draft_vocab_ids, draft_logits)",
+        ),
+        (
+            "models/qwen4_exp/nvidia/mtp.py",
+            "maybe_quantize_mtp_dense(draft_quant_config)",
+        ),
+    ],
+    "thor qwen4 screened head: exact top-k logits from an FP8 screen (THOR_QWEN4_SCREENED_HEAD)": [
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_SCREENED_HEAD",
+        ),
+        # used: compute_logits takes the screen, load_weights builds it
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "logits = head(hidden_states, head.top_k)",
+        ),
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "self.screened_head = ScreenedLMHead.build(",
+        ),
+    ],
+    "thor qwen4 side FP8: online FP8 side layers (THOR_QWEN4_SIDE_FP8)": [
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "THOR_QWEN4_SIDE_FP8",
+        ),
+        # used: composed before the decoder layers are built
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "side_fp8 = maybe_quantize_side_layers(self.quant_config)",
+        ),
+    ],
+    "thor qwen4 HC FP8: online 8-bit hyperconnection GEMMs (THOR_QWEN4_HC_FP8)": [
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "THOR_QWEN4_HC_FP8",
+        ),
+        # used: the down/up Linears take the online config, the fused BF16
+        # down+SiLU (and 0.34's SM100 up+gate+mix) kernel is skipped for a
+        # converted layer
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "quant_config=down_quant,  # [hc-fp8] stock: None",
+        ),
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "down_quant is None  # [hc-fp8] the fused kernel needs a BF16 weight",
+        ),
+        (
+            "models/qwen4_exp/nvidia/hyperconnection.py",
+            "up_quant is None  # [hc-fp8] the fused kernel reads a BF16 weight",
+        ),
+        (
+            "models/qwen4_exp/nvidia/model.py",
+            "log_hc_fp8(self.model)",
+        ),
+    ],
+    "thor draft FULL CG under a PIECEWISE target (THOR_DRAFT_FULL_CG)": [
+        (
+            "v1/worker/gpu/spec_decode/autoregressive/speculator.py",
+            "THOR_DRAFT_FULL_CG",
+        ),
+        # used: the gate feeds the draft decode manager's mode
+        (
+            "v1/worker/gpu/spec_decode/autoregressive/speculator.py",
+            "if cudagraph_mode.decode_mode() == CUDAGraphMode.FULL or draft_full_cg",
+        ),
+    ],
+    "thor MXFP8 CUTLASS tactic pin by M bucket (THOR_MXFP8_TACTIC)": [
+        (
+            "model_executor/kernels/linear/mxfp8/flashinfer.py",
+            "THOR_MXFP8_TACTIC",
+        ),
+        # used: apply_weights routes through the pinned-tactic op
+        (
+            "model_executor/kernels/linear/mxfp8/flashinfer.py",
+            "output = torch.ops.vllm.thor_mm_mxfp8_tactic(",
+        ),
+    ],
 }
 
 

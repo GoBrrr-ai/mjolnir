@@ -168,6 +168,20 @@ arch family. Any change there must keep **both** fallbacks working:
   mamba align) out. #25 (VocabTrim on a quantized head adding ~40 GB at
   startup) predates the native-quant VT path — the LMH8_VT64K retest came up
   healthy. Open: a silent Thor hard hang with the E2M3 worker idle (#27).
+- **Configs** (`configs/nvidia/Qwen3.8-Flash-Next/`, `qwen4_exp`: 36 GDN + 12
+  QSA sparse-attention layers, MoE 512x10, hyperconnections, a PLE n-gram
+  table): `NVFP4_SFP8` (`nvidia/Qwen3.8-Flash-Next-NVFP4`, one sequence) and
+  `NVFP4_SFP8_C6` (6 sequences, 29.6 GB KV pool); `FP4LOCAL` / `FP4LOCAL_C6`
+  (`nvidia/Qwen3.8-Flash-Next-FP4-Local`: MXFP8 side layers as shipped, also
+  under the MXFP8 tactic pin; needs patch 64739, the CSF scales are upstream since
+  0.34). Stock QSA attention (no
+  Mjolnir kernel), BF16 KV, MTP=3, PIECEWISE graphs; everything else is the
+  `mjolnir.qwen4exp` stack switched on in the `.env` (PLE table on NVMe,
+  47K draft vocab + FP8 draft head, screened head, FP8 side layers and
+  hyperconnections; `docker/vllm-thor/PATCHES-qwen38-flash-next.md`). No
+  official-image baseline exists yet (stock 0.33 cannot load the PLE table on
+  Thor; 0.34's own `disk_offload` can, without the slot pool). Not yet run
+  through `mjolnir bench`.
 - **Platform layer (detection-first)**: no `platform set`/remembered state — every command
   resolves flag > `MJOLNIR_PLATFORM` env > two-source detection (`mjolnir platform` is
   read-only list/show with confidence + provenance). Config overlays
@@ -579,6 +593,15 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   0.34 image build, the serve smoke (qwen4 QSA
   impl swap + `persistent_topk` on sm_110 now that #56102 landed), the
   spec/cudagraph canaries, and the e2e re-baseline.**
+- `mjolnir/moew4a4.py` (`MJOLNIR_NVFP4_MOE_W4A4`) sits on private vLLM
+  internals: `ModelOptMixedPrecisionConfig._resolve_quant_algo` /
+  `.nvfp4_config`, the `ModelOptNvFp4FusedMoE(quant_config=…, moe_config=…)`
+  signature, the `w13_input_scale` / `w2_input_scale` names and
+  `process_weights_after_loading(layer)`. Re-checked against v0.34.0
+  (2026-11-17): all unchanged, as are `get_quant_method(layer, prefix)` and
+  `RoutedExperts`. Re-check them at every bump; a rename fails as an
+  `AttributeError` at model build that reads like a vLLM bug, not the hook
+  (smoke `NVFP4_MJOLNIR_W4A4`).
 
 ## Conventions
 - **New Thor patches** go in `docker/vllm-thor/patches/` (hand-adapted, **not**

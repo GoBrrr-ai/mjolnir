@@ -1,0 +1,20 @@
+diff --git a/vllm/models/qwen4_exp/nvidia/ngram_embedding.py b/vllm/models/qwen4_exp/nvidia/ngram_embedding.py
+--- a/vllm/models/qwen4_exp/nvidia/ngram_embedding.py
++++ b/vllm/models/qwen4_exp/nvidia/ngram_embedding.py
+@@ -438,6 +438,16 @@
+             if engram_config is not None and engram_config.cpu_offload
+             else Qwen4ExpPLEDeviceEmbedding
+         )
++        # [ple-disk] THOR_QWEN4_PLE_DISK: with disk_offload and a slot-pool
++        # cache requested (MJOLNIR_PLE_DISK_CACHE_GB), mjolnir's cached reader
++        # serves the table; the modules are imported only on this branch.
++        if embedding_cls is Qwen4ExpPLEDiskOffloadEmbedding:
++            from mjolnir.qwen4exp.ple_disk_table import ple_cache_requested
++
++            if ple_cache_requested():
++                from mjolnir.qwen4exp.ple_disk import Qwen4ExpPLEDiskEmbedding
++
++                embedding_cls = Qwen4ExpPLEDiskEmbedding
+         # A TP reduce-scatter covers all vocabulary owners only when ETP=TP.
+         # Disk-offload ranks hold full rows, so they only shard tokens.
+         self.use_reduce_scatter = (
