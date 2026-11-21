@@ -77,6 +77,18 @@ index 45242c8..8b2d898 100644
              )
          )
          # Without a quant config here (BF16, or ModelOpt FP4, which keeps
+@@ -247,5 +260,10 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
+         k_scale = v_scale = None
+-        if self.kv_cache_dtype in ("fp8", "fp8_e4m3"):
++        if self.kv_cache_dtype == "fp6_e2m3":
++            # THOR_QWEN4_QSA_FP6: the doctor's scratch carries the TRUE
++            # values (code * s_c) -- the descales are unity
++            k_scale = v_scale = 1.0
++        elif self.kv_cache_dtype in ("fp8", "fp8_e4m3"):
+             # The cache is allocated as uint8; on sm_89+ reinterpret the e4m3
+             # bytes (same itemsize, so shape and strides are preserved). Below
+             # sm_89 the kernel byte-decodes the raw uint8 storage instead.
+
 @@ -513,6 +526,19 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
          return self.attn_backend
  
