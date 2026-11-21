@@ -97,3 +97,26 @@ index 45242c8..8b2d898 100644
          return FullAttentionSpec(
              block_size=vllm_config.cache_config.block_size,
              num_kv_heads=self.num_kv_heads,
+diff --git a/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py b/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py
+index 4e411dc..3844676 100644
+--- a/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py
++++ b/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py
+@@ -65,12 +65,17 @@ def qwen4_exp_qsa_triton_warmup(worker: "Worker") -> None:
+ 
+     kv_cache = owner.kv_cache
+     assert kv_cache.numel()
+-    attention_profiles = warmup_qsa_sparse_paged_attention(
++    _fp6_pool = getattr(owner, "kv_cache_dtype", None) == "fp6_e2m3"  # THOR_QWEN4_QSA_FP6
++    attention_profiles = (
++        None
++        if _fp6_pool
++        else warmup_qsa_sparse_paged_attention(
+         kv_cache,
+         block_table_for(owner.layer_name),
+         num_query_heads=owner.num_heads,
+         selection_width=indexer.output_width,
+     )
++    )
+     logger.info(
+         "Warmed up Qwen4Exp QSA sparse attention kernels: %s.",
+         attention_profiles,
