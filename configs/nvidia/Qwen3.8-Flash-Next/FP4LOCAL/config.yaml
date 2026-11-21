@@ -40,7 +40,7 @@ compilation-config:
 max-num-seqs: 1
 max-model-len: 262144
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.75
+gpu-memory-utilization: 0.78
 
 kv-cache-dtype: auto   # = the model dtype, bfloat16 (the recipe's --kv-cache-dtype bfloat16)
 mamba-cache-dtype: bfloat16

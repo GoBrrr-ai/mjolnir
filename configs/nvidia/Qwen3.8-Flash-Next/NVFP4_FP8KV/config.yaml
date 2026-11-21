@@ -23,7 +23,7 @@ compilation-config:
 max-num-seqs: 1
 max-model-len: 262144
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.75
+gpu-memory-utilization: 0.78
 
 # THE delta vs NVFP4_SFP8: fp8 KV (QSA layers accept BF16 or fp8 e4m3).
 kv-cache-dtype: fp8_e4m3

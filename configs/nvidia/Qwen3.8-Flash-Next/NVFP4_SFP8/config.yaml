@@ -43,12 +43,12 @@ compilation-config:
   cudagraph_mode: PIECEWISE
   cudagraph_num_of_warmups: 5
 
-# ── Memory: one sequence, 256K context, share 0.75 (KV 390K-407K tokens on
+# ── Memory: one sequence, 256K context, share 0.78 (0.75+0.03: the 262144-token request needs 7.17 GiB, 0.75 left 6.89 on this box; KV 390K-407K at 0.75 per the PR, on
 #    Thor with 0.34, varying per start)
 max-num-seqs: 1
 max-model-len: 262144
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.75
+gpu-memory-utilization: 0.78
 
 kv-cache-dtype: auto   # = the model dtype, bfloat16 (the recipe's --kv-cache-dtype bfloat16)
 mamba-cache-dtype: bfloat16

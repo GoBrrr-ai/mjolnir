@@ -20,7 +20,7 @@ compilation-config:
 max-num-seqs: 1
 max-model-len: 262144
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.75
+gpu-memory-utilization: 0.78
 
 kv-cache-dtype: fp8_e4m3
 mamba-cache-dtype: bfloat16
