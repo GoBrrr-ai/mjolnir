@@ -39,6 +39,11 @@ _MEMORY = {
         r"(?:CUDA graph|cudagraph)[^\n]*?(?:take|took|estimate[ds]?|memory)[^\n]*?([0-9.]+)\s*GiB", re.IGNORECASE
     ),
 }
+# the engram/PLE n-gram table's home: any residency line the startup log
+# carries (GPU / pinned host / disk). The day-0 rule: the table's memory must
+# be visible in the ledger, or the KV token counts lie about the real budget.
+_ENGRAM_GIB = re.compile(r"(?:engram|ple)[^\n]*?([0-9.]+)\s*GiB", re.IGNORECASE)
+_ENGRAM_LINE = re.compile(r"^\.*.*?(?:[Ee]ngram|PLE).*$")
 _FAILED = re.compile(r"EngineCore failed to start|Traceback \(most recent call last\)")
 
 # the e2e bench's request: context depth + 2048 prompt + 128 generated tokens
@@ -61,6 +66,9 @@ def parse_log(text: str) -> dict:
     for key, rx in _MEMORY.items():
         m = rx.search(text)
         out[key] = float(m.group(1)) if m else None
+    m = _ENGRAM_GIB.search(text)
+    out["engram_gib"] = float(m.group(1)) if m else None
+    out["engram_log"] = [ln.strip() for ln in text.splitlines() if _ENGRAM_LINE.match(ln)][:8]
     return out
 
 
@@ -121,6 +129,12 @@ def stage_kvcache(
         leg_id = f"{side}-{quant}"
         log = ctx.logdir / "kv-cache-size" / f"{leg_id}.log"
         kv_dtype = config_field(s.config_path, "kv-cache-dtype") or "auto"
+        try:
+            import yaml
+
+            engram_cfg = (yaml.safe_load(s.config_path.read_text()) or {}).get("engram-config") or {}
+        except Exception:  # noqa: BLE001 - the ledger field is optional metadata
+            engram_cfg = {}
         row = {
             "id": leg_id,
             "side": side,
@@ -129,6 +143,7 @@ def stage_kvcache(
             "model": s.model,
             "backend": s.attention_backend,
             "kv_dtype": kv_dtype,
+            "engram_disk_offload": bool(engram_cfg.get("disk_offload")),
             "gpu_memory_utilization": config_field(s.config_path, "gpu-memory-utilization"),
             "log": str(log),
         }
