@@ -284,9 +284,11 @@ def build_impl_class() -> type:
                    FA4-fallback convention) — and remaps the block table onto
                    the scratch. Whole pages copy, so in-page offsets survive;
                 entries the step never selects point at scratch block 0 and
-                   are never loaded. Capture skips the dance: the layer is
-                   eager-break-excluded, the capture pass only profiles."""
-                if self._fp6 is None or torch.cuda.is_current_stream_capturing():
+                   are never loaded. The capture pass runs the FULL treatment
+                   too: the profile/capture forward on the raw packed pool
+                   crashes the stock's shape guard (128-of-192), and the
+                   scratch alloc under capture is the standard pool pattern."""
+                if self._fp6 is None:
                     return super().forward(
                         layer,
                         query,
