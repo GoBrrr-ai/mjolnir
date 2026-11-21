@@ -8,10 +8,10 @@
 # fallbacks expand touched pages to e4m3 (the doctor, descales unity); the
 # stock warmup skips the packed pool (the 96-wide arange). The fp6 arms
 # carry block-size 1152 -- the E8 ring fix (capacity 12 | block).
-diff --git a/tmp/opencode/_q orig.py b/tmp/opencode/qsa_new.py
+diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
 index 45242c8..8a1957f 100644
---- a/tmp/opencode/_q orig.py	
-+++ b/tmp/opencode/qsa_new.py
+--- a/vllm/models/qwen4_exp/nvidia/qsa.py	
++++ b/vllm/models/qwen4_exp/nvidia/qsa.py
 @@ -7,6 +7,7 @@ from __future__ import annotations
  from collections.abc import Callable, Iterable
  from typing import ClassVar, cast
@@ -111,10 +111,10 @@ index 45242c8..8a1957f 100644
          return FullAttentionSpec(
              block_size=vllm_config.cache_config.block_size,
              num_kv_heads=self.num_kv_heads,
-diff --git a/tmp/opencode/_w orig.py b/tmp/opencode/warmup_new.py
+diff --git a/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py b/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py
 index 4e411dc..07c73e4 100644
---- a/tmp/opencode/_w orig.py	
-+++ b/tmp/opencode/warmup_new.py
+--- a/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py	
++++ b/vllm/model_executor/warmup/qwen4_exp_qsa_warmup.py
 @@ -65,12 +65,16 @@ def qwen4_exp_qsa_triton_warmup(worker: "Worker") -> None:
  
      kv_cache = owner.kv_cache
