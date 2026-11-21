@@ -1,0 +1,41 @@
+# NVFP4_FP6 — E4: the recipe on packed-fp6 QSA pools, K=3 (the fp6 smoke + the honest composite twin)
+# (the E4 fp6 pair: mjolnir.qsa_impl writes/reads e2m3; thor-qwen4-qsa-fp6.patch)
+# Qwen3.8-Flash-Next E1 treatment: NVFP4_FP8KV plus the Mjolnir QSA decode
+# swap (MJOLNIR_ATTN_QSA) — the fp8 cache is the swap's precondition
+# (qsa_impl gates on fp8; bf16 falls back to stock on every step).
+# One delta vs NVFP4_FP8KV: the MJOLNIR_ATTN_QSA=1 line here.
+model: nvidia/Qwen3.8-Flash-Next-NVFP4
+revision: fc694b54fb0174e0913e6adf86691ef85a4ead47
+served-model-name: nvidia/Qwen3.8-Flash-Next
+language-model-only: true
+
+engram-config:
+  disk_offload: true
+
+dtype: bfloat16
+performance-mode: throughput
+optimization-level: 3
+compilation-config:
+  cudagraph_mode: PIECEWISE
+  cudagraph_num_of_warmups: 5
+
+max-num-seqs: 1
+max-model-len: 262144
+max-num-batched-tokens: 8192
+gpu-memory-utilization: 0.78
+block-size: 1152  # the E8 ring fix: capacity 12 (K>=5) must divide the block
+
+kv-cache-dtype: fp6_e2m3
+mamba-cache-dtype: bfloat16
+mamba-ssm-cache-dtype: bfloat16
+
+async-scheduling: true
+enable-flashinfer-autotune: false
+
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_xml
+reasoning-parser: qwen3
+
+speculative-config:
+  method: mtp
+  num_speculative_tokens: 3
