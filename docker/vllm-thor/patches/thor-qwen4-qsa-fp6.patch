@@ -8,7 +8,7 @@
 # observer; the stock fallbacks expand touched pages to e4m3. The fp6
 # arms also carry block-size 1152 (the E8 ring fix).
 diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
-index 45242c8..a1e1386 100644
+index 45242c8..3e2c3c7 100644
 --- a/vllm/models/qwen4_exp/nvidia/qsa.py
 +++ b/vllm/models/qwen4_exp/nvidia/qsa.py
 @@ -7,6 +7,7 @@ from __future__ import annotations
@@ -65,7 +65,7 @@ index 45242c8..a1e1386 100644
              and (
                  self.kv_cache_torch_dtype != torch.uint8
                  or current_platform.has_device_capability(89)
-+            and os.environ.get("MJOLNIR_QSA_NOFUSED", "0") not in ("", "0")  # THOR_QWEN4_QSA_FP6
++            and os.environ.get("MJOLNIR_QSA_NOFUSED", "0") in ("", "0")  # THOR_QWEN4_QSA_FP6
              )
          )
          # Without a quant config here (BF16, or ModelOpt FP4, which keeps
