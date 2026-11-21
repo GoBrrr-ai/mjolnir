@@ -15,7 +15,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 | Prefill chunk | 8K |
 | KV cache | auto |
 | Spec decode | MTP ×3 |
-| GPU memory util | 0.75 |
+| GPU memory util | 0.78 |
 | Parsing | qwen3_xml / qwen3 |
 
 ## Serve

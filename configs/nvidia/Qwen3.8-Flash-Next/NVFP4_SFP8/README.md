@@ -15,7 +15,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 | Prefill chunk | 8K |
 | KV cache | auto |
 | Spec decode | MTP ×3 |
-| GPU memory util | 0.75 |
+| GPU memory util | 0.78 |
 | Parsing | qwen3_xml / qwen3 |
 
 ## Serve
@@ -44,8 +44,8 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | suite | score |
 |---|--:|
-| Tool calls | 92.4 |
-| Hard Mode | 83.9 |
+| Tool calls | 92.8 |
+| Hard Mode | 89.3 |
 
 <details>
 <summary>How the % and × here are calculated</summary>
