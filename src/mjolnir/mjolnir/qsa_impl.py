@@ -289,7 +289,19 @@ def build_impl_class() -> type:
 
                 st = self._fp6
                 num_tokens = attn_metadata.num_actual_tokens
-                page_size = kv_cache.shape[2]  # HND: (blocks, h, page, 2*row)
+                # the scratch mirrors the pool's dim order at 1,2 with the
+                # e4m3 width -- the same tuple the stock path's transpose eats
+                page_size = (
+                    kv_cache.shape[2]
+                    if kv_cache.shape[1] < kv_cache.shape[2]
+                    else (kv_cache.shape[1] if kv_cache.shape[1] != kv_cache.shape[2] else kv_cache.shape[2])
+                )
+                if not torch.cuda.is_current_stream_capturing():
+                    print(
+                        f"MJOLNIR QSA fp6 doctor: pool {tuple(kv_cache.shape)} "
+                        f"q {tuple(query.shape)} rows {num_tokens}",
+                        flush=True,
+                    )
                 t2r = token_to_req[:num_tokens].cpu().to(torch.int64)
                 topk = layer.topk_indices_buffer[:num_tokens].cpu()
                 counts = topk[:, -1].tolist()
@@ -344,7 +356,7 @@ def build_impl_class() -> type:
                 return super().forward(
                     layer,
                     query,
-                    kv_cache,
+                    scratch,  # the e4m3 image of the touched pages, not the packed pool
                     md,
                     output,
                     token_to_req=token_to_req,
