@@ -485,16 +485,12 @@ def build_impl_class() -> type:
                 # bake into a captured graph — this path is eager-only by design
                 if torch.cuda.is_current_stream_capturing():
                     _note_fallback("cuda graph capture (per-step selection indices)")
-                    return self._stock_forward(
-                        layer,
-                        query,
-                        kv_cache,
-                        attn_metadata,
-                        output,
-                        token_to_req=token_to_req,
-                        use_prefill_config=use_prefill_config,
-                        output_gate=output_gate,
-                    )
+                    # the graphs split AROUND this layer (eager-break): the
+                    # capture pass needs legal shapes, not values -- the eager
+                    # path writes the real output at replay. The doctor's
+                    # host copies are illegal mid-capture (unpinned CPU).
+                    output.zero_()
+                    return output
                 sel = self._selection_rows(layer, num_tokens)
                 # per-row sequence lens, the stock kernel's own expansion
                 # (qsa.py: seq_lens.index_select(0, token_to_req)): a verify
