@@ -145,6 +145,14 @@ PATCH_ORDER = [
     # thor-fused-draft-t5-plan-refresh (same file, disjoint hunks). Env-gated
     # only, any model.
     "thor-draft-full-cg-piecewise.patch",
+    # The QSA fp6 (e2m3) main cache (kv-cache-dtype: fp6_e2m3): the dense
+    # scheme (mjolnir.kvfp6) on qwen4_exp QSA pools. Four hunks, all
+    # models/qwen4_exp/nvidia/qsa.py — the same file the qsa-mjolnir patch
+    # touches but DISJOINT regions (the backend dtype list, the impl ctor
+    # check, the layer's torch-dtype resolution, the pool spec); lands after
+    # it. The pluggable-dtype registration itself ships in mjolnir.kvdtype
+    # (entry point, no patch); stock-fallback reads expand to e4m3 (kvfp6).
+    "thor-qwen4-qsa-fp6.patch",
     # FlashInfer CUTLASS MXFP8 tactic pin by M bucket (MJOLNIR_MXFP8_TACTIC):
     # model_executor/kernels/linear/mxfp8/flashinfer.py, no other patch.
     "thor-mxfp8-tactic-sm110.patch",

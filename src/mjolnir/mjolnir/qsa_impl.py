@@ -24,6 +24,7 @@ impl and only overrides ``forward``.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 
 import torch
@@ -185,6 +186,10 @@ def build_impl_class() -> type:
                 for side, rows in (("k", ks), ("v", vs)):
                     ch = torch.tensor(rows, dtype=torch.float32, device=dev).contiguous()
                     state[f"{side}_ch"] = ch
+                    # the stock-fallback expand emits the TRUE value
+                    # e4m3(code * s_c): the layer's scales stay 1, no descale
+                    # hooks on the stock path (the dense's FlashInfer mode)
+                    state[f"{side}_ratio"] = ch.contiguous()
                     state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()
                 state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
                 return state
@@ -241,7 +246,108 @@ def build_impl_class() -> type:
                     sel[row, : len(blocks)] = torch.tensor(blocks, dtype=torch.int32)
                 return sel
 
-            # ---- the override ------------------------------------------------
+            # ---- the stock path, fp6-aware ---------------------------------
+
+            def _stock_forward(
+                self,
+                layer,
+                query: torch.Tensor,
+                kv_cache: torch.Tensor,
+                attn_metadata,
+                output: torch.Tensor,
+                *,
+                token_to_req: torch.Tensor,
+                use_prefill_config: bool,
+                output_gate: torch.Tensor,
+            ):
+                """The stock impl, with the fp6 pool made legible to it.
+
+                   The packed e2m3 pool is not a dtype the stock Triton kernel
+                   reads, so every fallback expands the step's touched pages to
+                   e4m3 — lossless (every e2m3 code is an e4m3 value; the
+                   per-head descale rides the layer's scales, the dense path's
+                   FA4-fallback convention) — and remaps the block table onto
+                   the scratch. Whole pages copy, so in-page offsets survive;
+                entries the step never selects point at scratch block 0 and
+                   are never loaded. Capture skips the dance: the layer is
+                   eager-break-excluded, the capture pass only profiles."""
+                if self._fp6 is None or torch.cuda.is_current_stream_capturing():
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
+                    )
+                from mjolnir import kvfp6
+
+                st = self._fp6
+                num_tokens = attn_metadata.num_actual_tokens
+                page_size = kv_cache.shape[2]  # HND: (blocks, h, page, 2*row)
+                t2r = token_to_req[:num_tokens].cpu().to(torch.int64)
+                topk = layer.topk_indices_buffer[:num_tokens].cpu()
+                counts = topk[:, -1].tolist()
+                rows = topk[:, :-1].tolist()
+                # (req, logical page) -> first row that touched it; the scratch
+                # duplicates pool blocks per req (the table is per req)
+                touched: dict[int, set[int]] = {}
+                for row in range(num_tokens):
+                    req = int(t2r[row])
+                    for tok in rows[row][: int(counts[row])]:
+                        if tok >= 0:
+                            touched.setdefault(req, set()).add(tok // page_size)
+                if not touched:
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
+                    )
+                pairs = sorted((r, p) for r, pages in touched.items() for p in pages)
+                bt_host = attn_metadata.block_table.cpu()
+                r_idx = torch.tensor([r for r, _ in pairs], dtype=torch.int64)
+                p_idx = torch.tensor([p for _, p in pairs], dtype=torch.int64)
+                pool_blocks = bt_host[r_idx, p_idx].to(torch.int64)
+                scratch = torch.empty(
+                    len(pairs),
+                    kv_cache.shape[1],
+                    page_size,
+                    2 * self.head_size,
+                    dtype=torch.uint8,
+                    device=kv_cache.device,
+                )
+                kvfp6.expand_pages_to_fp8(
+                    kv_cache,
+                    pool_blocks.to(kv_cache.device, non_blocking=True),
+                    scratch,
+                    self.head_size,
+                    st["k_ratio"],
+                    st["v_ratio"],
+                )
+                # remap: block table entry (req, page) -> the scratch block
+                slot = {pair: i for i, pair in enumerate(pairs)}
+                bt = attn_metadata.block_table.clone()
+                for r, pages in touched.items():
+                    for p in pages:
+                        bt[r, p] = slot[(r, p)]
+                md = dataclasses.replace(attn_metadata, block_table=bt)
+                return super().forward(
+                    layer,
+                    query,
+                    kv_cache,
+                    md,
+                    output,
+                    token_to_req=token_to_req,
+                    use_prefill_config=use_prefill_config,
+                    output_gate=output_gate,
+                )
 
             def forward(
                 self,
@@ -263,7 +369,7 @@ def build_impl_class() -> type:
                 indexer_md = _indexer_metadata(layer)
                 if indexer_md is None:
                     _note_fallback("indexer metadata unavailable")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -294,7 +400,7 @@ def build_impl_class() -> type:
                     reason = "empty batch"
                 if reason is not None:
                     _note_fallback(reason)
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -307,7 +413,7 @@ def build_impl_class() -> type:
                 key_cache, value_cache = self._split_cache(kv_cache)
                 if key_cache.ndim != 4:
                     _note_fallback(f"unexpected cache layout {tuple(kv_cache.shape)}")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -331,7 +437,7 @@ def build_impl_class() -> type:
                         f"pool page size {page_size} not a multiple of the ratio"
                         f" (kv_cache {tuple(kv_cache.shape)}, key {tuple(key_cache.shape)})"
                     )
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -350,7 +456,7 @@ def build_impl_class() -> type:
                 # bake into a captured graph — this path is eager-only by design
                 if torch.cuda.is_current_stream_capturing():
                     _note_fallback("cuda graph capture (per-step selection indices)")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -368,7 +474,7 @@ def build_impl_class() -> type:
                 seq_lens_cpu = indexer_md.seq_lens.cpu()[token_to_req[:num_tokens].cpu().to(torch.int64)]
                 if sel is None:
                     _note_fallback("empty selection row")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -381,7 +487,7 @@ def build_impl_class() -> type:
                 eff = qsa.effective_seq_lens(sel, seq_lens_cpu, spec)
                 if int(eff.min()) <= 0:
                     _note_fallback("empty effective selection")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -493,7 +599,7 @@ def build_impl_class() -> type:
                     )
                 else:  # pragma: no cover - no triton: scratch_copy would need a
                     _note_fallback("no triton gather; stock path")  # contiguous pool copy we refuse to materialize
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,

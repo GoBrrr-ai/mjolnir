@@ -223,6 +223,20 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "THOR_QWEN4_QSA_MJOLNIR",
         ),
     ],
+    "thor qwen4 qsa fp6: the packed-e2m3 main cache (THOR_QWEN4_QSA_FP6)": [
+        # kv-cache-dtype: fp6_e2m3 on the QSA pools — the dtype handler
+        # fallback in the layer's torch-dtype resolution and the packed-cell
+        # pool spec; the swap impl (mjolnir.qsa_impl) writes/reads it, stock
+        # fallbacks expand to e4m3. Inert for every other dtype.
+        (
+            "models/qwen4_exp/nvidia/qsa.py",
+            "THOR_QWEN4_QSA_FP6",
+        ),
+        (
+            "models/qwen4_exp/nvidia/qsa.py",
+            "handler.torch_dtype()",
+        ),
+    ],
     "thor sm110 CuTe DSL MoE: FlashInferCuteDSLExperts admits family 110 (THOR_SM110_CUTEDSL_MOE)": [
         # The sentinel rides on the changed line of the one-line hunk.
         (

@@ -1,0 +1,76 @@
+# thor-qwen4-qsa-fp6 -- the QSA fp6 (e2m3) main cache, QFN (2026-11-21)
+#
+# The dense path's packed-fp6 scheme (mjolnir.kvfp6) on qwen4_exp QSA pools,
+# as a first-class kv-cache-dtype: fp6_e2m3. The pluggable-dtype API
+# (0.33+, mjolnir.kvdtype) registers the name / uint8 storage / CUSTOM
+# quant mode from the plugin entry point; the QSA side needs only its own
+# dtype checks and a pool spec with the packed cell (K|V rows of d*6/8
+# bytes). The swap impl writes/decodes the packed pool directly; stock
+# fallbacks expand touched pages to e4m3 (kvfp6) -- capture never reaches
+# them (the layer is eager_break_during_capture-excluded).
+diff --git a/vllm/models/qwen4_exp/nvidia/qsa.py b/vllm/models/qwen4_exp/nvidia/qsa.py
+index 45242c8..78c9e6d 100644
+--- a/vllm/models/qwen4_exp/nvidia/qsa.py
++++ b/vllm/models/qwen4_exp/nvidia/qsa.py
+@@ -141,6 +141,7 @@ class Qwen4ExpQSABackend(AttentionBackend):
+         "bfloat16",
+         "fp8",
+         "fp8_e4m3",
++        "fp6_e2m3",
+     ]
+ 
+     # The owner writes K/V before calling the sparse attention implementation.
+@@ -187,9 +188,9 @@ class Qwen4ExpQSAImpl(AttentionImplBase[Qwen4ExpQSAMetadata]):
+             raise NotImplementedError(
+                 "Qwen4Exp QSA does not support decode context parallelism"
+             )
+-        if kv_cache_dtype not in ("auto", "bfloat16", "fp8", "fp8_e4m3"):
++        if kv_cache_dtype not in ("auto", "bfloat16", "fp8", "fp8_e4m3", "fp6_e2m3"):
+             raise NotImplementedError(
+-                "Qwen4Exp QSA requires a BF16 or FP8-e4m3 main KV cache"
++                "Qwen4Exp QSA requires a BF16, FP8-e4m3 or mjolnir fp6_e2m3 KV cache"
+             )
+         self.num_heads = num_heads
+         self.head_size = head_size
+@@ -409,9 +410,18 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
+         self.layer_name = f"{prefix}.attn"
+         self.attn_type = AttentionType.DECODER
+         self.kv_cache_dtype = qsa_kv_cache_dtype(cache_config, prefix)
+-        self.kv_cache_torch_dtype = kv_cache_dtype_str_to_dtype(
+-            self.kv_cache_dtype, model_config
+-        )
++        try:
++            torch_dtype = kv_cache_dtype_str_to_dtype(self.kv_cache_dtype, model_config)
++        except KeyError:
++            # THOR_QWEN4_QSA_FP6: pluggable dtype (mjolnir fp6_e2m3) -- the
++            # registered handler owns the storage dtype (uint8 cell view)
++            from vllm.config.cache import get_kv_cache_dtype_handler
++
++            handler = get_kv_cache_dtype_handler(self.kv_cache_dtype)
++            if handler is None:
++                raise
++            torch_dtype = handler.torch_dtype()
++        self.kv_cache_torch_dtype = torch_dtype
+         if self.kv_cache_torch_dtype not in (torch.bfloat16, torch.uint8):
+             raise NotImplementedError(
+                 "Qwen4Exp QSA requires BF16 or FP8-e4m3 (uint8) cache storage"
+@@ -513,6 +523,19 @@ class Qwen4ExpQSAAttention(Qwen3NextAttention, AttentionLayerBase):
+         return self.attn_backend
+ 
+     def get_kv_cache_spec(self, vllm_config: VllmConfig) -> KVCacheSpec:
++        if self.kv_cache_dtype == "fp6_e2m3":  # THOR_QWEN4_QSA_FP6
++            # mjolnir packed e2m3: 4 codes / 3 bytes -- the cell is K|V rows
++            # of d*6/8 bytes; the swap impl writes/reads the packed pool and
++            # every stock fallback expands touched pages to e4m3 (kvfp6).
++            row = self.head_dim * 6 // 8
++            return FullAttentionSpec(
++                block_size=vllm_config.cache_config.block_size,
++                num_kv_heads=self.num_kv_heads,
++                head_size=row,
++                head_size_v=row,
++                dtype=torch.uint8,
++                kv_quant_mode=get_kv_quant_mode("fp6_e2m3"),
++            )
+         return FullAttentionSpec(
+             block_size=vllm_config.cache_config.block_size,
+             num_kv_heads=self.num_kv_heads,
