@@ -177,8 +177,11 @@ def build_impl_class() -> type:
                         "QSA fp6_e2m3 needs calibrated scales: set MJOLNIR_ATTN_KV_SCALES (`mjolnir calibrate`)"
                     )
                 doc = kvscales.load(path)
-                if self._name and self._name not in doc:
-                    raise ValueError(f"{path} has no scales for {self._name!r}")
+                # the doc is wrapped: {'format','model','tokens','amax':{layer:...}}
+                # -- the membership lives in the amax map (the house helper is
+                # wrapped-aware; the dense builder's missing_layers precedent)
+                if missing := kvscales.missing_layers(doc, [self._name] if self._name else []):
+                    raise ValueError(f"{path} has no scales for {missing[:3]}")
                 ks, vs = kvscales.e2m3_scales(doc, self._name, self.num_kv_heads, self.head_size)
                 dev = layer._k_scale.device
                 h_r = max(1, self.num_heads // self.num_kv_heads)
