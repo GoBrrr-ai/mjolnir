@@ -195,6 +195,18 @@ def build_impl_class() -> type:
                     state[f"{side}_ratio"] = ch.contiguous()
                     state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()
                 state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
+                # the stock path's scale contract: the doctor's scratch carries
+                # the TRUE values (code * s_c, the dense's FlashInfer-mode
+                # convention) -- the layer's per-tensor descales stay 1, or the
+                # stock kernel's None-check (ops/qsa.py:686) fires on the fp6
+                # branch's skip
+                for attr in ("_k_scale", "_v_scale"):
+                    buf = getattr(layer, attr, None)
+                    if isinstance(buf, torch.Tensor):
+                        buf.fill_(1.0)
+                for attr in ("_k_scale_float", "_v_scale_float"):
+                    if hasattr(layer, attr):
+                        setattr(layer, attr, 1.0)
                 return state
 
             def do_kv_cache_update(self, layer, key, value, kv_cache, slot_mapping):
