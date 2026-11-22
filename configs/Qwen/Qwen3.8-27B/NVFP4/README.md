@@ -51,7 +51,7 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 | TTFT (ms) | 19,473 | 12,312 | −36.8% |
 | ITL (ms) | 41.4 | 31.5 | −23.8% |
 
-<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput" width="100%">
+<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.svg" alt="End-to-end decode throughput" width="100%">
 
 <details>
 <summary>How the % and × here are calculated</summary>

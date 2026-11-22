@@ -11,7 +11,7 @@
 
 [GitHub](https://github.com/GoBrrr-ai/mjolnir) · [Platforms](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/platforms/README.md) · [Case study](https://github.com/GoBrrr-ai/mjolnir/blob/main/docs/platforms/thor/README.md) · [Interactive charts](https://GoBrrr-ai.github.io/mjolnir/) · [mjolnir-cli on PyPI](https://pypi.org/project/mjolnir-cli/) · [mjolnir-kernel on PyPI](https://pypi.org/project/mjolnir-kernel/)
 
-![Mjolnir image vs the official vLLM image — end-to-end decode and prefill (Jetson AGX Thor)](https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg)
+![Mjolnir image vs the official vLLM image — end-to-end decode and prefill (Jetson AGX Thor)](https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.svg)
 
 ## ⚡ What's inside this image
 

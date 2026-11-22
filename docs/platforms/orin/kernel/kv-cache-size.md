@@ -20,7 +20,7 @@ The stage reads those lines and stops the leg's server right after (no graph cap
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kv-cache-capacity.png" alt="KV cache capacity per config" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kv-cache-capacity.svg" alt="KV cache capacity per config" width="100%">
 
 - Mjolnir · fp8 KV + 64K draft vocab: 2.9 requests at the full 190K context (vLLM's own estimate).
 

@@ -61,7 +61,7 @@
 | [`mjolnir autoresearch evaluate`](#mjolnir-autoresearch-evaluate) | Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep; append the result and the fixed keep/park/discard decision to the ledger. |
 | [`mjolnir autoresearch ledger`](#mjolnir-autoresearch-ledger) | Show the ledger (newest last). |
 | [`mjolnir autoresearch status`](#mjolnir-autoresearch-status) | Best kept score, experiment counts, the current branch. |
-| [`mjolnir autoresearch chart`](#mjolnir-autoresearch-chart) | Re-render research/progress.png from the live ledger (or the newest exported run). |
+| [`mjolnir autoresearch chart`](#mjolnir-autoresearch-chart) | Re-render research/progress.svg from the live ledger (or the newest exported run). |
 | [`mjolnir autoresearch run`](#mjolnir-autoresearch-run) | Launch the loop: an OpenCode session with the `autoresearch` agent. |
 | [`mjolnir autoresearch export`](#mjolnir-autoresearch-export) | Snapshot the ledger into research/runs/&lt;tag&gt;/ (ledger.jsonl, ledger.tsv, SUMMARY.md) — commit that to keep the run's notebook with the repo. |
 | [`mjolnir litellm`](#mjolnir-litellm) | The LiteLLM proxy stack (proxy + postgres + redis) — independent of the vLLM server: 'litellm down' leaves vLLM running, and 'serve down' leaves the proxy up. Reads your template from the litellm data dir, ~/.local/share/mjolnir/litellm/ (see docker/litellm/). |
@@ -1000,7 +1000,7 @@ Best kept score, experiment counts, the current branch.
 
 ## `mjolnir autoresearch chart`
 
-Re-render research/progress.png from the live ledger (or the newest exported run).
+Re-render research/progress.svg from the live ledger (or the newest exported run).
 
 
 <a id="mjolnir-autoresearch-run"></a>

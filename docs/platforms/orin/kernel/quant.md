@@ -12,7 +12,7 @@ The harness generates float K/V, quantizes them to each format (per-KV-head desc
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.png" alt="KV format accuracy" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.svg" alt="KV format accuracy" width="100%">
 
 - `fp8`: mean relative L2 error **0.013** (1.0× fp8's 0.013).
 

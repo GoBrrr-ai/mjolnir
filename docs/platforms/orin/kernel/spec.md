@@ -16,7 +16,7 @@ For every config and every draft count k the server is started with `--speculati
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/spec-drafts.png" alt="Decode rate vs draft tokens" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/spec-drafts.svg" alt="Decode rate vs draft tokens" width="100%">
 
 - AWQ_FLASHINFER, 1 request: best with **4 drafts** — 19.5 t/s per request, 3.51 tokens per step, +1.6% vs 3 drafts.
 - AWQ_FLASHINFER, 4 requests: best with **3 drafts** — 18.2 t/s per request, 3.13 tokens per step.

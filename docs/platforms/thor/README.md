@@ -19,7 +19,7 @@ default.
 
 ## Serving on Jetson AGX Thor
 
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.svg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 
 ## Measured Models
@@ -60,7 +60,7 @@ reproduces it.
 
 </details><br />
 
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png" alt="Mjolnir decode speedup over FlashInfer" width="100%">
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.svg" alt="Mjolnir decode speedup over FlashInfer" width="100%">
 
 | # | chapter | question | status |
 |---|---|---|---|
@@ -95,7 +95,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 | **FlashAttention&nbsp;2 · bf16 KV** | `NVFP4_FA2` | FA2 — on demand (`--legs fa2`); stock vLLM 0.34.0's `sm_110` default | bf16 $\color{grey}\scriptstyle\text{(FA2 has no fp8 KV)}$ |
 
 
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.svg" alt="Decode latency per step vs context length" width="100%">
 
 | L | FlashInfer | FA4 hd256 | Mjolnir fp8 | Mjolnir e2m3 | fp8 vs FI | e2m3 vs FI | fp8 vs FA4 | e2m3 vs FA4 |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
@@ -111,7 +111,7 @@ Measured on a dedicated Thor: a same-run ratio repeats within ±3% between runs,
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.svg" alt="Effective KV bandwidth vs the LPDDR5X peak" width="100%">
 
 
 ## End to end
@@ -123,9 +123,9 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 |---|---|--:|--:|--:|---|
 | `NVFP4` | `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | 24.4 | 31.8 | +30.3% | 32K |
 
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.svg" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
-<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
+<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.svg" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
 
 
 Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.

@@ -13,7 +13,7 @@ Any `name:flags|name:flags` list (`--variants`), ncu at every L plus a wall-cloc
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/ab-heatmap.png" alt="Flag A/B" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/ab-heatmap.svg" alt="Flag A/B" width="100%">
 
 - Fastest variant at the most context lengths: **`fp8-hnd`** (8 of 8).
 - Best geomean vs FlashInfer: **`fp8-hnd`** (1.25×); worst: `fp8-hnd` (1.25×).
