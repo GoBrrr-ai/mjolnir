@@ -32,12 +32,14 @@ dtype: bfloat16
 
 # ── Capacity (the recipe's latency shape; the verified Thor data point is
 # 524288 ctx @ gpu-memory-utilization 0.65, upstream PR #69169 — raise both
-# on a dedicated box). 262144 = the recipe's 128GB-class cap; 0.45 = the
-# house shared-GPU setting (the Qwen3.8 server lives beside it).
+# on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.90 = the
+# dedicated-box validation shape (262K needs ~25.6 GiB of KV on top of the
+# ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
+# setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
 max-model-len: 262144
 max-num-seqs: 256
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.45
+gpu-memory-utilization: 0.90
 
 # ── Attention / multimodal ────────────────────────────────────────────────
 # The vision tower runs on the stock backend selection; TORCH_SDPA is the

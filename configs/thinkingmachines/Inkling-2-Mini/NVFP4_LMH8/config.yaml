@@ -28,7 +28,7 @@ dtype: bfloat16
 max-model-len: 262144
 max-num-seqs: 256
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.45
+gpu-memory-utilization: 0.90
 
 mm-encoder-attn-backend: TORCH_SDPA
 
