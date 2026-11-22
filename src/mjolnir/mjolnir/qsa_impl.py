@@ -308,12 +308,6 @@ def build_impl_class() -> type:
                     if kv_cache.shape[1] < kv_cache.shape[2]
                     else (kv_cache.shape[1] if kv_cache.shape[1] != kv_cache.shape[2] else kv_cache.shape[2])
                 )
-                if not torch.cuda.is_current_stream_capturing():
-                    print(
-                        f"MJOLNIR QSA fp6 doctor: pool {tuple(kv_cache.shape)} "
-                        f"q {tuple(query.shape)} rows {num_tokens}",
-                        flush=True,
-                    )
                 t2r = token_to_req[:num_tokens].cpu().to(torch.int64)
                 topk = layer.topk_indices_buffer[:num_tokens].cpu()
                 counts = topk[:, -1].tolist()
