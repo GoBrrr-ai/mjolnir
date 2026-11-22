@@ -181,6 +181,14 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "key_cache.dtype != q.dtype",
         ),
     ],
+    "thor inkling2 sm100-kernel gate widen": [
+        # the env escape + the 110 branch; a revert to the bare family(100)
+        # return silently demotes Thor to the sm90 paths again
+        (
+            "models/inkling2/nvidia/ops/__init__.py",
+            "MJOLNIR_INKLING2_SM100_KERNELS",
+        ),
+    ],
     "thor inkling2 decode split-cap on sm_110": [
         # the /4 denominator -- the pair with the ncu evidence in the fp8kv
         # history; a silent revert to /8 is the failure this guards

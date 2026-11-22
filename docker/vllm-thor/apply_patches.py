@@ -102,6 +102,8 @@ PATCH_ORDER = [
     # ...and the decode split-budget on Thor (the /8 denominator is tuned for
     # 100+-SM parts; the ncu repro shows 15% occupancy on the verify shape).
     "thor-inkling2-splitcap-sm110.patch",
+    # the sm100 family gate widen: upstream tcgen05/tml kernels on sm_110
+    "thor-inkling2-sm100gate-sm110.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
