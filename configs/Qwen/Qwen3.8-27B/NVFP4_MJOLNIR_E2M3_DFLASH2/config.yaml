@@ -65,7 +65,6 @@ kv-cache-dtype: fp6_e2m3
 # The drafter's layers (indices 64-68, after the target's 64) keep bf16 KV:
 # kv_scales.json calibrates the target only.
 kv-cache-dtype-skip-layers: ["sliding_window", "64", "65", "66", "67", "68"]
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 

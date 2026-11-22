@@ -67,7 +67,6 @@ linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — t
 # next to this file, and `mjolnir serve` points MJOLNIR_ATTN_KV_SCALES at it.
 kv-cache-dtype: fp6_e2m3
 kv-cache-dtype-skip-layers: sliding_window
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 

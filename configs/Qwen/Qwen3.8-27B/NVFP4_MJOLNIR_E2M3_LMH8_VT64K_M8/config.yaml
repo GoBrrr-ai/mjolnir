@@ -47,7 +47,6 @@ linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — t
 # ── KV Cache ─────────────────────────────────────────────────────────────
 kv-cache-dtype: fp6_e2m3
 kv-cache-dtype-skip-layers: sliding_window
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 
