@@ -109,6 +109,53 @@ PATCH_ORDER = [
     # ships in mjolnir-kernel and degrades to the stock Triton path whenever
     # a guard fails). INERT unless the env var is set.
     "thor-qwen4-qsa-mjolnir.patch",
+    # Qwen3.8-Flash-Next (qwen4_exp) serving stack. One upstream backport
+    # first: #64739 (open): the default loader finds safetensors shards that
+    # model.safetensors.index.json lists in a subdirectory (FP4-Local keeps
+    # all 21 under tensors/). model_loader/{default_loader,weight_utils}.py,
+    # disjoint from every other patch; a no-op for root-level shards.
+    "64739-safetensors-index-subdir.patch",
+    # Qwen4Exp PLE slot-pool cache in front of vLLM's disk table
+    # (disk_offload + MJOLNIR_PLE_DISK_CACHE_GB): one hunk in
+    # models/qwen4_exp/nvidia/ngram_embedding.py, which no other patch
+    # touches; the layer itself is mjolnir.qwen4exp.ple_disk.
+    "thor-qwen4-ple-disk.patch",
+    # Reduced MTP draft vocabulary (MJOLNIR_DRAFT_VOCAB) + 8-bit draft head /
+    # MTP dense layers (QWEN4EXP_DRAFT_HEAD_FP8, QWEN4EXP_MTP_DENSE_FP8):
+    # models/qwen4_exp/nvidia/mtp.py, which no other patch touches. Logic in
+    # mjolnir.qwen4exp.draft_head.
+    "thor-qwen4-draft-head.patch",
+    # Screened target lm_head (QWEN4EXP_LM_HEAD_SCREENED, backport of vLLM
+    # #60566 into mjolnir.qwen4exp.screened_head): nvidia/model.py hunks
+    # diffed against thor-qwen4-draft-head.
+    "thor-qwen4-screened-head.patch",
+    # Online FP8 for the target's BF16 dense side layers (QWEN4EXP_SIDE_FP8):
+    # one nvidia/model.py hunk diffed against the screened-head patch;
+    # mjolnir.qwen4exp.side_fp8.
+    "thor-qwen4-side-fp8.patch",
+    # Online 8-bit hyperconnection GEMMs (QWEN4EXP_HC_FP8):
+    # nvidia/hyperconnection.py (no other patch) + one nvidia/model.py log
+    # hunk diffed against the side-fp8 patch; mjolnir.qwen4exp.hc_fp8.
+    "thor-qwen4-hc-fp8.patch",
+    # FULL CUDA graphs for the MTP draft decode steps under a PIECEWISE
+    # target (MJOLNIR_SPEC_STEP_DRAFT_FULL_CG): one gate in
+    # autoregressive/speculator.py AutoRegressiveSpeculator.init_cudagraph_manager
+    # (vLLM #60989 moved it to the AR base class, so it covers every
+    # autoregressive drafter); diffed on top of
+    # thor-fused-draft-t5-plan-refresh (same file, disjoint hunks). Env-gated
+    # only, any model.
+    "thor-draft-full-cg-piecewise.patch",
+    # The QSA fp6 (e2m3) main cache (kv-cache-dtype: fp6_e2m3): the dense
+    # scheme (mjolnir.kvfp6) on qwen4_exp QSA pools. Four hunks, all
+    # models/qwen4_exp/nvidia/qsa.py — the same file the qsa-mjolnir patch
+    # touches but DISJOINT regions (the backend dtype list, the impl ctor
+    # check, the layer's torch-dtype resolution, the pool spec); lands after
+    # it. The pluggable-dtype registration itself ships in mjolnir.kvdtype
+    # (entry point, no patch); stock-fallback reads expand to e4m3 (kvfp6).
+    "thor-qwen4-qsa-fp6.patch",
+    # FlashInfer CUTLASS MXFP8 tactic pin by M bucket (MJOLNIR_MXFP8_TACTIC):
+    # model_executor/kernels/linear/mxfp8/flashinfer.py, no other patch.
+    "thor-mxfp8-tactic-sm110.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate

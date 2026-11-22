@@ -113,6 +113,7 @@ BACKEND_LABELS = {
     "NVFP4_MJOLNIR_E2M3_DSPARK": "Mjolnir fp6 KV + DSpark",
     "NVFP4_MJOLNIR_E2M3_DFLASH2": "Mjolnir fp6 KV + DFlash2",
     "NVFP4_MJOLNIR_W4A4": "Mjolnir + W4A4 experts",
+    "NVFP4_SFP8": "QSA + FP8 side layers and hyperconnections",
     "NVFP4": "FlashInfer",
     "NVFP4_DFLASH": "FlashInfer + DFlash",
     "NVFP4_DSPARK": "FlashInfer + DSpark",

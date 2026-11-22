@@ -3,12 +3,13 @@
 T10 (draft-CG gate decision, pure python — runs without a GPU),
 T11 (FA4 hd256 FP8-KV — the dedicated head_dim=256 kernel gate),
 T12 (CuTe DSL NVFP4 MoE — the device gate + one synthetic W4A4 layer
-against a dequantized float reference).
+against a dequantized float reference), T13 (the MXFP8 CUTLASS tactic pin —
+bit-identical to the stock call).
 
 A single manual GPU test for the Thor sm_110 gate probes (patches
 `thor-gdn-prefill-sm110`, `thor-fa4-fp8kv-sm110`,
 `thor-fa4-hd256-fp8-sm110`, `thor-sm110-cutedsl-moe-gate` +
-`fi-cutedsl-moe-sm110`). It imports the installed (patched) vllm and
+`fi-cutedsl-moe-sm110`, `thor-mxfp8-tactic-sm110`). It imports the installed (patched) vllm and
 triggers each probe's cached path with a small synthetic input — it does
 NOT spin up a server. T9 additionally asserts the passive-by-default
 invariant: with no explicit FA4 attention-config, the FP8-KV gate stays
@@ -47,6 +48,8 @@ mount and env (see the T12 docstring):
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import sys
 import time
 import types
@@ -498,6 +501,48 @@ def _t12_cutedsl_nvfp4_moe() -> None:
     )
 
 
+# T13 runs in a child process: the tactic pin is read when the MXFP8 kernel
+# module is imported, and its custom op can be registered once per process.
+_T13_CHILD = r"""
+import torch
+import vllm.model_executor.layers.quantization.utils.mxfp8_utils as mu
+from flashinfer import mm_mxfp8
+from vllm.model_executor.kernels.linear.mxfp8 import flashinfer as k
+
+assert k._THOR_TACTICS == [(256, 8)], k._THOR_TACTICS
+kern = object.__new__(k.FlashInferCutlassMxfp8LinearKernel)
+N, K = 6144, 2560  # a Qwen3.8-Flash-Next side-layer shape
+layer = torch.nn.Module()
+layer.params_dtype = torch.bfloat16  # vLLM 0.34 apply_weights: out_dtype = layer.params_dtype
+w = torch.randn(N, K, device="cuda", dtype=torch.bfloat16) * 0.02
+wq, s = mu.mxfp8_e4m3_quantize(w, is_sf_swizzled_layout=False)
+layer.weight = torch.nn.Parameter(wq, requires_grad=False)
+layer.weight_scale = torch.nn.Parameter(s, requires_grad=False)
+kern.process_weights_after_loading(layer)
+for m in (1, 4, 16, 256, 257, 2048):
+    x = torch.randn(m, K, device="cuda", dtype=torch.bfloat16)
+    a, asf = mu.mxfp8_e4m3_quantize(x, is_sf_swizzled_layout=True)
+    stock = mm_mxfp8(a, layer.weight.t(), asf, layer.weight_scale, out_dtype=torch.bfloat16, backend="cutlass")
+    assert torch.equal(kern.apply_weights(layer, x), stock), f"M={m}: pinned tactic differs from the stock call"
+print("ok")
+"""
+
+
+def _t13_mxfp8_tactic() -> None:
+    """T13 — `thor-mxfp8-tactic-sm110`: with MJOLNIR_MXFP8_TACTIC=256:8 the
+    FlashInfer CUTLASS MXFP8 linear runs tactic 8 up to M=256 and the stock
+    call above; every tactic must give the stock call's output bit for bit
+    (M 1..2048 across the bucket edge). Needs an sm_100+ device (the kernel's
+    own support gate)."""
+    if torch.cuda.get_device_capability()[0] < 10:
+        print("INERT-OK T13 MXFP8 tactic pin: the FlashInfer CUTLASS MXFP8 kernel needs sm_100+")
+        return
+    env = dict(os.environ, MJOLNIR_MXFP8_TACTIC="256:8")
+    r = subprocess.run([sys.executable, "-c", _T13_CHILD], env=env, capture_output=True, text=True, timeout=1800)
+    assert r.returncode == 0 and r.stdout.strip().endswith("ok"), r.stdout[-2000:] + r.stderr[-4000:]
+    print("PASS T13 MXFP8 tactic pin: tactic 8 for M<=256 bit-identical to the stock call (M 1..2048)")
+
+
 def _t10_draft_cg_gate() -> None:
     """T10 — the draft-CG gate's decision logic (pure python, no GPU).
 
@@ -538,6 +583,7 @@ def main() -> int:
             "T9 FA4 FP8-KV",
             "T11 FA4 hd256 FP8-KV",
             "T12 CuTe DSL NVFP4 MoE",
+            "T13 MXFP8 tactic pin",
         ):
             print(f"SKIP {name}: no CUDA device visible (re-run with --gpus all on a Thor)")
     else:
@@ -547,6 +593,7 @@ def main() -> int:
             ("T9 FA4 FP8-KV", _t9_fa4_fp8kv),
             ("T11 FA4 hd256 FP8-KV", _t11_fa4_hd256_fp8kv),
             ("T12 CuTe DSL NVFP4 MoE", _t12_cutedsl_nvfp4_moe),
+            ("T13 MXFP8 tactic pin", _t13_mxfp8_tactic),
         ):
             try:
                 section()

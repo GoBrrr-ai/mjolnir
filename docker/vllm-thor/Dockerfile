@@ -134,6 +134,7 @@ assert mjolnir.kvdtype.register(), "fp6_e2m3 KV dtype registration failed"
 from vllm.v1.kv_cache_interface import KVQuantMode, get_kv_quant_mode
 assert get_kv_quant_mode("fp6_e2m3") == KVQuantMode.CUSTOM, "fp6_e2m3 KV dtype not registered"
 import mjolnir.calibrate, mjolnir.kvfp6, mjolnir.kvscales, mjolnir.qpack  # noqa: F401 (pure-python, no GPU)
+import mjolnir.qwen4exp.ple_disk_cache, mjolnir.qwen4exp.ple_disk_table  # noqa: F401 (NumPy only)
 eps = [e for e in md.entry_points(group="vllm.general_plugins") if e.name == "mjolnir"]
 assert eps and eps[0].value == "mjolnir:register", "mjolnir vllm.general_plugins entry point missing"
 print("mjolnir-kernel", mjolnir.__version__, "->", mjolnir.BACKEND_PATH)
@@ -158,6 +159,13 @@ touched = [
     "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
     "models/qwen4_exp/nvidia/model.py",
     "models/qwen4_exp/nvidia/qsa.py",
+    # the Qwen3.8-Flash-Next stack
+    "model_executor/model_loader/default_loader.py",
+    "model_executor/model_loader/weight_utils.py",
+    "models/qwen4_exp/nvidia/ngram_embedding.py",
+    "models/qwen4_exp/nvidia/mtp.py",
+    "models/qwen4_exp/nvidia/hyperconnection.py",
+    "model_executor/kernels/linear/mxfp8/flashinfer.py",
 ]
 for rel in touched:
     py_compile.compile(str(root / rel), doraise=True)

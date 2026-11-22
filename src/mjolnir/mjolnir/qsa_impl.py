@@ -24,6 +24,8 @@ impl and only overrides ``forward``.
 
 from __future__ import annotations
 
+import dataclasses
+
 import torch
 
 from mjolnir.arch.thor import qsa
@@ -120,6 +122,17 @@ def build_impl_class() -> type:
                 self._max_num_seqs = max_num_seqs
                 self._scales: tuple[float, float] | None = None
                 self._scale_bufs: tuple[torch.Tensor, torch.Tensor] | None = None
+                # E4: packed-fp6 (e2m3) main caches — the dense path's scheme
+                # (mjolnir.kvfp6) on the QSA pools: write via kvfp6.write_kv,
+                # decode/verify read the packed rows through the same
+                # byte-blind gather, the t5 kernel's e2m3 path consumes the
+                # scratch. Enabled by kv-cache-dtype fp6_e2m3 (the stock ctor
+                # accept-list is widened by the qwen4-qsa-fp6 patch).
+                self._name = getattr(layer, "layer_name", None) or ""
+                self._fp6: dict | None = None
+                dtype = self.kv_cache_dtype
+                if dtype == "fp6_e2m3":
+                    self._fp6 = self._fp6_state(layer)
 
             # ---- helpers ----------------------------------------------------
 
@@ -133,7 +146,8 @@ def build_impl_class() -> type:
                 (the day-0 gather bug). The gather kernel takes the page
                 stride explicitly and decomposes; scratch_copy demands a
                 contiguous pool (tests/reference only)."""
-                key_cache, value_cache = kv_cache.transpose(1, 2).split(self.head_size, dim=-1)
+                split_at = self.head_size if self._fp6 is None else self.head_size * 6 // 8
+                key_cache, value_cache = kv_cache.transpose(1, 2).split(split_at, dim=-1)
                 return key_cache, value_cache
 
             def _scale_bufs_for(self, layer, device: torch.device):
@@ -146,38 +160,215 @@ def build_impl_class() -> type:
                     )
                 return self._scale_bufs
 
-            def _selection_blocks(self, layer, num_tokens: int, num_reqs: int, token_to_req: torch.Tensor):
-                """Packed token-index buffer -> (b, <=W) int32 block ids (host),
-                one row per request, sorted-unique. Returns None when a row is
-                inert (count 0) — that cannot happen in a decode batch.
+            # ---- E4: the fp6 pair -------------------------------------------
+
+            def _fp6_state(self, layer) -> dict:
+                """Per-layer e2m3 scales, the dense builder's scheme verbatim
+                (backend._build_fp6_state): codes carry descale 1, K's channel
+                scales fold into Q and V's into the output; the calibration
+                doc is the same file the dense layers read."""
+                from mjolnir import kvscales
+
+                path = kvscales.scales_path()
+                if not path:
+                    raise ValueError(
+                        "QSA fp6_e2m3 needs calibrated scales: set MJOLNIR_ATTN_KV_SCALES (`mjolnir calibrate`)"
+                    )
+                doc = kvscales.load(path)
+                # the doc is wrapped: {'format','model','tokens','amax':{layer:...}}
+                # -- the membership lives in the amax map (the house helper is
+                # wrapped-aware; the dense builder's missing_layers precedent)
+                if missing := kvscales.missing_layers(doc, [self._name] if self._name else []):
+                    raise ValueError(f"{path} has no scales for {missing[:3]}")
+                ks, vs = kvscales.e2m3_scales(doc, self._name, self.num_kv_heads, self.head_size)
+                dev = layer._k_scale.device
+                h_r = max(1, self.num_heads // self.num_kv_heads)
+                state: dict = {}
+                for side, rows in (("k", ks), ("v", vs)):
+                    ch = torch.tensor(rows, dtype=torch.float32, device=dev).contiguous()
+                    state[f"{side}_ch"] = ch
+                    # the stock-fallback expand emits the TRUE value
+                    # e4m3(code * s_c): the layer's scales stay 1, no descale
+                    # hooks on the stock path (the dense's FlashInfer mode)
+                    state[f"{side}_ratio"] = ch.contiguous()
+                    state[f"{side}_mul"] = ch.repeat_interleave(h_r, dim=0).contiguous()
+                state["one"] = torch.ones(1, dtype=torch.float32, device=dev)
+                # the stock path's scale contract: the doctor's scratch carries
+                # the TRUE values (code * s_c, the dense's FlashInfer-mode
+                # convention) -- the layer's per-tensor descales stay 1, or the
+                # stock kernel's None-check (ops/qsa.py:686) fires on the fp6
+                # branch's skip
+                for attr in ("_k_scale", "_v_scale"):
+                    buf = getattr(layer, attr, None)
+                    if isinstance(buf, torch.Tensor):
+                        buf.fill_(1.0)
+                for attr in ("_k_scale_float", "_v_scale_float"):
+                    if hasattr(layer, attr):
+                        setattr(layer, attr, 1.0)
+                return state
+
+            def do_kv_cache_update(self, layer, key, value, kv_cache, slot_mapping):
+                """fp6: the packed write into the HND pool; else stock. Under
+                calibration every written K/V folds into the layer's amax
+                (the same store the dense layers observe)."""
+                from mjolnir import kvscales
+
+                if kvscales.calibrating() and self._name:
+                    kvscales.observe(self._name, key, value, slot_mapping)
+                if self._fp6 is None:
+                    return super().do_kv_cache_update(layer, key, value, kv_cache, slot_mapping)
+                from mjolnir import kvfp6
+
+                kvfp6.write_kv(
+                    key,
+                    value,
+                    kv_cache,
+                    slot_mapping,
+                    self._fp6["k_ch"],
+                    self._fp6["v_ch"],
+                )
+                return None
+
+            def _selection_rows(self, layer, num_tokens: int):
+                """Packed token-index buffer -> (T, <=W) int32 block ids (host),
+                ONE ROW PER QUERY TOKEN, sorted-unique. Returns None when a row
+                is inert (count 0).
 
                 The buffer rows hold request-relative TOKEN indices in score
                 order (-1 padded, trailing count column); the block grid is
-                token // ratio, deduped and sorted — the scratch layout is
-                ours, so any order works as long as src/dst agree."""
+                token // ratio, deduped WITHIN the row — decode and verify
+                alike: a verify step's rows carry independent selections, and
+                the scratch layout is ours, so any order works as long as
+                src/dst agree."""
                 topk = layer.topk_indices_buffer[:num_tokens]
                 tok_host = topk[:, :-1].cpu()
                 counts = topk[:, -1].cpu().tolist()
-                t2r = token_to_req[:num_tokens].cpu().tolist()
                 tok_rows = tok_host.tolist()
                 ratio = self._spec.ratio
                 width = 0
-                per_req: dict[int, list[int]] = {}
+                rows: list[list[int]] = []
                 for row in range(num_tokens):
                     cnt = int(counts[row])
                     blocks = sorted({t // ratio for t in tok_rows[row][:cnt] if t >= 0})
                     if not blocks:
                         return None
-                    per_req[int(t2r[row])] = blocks
+                    rows.append(blocks)
                     width = max(width, len(blocks))
-                if len(per_req) != num_reqs:
-                    return None  # a request scheduled without a selection row
-                sel = torch.full((num_reqs, max(1, width)), -1, dtype=torch.int32)
-                for req, blocks in per_req.items():
-                    sel[req, : len(blocks)] = torch.tensor(blocks, dtype=torch.int32)
+                sel = torch.full((num_tokens, max(1, width)), -1, dtype=torch.int32)
+                for row, blocks in enumerate(rows):
+                    sel[row, : len(blocks)] = torch.tensor(blocks, dtype=torch.int32)
                 return sel
 
-            # ---- the override ------------------------------------------------
+            # ---- the stock path, fp6-aware ---------------------------------
+
+            def _stock_forward(
+                self,
+                layer,
+                query: torch.Tensor,
+                kv_cache: torch.Tensor,
+                attn_metadata,
+                output: torch.Tensor,
+                *,
+                token_to_req: torch.Tensor,
+                use_prefill_config: bool,
+                output_gate: torch.Tensor,
+            ):
+                """The stock impl, with the fp6 pool made legible to it.
+
+                   The packed e2m3 pool is not a dtype the stock Triton kernel
+                   reads, so every fallback expands the step's touched pages to
+                   e4m3 — lossless (every e2m3 code is an e4m3 value; the
+                   per-head descale rides the layer's scales, the dense path's
+                   FA4-fallback convention) — and remaps the block table onto
+                   the scratch. Whole pages copy, so in-page offsets survive;
+                entries the step never selects point at scratch block 0 and
+                   are never loaded. The capture pass runs the FULL treatment
+                   too: the profile/capture forward on the raw packed pool
+                   crashes the stock's shape guard (128-of-192), and the
+                   scratch alloc under capture is the standard pool pattern."""
+                if self._fp6 is None:
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
+                    )
+                from mjolnir import kvfp6
+
+                st = self._fp6
+                num_tokens = attn_metadata.num_actual_tokens
+                # the scratch mirrors the pool's dim order at 1,2 with the
+                # e4m3 width -- the same tuple the stock path's transpose eats
+                page_size = (
+                    kv_cache.shape[2]
+                    if kv_cache.shape[1] < kv_cache.shape[2]
+                    else (kv_cache.shape[1] if kv_cache.shape[1] != kv_cache.shape[2] else kv_cache.shape[2])
+                )
+                t2r = token_to_req[:num_tokens].cpu().to(torch.int64)
+                topk = layer.topk_indices_buffer[:num_tokens].cpu()
+                counts = topk[:, -1].tolist()
+                rows = topk[:, :-1].tolist()
+                # (req, logical page) -> first row that touched it; the scratch
+                # duplicates pool blocks per req (the table is per req)
+                touched: dict[int, set[int]] = {}
+                for row in range(num_tokens):
+                    req = int(t2r[row])
+                    for tok in rows[row][: int(counts[row])]:
+                        if tok >= 0:
+                            touched.setdefault(req, set()).add(tok // page_size)
+                if not touched:
+                    return super().forward(
+                        layer,
+                        query,
+                        kv_cache,
+                        attn_metadata,
+                        output,
+                        token_to_req=token_to_req,
+                        use_prefill_config=use_prefill_config,
+                        output_gate=output_gate,
+                    )
+                pairs = sorted((r, p) for r, pages in touched.items() for p in pages)
+                bt_host = attn_metadata.block_table.cpu()
+                r_idx = torch.tensor([r for r, _ in pairs], dtype=torch.int64)
+                p_idx = torch.tensor([p for _, p in pairs], dtype=torch.int64)
+                pool_blocks = bt_host[r_idx, p_idx].to(torch.int64)
+                scratch = torch.empty(
+                    len(pairs),
+                    kv_cache.shape[1],
+                    page_size,
+                    2 * self.head_size,
+                    dtype=torch.uint8,
+                    device=kv_cache.device,
+                )
+                kvfp6.expand_pages_to_fp8(
+                    kv_cache,
+                    pool_blocks.to(kv_cache.device, non_blocking=True),
+                    scratch,
+                    self.head_size,
+                    st["k_ratio"],
+                    st["v_ratio"],
+                )
+                # remap: block table entry (req, page) -> the scratch block
+                slot = {pair: i for i, pair in enumerate(pairs)}
+                bt = attn_metadata.block_table.clone()
+                for r, pages in touched.items():
+                    for p in pages:
+                        bt[r, p] = slot[(r, p)]
+                md = dataclasses.replace(attn_metadata, block_table=bt)
+                return super().forward(
+                    layer,
+                    query,
+                    scratch,  # the e4m3 image of the touched pages, not the packed pool
+                    md,
+                    output,
+                    token_to_req=token_to_req,
+                    use_prefill_config=use_prefill_config,
+                    output_gate=output_gate,
+                )
 
             def forward(
                 self,
@@ -199,7 +390,7 @@ def build_impl_class() -> type:
                 indexer_md = _indexer_metadata(layer)
                 if indexer_md is None:
                     _note_fallback("indexer metadata unavailable")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -218,17 +409,19 @@ def build_impl_class() -> type:
                 # itself via layer._k_scale_float - no per-call scale args.)
                 if use_prefill_config:
                     reason = "prefill/mixed step"
-                elif self.kv_cache_dtype not in ("fp8", "fp8_e4m3"):
+                elif self.kv_cache_dtype not in ("fp8", "fp8_e4m3") and self._fp6 is None:
                     reason = f"cache dtype {self.kv_cache_dtype}"
                 elif query.dtype != torch.bfloat16:
                     reason = f"query dtype {query.dtype}"
-                elif num_tokens != num_reqs:
-                    reason = "verify/mixed batch (per-row selections)"
+                elif num_tokens > self._max_num_seqs:
+                    # verify rows are scratch sequences too (one per query
+                    # row); the runner's seq slots bound them
+                    reason = f"verify batch {num_tokens} rows > {self._max_num_seqs} seq slots"
                 elif num_tokens == 0:
                     reason = "empty batch"
                 if reason is not None:
                     _note_fallback(reason)
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -241,7 +434,7 @@ def build_impl_class() -> type:
                 key_cache, value_cache = self._split_cache(kv_cache)
                 if key_cache.ndim != 4:
                     _note_fallback(f"unexpected cache layout {tuple(kv_cache.shape)}")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -251,7 +444,7 @@ def build_impl_class() -> type:
                         use_prefill_config=use_prefill_config,
                         output_gate=output_gate,
                     )
-                if self.kv_cache_dtype in ("fp8", "fp8_e4m3"):
+                if self._fp6 is None and self.kv_cache_dtype in ("fp8", "fp8_e4m3"):
                     key_cache = key_cache.view(torch.float8_e4m3fn)
                     value_cache = value_cache.view(torch.float8_e4m3fn)
                 page_size = key_cache.shape[1]
@@ -265,7 +458,7 @@ def build_impl_class() -> type:
                         f"pool page size {page_size} not a multiple of the ratio"
                         f" (kv_cache {tuple(kv_cache.shape)}, key {tuple(key_cache.shape)})"
                     )
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -284,21 +477,21 @@ def build_impl_class() -> type:
                 # bake into a captured graph — this path is eager-only by design
                 if torch.cuda.is_current_stream_capturing():
                     _note_fallback("cuda graph capture (per-step selection indices)")
-                    return super().forward(
-                        layer,
-                        query,
-                        kv_cache,
-                        attn_metadata,
-                        output,
-                        token_to_req=token_to_req,
-                        use_prefill_config=use_prefill_config,
-                        output_gate=output_gate,
-                    )
-                sel = self._selection_blocks(layer, num_tokens, num_reqs, token_to_req)
-                seq_lens_cpu = indexer_md.seq_lens.cpu()
+                    # the graphs split AROUND this layer (eager-break): the
+                    # capture pass needs legal shapes, not values -- the eager
+                    # path writes the real output at replay. The doctor's
+                    # host copies are illegal mid-capture (unpinned CPU).
+                    output.zero_()
+                    return output
+                sel = self._selection_rows(layer, num_tokens)
+                # per-row sequence lens, the stock kernel's own expansion
+                # (qsa.py: seq_lens.index_select(0, token_to_req)): a verify
+                # row attends with its request's len; the eff/plan/bt below
+                # are per-row from here on, one scratch seq per query row.
+                seq_lens_cpu = indexer_md.seq_lens.cpu()[token_to_req[:num_tokens].cpu().to(torch.int64)]
                 if sel is None:
                     _note_fallback("empty selection row")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -311,7 +504,7 @@ def build_impl_class() -> type:
                 eff = qsa.effective_seq_lens(sel, seq_lens_cpu, spec)
                 if int(eff.min()) <= 0:
                     _note_fallback("empty effective selection")
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -326,7 +519,8 @@ def build_impl_class() -> type:
                 # the SCRATCH and the runner live at the kernel's page size
                 # (128); the POOL keeps its own (800 on a GDN hybrid)
                 kernel_ps = 128
-                gkey = _geometry_key(layer, kernel_ps, dev)
+                fp6 = self._fp6 is not None
+                gkey = (*_geometry_key(layer, kernel_ps, dev), fp6)
                 runner = _RUNNERS.get(gkey)
                 if runner is None:
                     runner = _RUNNERS[gkey] = T5DecodeRunner(
@@ -337,20 +531,22 @@ def build_impl_class() -> type:
                         out_dtype=torch.bfloat16,
                         max_num_seqs=self._max_num_seqs,
                         max_q_len=1,
-                        q_mode="bf16",
-                        kv_format="fp8",
+                        # e2m3 rides the fp8-Q path (runner invariant)
+                        q_mode="fp8" if fp6 else "bf16",
+                        kv_format="e2m3" if fp6 else "fp8",
                         device=dev,
                     )
                 scratch = _SCRATCHES.get(gkey)
                 pages_needed = int(((eff.to(torch.int64) + kernel_ps - 1) // kernel_ps).sum()) + _SCRATCH_SLACK_PAGES
                 if scratch is None or scratch.shape[0] < pages_needed:
-                    # grow to the observed need (never shrinks); fp8 rows
+                    # grow to the observed need (never shrinks); row width
+                    # follows the mode: d bytes fp8, 3d/4 packed fp6
                     scratch = _SCRATCHES[gkey] = torch.empty(
                         pages_needed,
                         kernel_ps,
                         self.num_kv_heads,
-                        self.head_size,
-                        dtype=torch.float8_e4m3fn,
+                        self.head_size if not fp6 else self.head_size * 6 // 8,
+                        dtype=torch.uint8 if fp6 else torch.float8_e4m3fn,
                         device=dev,
                     )
 
@@ -368,19 +564,20 @@ def build_impl_class() -> type:
                         pages_needed,
                         kernel_ps,
                         self.num_kv_heads,
-                        self.head_size,
-                        dtype=torch.float8_e4m3fn,
+                        self.head_size if not fp6 else self.head_size * 6 // 8,
+                        dtype=torch.uint8 if fp6 else torch.float8_e4m3fn,
                         device=dev,
                     )
                 scratch_v = scratch_v[:pages_used]
 
                 bt_host = attn_metadata.block_table[:num_reqs].cpu()
+                bt_rows = bt_host[token_to_req[:num_tokens].cpu().to(torch.int64)]
                 src, dst, sbt, _pages_max = qsa.scratch_plan(
-                    sel, seq_lens_cpu, bt_host, spec, page_size, scratch_page_size=kernel_ps
+                    sel, seq_lens_cpu, bt_rows, spec, page_size, scratch_page_size=kernel_ps
                 )
                 src_dev, dst_dev = src.to(dev, non_blocking=True), dst.to(dev, non_blocking=True)
                 eff_dev = eff.to(dev, non_blocking=True)
-                sbt_dev = torch.zeros(num_reqs, sbt.shape[1], dtype=torch.int32, device=dev)
+                sbt_dev = torch.zeros(num_tokens, sbt.shape[1], dtype=torch.int32, device=dev)
                 sbt_dev[:, : sbt.shape[1]] = sbt.to(dev, non_blocking=True)
 
                 if qsa_gather is not None and qsa_gather.available():
@@ -388,8 +585,9 @@ def build_impl_class() -> type:
                         _ANNOUNCED[0] = True
                         print(
                             f"MJOLNIR QSA decode: scratch-gather active "
-                            f"(fp8, q_len=1, PS={page_size}, pool {tuple(key_cache.shape)}, "
-                            f"sel width {sel.shape[1]}, {num_reqs} reqs)",
+                            f"({'e2m3' if fp6 else 'fp8'}, q_len=1, PS={page_size}, "
+                            f"pool {tuple(key_cache.shape)}, "
+                            f"sel width {sel.shape[1]}, {num_tokens} rows)",
                             flush=True,
                         )
                     kb = key_cache.view(torch.uint8)
@@ -418,7 +616,7 @@ def build_impl_class() -> type:
                     )
                 else:  # pragma: no cover - no triton: scratch_copy would need a
                     _note_fallback("no triton gather; stock path")  # contiguous pool copy we refuse to materialize
-                    return super().forward(
+                    return self._stock_forward(
                         layer,
                         query,
                         kv_cache,
@@ -429,19 +627,36 @@ def build_impl_class() -> type:
                         output_gate=output_gate,
                     )
 
-                k_buf, v_buf = self._scale_bufs_for(layer, dev)
-                plan = runner.plan(eff.tolist(), num_reqs, 1, sbt_dev, eff_dev, causal=False)
+                plan = runner.plan(eff.tolist(), num_tokens, 1, sbt_dev, eff_dev, causal=False)
                 runner.ensure_compiled(1, plan.with_reduction, causal=False)
-                runner.run(
-                    plan,
-                    query[:num_tokens],
-                    output,
-                    scratch_k,
-                    scratch_v,
-                    k_buf,
-                    v_buf,
-                    self.scale,
-                )
+                if fp6:
+                    # the dense contract: codes carry descale 1; the channel
+                    # scales fold into Q / the output (runner q_mul / o_mul)
+                    st = self._fp6
+                    runner.run(
+                        plan,
+                        query[:num_tokens],
+                        output,
+                        scratch_k,
+                        scratch_v,
+                        st["one"],
+                        st["one"],
+                        self.scale,
+                        q_mul=st["k_mul"],
+                        o_mul=st["v_mul"],
+                    )
+                else:
+                    k_buf, v_buf = self._scale_bufs_for(layer, dev)
+                    runner.run(
+                        plan,
+                        query[:num_tokens],
+                        output,
+                        scratch_k,
+                        scratch_v,
+                        k_buf,
+                        v_buf,
+                        self.scale,
+                    )
 
                 # the stock Triton kernel applies the sigmoid output gate; the
                 # dense kernel does not — apply it here (fp32, like the kernel)

@@ -37,6 +37,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
   <tbody>
     <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 24.3 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">450.5 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
+    <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.8-Flash-Next/README.md"><code>nvidia/Qwen3.8-Flash-Next</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
 
@@ -77,7 +78,7 @@ reproduces it.
 | 10 | [L2 prefetch](kernel/prefetch.md) | TMA L2 prefetch distance (--l2_prefetch) sweep | ⏳ pending |
 | 11 | [Programmatic dependent launch](kernel/pdl.md) | PDL on/off wall clock (decode overlaps the previous kernel; merge launches early) | ⏳ pending |
 | 12 | [Flag A/B](kernel/ab.md) | any harness flag sets, ncu + wall clock (default: evict-first x PDL) | ✅ run `20261105-175217` |
-| 13 | [Accuracy](kernel/accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | ✅ run `20261116-205937` |
+| 13 | [Accuracy](kernel/accuracy.md) | Does a serving config keep the model's answers? Tool calling (standard + Hard Mode), GSM8K / MMLU / IFEval on demand — `mjolnir bench accuracy` | ✅ run `20261121-183007` |
 
 
 
