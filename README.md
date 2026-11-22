@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/mjolnir-kernel/"><img src="https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834" alt="mjolnir-kernel on PyPI"></a>
   <a href="https://pypi.org/project/mjolnir-cli/"><img src="https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6" alt="mjolnir-cli on PyPI"></a>
   <a href="https://hub.docker.com/r/narandill/mjolnir-vllm"><img src="https://img.shields.io/docker/v/narandill/mjolnir-vllm?label=docker&sort=semver&arch=arm64&color=1baf7a" alt="narandill/mjolnir-vllm on Docker Hub"></a>
-  <img src="https://img.shields.io/badge/vLLM-0.34.0-blue" alt="vLLM 0.34.0">
+  <img src="https://img.shields.io/badge/vLLM--blue" alt="vLLM ">
   <img src="https://img.shields.io/badge/platforms-Jetson%20Thor%20%C2%B7%20Orin%20%C2%B7%20DGX%20Spark-76b900" alt="Supported platforms: Jetson AGX Thor, Jetson Orin, DGX Spark">
   <a href="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml"><img src="https://github.com/GoBrrr-ai/mjolnir/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
@@ -81,7 +81,7 @@ Why any of this helps: **every generated token re-reads the whole KV cache** —
     <td width="33%" valign="top" align="center">
       <br>
       <h3>🧠&nbsp;<a href="docs/platforms/thor/kernel/kv-cache-size.md">More context per GB</a></h3>
-      <p>The 6-bit <code>e2m3</code> KV cache holds <b>+31% tokens</b> in the same memory.</p>
+      <p>The 6-bit <code>e2m3</code> KV cache holds 25% fewer bytes per token, so more tokens in the same memory.</p>
       <br>
     </td>
   </tr>
@@ -153,7 +153,7 @@ curl -s http://localhost:6001/v1/chat/completions \
 
 ```bash
 docker run --rm -it --gpus all --ipc host -p 8000:8000 \
-  narandill/mjolnir-vllm:v0.34.0 <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
+  narandill/mjolnir-vllm <model> --kv-cache-dtype fp8 --attention-backend MJOLNIR
 ```
 
 ## Supported Hardware
@@ -183,6 +183,7 @@ kernel results exist for its headline model — its own kernel case study.
     <tr><td align="left"><a href="configs/Qwen/Qwen3.8-27B/README.md">Qwen3.8-27B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3_LMH8_VT64K">✅ 40.7 t/s</span></td><td align="center">✅</td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 24.3 t/s</span></td></tr>
     <tr><td align="left"><a href="configs/nvidia/Qwen3.6-35B-A3B/README.md">Qwen3.6-35B-A3B</a></td><td align="center"><span title="NVFP4_MJOLNIR_E2M3">✅ 126.2 t/s</span></td><td align="center">—</td><td align="center">—</td></tr>
     <tr><td align="left"><a href="configs/nvidia/Qwen3.8-Flash-Next/README.md">Qwen3.8-Flash-Next</a></td><td align="center"><span title="NVFP4_SFP8">❌ 40.5 t/s</span></td><td align="center">—</td><td align="center">—</td></tr>
+    <tr><td align="left"><a href="configs/thinkingmachines/Inkling-2-Mini/README.md">Inkling-2-Mini</a></td><td align="center"><span title="NVFP4">✅ 36.7 t/s</span></td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
 

@@ -93,14 +93,6 @@
    "stage": "e2e"
   }
  ],
- "fp6prof-bytes-vs-time": [
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
-   "stage": "fp6prof"
-  }
- ],
  "hero": [
   {
    "dark": "assets/hero.webp",
@@ -113,12 +105,6 @@
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "hndsweep"
-  },
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
-   "stage": "hndsweep"
   }
  ],
  "kernel-bandwidth": [
@@ -126,12 +112,6 @@
    "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
-   "stage": "sweep"
-  },
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
    "stage": "sweep"
   }
  ],
@@ -141,12 +121,6 @@
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "sweep"
-  },
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
-   "stage": "sweep"
   }
  ],
  "kernel-speedup": [
@@ -154,12 +128,6 @@
    "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
-   "stage": "sweep"
-  },
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
    "stage": "sweep"
   }
  ],
@@ -197,12 +165,6 @@
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "kvfmt"
-  },
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
-   "stage": "kvfmt"
   }
  ],
  "opening-infographic": [
@@ -225,14 +187,6 @@
    "stage": "e2e"
   }
  ],
- "pdl-delta": [
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
-   "stage": "pdl"
-  }
- ],
  "prefetch-heatmap": [
   {
    "dark": "assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.svg",
@@ -246,12 +200,6 @@
    "dark": "assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
-   "stage": "quant"
-  },
-  {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.svg",
-   "model": "Qwen/Qwen3.8-27B",
-   "platform": "thor",
    "stage": "quant"
   }
  ],

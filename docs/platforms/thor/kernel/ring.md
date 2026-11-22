@@ -1,6 +1,6 @@
 # KV ring depth
 
-> TMA→MMA ring depth (--kv_stages) sweep at every L · `mjolnir verify ring` · run `20261012-210506`
+> TMA→MMA ring depth (--kv_stages) sweep at every L · `mjolnir verify ring` · run `20261122-164815`
 
 ## The question
 
@@ -14,17 +14,15 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 
 <img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.svg" alt="KV ring depth" width="100%">
 
-- Fastest variant at the most context lengths: **`stages=5`** (2 of 8).
-- Best geomean vs FlashInfer: **`stages=2`** (1.25×); worst: `stages=6` (1.16×).
 
-| variant | flags | 128 | 4K | 8K | 16K | 32K | 64K | 128K | 256K | geomean |
-|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| `default` | (default) | $\color{#16a34a}{1.72\times}$ | $\color{#16a34a}{1.18\times}$ | $\color{grey}{1.03\times}$ | $\color{grey}{1.03\times}$ | **$\color{#16a34a}{1.16\times}$** | **$\color{#16a34a}{1.32\times}$** | $\color{#16a34a}{1.30\times}$ | $\color{#16a34a}{1.29\times}$ | $\color{#16a34a}{\mathbf{1.24\times}}$ |
-| `stages=2` | `--kv_stages 2` | $\color{#16a34a}{1.71\times}$ | $\color{#16a34a}{1.17\times}$ | $\color{#16a34a}{1.11\times}$ | $\color{#16a34a}{1.05\times}$ | $\color{#16a34a}{1.15\times}$ | $\color{#16a34a}{1.30\times}$ | **$\color{#16a34a}{1.31\times}$** | **$\color{#16a34a}{1.30\times}$** | $\color{#16a34a}{\mathbf{1.25\times}}$ |
-| `stages=3` | `--kv_stages 3` | $\color{#16a34a}{1.70\times}$ | $\color{#16a34a}{1.17\times}$ | $\color{#16a34a}{1.16\times}$ | $\color{grey}{1.01\times}$ | $\color{#16a34a}{1.05\times}$ | $\color{#16a34a}{1.28\times}$ | $\color{#16a34a}{1.18\times}$ | $\color{#16a34a}{1.22\times}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ |
-| `stages=4` | `--kv_stages 4` | **$\color{#16a34a}{1.73\times}$** | $\color{#16a34a}{1.17\times}$ | $\color{#16a34a}{1.16\times}$ | $\color{#16a34a}{1.08\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{#16a34a}{1.23\times}$ | $\color{#16a34a}{1.16\times}$ | $\color{#16a34a}{1.18\times}$ | $\color{#16a34a}{\mathbf{1.21\times}}$ |
-| `stages=5` | `--kv_stages 5` | $\color{#16a34a}{1.73\times}$ | **$\color{#16a34a}{1.20\times}$** | $\color{#16a34a}{1.16\times}$ | **$\color{#16a34a}{1.09\times}$** | $\color{#16a34a}{1.07\times}$ | $\color{#16a34a}{1.12\times}$ | $\color{#16a34a}{1.09\times}$ | $\color{#16a34a}{1.13\times}$ | $\color{#16a34a}{\mathbf{1.19\times}}$ |
-| `stages=6` | `--kv_stages 6` | $\color{#16a34a}{1.70\times}$ | $\color{#16a34a}{1.18\times}$ | **$\color{#16a34a}{1.16\times}$** | $\color{#16a34a}{1.04\times}$ | $\color{grey}{1.01\times}$ | $\color{#16a34a}{1.11\times}$ | $\color{#16a34a}{1.10\times}$ | $\color{#16a34a}{1.13\times}$ | $\color{#16a34a}{\mathbf{1.16\times}}$ |
+| variant | flags | geomean |
+|---|---|--:|
+| `default` | (default) | — |
+| `stages=2` | `--kv_stages 2` | — |
+| `stages=3` | `--kv_stages 3` | — |
+| `stages=4` | `--kv_stages 4` | — |
+| `stages=5` | `--kv_stages 5` | — |
+| `stages=6` | `--kv_stages 6` | — |
 
 <details>
 <summary>How the % and × here are calculated</summary>
@@ -35,7 +33,7 @@ How deep should the TMA → MMA ring be? A stage is freed only when the MMA that
 
 </details><br />
 
-<sub>Rendered from [`benchmarks/raw/verify/ring/20261012-210506.json`](../../../../benchmarks/raw/verify/ring/20261012-210506.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
+<sub>Rendered from [`benchmarks/raw/verify/ring/20261122-164815.json`](../../../../benchmarks/raw/verify/ring/20261122-164815.json). Ratios: FlashInfer time ÷ variant time; green = faster beyond the ±3% noise band, red = slower, gray = within noise.</sub>
 
 ## How to read it
 

@@ -81,7 +81,7 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 <details>
 <summary>KV capacity</summary>
 
-**official vLLM · FlashInfer · fp8 KV**: **2,022,204 tokens**, 9.9 requests at the full 200K context (vLLM's own estimate).
+**official vLLM · FlashInfer · fp8 KV**: **1,715,683 tokens**, 8.4 requests at the full 200K context (vLLM's own estimate).
 
 <details>
 <summary>How the % and × here are calculated</summary>

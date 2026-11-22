@@ -38,6 +38,7 @@ speeds. Per-config availability lives on each [model page](../../../configs/).
     <tr><td align="left"><a href="../../../configs/Qwen/Qwen3.8-27B/README.md"><code>Qwen/Qwen3.8-27B</code></a></td><td align="center"><a href="../../../configs/Qwen/Qwen3.8-27B/AWQ_FLASHINFER/README.md"><code>AWQ_FLASHINFER</code></a></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">✅ 24.3 t/s</span></td><td align="center"><span title="AWQ_MJOLNIR_VT64K">450.5 t/s</span></td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.6-35B-A3B/README.md"><code>nvidia/Qwen3.6-35B-A3B</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
     <tr><td align="left"><a href="../../../configs/nvidia/Qwen3.8-Flash-Next/README.md"><code>nvidia/Qwen3.8-Flash-Next</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
+    <tr><td align="left"><a href="../../../configs/thinkingmachines/Inkling-2-Mini/README.md"><code>thinkingmachines/Inkling-2-Mini</code></a></td><td align="center">—</td><td align="center">—</td><td align="center">—</td></tr>
   </tbody>
 </table>
 
@@ -91,7 +92,7 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 | leg | what runs | KV cache |
 |---|---|---|
 | **Mjolnir MMA** | the `sm_87` `mma.m16n8k16` decode kernel (a CuTe-DSL port of NVIDIA's Ampere FA2 example, restructured for paged decode): one CTA per (KV head, split, batch), `cp.async` staging, smem dequant, split-KV + fused LSE combine | fp8 e4m3, HND pages |
-| **FlashInfer FA2-TC** | the official vLLM 0.34.0 FlashInfer tensor-core decode path for `sm_87` | fp8 e4m3, NHD pages |
+| **FlashInfer FA2-TC** | the official vLLM  FlashInfer tensor-core decode path for `sm_87` | fp8 e4m3, NHD pages |
 
 
 <img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.svg" alt="Decode latency per step vs context length" width="100%">
