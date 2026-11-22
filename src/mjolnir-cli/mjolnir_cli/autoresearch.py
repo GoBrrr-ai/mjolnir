@@ -449,11 +449,11 @@ STATUS_COLORS = {
     "crash": "red",
     "noisy": "magenta",
 }
-PROGRESS = LEDGER_DIR / "progress.png"
+PROGRESS = LEDGER_DIR / "progress.svg"
 
 
 def render_progress(root: Path, rows: list[dict] | None = None, out: Path | None = None) -> Path | None:
-    """research/progress.png: every experiment on one chart, the kept
+    """research/progress.svg: every experiment on one chart, the kept
     staircase, and the per-L split vs the baseline. Best effort — a missing
     matplotlib never fails an evaluation."""
     rows = rows if rows is not None else load_ledger(root)
@@ -554,7 +554,7 @@ def status():
 
 @app.command()
 def chart():
-    """Re-render research/progress.png from the live ledger (or the newest exported run)."""
+    """Re-render research/progress.svg from the live ledger (or the newest exported run)."""
     root = _root()
     p = render_progress(root, latest_rows(root))
     console.print(f"[green]{p}[/green]" if p else "[yellow]no experiments yet[/yellow]")
@@ -629,7 +629,7 @@ def export(
         f"- baseline: {base['score']}× vs FlashInfer at `{base['commit']}`" if base and base.get("score") else "",
         f"- best: **{best['score']}×** at `{best['commit']}` — {best['hypothesis']}" if best else "",
         "",
-        "![progress](progress.png)" if render_progress(root, rows, out / "progress.png") else "",
+        "![progress](progress.svg)" if render_progress(root, rows, out / "progress.svg") else "",
         "",
         "| # | commit | status | score | why | agent | hypothesis | sources |",
         "|--:|---|---|--:|---|---|---|---|",

@@ -9,8 +9,8 @@ are listed in task/tests/red_state.md under "Spec changes" — the generated
 outputs legitimately move/change (spec §Directory Layout, §Naming).
 
 Spec changes: static charts render the dark palette (the Pages site is
-interactive Plotly): ``chart()`` emits a plain ``<img src="<id>.png">`` (no
-``<picture>``/srcset), ``render_all`` writes ``<id>.png`` files and manifest
+interactive Plotly): ``chart()`` emits a plain ``<img src="<id>.svg">`` (no
+``<picture>``/srcset), ``render_all`` writes ``<id>.svg`` files and manifest
 v2 entries carry a single ``dark`` path."""
 
 from __future__ import annotations
@@ -91,8 +91,8 @@ def test_full_render_from_fixture_data(repo):
         entry = manifest[name][0] if isinstance(manifest[name], list) else manifest[name]
         assert (repo / entry["dark"]).is_file()
     # no legacy ``-dark`` suffix anywhere under assets/benchmarks
-    pngs = list((repo / "assets" / "benchmarks").rglob("*.png"))
-    assert pngs and all("-dark" not in p.name for p in pngs)
+    svgs = list((repo / "assets" / "benchmarks").rglob("*.svg"))
+    assert svgs and all("-dark" not in p.name for p in svgs)
     readme.render_all(layout)
     text = (repo / "README.md").read_text()
     assert "{{" not in text and "{%" not in text
@@ -110,11 +110,11 @@ def test_full_render_from_fixture_data(repo):
     assert not (repo / "docs" / "platforms" / "thor" / "kernel" / "README.md").exists()
     # the kernel benchmark charts moved off the root README to the Thor page
     # (the root keeps only the hero + the static assets)
-    assert '<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png"' in thor_page
+    assert '<img src="../../../assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.svg"' in thor_page
     assert "assets/benchmarks/thor" not in text
     assert "<picture>" not in thor_page and "srcset" not in thor_page and "prefers-color-scheme" not in thor_page
     page = (repo / "docs" / "platforms" / "thor" / "kernel" / "ring.md").read_text()
-    assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png" in page  # relative to the page
+    assert "../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.svg" in page  # relative to the page
     assert "Fastest variant at the most context lengths" in page
     # site keeps building (v2: the lazy per-pair payload replaces the v1
     # single-page data.json); the CLI reference is the plot command's write
@@ -202,13 +202,13 @@ def test_kernel_chapters_render_under_docs_platforms_thor_kernel(repo):
     assert "How the % and × here are calculated" in page  # the how("variant") panel survives
     assert "benchmarks/raw/verify/ring/20261010-120000.json" in page  # raw provenance
     assert "srcset" not in page and "<picture>" not in page
-    assert '<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png"' in page
+    assert '<img src="../../../../assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.svg"' in page
     assert not (repo / "docs" / "kernel" / "ring.md").exists()  # the old home is gone
 
 
 def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
     """Manifest v2 (spec #8): entries carry the (platform, model) identity and
-    resolve to the asset assets/benchmarks/<platform>/<model-short>/<id>.png
+    resolve to the asset assets/benchmarks/<platform>/<model-short>/<id>.svg
     — a single ``dark`` path, no ``light`` key; pairs without data render no
     charts (no orin anything)."""
     layout = load_layout()
@@ -218,7 +218,7 @@ def test_chart_manifest_v2_writes_the_pair_identity_and_nested_paths(repo):
     # v2 manifests are list-valued: one entry per (chart, measured pair)
     entry = next(e for e in manifest["kernel-speedup"] if e["platform"] == "thor")
     assert entry["model"] == DEFAULT_MODEL
-    assert entry["dark"] == "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png"
+    assert entry["dark"] == "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.svg"
     assert (repo / entry["dark"]).is_file()
     for name, es in manifest.items():
         for e in es:

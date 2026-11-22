@@ -1,4 +1,5 @@
-"""E2E serving charts, the hero image and the opening infographic."""
+"""E2E serving charts and the hero image; the opening infographic lives
+in charts_infographic."""
 
 from __future__ import annotations
 
@@ -8,7 +9,6 @@ from collections.abc import Callable
 from mjolnir_cli import theme
 from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, model_of
 from mjolnir_cli.history import load_records
-from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import Mode
 
 from mjolnir_cli.charts_base import (
@@ -24,7 +24,6 @@ from mjolnir_cli.charts_base import (
     _font_file,
     _plt,
     hero_platform_out,
-    multiple,
 )
 
 E2E_SERIES = (
@@ -339,190 +338,6 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     layer = Image.alpha_composite(shadow, over).resize((W, H), Image.Resampling.LANCZOS)
     out = layout.repo_root / "assets" / hero_platform_out(platform)
     Image.alpha_composite(bg, layer).convert("RGB").save(out, quality=88, optimize=True)
-    return out
-
-
-def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL) -> Path | None:
-    """``assets/benchmarks/<platform>/<model-short>/opening-<platform>-infographic.png``
-    — one per (platform, model) pair with an e2e history, over that
-    platform's ``mjolnir_<p>_bg.jpeg`` canvas.
-
-    Four stat blocks fill the dark right half — decode, prefill, time to
-    first token, inter-token latency — each with the Mjolnir-side
-    absolute value as the big number and the change + direction as the
-    subtitle, over the two measured values as bars; the claim, the model +
-    platform, the scenario and the provenance sit bottom-left, under the
-    hammer (a bottom scrim keeps them readable over the handle). Every number
-    comes from the pair's latest history row (:func:`mjolnir_cli.e2e.latest_pair`)
-    — one request at the smallest context both sides measured
-    (:func:`mjolnir_cli.e2e.infographic_row`) — native FlashInfer on the
-    official vLLM image vs the Mjolnir backend on the Mjolnir image.
-
-    The root README pins the default pair (thor); each platform page embeds
-    its own pair's chart (a platform suffix on a per-platform chart is a
-    data dimension, not the banned theme suffix).
-    """
-    import numpy as np
-    from matplotlib.patches import FancyBboxPatch
-
-    from mjolnir_cli import e2e
-    from mjolnir_cli.config import model_short
-
-    if layout.repo_root is None:
-        return None
-    off, mj = e2e.latest_pair(layout.history_file, model=model, platform=platform)
-    if not off or not mj:
-        return None
-    h = e2e.infographic_row(off, mj)
-    bg_path = layout.repo_root / "assets" / HERO_BG_PLATFORM.format(platform=platform)
-    if not h or not bg_path.exists():
-        print(
-            f"[mjolnir] no official-vLLM / Mjolnir e2e pair for ({platform}, {model}) in history —"
-            " infographic skipped (run: mjolnir bench e2e)"
-        )
-        return None
-    out = (
-        layout.repo_root
-        / "assets"
-        / "benchmarks"
-        / platform
-        / model_short({"model": model})
-        / f"opening-{platform}-infographic.jpg"
-    )
-    out.parent.mkdir(parents=True, exist_ok=True)
-
-    plt = _plt()
-    bg = plt.imread(str(bg_path))
-    H, W = bg.shape[:2]
-    fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_axis_off()
-    ax.set_xlim(0, W)
-    ax.set_ylim(0, H)
-    ax.imshow(bg, extent=(0, W, 0, H), zorder=0)
-    # scrims: navy on the right (the stats), and up from the bottom-left
-    # corner (the title block over the hammer's handle); clear elsewhere
-    gx, gy = np.meshgrid(np.linspace(0, 1, 512), np.linspace(1, 0, 256))  # row 0 = top
-    right = np.clip((gx - 0.42) / 0.22, 0, 1) ** 1.5 * 0.76
-    bottom = np.clip((0.58 - gy) / 0.30, 0, 1) ** 0.9 * 0.93 * np.clip((0.66 - gx) / 0.16, 0, 1)
-    scrim = np.zeros((256, 512, 4))
-    scrim[..., :3] = np.array([3, 7, 16]) / 255
-    scrim[..., 3] = np.maximum(right, bottom)
-    ax.imshow(scrim, extent=(0, W, 0, H), aspect="auto", zorder=1)
-
-    disp = _display_family()
-    white, dim, faint = "#ffffff", "#b4bfcc", "#7f8a97"
-    c_off, c_mj = theme.DARK.flashinfer, theme.LIGHT.mjolnir
-    ver = str(off.get("image", "")).split(":")[-1].split("-")[0].lstrip("v")
-    quant = str(mj.get("config", "")).split("_")[0]
-    kv = "fp6 KV" if "E2M3" in str(mj.get("config", "")) else "fp8 KV"
-
-    from matplotlib import patheffects
-
-    halo = [patheffects.withStroke(linewidth=3, foreground=(0.01, 0.03, 0.06, 0.55))]
-
-    def T(xf, yf, text, size, color=white, weight="normal", ha="left", **kw):
-        return ax.text(
-            xf * W, yf * H, text, fontsize=size, color=color, weight=weight, ha=ha, family=disp, zorder=6, **kw
-        )
-
-    # ── bottom-left: claim, model + platform, scenario, provenance ─────────
-    BL, BY = 0.035, 0.05  # left margin; lift of the whole block off the bottom edge
-    plat_rec = REGISTRY[platform]
-    T(BL, BY + 0.275, f"{plat_rec.name.upper()}   ·   END-TO-END SERVING", 10, dim, "semibold", path_effects=halo)
-    title = T(BL, BY + 0.185, "Mjolnir", 34, white, "bold", path_effects=halo)
-    x_after = title.get_window_extent(renderer=fig.canvas.get_renderer()).x1
-    ax.text(
-        x_after + 14,
-        (BY + 0.185) * H,
-        f"vs vLLM {ver}",
-        fontsize=34,
-        color=dim,
-        family=disp,
-        zorder=6,
-        path_effects=halo,
-    )
-    plat = REGISTRY.get(platform_of(mj))
-    T(BL, BY + 0.120, f"{mj.get('model', '')} on {plat.name if plat else platform_of(mj)}", 22, dim, path_effects=halo)
-    T(
-        BL,
-        BY + 0.065,
-        f"1 request  ·  {e2e.ctx_label(h['ctx'])} context  · {quant}  ·  {kv}  ·  {e2e.spec_short(off, mj)}"
-        "  ·  vs the official vllm",
-        10.5,
-        dim,
-        path_effects=halo,
-    )
-    T(
-        BL,
-        BY + 0.020,
-        f"{off.get('image', '')}  vs  {mj.get('image', '')}  ·  llama-benchy",
-        8.5,
-        faint,
-    )
-
-    # ── right: four stat blocks ────────────────────────────────────────────
-    blocks = (
-        ("tg_tps", "faster decode", "slower decode", "", "{:.1f}"),
-        ("pp_tps", "faster prefill", "slower prefill", "", "{:,.0f}"),
-        ("ttft_ms", "lower TTFT", "higher TTFT", "", None),
-        ("itl_ms", "lower ITL", "higher ITL", "", "{:.1f} ms"),
-    )
-    L, R, gap = 0.56, 0.96, 0.045
-    cw = (R - L - gap) / 2
-    tops = (0.93, 0.48)
-
-    def fmt_ttft(v: float) -> str:
-        return f"{v / 1000:.2f} s" if v >= 1000 else f"{v:,.0f} ms"
-
-    for i, (key, better, worse, unit, fmt) in enumerate(blocks):
-        va, vb, gain = h.get(key) or (None, None, None)
-        if va is None or vb is None or gain is None:
-            continue
-        x0 = L + (i % 2) * (cw + gap)
-        y0 = tops[i // 2]
-        # the BIG number is the Mjolnir-side absolute value; the subtitle
-        # carries the change + direction. Throughput: the change in tokens/s,
-        # a doubling or more as a multiple (+200% reads "3×"); latency: the
-        # change in ms (−27% = 27% fewer ms — a reduction, never the
-        # reciprocal speedup)
-        change = e2e.pct(-gain) if key in ("ttft_ms", "itl_ms") else multiple(gain) if gain >= 100 else e2e.pct(gain)
-        T(x0, y0 - 0.115, big_value(key, vb), 50, white, "bold")
-        T(x0 + cw, y0 - 0.030, unit, 10.5, faint, ha="right")  # above the big value's caps
-        T(x0, y0 - 0.178, f"{change} {better if gain >= 0 else worse}", 16.5, white)
-        X, BW = x0 * W, cw * W
-        vmax = max(va, vb)
-        for j, (lbl, v, col) in enumerate((("vLLM", va, c_off), ("Mjolnir", vb, c_mj))):
-            y = (y0 - 0.255 - j * 0.085) * H
-            ax.text(X, y + 9, lbl, fontsize=9.5, color=dim, family=disp, zorder=6)
-            ax.text(
-                X + BW,
-                y + 9,
-                fmt_ttft(v) if fmt is None else fmt.format(v),
-                fontsize=11,
-                color=white,
-                weight="bold",
-                ha="right",
-                family=disp,
-                zorder=6,
-            )
-            bh = 0.014 * H
-            for width, face, z in ((BW, (1, 1, 1, 0.10), 5), (max(BW * v / vmax, bh), col, 6)):
-                ax.add_patch(
-                    FancyBboxPatch(
-                        (X, y - bh),
-                        width,
-                        bh,
-                        boxstyle=f"round,pad=0,rounding_size={bh / 2:.1f}",
-                        facecolor=face,
-                        edgecolor="none",
-                        zorder=z,
-                    )
-                )
-
-    fig.savefig(out, dpi=100, pil_kwargs={"quality": 90})
-    plt.close(fig)
-    print(f"[mjolnir] wrote {out}")
     return out
 
 

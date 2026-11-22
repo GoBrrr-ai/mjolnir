@@ -286,7 +286,7 @@ def test_accuracy_page_and_charts_render(repo):
     assert "| **official vLLM · FlashInfer · bf16 KV** |" in page
     assert "86.5 (-1.5)" in page and "62.0 (+2.0)" in page and "90.0" in page
     assert "1 scenarios scored lower, 0 higher of 2" in page
-    assert "accuracy-suites.png" in page and "20261013-100000/accuracy.json" in page
+    assert "accuracy-suites.svg" in page and "20261013-100000/accuracy.json" in page
     # the accuracy row lives in the platform page's kernel index (the root
     # README no longer carries the kernel benchmark sections)
     assert "[Accuracy](kernel/accuracy.md)" in (repo / "docs" / "platforms" / "thor" / "README.md").read_text()

@@ -326,7 +326,7 @@ def _seed_charts(root: Path) -> None:
     ``dark`` path."""
     manifest = {}
     for name, stage in SEEDED_CHARTS.items():
-        dark = f"assets/benchmarks/thor/Qwen3.8-27B/{name}.png"
+        dark = f"assets/benchmarks/thor/Qwen3.8-27B/{name}.svg"
         p = root / dark
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"\x89PNG fixture")

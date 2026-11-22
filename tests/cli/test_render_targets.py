@@ -369,7 +369,7 @@ def test_platform_readme_renders_the_default_model_e2e_only_with_data(repo):
     e2e = _section(thor, "End to end")
     assert f"`{FP6_QUANT}`" in e2e and "`NVFP4`" in e2e  # both sides named
     assert fx.THOR_GAIN in e2e  # the same pair data the model page renders
-    assert "e2e-decode.png" in e2e  # the pair-scoped chart
+    assert "e2e-decode.svg" in e2e  # the pair-scoped chart
     spark = (repo / "docs" / "platforms" / "spark" / "README.md").read_text()
     assert "## End to end" not in spark  # no headline model pinned yet
 
@@ -552,7 +552,7 @@ def test_benchmarks_chart_references_resolve_from_the_config_dir(repo):
     config page's references resolve from four directories deep."""
     _render_all()
     page = (repo / "configs" / M38 / FP6_QUANT / "README.md").read_text()
-    assert "../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png" in page
+    assert "../../../../assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.svg" in page
 
 
 # ── cross-linking (spec §Cross-Linking Map) + root README (spec target #1) ──

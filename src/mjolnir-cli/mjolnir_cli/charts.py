@@ -1,5 +1,6 @@
 """Kernel + experiment charts (verify raws); helpers in charts_base,
-e2e/hero/infographic in charts_e2e, serving charts in charts_serving."""
+e2e/hero in charts_e2e, the opening infographics in charts_infographic,
+serving charts in charts_serving."""
 
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from collections.abc import Callable
 from mjolnir_cli import charts_base, charts_e2e, charts_serving
 from mjolnir_cli import theme
 from mjolnir_cli.charts_e2e import E2E_CHARTS
+from mjolnir_cli.charts_infographic import render_infographic
 from mjolnir_cli.charts_serving import ACCURACY_CHARTS, accuracy_rows_for
 from mjolnir_cli.config import RepoLayout, model_short
 from mjolnir_cli.e2e import latest_pair as e2e_latest_pair
@@ -531,10 +533,8 @@ load_verify = charts_base.load_verify
 _save = charts_base._save
 _logotype_box = charts_base._logotype_box
 multiple = charts_base.multiple
-INFOGRAPHIC = charts_base.INFOGRAPHIC
 e2e_rows = charts_e2e.e2e_rows
 render_hero = charts_e2e.render_hero
-render_infographic = charts_e2e.render_infographic
 
 
 def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
@@ -564,7 +564,7 @@ def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
         fig = build(theme.DARK)
         if fig is None:
             return False
-        p = _save(fig, out / f"{entry['name']}.png")
+        p = _save(fig, out / f"{entry['name']}.svg")
         plt.close(fig)
         entry["dark"] = str(p.relative_to(layout.repo_root) if layout.repo_root else p)
         return True
@@ -616,10 +616,10 @@ def render_all(layout: RepoLayout) -> dict[str, list[dict]]:
         for e in entries
         if e.get("dark")
     }
-    for pattern in ("*.png", "*.jpg"):
-        for png in out_dir.rglob(pattern):
-            if png.resolve() not in keep:
-                png.unlink()
+    for pattern in ("*.png", "*.jpg", "*.svg"):
+        for stale in out_dir.rglob(pattern):
+            if stale.resolve() not in keep:
+                stale.unlink()
     if hero is not None:
         manifest["hero"] = [
             {
