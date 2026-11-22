@@ -50,7 +50,7 @@ max-model-len: 262144
 max-num-batched-tokens: 8192
 gpu-memory-utilization: 0.78
 
-kv-cache-dtype: auto   # = the model dtype, bfloat16 (the recipe's --kv-cache-dtype bfloat16)
+kv-cache-dtype: fp8_e4m3  # pinned: the E1 parity (43.8 stock / 43.5 swap c1) and the KV-capacity upside
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 
