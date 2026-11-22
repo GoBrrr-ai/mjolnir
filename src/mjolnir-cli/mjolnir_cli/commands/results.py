@@ -47,7 +47,7 @@ def make_plot(app: typer.Typer):
             "the writer already prevents new ones — the untracked are reported, not deleted",
         ),
     ):
-        """Render every chart (PNGs in assets/benchmarks/, from the
+        """Render every chart (SVGs in assets/benchmarks/, from the
         latest default `mjolnir verify` run of each stage + the e2e history).
         --readme also renders README.md and docs/**/*.md from their .md.j2
         templates; --site builds the interactive GitHub Pages site. Everything is
