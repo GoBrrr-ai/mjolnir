@@ -69,7 +69,7 @@ diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model
  
  def _check_mm_mxfp8_shape(weight_shape: tuple[int, int]) -> tuple[bool, str | None]:
      N, K = weight_shape
-@@ -107,14 +168,19 @@
+@@ -140,14 +140,19 @@ class FlashInferCutlassMxfp8LinearKernel(Mxfp8LinearKernel):
          if not weight.is_contiguous():
              weight = weight.contiguous()
  
@@ -94,6 +94,6 @@ diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model
 +                out_dtype=out_dtype,
 +                backend="cutlass",
 +            )
+         if padded_n != N:
+             output = output[:, :N].contiguous()
  
-         if bias is not None:
-             output = output + bias
