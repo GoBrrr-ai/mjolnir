@@ -277,7 +277,7 @@ def test_image_constants_track_the_pinned_base():
     assert config.IMAGE_REPO == "narandill/mjolnir-vllm"
     assert config.VLLM_VERSION == "0.35.0rc0.dev"
     assert config.DEFAULT_IMAGE == "narandill/mjolnir-vllm:v0.35.0rc0.dev"
-    assert config.STOCK_IMAGE == "vllm/vllm-openai:v0.35.0rc0.dev"
+    assert config.STOCK_IMAGE == "vllm/vllm-openai:nightly-647a76866b4559a74e27d1c6b55fbffe85c07ce4"
 
 
 def test_config_reexports_the_platform_record_helpers():

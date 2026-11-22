@@ -429,6 +429,13 @@ class Runner:
             f"HF_TOKEN={os.environ.get('HF_TOKEN', '')}",
             "-e",
             "TMPDIR=/tmp",
+            # The nightly images may declare a newer CUDA than the host
+            # driver's metadata table (the 0.35.0rc0.dev nightlies: CUDA
+            # 13.2 on a 580.00/CUDA 13.0 Thor) — the runtime's requirement
+            # check then refuses to create the container. Same skip the
+            # serve path carries (dockerctl BASE_ENV).
+            "-e",
+            "NVIDIA_DISABLE_REQUIRE=1",
             # The arch-sensitive JIT envs follow the platform (the same
             # override build_run_args makes): the kernel compiles for the
             # device this container runs on, and any Triton/Inductor paths
