@@ -90,6 +90,11 @@ PATCH_ORDER = [
     # — order-independent. The TP>1 all-reduce/seq-conv kernels stay
     # native-only: TP1 configs only until #69167 lands in a pin.
     "thor-inkling2-sm110-conv-mix.patch",
+    # ...and the FA4 sheared-bias rel-attention on sm_110 (the stock gate is
+    # family(100); the FA2/FA3 ext wheels are sm_80/sm_90a-only so the
+    # Triton-sm90 fallback is the only stock path on Thor). Env-off via
+    # MJOLNIR_INKLING2_FA4_REL=0. Same file family, order-independent.
+    "thor-inkling2-fa4-rel-sm110.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch

@@ -49,11 +49,21 @@ index e3e90ec..293d802 100644
  # Track whether upstream flash-attn is available on ROCm.
  # Set during module initialization and never modified afterwards.
  # This module-level flag avoids repeated import attempts and ensures
-@@ -115,6 +148,8 @@ def get_flash_attn_version(
+@@ -115,6 +148,18 @@ def get_flash_attn_version(
              and vllm_config.attention_config.flash_attn_version is not None
          ):
              fa_version = vllm_config.attention_config.flash_attn_version
 +        elif vllm_config is not None and _mjolnir_wants_fa4(vllm_config):
++            fa_version = 4
++        elif (
++            device_capability.major == 11
++            and is_fa_version_supported(4)
++            and os.environ.get("MJOLNIR_FA2_ON_SM110", "0") != "1"
++        ):
++            # THOR: stock has no sm_110 branch and falls to FA2, whose ext
++            # wheels carry sm_80/sm_90a cubins only (FA2's PTX also needs a
++            # newer driver JIT than 580/CUDA-13.0 accepts). FA4 is the
++            # runtime-compiled path on Thor (cuteDSL, sm_110a).
 +            fa_version = 4
  
          # 3. fallback for unsupported combinations

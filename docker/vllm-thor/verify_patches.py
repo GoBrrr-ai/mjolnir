@@ -140,6 +140,28 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             'os.environ.get("MJOLNIR_INKLING2_CONV_MIX_NATIVE", "0") != "1"',
         ),
     ],
+    "thor inkling2 FA4 rel-attention on sm_110 (THOR_INKLING2_FA4_REL)": [
+        # the gate helper + both call sites (the warmup registration and
+        # the prefill branch) -- the env knob is the escape hatch
+        (
+            "models/inkling2/nvidia/attention.py",
+            "def _thor_fa4_rel() -> bool:",
+        ),
+        (
+            "models/inkling2/nvidia/attention.py",
+            'MJOLNIR_INKLING2_FA4_REL',
+        ),
+        (
+            "models/inkling2/nvidia/attention.py",
+            "use_sm100_kernels() or _thor_fa4_rel()",
+        ),
+        # the vision encoder rides the same gate (its stock else-branch is
+        # the FA2/FA3 ext wheel, dead on sm_110)
+        (
+            "models/inkling2/nvidia/vision.py",
+            "MJOLNIR_INKLING2_FA4_REL",
+        ),
+    ],
     "thor Mjolnir attention backend: AttentionBackendEnum.MJOLNIR": [
         # The enum member that makes `--attention-backend MJOLNIR` parse; its
         # value is the mjolnir-kernel backend class (installed by the
@@ -158,6 +180,10 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         (
             "v1/attention/backends/fa_utils.py",
             "elif vllm_config is not None and _mjolnir_wants_fa4(vllm_config):\n            fa_version = 4",
+        ),
+        (
+            "v1/attention/backends/fa_utils.py",
+            "MJOLNIR_FA2_ON_SM110",
         ),
     ],
     "thor sm110 draft-CG gate: shape-gated draft cudagraph replay (c1 fix)": [

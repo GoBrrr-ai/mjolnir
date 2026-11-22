@@ -173,8 +173,10 @@ touched = [
     "models/qwen4_exp/nvidia/ngram_embedding.py",
     "models/qwen4_exp/nvidia/mtp.py",
     "models/qwen4_exp/nvidia/hyperconnection.py",
-    # the Inkling 2 sm_110 conv/mix fallback
+    # the Inkling 2 sm_110 conv/mix fallback + the FA4 rel-attention gate
     "models/inkling2/nvidia/ops/conv_mix.py",
+    "models/inkling2/nvidia/attention.py",
+    "models/inkling2/nvidia/vision.py",
     "model_executor/kernels/linear/mxfp8/flashinfer.py",
 ]
 for rel in touched:

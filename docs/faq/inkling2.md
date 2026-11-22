@@ -45,11 +45,27 @@ the fused rel-decode attention, the sconv/prologue stack, gate/sink — is
 Triton/gluon or FlashInfer-JIT and compiles for sm_110 at runtime.
 TP>1 also waits for #69167 (the all-reduce kernels): TP1 configs only.
 
+The first serve found the two exceptions: the wheel's FA ext kernel
+libraries (`_vllm_fa2_C`/`_vllm_fa3_C`) carry sm_80/sm_90a cubins only —
+and FA2's PTX needs a newer driver JIT than the 580/CUDA-13.0 stack
+accepts — so every stock-`FLASH_ATTN` leg and the vision encoder died with
+`no kernel image` at the encoder-cache profiling pass
+(`hopper/flash_fwd_launch_template.h:172`), right after weight load. The
+fixes (`thor-inkling2-fa4-rel-sm110.patch` + the backend patch's fa_utils
+hunk) route all of it onto the runtime-compiled FA4 kernels: the model's
+sm_100 gates widened to sm_110 (attention pair + tml-Fa4 ViT, env-off
+`MJOLNIR_INKLING2_FA4_REL=0`) and a stock `get_flash_attn_version`
+major-11→FA4 default for the plain legs (`MJOLNIR_FA2_ON_SM110=1`). An
+sm_110 ext rebuild was probed and parked: the fork pins FA2 gencode
+`8.0+PTX` / FA3 `9.0a` per-file, so it is a fork-level change — the
+cute/tml runtime paths need no ext (scratch tree `.fa110/`, untracked).
+
 ## Which Mjolnir stack features apply
 
 | Feature | Verdict |
 |---|---|
 | `--attention-backend MJOLNIR` (the decode kernel) | **Does not plug.** The model owns its attention: `Inkling2AttentionBackend` (a `FlashAttentionBackend` subclass) with a fused custom decode kernel (`rel_decode_attention`: SDPA + rel-bias + gate/sink in one) and FA4-with-sheared-bias / the sm90 kernel for prefill. The global backend switch is moot for these layers. |
+| Plain `FLASH_ATTN` legs (DSpark drafter, pass-cache attn) + the ViT | **FA4 on sm_110, patched.** Stock `get_flash_attn_version` has majors 9/10 only → sm_110 falls to FA2 (dead ext, above); the ViT hardcoded FA3. The backend patch's fa_utils hunk adds the major-11→FA4 default (`MJOLNIR_FA2_ON_SM110=1` restores stock) and `vision.py` rides the same tml gate as the attention pair (`MJOLNIR_INKLING2_FA4_REL`). |
 | fp6 KV (`fp6_e2m3`) | **Phase 2.** The cache is written by the model's own `attention_prologue` and read by its own kernels; the dtype gate allows `auto`/`bfloat16` only off SM12x (`fp8` is SM120+, and fp16 conflicts with spec decode). fp6 needs inkling-side kernel/loader work — the Mjolnir pluggable dtype registers, but nothing consumes it on this path yet. |
 | fp8 KV | Same story, SM120-gated upstream. The unit-scale e4m3 cache path exists in the kernels; untesting on sm_110 is a patch, not a config. |
 | fp8 lm_head (`MJOLNIR_LM_HEAD=fp8`) | **Plausible, verify at first serve** — config `NVFP4_LMH8`. The head is a stock `ParallelLMHead` behind the model's `_apply_head` (low-M fp32 path on SM12x only) and the `final_logit_softcapping 30.0` is a `LogitsProcessor` post-op, so the wrapper compose; the smoke is a NaN check + `bench accuracy`. |
