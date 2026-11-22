@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../../assets/hero-orin.jpg" alt="Mjolnir on Jetson Orin" width="100%">
+  <img src="../../../assets/hero-orin.webp" alt="Mjolnir on Jetson Orin" width="100%">
 </p>
 
 # <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="28" align="absmiddle"> Jetson Orin
@@ -21,7 +21,7 @@ row), and PDL does not exist on Ampere.
 
 ## Serving on Jetson Orin
 
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.jpg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.svg" alt="Mjolnir vs the official vLLM image — end-to-end serving" width="100%">
 
 
 ## Measured Models
@@ -62,7 +62,7 @@ reproduces it.
 
 </details><br />
 
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.png" alt="Mjolnir decode speedup over FlashInfer" width="100%">
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.svg" alt="Mjolnir decode speedup over FlashInfer" width="100%">
 
 | # | chapter | question | status |
 |---|---|---|---|
@@ -94,7 +94,7 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 | **FlashInfer FA2-TC** | the official vLLM 0.34.0 FlashInfer tensor-core decode path for `sm_87` | fp8 e4m3, NHD pages |
 
 
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step vs context length" width="100%">
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.svg" alt="Decode latency per step vs context length" width="100%">
 
 | L | Mjolnir fp8 | FlashInfer | fp8 vs FI |
 |---|--:|--:|--:|
@@ -110,7 +110,7 @@ Measured on the Orin: the `sm_87` mma decode kernel against the FlashInfer refer
 
 > <sub>Bold = fastest at that `L`. Ratio columns: baseline time ÷ this kernel's time (green = faster beyond noise).</sub>
 
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the LPDDR5 peak" width="100%">
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.svg" alt="Effective KV bandwidth vs the LPDDR5 peak" width="100%">
 
 
 ## End to end
@@ -122,9 +122,9 @@ own history (`latest_pair`), decode tokens/s per request at 1 request.
 |---|---|--:|--:|--:|---|
 | `AWQ_FLASHINFER` | `AWQ_MJOLNIR_VT64K` | 17.9 | 21.9 | +22.4% | 32K |
 
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.svg" alt="End-to-end decode throughput: official vLLM vs Mjolnir" width="100%">
 
-<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.png" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
+<img src="../../../assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.svg" alt="End-to-end prompt processing: official vLLM vs Mjolnir" width="100%">
 
 
 Each cell: official → **Mjolnir** and the relative change of the value — **throughput change** for decode and prefill, **latency change** for TTFT and ITL.

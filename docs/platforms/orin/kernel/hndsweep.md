@@ -12,7 +12,7 @@ Same data in both layouts: the FlashInfer driver generates the cache once in NHD
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/hnd-layout.png" alt="Head-major KV pages" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/hnd-layout.svg" alt="Head-major KV pages" width="100%">
 
 - **Mjolnir (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.25×**, from 1.03× (L=256K) to 2.20× (L=128); faster beyond the ±3% noise band at 8 of 8 context lengths.
 - **FlashInfer (fp8 KV, HND)** vs FlashInfer (fp8 KV, NHD): geomean **1.00×**, from 0.98× (L=4K) to 1.01× (L=64K); faster beyond the ±3% noise band at 0 of 8 context lengths.

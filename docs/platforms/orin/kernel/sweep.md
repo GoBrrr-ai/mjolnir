@@ -15,11 +15,11 @@ The headline: how fast is one decode step with Mjolnir against the platform's st
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.png" alt="Mjolnir speedup over FlashInfer" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.svg" alt="Mjolnir speedup over FlashInfer" width="100%">
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.png" alt="Decode latency per step" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.svg" alt="Decode latency per step" width="100%">
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.png" alt="Effective KV bandwidth vs the platform's memory peak" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.svg" alt="Effective KV bandwidth vs the platform's memory peak" width="100%">
 
 - **Mjolnir MMA (fp8 KV, HND)** vs FlashInfer FA2-TC (fp8 KV, NHD): geomean **1.13×**, from 0.97× (L=8K) to 1.65× (L=128); faster beyond the ±3% noise band at 5 of 8 context lengths.
 

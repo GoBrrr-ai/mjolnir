@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 from pathlib import Path
 
 from mjolnir_cli import theme
@@ -22,10 +23,7 @@ PEAK_GBS = 273.0  # fallback memory peak when a platform record carries none
 NOISE = NOISE_PCT / 100  # same-run ratio noise band (see verify.stages.NOISE_PCT)
 
 
-DPI = 160
-
-_PNG_COLORS = 64  # charts quantize to a 64-color palette (see _optimize_png)
-_PNG_OLEVEL = 6  # oxipng zopfli: ~5% under o2, worth the seconds on a render
+DPI = 160  # the raster fallback resolution inside the SVG (imshow heatmaps)
 
 
 def load_verify(layout: RepoLayout) -> dict[str, dict]:
@@ -54,7 +52,20 @@ def _plt():
         raise RuntimeError(
             "matplotlib missing — install the plot extra: uv sync (or pip install 'mjolnir-cli[plot]')"
         ) from e
-    plt.rcParams.update({"font.size": 11, "font.family": "DejaVu Sans", "savefig.dpi": DPI})
+    plt.rcParams.update(
+        {
+            "font.size": 11,
+            "font.family": "DejaVu Sans",
+            "savefig.dpi": DPI,
+            # SVG output: text stays <text> (a string per label, not a path
+            # per glyph — the single biggest lever on the file's size) with
+            # the viewer's font stack, and a pinned hash salt — matplotlib
+            # derives the element ids from sha256(salt, id) and defaults to
+            # a per-render uuid4, which would reshuffle every id on each run
+            "svg.fonttype": "none",
+            "svg.hashsalt": "mjolnir",
+        }
+    )
     return plt
 
 
@@ -230,32 +241,27 @@ def _int_locator():
     return MaxNLocator(integer=True)
 
 
-def _finalize_png(raw: bytes) -> bytes:
-    """Charts ship as 64-color indexed PNGs, no alpha channel.
-
-    Median-cut quantization is lossy by design: the antialiasing blends
-    collapse into their nearest palette entries (the theme's series colors
-    all stay distinct — checked across every chart), and the always-opaque
-    alpha matplotlib emits is dropped. oxipng finishes the file. ~3.5x
-    smaller than the render output; the pinned toolchain keeps the bytes
-    deterministic, so unchanged data leaves the committed file untouched."""
-    import oxipng
-    from PIL import Image
-
-    im = Image.open(io.BytesIO(raw))
-    im.load()
-    q = im.convert("RGB").quantize(colors=_PNG_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-    buf = io.BytesIO()
-    q.save(buf, format="PNG")
-    return oxipng.optimize_from_memory(buf.getvalue(), level=_PNG_OLEVEL)
-
-
 def _save(fig, path: Path) -> Path:
+    """Charts ship as deterministic SVG: a fraction of the quantized PNG's
+    bytes, reviewable as text in the diff, and byte-stable — the svg hash
+    salt is pinned in :func:`_plt` (matplotlib derives element ids from
+    sha256(salt, id) and defaults to a per-render uuid4) and the date
+    metadata is suppressed, so unchanged data never rewrites the committed
+    file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     theme.fit_footer(fig)
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight", pad_inches=0.12, dpi=DPI)
-    final = _finalize_png(buf.getvalue())
+    fig.savefig(
+        buf,
+        format="svg",
+        facecolor=fig.get_facecolor(),
+        bbox_inches="tight",
+        pad_inches=0.12,
+        metadata={"Date": None},
+    )
+    final = re.sub(rb"[ \t]+\n", b"\n", buf.getvalue())  # pre-commit's trailing-whitespace form
+    if not final.endswith(b"\n"):
+        final += b"\n"
     if not (path.exists() and path.read_bytes() == final):
         path.write_bytes(final)
     return path
@@ -322,15 +328,15 @@ def _display_family() -> str:
     return "DejaVu Sans"
 
 
-HERO = "hero.jpg"
+HERO = "hero.webp"
 
 
 # the hero canvases: one per platform plus the root's (three hammers). The
 # logotype is NOT baked into these — ``render_hero`` pastes the white
-# mjolnir_logo.png itself, so the same canvas serves every render.
-HERO_BG_ROOT = "mjolnir_hero_bg.jpeg"
-HERO_BG_PLATFORM = "mjolnir_{platform}_bg.jpeg"
-HERO_LOGO = "mjolnir_logo.png"
+# mjolnir_logo.webp itself, so the same canvas serves every render.
+HERO_BG_ROOT = "mjolnir_hero_bg.webp"
+HERO_BG_PLATFORM = "mjolnir_{platform}_bg.webp"
+HERO_LOGO = "mjolnir_logo.webp"
 
 
 # the root hero: platform-neutral slogan, one pill per shipped platform.
@@ -368,10 +374,11 @@ PLATFORM_HERO_PILLS = {
 
 
 def hero_platform_out(platform: str | None) -> str:
-    """The rendered hero's filename: ``hero.jpg`` for the root, one per
-    platform for the platform pages' header banners — JPEG: the banners are
-    photographic composites, and the PNGs weighed >1 MB each."""
-    return HERO if platform is None else f"hero-{platform}.jpg"
+    """The rendered hero's filename: ``hero.webp`` for the root, one per
+    platform for the platform pages' header banners — WebP: the banners are
+    photographic composites, and webp undercuts the jpeg ~35% at the same
+    visual quality (the PNG era weighed >1 MB each)."""
+    return HERO if platform is None else f"hero-{platform}.webp"
 
 
 FONT_DIR = Path(__file__).parent / "fonts"  # Inter Display (SIL OFL 1.1, fonts/OFL.txt)
@@ -381,6 +388,3 @@ _BUNDLED_WEIGHTS = {"normal": "Regular", "medium": "Medium", "semibold": "SemiBo
 
 
 _FONTS_REGISTERED = False
-
-
-INFOGRAPHIC = "opening-infographic.png"

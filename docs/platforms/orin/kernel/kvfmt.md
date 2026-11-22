@@ -12,9 +12,9 @@ Every variant runs at every L with the harness default otherwise; FlashInfer on 
 
 ## Result
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kvfmt-heatmap.png" alt="KV layouts and formats" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kvfmt-heatmap.svg" alt="KV layouts and formats" width="100%">
 
-<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kvfmt-tradeoff.png" alt="Speed vs accuracy per KV format" width="100%">
+<img src="../../../../assets/benchmarks/orin/Qwen3.8-27B/kvfmt-tradeoff.svg" alt="Speed vs accuracy per KV format" width="100%">
 
 - Fastest variant at the most context lengths: **`fp8-hnd`** (7 of 8).
 - Best geomean vs FlashInfer: **`fp8-hnd`** (1.25×); worst: `fp8-nhd` (1.24×).

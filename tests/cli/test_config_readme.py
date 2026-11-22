@@ -270,7 +270,7 @@ def test_e2e_pair_cell_renders_open_with_table_and_chart(repo):
     assert "### End to end (NVFP4 vs NVFP4_MJOLNIR_E2M3_LMH8_VT64K, 1 request · 8K context)" in fold
     assert "| metric | official `NVFP4` | Mjolnir `NVFP4_MJOLNIR_E2M3_LMH8_VT64K` | change |" in fold
     assert "+30.8%" in fold  # the fixture thor decode gain, in the open table
-    assert "e2e-decode.png" in fold  # the open A/B chart
+    assert "e2e-decode.svg" in fold  # the open A/B chart
 
 
 def test_e2e_solo_cell_renders_own_rows_without_a_delta_column(repo):
@@ -317,7 +317,7 @@ def test_non_e2e_sections_are_collapsed_with_their_charts_and_how_inside(repo):
     ):
         assert f"<details>\n<summary>{summary}</summary>" in page, summary
     assert "Kernel stages (case-study scope)" not in page and "Raw provenance" not in page
-    assert "kernel-speedup.png" not in page  # no inline stage charts
+    assert "kernel-speedup.svg" not in page  # no inline stage charts
     assert (
         "[Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel)" in page
     )  # the one link instead

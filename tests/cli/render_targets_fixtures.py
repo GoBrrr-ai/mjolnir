@@ -326,17 +326,17 @@ def _seed_charts(root: Path) -> None:
     ``dark`` path."""
     manifest = {}
     for name, stage in SEEDED_CHARTS.items():
-        dark = f"assets/benchmarks/thor/Qwen3.8-27B/{name}.png"
+        dark = f"assets/benchmarks/thor/Qwen3.8-27B/{name}.svg"
         p = root / dark
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"\x89PNG fixture")
         manifest[name] = {"stage": stage, "platform": "thor", "model": M38, "dark": dark}
     (root / "assets" / "benchmarks" / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
-    (root / "assets" / "hero.jpg").write_bytes(b"\x89PNG fixture")
+    (root / "assets" / "hero.webp").write_bytes(b"WEBP fixture")
     # the platform header banners are render products (render_hero) — the
     # fixture only needs the files the rendered pages link to
     for p in REGISTRY:
-        (root / "assets" / f"hero-{p}.jpg").write_bytes(b"\x89PNG fixture")
+        (root / "assets" / f"hero-{p}.webp").write_bytes(b"WEBP fixture")
 
 
 def _copy_templates(root: Path) -> None:

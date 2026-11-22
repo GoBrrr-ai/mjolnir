@@ -290,7 +290,9 @@ arch family. Any change there must keep **both** fallbacks working:
   stage + platform + model), `raw/accuracy/` (accuracy runs),
   `staging/` (gitignored: experiments, perf exhaust, superseded records),
   `history.jsonl` (one record per serving key), `logs/` (untracked).
-- `assets/benchmarks/` — generated charts (`*.png`, `manifest.json`).
+- `assets/benchmarks/` — generated charts (SVG: the verify/e2e/accuracy charts
+  and the opening infographics; `manifest.json`). The hero banners under
+  `assets/` stay JPEG (photographic composites).
 - `README.md.j2` (repo root) + `docs/templates/` — the templates (`pages/` + `kernel/`).
 - `docs/` — case study (`kernel/`), methodology, FAQ, stack research; index
   `docs/README.md`.
@@ -376,7 +378,7 @@ L slower than noise (FlashInfer outliers set aside; correctness required) and
 **parks** a structured sub-bar gain as tag `ar/parked/<sha>` — stackable into
 batches, never the reference (`research/program.md`, "Batches"). A run
 re-baselines at `init`; the current kernel measures ≈ 1.26× (generated docs).
-`research/progress.png` is rendered from the ledger by `mjolnir plot` / every
+`research/progress.svg` is rendered from the ledger by `mjolnir plot` / every
 `evaluate`.
 
 ### Releases

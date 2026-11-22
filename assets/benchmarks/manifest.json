@@ -1,13 +1,13 @@
 {
  "ab-heatmap": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/ab-heatmap.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/ab-heatmap.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "ab"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/ab-heatmap.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "ab"
@@ -15,19 +15,19 @@
  ],
  "accuracy-categories": [
   {
-   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-categories.png",
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-categories.svg",
    "model": "nvidia/Qwen3.6-35B-A3B",
    "platform": "thor",
    "stage": "accuracy"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-Flash-Next/accuracy-categories.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-Flash-Next/accuracy-categories.svg",
    "model": "nvidia/Qwen3.8-Flash-Next",
    "platform": "thor",
    "stage": "accuracy"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-categories.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-categories.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "accuracy"
@@ -35,19 +35,19 @@
  ],
  "accuracy-suites": [
   {
-   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-suites.png",
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/accuracy-suites.svg",
    "model": "nvidia/Qwen3.6-35B-A3B",
    "platform": "thor",
    "stage": "accuracy"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-Flash-Next/accuracy-suites.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-Flash-Next/accuracy-suites.svg",
    "model": "nvidia/Qwen3.8-Flash-Next",
    "platform": "thor",
    "stage": "accuracy"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-suites.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/accuracy-suites.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "accuracy"
@@ -55,19 +55,19 @@
  ],
  "e2e-decode": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-decode.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-decode.png",
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-decode.svg",
    "model": "nvidia/Qwen3.6-35B-A3B",
    "platform": "thor",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-decode.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "e2e"
@@ -75,19 +75,19 @@
  ],
  "e2e-prefill": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/e2e-prefill.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-prefill.png",
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/e2e-prefill.svg",
    "model": "nvidia/Qwen3.6-35B-A3B",
    "platform": "thor",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/e2e-prefill.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "e2e"
@@ -95,7 +95,7 @@
  ],
  "fp6prof-bytes-vs-time": [
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/fp6prof-bytes-vs-time.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "fp6prof"
@@ -103,19 +103,19 @@
  ],
  "hero": [
   {
-   "dark": "assets/hero.jpg",
+   "dark": "assets/hero.webp",
    "stage": "readme"
   }
  ],
  "hnd-layout": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/hnd-layout.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/hnd-layout.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "hndsweep"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/hnd-layout.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "hndsweep"
@@ -123,13 +123,13 @@
  ],
  "kernel-bandwidth": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-bandwidth.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "sweep"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-bandwidth.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "sweep"
@@ -137,13 +137,13 @@
  ],
  "kernel-latency": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-latency.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "sweep"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-latency.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "sweep"
@@ -151,13 +151,13 @@
  ],
  "kernel-speedup": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kernel-speedup.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "sweep"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kernel-speedup.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "sweep"
@@ -165,13 +165,13 @@
  ],
  "kv-cache-capacity": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kv-cache-capacity.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kv-cache-capacity.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "kv-cache-size"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kv-cache-capacity.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "kv-cache-size"
@@ -179,13 +179,13 @@
  ],
  "kvfmt-heatmap": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kvfmt-heatmap.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kvfmt-heatmap.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "kvfmt"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-heatmap.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "kvfmt"
@@ -193,13 +193,13 @@
  ],
  "kvfmt-tradeoff": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kvfmt-tradeoff.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/kvfmt-tradeoff.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "kvfmt"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/kvfmt-tradeoff.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "kvfmt"
@@ -207,19 +207,19 @@
  ],
  "opening-infographic": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.jpg",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/opening-orin-infographic.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/opening-thor-infographic.jpg",
+   "dark": "assets/benchmarks/thor/Qwen3.6-35B-A3B/opening-thor-infographic.svg",
    "model": "nvidia/Qwen3.6-35B-A3B",
    "platform": "thor",
    "stage": "e2e"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.jpg",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/opening-thor-infographic.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "e2e"
@@ -227,7 +227,7 @@
  ],
  "pdl-delta": [
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/pdl-delta.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "pdl"
@@ -235,7 +235,7 @@
  ],
  "prefetch-heatmap": [
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/prefetch-heatmap.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "prefetch"
@@ -243,13 +243,13 @@
  ],
  "quant-accuracy": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/quant-accuracy.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "quant"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/quant-accuracy.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "quant"
@@ -257,7 +257,7 @@
  ],
  "ring-heatmap": [
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/ring-heatmap.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "ring"
@@ -265,13 +265,13 @@
  ],
  "spec-drafts": [
   {
-   "dark": "assets/benchmarks/orin/Qwen3.8-27B/spec-drafts.png",
+   "dark": "assets/benchmarks/orin/Qwen3.8-27B/spec-drafts.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "orin",
    "stage": "spec"
   },
   {
-   "dark": "assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.png",
+   "dark": "assets/benchmarks/thor/Qwen3.8-27B/spec-drafts.svg",
    "model": "Qwen/Qwen3.8-27B",
    "platform": "thor",
    "stage": "spec"

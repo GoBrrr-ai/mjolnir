@@ -8,7 +8,7 @@
 | [`mjolnir calibrate`](#mjolnir-calibrate) | Calibrate per-(layer, KV head, channel) K/V scales for the fp6 (e2m3) KV cache (or, with --draft-vocab, the drafter's vocabulary for VocabTrim). |
 | [`mjolnir grant-permissions`](#mjolnir-grant-permissions) | Check for — and, if missing, install — the NOPASSWD sudo grant the kernel benches use to clear the page cache. |
 | [`mjolnir drop-caches`](#mjolnir-drop-caches) | Clear the host page cache (`sysctl -w vm.drop_caches=3`) for a clean kernel-bench baseline. Uses the NOPASSWD grant (run `mjolnir grant-permissions` if it's missing); never prompts. |
-| [`mjolnir plot`](#mjolnir-plot) | Render every chart (PNGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
+| [`mjolnir plot`](#mjolnir-plot) | Render every chart (SVGs in assets/benchmarks/, from the latest default `mjolnir verify` run of each stage + the e2e history). --readme also renders README.md and docs/**/*.md from their .md.j2 templates; --site builds the interactive GitHub Pages site. Everything is computed from the committed raw data. |
 | [`mjolnir history`](#mjolnir-history) | Bench results at a glance: decode throughput (t/s) per recent run. |
 | [`mjolnir gc`](#mjolnir-gc) | Free the untracked exhaust: expired experiment runs, superseded perf dirs and verify logs — anything past the grace period that nothing cites. |
 | [`mjolnir version`](#mjolnir-version) | Print the version. |
@@ -61,7 +61,7 @@
 | [`mjolnir autoresearch evaluate`](#mjolnir-autoresearch-evaluate) | Score the committed kernel: quick correctness + FlashInfer vs Mjolnir sweep; append the result and the fixed keep/park/discard decision to the ledger. |
 | [`mjolnir autoresearch ledger`](#mjolnir-autoresearch-ledger) | Show the ledger (newest last). |
 | [`mjolnir autoresearch status`](#mjolnir-autoresearch-status) | Best kept score, experiment counts, the current branch. |
-| [`mjolnir autoresearch chart`](#mjolnir-autoresearch-chart) | Re-render research/progress.png from the live ledger (or the newest exported run). |
+| [`mjolnir autoresearch chart`](#mjolnir-autoresearch-chart) | Re-render research/progress.svg from the live ledger (or the newest exported run). |
 | [`mjolnir autoresearch run`](#mjolnir-autoresearch-run) | Launch the loop: an OpenCode session with the `autoresearch` agent. |
 | [`mjolnir autoresearch export`](#mjolnir-autoresearch-export) | Snapshot the ledger into research/runs/&lt;tag&gt;/ (ledger.jsonl, ledger.tsv, SUMMARY.md) — commit that to keep the run's notebook with the repo. |
 | [`mjolnir litellm`](#mjolnir-litellm) | The LiteLLM proxy stack (proxy + postgres + redis) — independent of the vLLM server: 'litellm down' leaves vLLM running, and 'serve down' leaves the proxy up. Reads your template from the litellm data dir, ~/.local/share/mjolnir/litellm/ (see docker/litellm/). |
@@ -149,7 +149,7 @@ kernel-bench baseline. Uses the NOPASSWD grant (run
 
 ## `mjolnir plot`
 
-Render every chart (PNGs in assets/benchmarks/, from the
+Render every chart (SVGs in assets/benchmarks/, from the
 latest default `mjolnir verify` run of each stage + the e2e history).
 --readme also renders README.md and docs/**/*.md from their .md.j2
 templates; --site builds the interactive GitHub Pages site. Everything is
@@ -1000,7 +1000,7 @@ Best kept score, experiment counts, the current branch.
 
 ## `mjolnir autoresearch chart`
 
-Re-render research/progress.png from the live ledger (or the newest exported run).
+Re-render research/progress.svg from the live ledger (or the newest exported run).
 
 
 <a id="mjolnir-autoresearch-run"></a>
