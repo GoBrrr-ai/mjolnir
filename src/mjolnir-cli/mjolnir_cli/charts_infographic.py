@@ -2,14 +2,14 @@
 
 The canvas is the platform's ``mjolnir_<p>_bg.jpeg`` — the same art the
 hero banners composite over — embedded once per infographic as a
-display-resolution JPEG data URI. An external ``<image href>`` was tried
+display-resolution WebP data URI. An external ``<image href>`` was tried
 first and rejected: an SVG rides in ``<img>`` in secure static mode,
 where linked subresources proved unreliable (same-origin headless
 Chrome painted them only for some element geometries; behind GitHub's
 camo proxy it would be worse), while a data URI paints in every
 svg-as-``<img>`` renderer. The embed is display-res on purpose — the
 README never draws the panel wider than ~900 css px, and the hero keeps
-the full-quality master — so an infographic costs ~100 KB, a third of
+the full-quality master — so an infographic costs ~60 KB, a third of
 the raster JPEG it replaces, and its numbers diff as text.
 
 Everything else is native vector: the bottom-left corner scrim is a
@@ -33,9 +33,11 @@ from mjolnir_cli.config import DEFAULT_MODEL, DEFAULT_PLATFORM, RepoLayout, mode
 from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import DARK, LIGHT
 
-#: the embedded background's resolution and quality: display-res, not the
-#: hero master's 1456 px (see module docstring)
-BG_WIDTH, BG_QUALITY = 1200, 70
+#: the embedded background's resolution and quality: display-res WebP, not
+#: the hero master's 1456 px jpeg (see module docstring) — WebP cuts the
+#: same-viewing-distance bytes ~45% vs jpeg and decodes on every browser
+#: since 2020; the data URI paints regardless
+BG_WIDTH, BG_QUALITY = 1100, 70
 
 # the scrims' navy and the halo stroke — the raster original's constants
 SCRIM, HALO = "#03070f", "#02080f"
@@ -107,17 +109,18 @@ def _model_line(mj: dict) -> str:
 
 
 def _bg_data_uri(bg_path: Path) -> str:
-    """The hero art as an inline JPEG: display-res (see module docstring),
-    deterministic by construction — fixed LANCZOS resample and quality,
-    so unchanged art encodes to the same bytes on every host."""
+    """The hero art as inline WebP: display-res (see module docstring),
+    deterministic by construction — fixed LANCZOS resample, quality and
+    effort, so unchanged art encodes to the same bytes on every host (the
+    pinned pillow carries its own libwebp)."""
     from PIL import Image
 
     im = Image.open(bg_path).convert("RGB")
     if im.width > BG_WIDTH:
         im = im.resize((BG_WIDTH, round(im.height * BG_WIDTH / im.width)), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
-    im.save(buf, "JPEG", quality=BG_QUALITY, optimize=True)
-    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    im.save(buf, "WEBP", quality=BG_QUALITY, method=6)
+    return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
 def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, model: str = DEFAULT_MODEL) -> Path | None:
