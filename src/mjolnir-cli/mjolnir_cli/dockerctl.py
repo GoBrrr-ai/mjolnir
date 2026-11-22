@@ -387,6 +387,13 @@ def build_run_args(
         name,
         "--gpus",
         "all",
+        # host OOM guard (2026-11-22): every GPU container caps at 105 GiB so
+        # the 128G board keeps headroom for the host and the side stacks.
+        # MJOLNIR_DOCKER_MEM overrides the cap.
+        "--memory",
+        os.environ.get("MJOLNIR_DOCKER_MEM", "105g"),
+        "--memory-swap",
+        os.environ.get("MJOLNIR_DOCKER_MEM", "105g"),
         "--ipc",
         "host",
         "--privileged",

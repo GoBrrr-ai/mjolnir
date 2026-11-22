@@ -28,7 +28,7 @@ dtype: bfloat16
 max-model-len: 262144
 max-num-seqs: 256
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.90
+gpu-memory-utilization: 0.80
 
 mm-encoder-attn-backend: TORCH_SDPA
 
@@ -40,3 +40,11 @@ speculative-config:
 enable-auto-tool-choice: true
 tool-call-parser: inkling
 reasoning-parser: inkling
+
+#   - CUDA graphs: the model defaults to breakable/piecewise capture
+#     (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) but the image's
+#     global VLLM_USE_BREAKABLE_CUDAGRAPH=0 forces FULL_DECODE_ONLY — serve
+#     with --env VLLM_USE_BREAKABLE_CUDAGRAPH=1 for the piecewise graphs
+#     (the fused attention breaks eager by design; the GEMM/MoE mass stays
+#     captured). The DSpark drafter is NOT in the default set: its graph
+#     coverage is unverified — audit the profile's eager-kernel count.

@@ -16,6 +16,13 @@
 #     prebuilt inkling2 kernels carry no sm_110 cubins yet (upstream
 #     #69167); MJOLNIR_INKLING2_CONV_MIX_NATIVE=1 flips to the native
 #     path once the base carries them
+#   - CUDA graphs: the model defaults to breakable/piecewise capture
+#     (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) but the image's
+#     global VLLM_USE_BREAKABLE_CUDAGRAPH=0 forces FULL_DECODE_ONLY — serve
+#     with --env VLLM_USE_BREAKABLE_CUDAGRAPH=1 for the piecewise graphs
+#     (the fused attention breaks eager by design; the GEMM/MoE mass stays
+#     captured). The DSpark drafter is NOT in the default set: its graph
+#     coverage is unverified — audit the profile's eager-kernel count.
 #   - KV cache: bf16. Upstream gates the Inkling2 cache dtype to
 #     auto/bfloat16 off SM12x (fp8 is SM120+; fp6/fp8 KV would need
 #     inkling-kernel work — phase 2, see the FAQ)
@@ -32,14 +39,14 @@ dtype: bfloat16
 
 # ── Capacity (the recipe's latency shape; the verified Thor data point is
 # 524288 ctx @ gpu-memory-utilization 0.65, upstream PR #69169 — raise both
-# on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.90 = the
-# dedicated-box validation shape (262K needs ~25.6 GiB of KV on top of the
+# on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.80 = the
+# dedicated-box validation shape under the 105G host-OOM cap (262K needs ~25.6 GiB of KV on top of the
 # ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
 # setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
 max-model-len: 262144
 max-num-seqs: 256
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.90
+gpu-memory-utilization: 0.80
 
 # ── Attention / multimodal ────────────────────────────────────────────────
 # The vision tower runs on the stock backend selection; TORCH_SDPA is the

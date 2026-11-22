@@ -31,7 +31,16 @@ NCU_HOME_DEFAULT = "/opt/nvidia/nsight-compute/2025.3.0"
 # nightly images declare a CUDA the host driver's metadata table may trail
 # (580.00/CUDA 13.0 vs the CUDA 13.2 nightlies) and container create fails
 # despite the cu130 wheel inside running fine.
-RUNTIME_ENV = ("-e", "NVIDIA_DISABLE_REQUIRE=1")
+RUNTIME_ENV = (
+    "-e",
+    "NVIDIA_DISABLE_REQUIRE=1",
+    # the inkling stack: the model defaults to breakable/piecewise CUDA
+    # graphs (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) — without
+    # this the engine overrides to FULL_DECODE_ONLY and ~58 kernels/token
+    # run eager. Inert for every other model on these legs.
+    "-e",
+    "VLLM_USE_BREAKABLE_CUDAGRAPH=1",
+)
 
 
 def resolve_ncu_home() -> str:
