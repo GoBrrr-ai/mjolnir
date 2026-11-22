@@ -62,19 +62,34 @@ PATCH_ORDER = [
     # Disjoint from every patch except the hd256 one below (fa_utils.py) —
     # must land before it.
     "thor-fa4-fp8kv-sm110.patch",
-    # Both touch v1/attention/backends/fa_utils.py; its fa_utils hunks are
-    # diffed against the hd128-patched file, so it must land on top.
-    "thor-fa4-hd256-fp8-sm110.patch",
-    # 1CTA decode carve-out in vllm_flash_attn/cute/interface.py — disjoint
-    # from every other patch's files/regions; placed here to keep the fa4
-    # group together (order-independent, lands after hd256).
-    "thor-fa4-hd256-1cta-decode-sm110.patch",
+    # Retired at the 0.35.0rc0.dev nightly bump (2026-11-22), both
+    # base-covered:
+    #  - thor-fa4-hd256-fp8-sm110: the hd256 fwd grew a native
+    #    DescaleTensors path (flash_fwd_sm100.py) and lost the
+    #    _fa4_hd256_fallback_reason reject site entirely, so the hand
+    #    descale port and the fa_utils grant have nothing to anchor on;
+    #    the head-size-blind FP8 grant above already covers hd256.
+    #  - thor-fa4-hd256-1cta-decode-sm110: the hd256_use_2cta block is
+    #    gone from interface.py; the heuristics moved to config.py
+    #    (default_pack_gqa prefer_hd256_2cta) and already gate on
+    #    device_capacity in (10, 11). Re-tune on-device at the 0.35 bump
+    #    if the decode-shaped 1CTA win reproduces there.
     # 11th (c1 fix): dispatch-side shape gate for the DSpark draft's FULL
     # cudagraph replay on sm_110. It edits v1/worker/gpu/spec_decode/
     # dflash/speculator.py, which no other patch touches, but its context
     # is the code the dspark patch's ecosystem introduced (the FULL CG
     # dispatch), so it lands after thor-dspark.
     "thor-draft-cg-gate-sm110.patch",
+    # Inkling 2 Mini on sm_110: the nightly wheel's prebuilt inkling2
+    # kernels carry no sm_110 cubins (upstream #69167 open — the arch
+    # list is 9.0a/10.0f/10.3f), so the first native conv_mix launch dies
+    # at the memory-profiling run. Route the TP1 conv/mix through the
+    # stock SM12x torch-compose fallback on Thor (MJOLNIR_INKLING2_
+    # CONV_MIX_NATIVE=1 forces the native path once the base carries
+    # sm_110 cubins). Touches only models/inkling2/nvidia/ops/conv_mix.py
+    # — order-independent. The TP>1 all-reduce/seq-conv kernels stay
+    # native-only: TP1 configs only until #69167 lands in a pin.
+    "thor-inkling2-sm110-conv-mix.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
@@ -109,12 +124,9 @@ PATCH_ORDER = [
     # ships in mjolnir-kernel and degrades to the stock Triton path whenever
     # a guard fails). INERT unless the env var is set.
     "thor-qwen4-qsa-mjolnir.patch",
-    # Qwen3.8-Flash-Next (qwen4_exp) serving stack. One upstream backport
-    # first: #64739 (open): the default loader finds safetensors shards that
-    # model.safetensors.index.json lists in a subdirectory (FP4-Local keeps
-    # all 21 under tensors/). model_loader/{default_loader,weight_utils}.py,
-    # disjoint from every other patch; a no-op for root-level shards.
-    "64739-safetensors-index-subdir.patch",
+    # Retired at the 0.35.0rc0.dev nightly bump: #64739 (safetensors shards
+    # listed under an index subdirectory) is base-covered there — both
+    # hunks skip as already applied on the nightly wheel.
     # Qwen4Exp PLE slot-pool cache in front of vLLM's disk table
     # (disk_offload + MJOLNIR_PLE_DISK_CACHE_GB): one hunk in
     # models/qwen4_exp/nvidia/ngram_embedding.py, which no other patch

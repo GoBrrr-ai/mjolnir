@@ -81,6 +81,13 @@ def build_docker(task: Task, s: Settings) -> list[str]:
     cmd = [_docker(), "run", "--rm", "--name", task_container(task)]
     if task.gpu:
         cmd += ["--gpus", "all"]
+    # The canary images may declare a newer CUDA than the host driver's
+    # metadata table (the 0.35.0rc0.dev nightly: CUDA 13.2 on a 580.00/CUDA
+    # 13.0 Thor) — the runtime's requirement check then refuses to create
+    # the container even though the wheel inside is cu130 and runs fine.
+    # The serve path already carries NVIDIA_DISABLE_REQUIRE (base env); the
+    # canaries get the same skip here.
+    cmd += ["-e", "NVIDIA_DISABLE_REQUIRE=1"]
     cmd += ["--entrypoint", "python3", "-v", f"{script}:/tmp/{script.name}:ro"]
     return [*cmd, s.image, f"/tmp/{script.name}"]
 

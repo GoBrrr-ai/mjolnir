@@ -1,6 +1,4 @@
 diff --git a/vllm/models/qwen4_exp/nvidia/hyperconnection.py b/vllm/models/qwen4_exp/nvidia/hyperconnection.py
---- a/vllm/models/qwen4_exp/nvidia/hyperconnection.py
-+++ b/vllm/models/qwen4_exp/nvidia/hyperconnection.py
 @@ -22,6 +22,8 @@
      )
  """
@@ -10,7 +8,7 @@ diff --git a/vllm/models/qwen4_exp/nvidia/hyperconnection.py b/vllm/models/qwen4
  import torch
  from torch import nn
  
-@@ -99,21 +101,33 @@
+@@ -99,21 +101,33 @@ class GatedResidual(nn.Module):
          # The merged skinny-GEMM shape is physically padded to 16 rows to ensure
          # good alignment and performant implementation chosen by CuBLAS heuristics.
          self.pad_size = (-(self.hc_lowrank + self.hc_count)) % 16 if use_combine else 0
@@ -26,8 +24,8 @@ diff --git a/vllm/models/qwen4_exp/nvidia/hyperconnection.py b/vllm/models/qwen4
 +            down_quant = hc_fp8_quant_config(down_prefix)
              self.input_mix_weight_down_block_inject = MergedColumnParallelLinear(
                  self.hyper_hidden_size,
-                 [self.hc_lowrank, self.hc_count]
-                 + ([self.pad_size] if self.pad_size else []),
+                 [self.hc_lowrank, self.hc_count],
+                 padding_size=self.pad_size,
                  bias=False,
                  params_dtype=config.params_dtype,
 -                quant_config=None,
@@ -47,7 +45,7 @@ diff --git a/vllm/models/qwen4_exp/nvidia/hyperconnection.py b/vllm/models/qwen4
                  and weight.dtype == torch.bfloat16
                  and current_platform.has_device_capability(90)
              )
-@@ -123,21 +137,26 @@
+@@ -123,21 +137,26 @@ class GatedResidual(nn.Module):
                  self.hc_lowrank,
                  bias=False,
                  params_dtype=config.params_dtype,

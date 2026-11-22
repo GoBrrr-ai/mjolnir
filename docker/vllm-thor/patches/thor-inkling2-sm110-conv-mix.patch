@@ -1,0 +1,35 @@
+diff --git a/vllm/models/inkling2/nvidia/ops/conv_mix.py b/vllm/models/inkling2/nvidia/ops/conv_mix.py
+@@ -3,6 +3,8 @@
+ """Hidden-stream short conv fused with the AttnRes mix + RMSNorm of the next
+ sublayer, for large batches of an already reduced input (CUDA)."""
+ 
++import os
++
+ import torch
+ 
+ from vllm.platforms import current_platform
+@@ -89,9 +91,22 @@ def conv_mix(
+     )
+     if sp is None:
+         assert halo == 0 and positions.shape[0] == num_tokens and x.dim() == 2
+-        if current_platform.is_device_capability_family(120):
++        if current_platform.is_device_capability_family(120) or (
++            # THOR_INKLING2_CONV_MIX: the nightly wheel's prebuilt inkling2
++            # kernels carry no sm_110 cubins yet (upstream #69167 — the
++            # arch list is 9.0a/10.0f/10.3f only), so the first native
++            # launch dies with "no kernel image is available for the
++            # device" at the memory-profiling run. Same torch-compose
++            # fallback as SM12x (the kernels themselves are SM110-clean —
++            # TMA/mbarrier/clusters — only the wheel build skipped the
++            # arch); MJOLNIR_INKLING2_CONV_MIX_NATIVE=1 forces the native
++            # path once the base image carries sm_110 cubins.
++            current_platform.is_device_capability_family(110)
++            and os.environ.get("MJOLNIR_INKLING2_CONV_MIX_NATIVE", "0") != "1"
++        ):
+             # Native conv/mix kernels require Hopper or SM10x. Keep the
+-            # loop executor's cache writes and residual rounding on SM12x.
++            # loop executor's cache writes and residual rounding on SM12x
++            # (and on Thor until the native cubins ship).
+             short_conv(
+                 x,
+                 conv_weight,

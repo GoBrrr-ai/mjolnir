@@ -51,10 +51,10 @@ diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model
 +            return mm_mxfp8(
 +                A, B, A_scale, B_scale, out_dtype=out_dtype, backend="cutlass"
 +            )
-+        from flashinfer.gemm.gemm_base import DEFAULT_WORKSPACE_SIZE, _get_cache_buf
++        from flashinfer.gemm.gemm_base import DEFAULT_WORKSPACE_SIZE, _get_stream_cache_buf  # _get_cache_buf pre-0.7.4
 +
 +        out = torch.empty((m, B.shape[1]), device=A.device, dtype=out_dtype)
-+        workspace = _get_cache_buf("mm_mxfp8_workspace", DEFAULT_WORKSPACE_SIZE, A.device)
++        workspace = _get_stream_cache_buf("mm_mxfp8_workspace", DEFAULT_WORKSPACE_SIZE, A.device)
 +        runner = _thor_cutlass_runner(torch.cuda.get_device_capability(A.device)[0])
 +        runner.forward(
 +            [A, B, A_scale, B_scale, out_dtype, out, workspace], tactic=tactic

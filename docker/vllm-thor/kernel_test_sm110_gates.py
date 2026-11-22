@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Thor sm_110 gate-probe canary: T6 (GDN prefill), T9 (FA4 FP8-KV),
 T10 (draft-CG gate decision, pure python — runs without a GPU),
-T11 (FA4 hd256 FP8-KV — the dedicated head_dim=256 kernel gate),
+T11 (the FA4 FP8-KV gate — on the nightly a single head-size-blind
+probe-gated OR-term; the hd256-specific machinery retired with the
+0.35.0rc0.dev bump),
 T12 (CuTe DSL NVFP4 MoE — the device gate + one synthetic W4A4 layer
 against a dequantized float reference), T13 (the MXFP8 CUTLASS tactic pin —
 bit-identical to the stock call).
 
 A single manual GPU test for the Thor sm_110 gate probes (patches
 `thor-gdn-prefill-sm110`, `thor-fa4-fp8kv-sm110`,
-`thor-fa4-hd256-fp8-sm110`, `thor-sm110-cutedsl-moe-gate` +
+`thor-sm110-cutedsl-moe-gate` +
 `fi-cutedsl-moe-sm110`, `thor-mxfp8-tactic-sm110`). It imports the installed (patched) vllm and
 triggers each probe's cached path with a small synthetic input — it does
 NOT spin up a server. T9 additionally asserts the passive-by-default
@@ -193,8 +195,18 @@ def _t9_fa4_fp8kv() -> None:
         )
 
 
-def _t11_fa4_hd256_fp8kv() -> None:
-    """T11 — FA4 hd256 FP8-KV probe verdict + gate consistency + passive guard."""
+def _t11_fa4_fa8kv_gate() -> None:
+    """T11 — the FA4 FP8-KV gate on the nightly: stock native descales, one
+    probe, head-size-blind grant.
+
+    Since the 0.35.0rc0.dev nightly the hd256 forward carries a native
+    DescaleTensors path and the fa_utils hd256 reject machinery is gone, so
+    the retired thor-fa4-hd256-fp8-sm110 patch has no anchor: the FP8-KV
+    gate is the single probe-gated family(110) OR-term from
+    thor-fa4-fp8kv-sm110, and it is head-size-blind (the hd256+FP8
+    combination rides the same verdict, validated by the e2e legs). This
+    canary checks exactly that contract.
+    """
     import vllm.v1.attention.backends.fa_utils as FA
     from vllm.config import AttentionConfig, CacheConfig, VllmConfig, set_current_vllm_config
     from vllm.platforms import current_platform
@@ -204,25 +216,21 @@ def _t11_fa4_hd256_fp8kv() -> None:
     family110 = current_platform.is_device_capability_family(110)
 
     # PASSIVE-BY-DEFAULT GUARD (runs first, before anything may have
-    # triggered the hd256 probe): under the DEFAULT config there is no
+    # triggered the probe): under the DEFAULT config there is no
     # flash_attn_version override, so on sm_110 the FA version resolves
-    # to 2, the hd256 fallback-reject grant is never reached, and the
-    # gate's OR-term short-circuits on `fa_version == 4`. The hd256
-    # probe must never run, the FP8-KV gate must stay closed for a
-    # head_size=256 + fp8-e4m3 + block-128 request, and auto backend
-    # selection must still land on FlashInfer — the patch alone changes
-    # zero default behavior.
+    # to 2, the gate's OR-terms short-circuit on `fa_version == 4`, and
+    # the probe must never run. The FP8-KV gate must stay closed for a
+    # head_size=256 + fp8-e4m3 request, and auto backend selection must
+    # still land on FlashInfer — the patch alone changes zero default
+    # behavior.
     with set_current_vllm_config(VllmConfig()):
-        assert FA._THOR_FA4_HD256_FP8KV_PROBE_RESULT is None, (
-            "the FA4 hd256 FP8-KV probe ran although no explicit FA4 "
-            "attention-config is set — passive-by-default is broken"
-        )
+        # N.B. no probe-result assert here: the T9 section runs first in
+        # this process and legitimately triggers the shared probe; the
+        # passive-by-default contract is T9's to assert (it runs cold).
         assert not FA.flash_attn_supports_kv_cache_dtype(
             "fp8_e4m3",
             head_size=256,
             head_size_v=256,
-            kv_cache_block_size=128,
-            supports_fa4_hd256=True,
         ), "FP8-KV gate open for the hd256 model under the DEFAULT config — passive-by-default is broken"
         default_backend = get_attn_backend(
             head_size=256,
@@ -236,16 +244,17 @@ def _t11_fa4_hd256_fp8kv() -> None:
             f"passive-by-default regression"
         )
     print(
-        f"T11 passive-by-default: default config leaves the hd256 "
-        f"probe untriggered, FP8-KV gate closed for the hd256 model, "
+        f"T11 passive-by-default: default config leaves the FP8-KV "
+        f"probe untriggered, gate closed for the hd256 model, "
         f"auto-selection -> {default_backend.__name__}"
     )
 
     # Probe verdict + gate consistency under the explicit FA4 config
-    # (the required opt-in: backend=FLASH_ATTN +
-    # flash_attn_version=4), an FP8 KV cache, and the hd256 kernel's
-    # required block size (128).
-    verdict = FA._thor_fa4_hd256_fp8kv_probe()
+    # (the required opt-in: backend=FLASH_ATTN + flash_attn_version=4)
+    # and an FP8 KV cache — for the hd256 shape specifically: the grant
+    # is head-size-blind, so the hd256+FP8 combination is admitted
+    # exactly when the (hd128-shaped) probe passed.
+    verdict = FA._thor_fa4_fp8kv_probe()
     fa4_config = VllmConfig(
         attention_config=AttentionConfig(
             backend=AttentionBackendEnum.FLASH_ATTN,
@@ -258,49 +267,32 @@ def _t11_fa4_hd256_fp8kv() -> None:
             "fp8_e4m3",
             head_size=256,
             head_size_v=256,
-            kv_cache_block_size=128,
-            supports_fa4_hd256=True,
         )
-        # block_size=128 clears the `% 128` reject, so the only reject
-        # that can still fire for this config is the quantized-KV one —
-        # which the Thor grant lifts exactly when the probe passed.
-        fallback = FA._fa4_hd256_fallback_reason(False, False, 128, fa4_config)
     assert gate == verdict, (
         f"flash_attn_supports_kv_cache_dtype (explicit FA4, hd256) = "
-        f"{gate} disagrees with the hd256 probe verdict {verdict}"
-    )
-    expected_reason = None if verdict else "quantized KV cache dtype fp8_e4m3"
-    assert fallback == expected_reason, (
-        f"_fa4_hd256_fallback_reason (block_size=128, FP8 KV) = "
-        f"{fallback!r} disagrees with the hd256 probe verdict "
-        f"{verdict} (expected {expected_reason!r}) — the hd256 FP8 "
-        f"path would {'be downgraded to FA2' if fallback else 'be admitted'}"
+        f"{gate} disagrees with the FP8-KV probe verdict {verdict}"
     )
 
     if family110:
         if verdict:
             print(
-                f"PASS T11 FA4 hd256 FP8-KV: probe enabled on sm_110; "
-                f"gate open + no FA2 downgrade for the explicit FA4 "
+                f"PASS T11 FA4 FP8-KV: probe enabled on sm_110; gate "
+                f"open for the hd256 shape under the explicit FA4 "
                 f"config; default config stays passive "
                 f"({default_backend.__name__})"
             )
         else:
             print(
-                f"INERT-OK T11 FA4 hd256 FP8-KV: probe disabled on "
-                f"sm_110 (reason in the 'THOR FA4 hd256 FP8-KV probe: "
-                f"disabled' log line); gate closed; the quantized-KV "
-                f"reject is intact ({fallback!r}); default config "
+                f"INERT-OK T11 FA4 FP8-KV: probe disabled on "
+                f"sm_110 (reason in the 'THOR FA4 FP8-KV probe: "
+                f"disabled' log line); gate closed; default config "
                 f"stays passive ({default_backend.__name__})"
             )
     else:
         assert verdict is False, f"probe must be a no-op off sm_110, got verdict={verdict}"
         assert not gate
-        assert fallback == "quantized KV cache dtype fp8_e4m3", (
-            f"the quantized-KV reject must stay stock off sm_110, got {fallback!r}"
-        )
         print(
-            f"INERT-OK T11 FA4 hd256 FP8-KV: not an sm_110 device; "
+            f"INERT-OK T11 FA4 FP8-KV: not an sm_110 device; "
             f"probe is a no-op (False); gate {gate}; default "
             f"selection {default_backend.__name__} (unchanged by the "
             f"patch)"
@@ -514,6 +506,7 @@ kern = object.__new__(k.FlashInferCutlassMxfp8LinearKernel)
 N, K = 6144, 2560  # a Qwen3.8-Flash-Next side-layer shape
 layer = torch.nn.Module()
 layer.params_dtype = torch.bfloat16  # vLLM 0.34 apply_weights: out_dtype = layer.params_dtype
+layer.output_size_per_partition = N  # the nightly's apply_weights reads it
 w = torch.randn(N, K, device="cuda", dtype=torch.bfloat16) * 0.02
 wq, s = mu.mxfp8_e4m3_quantize(w, is_sf_swizzled_layout=False)
 layer.weight = torch.nn.Parameter(wq, requires_grad=False)
@@ -581,7 +574,7 @@ def main() -> int:
         for name in (
             "T6 GDN prefill",
             "T9 FA4 FP8-KV",
-            "T11 FA4 hd256 FP8-KV",
+            "T11 FA4 FP8-KV gate",
             "T12 CuTe DSL NVFP4 MoE",
             "T13 MXFP8 tactic pin",
         ):
@@ -591,7 +584,7 @@ def main() -> int:
         for name, section in (
             ("T6 GDN prefill", _t6_gdn_prefill),
             ("T9 FA4 FP8-KV", _t9_fa4_fp8kv),
-            ("T11 FA4 hd256 FP8-KV", _t11_fa4_hd256_fp8kv),
+            ("T11 FA4 FP8-KV gate", _t11_fa4_fa8kv_gate),
             ("T12 CuTe DSL NVFP4 MoE", _t12_cutedsl_nvfp4_moe),
             ("T13 MXFP8 tactic pin", _t13_mxfp8_tactic),
         ):
