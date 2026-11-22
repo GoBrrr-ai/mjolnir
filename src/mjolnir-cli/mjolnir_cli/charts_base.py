@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 from pathlib import Path
 
 from mjolnir_cli import theme
@@ -258,7 +259,9 @@ def _save(fig, path: Path) -> Path:
         pad_inches=0.12,
         metadata={"Date": None},
     )
-    final = buf.getvalue()
+    final = re.sub(rb"[ \t]+\n", b"\n", buf.getvalue())  # pre-commit's trailing-whitespace form
+    if not final.endswith(b"\n"):
+        final += b"\n"
     if not (path.exists() and path.read_bytes() == final):
         path.write_bytes(final)
     return path
