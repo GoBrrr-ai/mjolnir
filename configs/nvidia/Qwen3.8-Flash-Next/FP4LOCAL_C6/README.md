@@ -29,7 +29,14 @@ Availability: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend 
 Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=FP4LOCAL_C6).
 
 ## Benchmarks
+### End to end (FP4LOCAL_C6, 1 request · 32K context)
 
-**no data yet** — no end-to-end, speculative-decoding, KV-capacity or accuracy run for `nvidia/Qwen3.8-Flash-Next` / `FP4LOCAL_C6` on Jetson AGX Thor so far.
+
+| metric | `FP4LOCAL_C6` |
+|---|--:|
+| decode (t/s) | 48.5 |
+| prefill (t/s) | 3,102 |
+| TTFT (ms) | 10,441 |
+| ITL (ms) | 20.8 |
 
 The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.
