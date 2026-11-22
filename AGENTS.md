@@ -638,6 +638,8 @@ Plan (as probe-gated patches, same pattern as the shipped ones):
   (`apply_patches.py`) and ships `LICENSE`, `NOTICE` and the patches in
   `/usr/share/doc/mjolnir/`.
 - **Commit style:** short, imperative, grouped by concern (see `git log`).
+- **DO NOT PUSH OR CREATE PRs AUTONOMOUSLY! EVER!** Commits stay local; `git push` and
+  any PR creation/review/comment happen only when the user asks for them by name.
 
 ## Pointers
 - The kernel case study: `docs/platforms/thor/README.md` (the `## Kernel`
