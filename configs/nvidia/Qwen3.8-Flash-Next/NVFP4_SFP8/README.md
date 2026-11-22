@@ -13,7 +13,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 | Max context | 256K |
 | Max concurrency | 1 |
 | Prefill chunk | 8K |
-| KV cache | auto |
+| KV cache | fp8_e4m3 |
 | Spec decode | MTP ×3 |
 | GPU memory util | 0.78 |
 | Parsing | qwen3_xml / qwen3 |
@@ -24,7 +24,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 ```bash
 mjolnir serve up --config NVFP4_SFP8
 ```
-Availability: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
+Availability: ❌ kv-cache-dtype 'fp8_e4m3' is not in the availability table — known dtypes: bf16, fp6_e2m3, fp8, int4, int8, nvfp4.
 
 Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_SFP8).
 
