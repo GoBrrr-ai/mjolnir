@@ -40,7 +40,7 @@ diff --git a/vllm/models/inkling2/nvidia/attention.py b/vllm/models/inkling2/nvi
              cu_seqlens_q = cu_seqlens_q - num_decode_tokens
          key_cache, value_cache = self._split_kv_cache(kv_cache)
 -        if not use_sm100_kernels():
-+        if not (use_sm100_kernels() or _thor_fa4_rel()):
++        if not (use_sm100_kernels() or (_thor_fa4_rel() and not self.fp8_kv)):
              rel_attention(
                  q[:nt],
                  key_cache,

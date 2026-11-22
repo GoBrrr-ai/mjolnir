@@ -18,11 +18,12 @@
 #     path once the base carries them
 #   - CUDA graphs: the model defaults to breakable/piecewise capture
 #     (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) but the image's
-#     global VLLM_USE_BREAKABLE_CUDAGRAPH=0 forces FULL_DECODE_ONLY — serve
-#     with --env VLLM_USE_BREAKABLE_CUDAGRAPH=1 for the piecewise graphs
-#     (the fused attention breaks eager by design; the GEMM/MoE mass stays
-#     captured). The DSpark drafter is NOT in the default set: its graph
-#     coverage is unverified — audit the profile's eager-kernel count.
+#     global VLLM_USE_BREAKABLE_CUDAGRAPH=0 forces FULL_DECODE_ONLY — the
+#     sidecar env file carries VLLM_USE_BREAKABLE_CUDAGRAPH=1 for every
+#     serve/bench (an explicit --env still wins). The fused attention
+#     breaks eager by design; the GEMM/MoE mass stays captured. The DSpark
+#     drafter graphs at the c1 policy (N=256 -> graph, N=1 -> eager
+#     min-batch); measured 128K: 21.77 -> 20.00 ms/token, acceptance 0.611.
 #   - KV cache: bf16. Upstream gates the Inkling2 cache dtype to
 #     auto/bfloat16 off SM12x (fp8 is SM120+; fp6/fp8 KV would need
 #     inkling-kernel work — phase 2, see the FAQ)

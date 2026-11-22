@@ -153,13 +153,40 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         ),
         (
             "models/inkling2/nvidia/attention.py",
-            "use_sm100_kernels() or _thor_fa4_rel()",
+            "_thor_fa4_rel() and not self.fp8_kv",
         ),
         # the vision encoder rides the same gate (its stock else-branch is
         # the FA2/FA3 ext wheel, dead on sm_110)
         (
             "models/inkling2/nvidia/vision.py",
             "MJOLNIR_INKLING2_FA4_REL",
+        ),
+    ],
+    "thor inkling2 fp8-KV on sm_110 (MJOLNIR_INKLING2_FP8KV)": [
+        # the gate arm + its env escape -- a partial apply (the arm without
+        # the env, or vice versa) is still behaviorally complete, but the
+        # pair is the contract; the units-scale path itself is stock.
+        (
+            "models/inkling2/nvidia/attention.py",
+            "is_device_capability_family(110)",
+        ),
+        (
+            "models/inkling2/nvidia/attention.py",
+            "MJOLNIR_INKLING2_FP8KV",
+        ),
+        # the tml path is same-dtype; the fp8 cache converts on the FA4
+        # entry (the decode triton reads fp8 natively)
+        (
+            "models/inkling2/nvidia/ops/attention.py",
+            "key_cache.dtype != q.dtype",
+        ),
+    ],
+    "thor inkling2 decode split-cap on sm_110": [
+        # the /4 denominator -- the pair with the ncu evidence in the fp8kv
+        # history; a silent revert to /8 is the failure this guards
+        (
+            "models/inkling2/nvidia/ops/attention.py",
+            "num_sms // 4",
         ),
     ],
     "thor Mjolnir attention backend: AttentionBackendEnum.MJOLNIR": [

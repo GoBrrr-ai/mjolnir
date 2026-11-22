@@ -1,0 +1,11 @@
+diff --git a/vllm/models/inkling2/nvidia/ops/attention.py b/vllm/models/inkling2/nvidia/ops/attention.py
+@@ -418,4 +418,8 @@
+         if work <= (16 if max_query_len <= 2 else 8):
+             return triton.cdiv(rel_extent - 1, _FA4_BLOCK_N) + 1
+         return 5 if work <= 16 else 3 if work <= 32 else 2 if work <= 64 else 1
+-    return max(num_sms // work, min(num_sms // 8, 6 * num_sms // work))
++    # [thor] the /8 split denominator is tuned for 100+-SM parts: the 20-SM
++    # Thor gets 2 splits where an H100 gets 16, and the ncu repro shows the
++    # kernel latency-bound at 15% occupancy / 24% mem SOL on the verify
++    # shape. /4 doubles the split budget; occupancy is the lever.
++    return max(num_sms // work, min(num_sms // 4, 6 * num_sms // work))
