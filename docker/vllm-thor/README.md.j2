@@ -1,4 +1,4 @@
-![Mjolnir — vLLM for Jetson Thor and Orin](https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.jpg)
+![Mjolnir — vLLM for Jetson Thor and Orin](https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.webp)
 
 [![mjolnir-kernel](https://img.shields.io/pypi/v/mjolnir-kernel?label=mjolnir-kernel&color=eb6834)](https://pypi.org/project/mjolnir-kernel/)
 [![mjolnir-cli](https://img.shields.io/pypi/v/mjolnir-cli?label=mjolnir-cli&color=2a78d6)](https://pypi.org/project/mjolnir-cli/)

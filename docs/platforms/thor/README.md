@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../../assets/hero-thor.jpg" alt="Mjolnir on Jetson AGX Thor" width="100%">
+  <img src="../../../assets/hero-thor.webp" alt="Mjolnir on Jetson AGX Thor" width="100%">
 </p>
 
 # <img src="../../../assets/emoji/mjolnir_thor_emoji.png" alt="" width="28" align="absmiddle"> Jetson AGX Thor

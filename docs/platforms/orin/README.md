@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../../assets/hero-orin.jpg" alt="Mjolnir on Jetson Orin" width="100%">
+  <img src="../../../assets/hero-orin.webp" alt="Mjolnir on Jetson Orin" width="100%">
 </p>
 
 # <img src="../../../assets/emoji/mjolnir_orin_emoji.png" alt="" width="28" align="absmiddle"> Jetson Orin

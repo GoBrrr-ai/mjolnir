@@ -1,6 +1,6 @@
 """The opening infographic as vector SVG over the platform hero art.
 
-The canvas is the platform's ``mjolnir_<p>_bg.jpeg`` — the same art the
+The canvas is the platform's ``mjolnir_<p>_bg.webp`` — the same art the
 hero banners composite over — embedded once per infographic as a
 display-resolution WebP data URI. An external ``<image href>`` was tried
 first and rejected: an SVG rides in ``<img>`` in secure static mode,
@@ -34,7 +34,7 @@ from mjolnir_cli.platforms import REGISTRY, platform_of
 from mjolnir_cli.theme import DARK, LIGHT
 
 #: the embedded background's resolution and quality: display-res WebP, not
-#: the hero master's 1456 px jpeg (see module docstring) — WebP cuts the
+#: the hero master's 1456 px canvas (see module docstring) — WebP cuts the
 #: same-viewing-distance bytes ~45% vs jpeg and decodes on every browser
 #: since 2020; the data URI paints regardless
 BG_WIDTH, BG_QUALITY = 1100, 70
@@ -150,7 +150,7 @@ def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, mod
     if not off or not mj:
         return None
     h = e2e.infographic_row(off, mj)
-    bg_path = layout.repo_root / "assets" / f"mjolnir_{platform}_bg.jpeg"
+    bg_path = layout.repo_root / "assets" / f"mjolnir_{platform}_bg.webp"
     if not h or not bg_path.exists():
         print(
             f"[mjolnir] no official-vLLM / Mjolnir e2e pair for ({platform}, {model}) in history —"

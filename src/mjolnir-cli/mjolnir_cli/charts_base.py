@@ -328,15 +328,15 @@ def _display_family() -> str:
     return "DejaVu Sans"
 
 
-HERO = "hero.jpg"
+HERO = "hero.webp"
 
 
 # the hero canvases: one per platform plus the root's (three hammers). The
 # logotype is NOT baked into these — ``render_hero`` pastes the white
-# mjolnir_logo.png itself, so the same canvas serves every render.
-HERO_BG_ROOT = "mjolnir_hero_bg.jpeg"
-HERO_BG_PLATFORM = "mjolnir_{platform}_bg.jpeg"
-HERO_LOGO = "mjolnir_logo.png"
+# mjolnir_logo.webp itself, so the same canvas serves every render.
+HERO_BG_ROOT = "mjolnir_hero_bg.webp"
+HERO_BG_PLATFORM = "mjolnir_{platform}_bg.webp"
+HERO_LOGO = "mjolnir_logo.webp"
 
 
 # the root hero: platform-neutral slogan, one pill per shipped platform.
@@ -374,10 +374,11 @@ PLATFORM_HERO_PILLS = {
 
 
 def hero_platform_out(platform: str | None) -> str:
-    """The rendered hero's filename: ``hero.jpg`` for the root, one per
-    platform for the platform pages' header banners — JPEG: the banners are
-    photographic composites, and the PNGs weighed >1 MB each."""
-    return HERO if platform is None else f"hero-{platform}.jpg"
+    """The rendered hero's filename: ``hero.webp`` for the root, one per
+    platform for the platform pages' header banners — WebP: the banners are
+    photographic composites, and webp undercuts the jpeg ~35% at the same
+    visual quality (the PNG era weighed >1 MB each)."""
+    return HERO if platform is None else f"hero-{platform}.webp"
 
 
 FONT_DIR = Path(__file__).parent / "fonts"  # Inter Display (SIL OFL 1.1, fonts/OFL.txt)

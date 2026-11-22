@@ -100,7 +100,7 @@ def test_full_render_from_fixture_data(repo):
     # has no repo file hosting to resolve relatives against)
     dh = (repo / "docker" / "vllm-thor" / "README.md").read_text()
     assert "{{" not in dh and "<img" not in dh
-    assert "https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.jpg" in dh
+    assert "https://raw.githubusercontent.com/GoBrrr-ai/mjolnir/main/assets/hero.webp" in dh
     # the patch inventory re-emitted verbatim from docker/vllm-thor/PATCHES.md
     assert "| File | PR | What it fixes |" in dh and "thor-mjolnir-attention-backend.patch" in dh
     # the kernel index lives on the platform page's `## Kernel` section (cycle
@@ -272,22 +272,20 @@ def test_hero_overlays_the_background_under_the_logotype(tmp_path):
     assert out is not None
     bg = Image.open(tmp_path / "assets" / HERO_BG_ROOT)
     hero = Image.open(out)
-    assert out.name == "hero.jpg" and hero.size == bg.size
+    assert out.name == "hero.webp" and hero.size == bg.size
     # the white logotype + slogan + pills land on the dark right half; the
-    # hammer art on the left stays untouched. The hero saves as JPEG (the
-    # banners were >1 MB PNGs) — compare against the background through the
-    # same lossy encode so only the real overlays differ
-    import io
-
-    buf = io.BytesIO()
-    bg.convert("RGB").save(buf, format="JPEG", quality=88, optimize=True)
-    ref = Image.open(buf)
+    # hammer art on the left stays untouched. The hero saves as WebP, whose
+    # reconstruction couples across the frame — a right-side edit shifts the
+    # left region's decode by single digits (measured ceiling ~20 for this
+    # art at q85) — so the bound is that noise plus headroom; a bleeding
+    # overlay fails at several times it
     left = int(bg.size[0] * 0.40)
     a = np.asarray(hero.convert("RGB").crop((0, 0, left, bg.size[1])), dtype=int)
-    b = np.asarray(ref.crop((0, 0, left, bg.size[1])), dtype=int)
-    assert int(np.abs(a - b).max()) <= 2
+    b = np.asarray(bg.convert("RGB").crop((0, 0, left, bg.size[1])), dtype=int)
+    d = np.abs(a - b).max(axis=2)
+    assert np.quantile(d, 0.99) <= 12 and d.max() <= 32
     right = hero.crop((left, 0, bg.size[0], bg.size[1]))
-    assert right.tobytes() != ref.crop((left, 0, bg.size[0], bg.size[1])).tobytes()
+    assert right.tobytes() != bg.convert("RGB").crop((left, 0, bg.size[0], bg.size[1])).tobytes()
 
 
 def test_hero_platform_banners(tmp_path):
@@ -298,7 +296,7 @@ def test_hero_platform_banners(tmp_path):
 
     root = find_repo_root()
     (tmp_path / "assets").mkdir()
-    for name in ("mjolnir_thor_bg.jpeg", HERO_LOGO):
+    for name in ("mjolnir_thor_bg.webp", HERO_LOGO):
         shutil.copy(root / "assets" / name, tmp_path / "assets" / name)
     layout = RepoLayout(
         repo_root=tmp_path,
@@ -308,8 +306,8 @@ def test_hero_platform_banners(tmp_path):
         history_file=tmp_path / "h.jsonl",
     )
     out = charts.render_hero(layout, platform="thor")
-    assert out is not None and out.name == "hero-thor.jpg"
-    bg = Image.open(tmp_path / "assets" / "mjolnir_thor_bg.jpeg")
+    assert out is not None and out.name == "hero-thor.webp"
+    bg = Image.open(tmp_path / "assets" / "mjolnir_thor_bg.webp")
     assert Image.open(out).size == bg.size
     # a platform without its canvas renders nothing
     assert charts.render_hero(layout, platform="orin") is None
@@ -319,4 +317,4 @@ def test_readme_uses_the_hero():
     from mjolnir_cli.config import find_repo_root
 
     tpl = (find_repo_root() / "README.md.j2").read_text()
-    assert 'src="assets/hero.jpg"' in tpl and "header.png" not in tpl
+    assert 'src="assets/hero.webp"' in tpl and "header.png" not in tpl

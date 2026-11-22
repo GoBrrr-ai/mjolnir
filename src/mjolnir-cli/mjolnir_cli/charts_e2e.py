@@ -212,7 +212,7 @@ def big_value(key: str, v: float) -> str:
 
 
 def _white_logo(layout: RepoLayout):
-    """``assets/mjolnir_logo.png`` recolored white (the glyph is black on
+    """``assets/mjolnir_logo.webp`` recolored white (the glyph is black on
     transparency; the alpha channel carries the shape, so the RGB channels
     simply go to the soft white the text uses)."""
     from PIL import Image
@@ -234,8 +234,8 @@ def _white_logo(layout: RepoLayout):
 
 
 def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
-    """The README header banner: the platform's ``mjolnir_<p>_bg.jpeg`` (the
-    root: ``mjolnir_hero_bg.jpeg``, the three hammers), the white Mjölnir
+    """The README header banner: the platform's ``mjolnir_<p>_bg.webp`` (the
+    root: ``mjolnir_hero_bg.webp``, the three hammers), the white Mjölnir
     logotype pasted over the dark right half, a one-line slogan under it and
     a row of gradient pills — the root carries one pill per shipped platform,
     a platform banner its name + kernel-type pills. Rendered at 2x and
@@ -337,7 +337,7 @@ def render_hero(layout: RepoLayout, platform: str | None = None) -> Path | None:
     shadow = shadow.filter(ImageFilter.GaussianBlur(4 * S))
     layer = Image.alpha_composite(shadow, over).resize((W, H), Image.Resampling.LANCZOS)
     out = layout.repo_root / "assets" / hero_platform_out(platform)
-    Image.alpha_composite(bg, layer).convert("RGB").save(out, quality=88, optimize=True)
+    Image.alpha_composite(bg, layer).convert("RGB").save(out, quality=85, method=6)
     return out
 
 
