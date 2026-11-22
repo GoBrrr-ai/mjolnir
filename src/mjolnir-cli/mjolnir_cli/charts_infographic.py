@@ -12,12 +12,12 @@ README never draws the panel wider than ~900 css px, and the hero keeps
 the full-quality master — so an infographic costs ~100 KB, a third of
 the raster JPEG it replaces, and its numbers diff as text.
 
-Everything else is native vector: the two scrims are gradients (the
-right one samples the old raster mask's power curve exactly; the
-bottom-left corner glow is its radial equivalent), the stat bars are
-rounded rects and every number is literal text. No fonts are embedded
-(secure static mode loads none): the stack ends in generic sans and
-every block is anchor-aligned, so metric drift cannot overlap anything.
+Everything else is native vector: the bottom-left corner scrim is a
+gradient (the radial equivalent of the raster original's mask), the
+stat bars are rounded rects and every number is literal text. No fonts
+are embedded (secure static mode loads none): the stack ends in generic
+sans and every block is anchor-aligned, so metric drift cannot overlap
+anything.
 """
 
 from __future__ import annotations
@@ -81,22 +81,6 @@ def _bar(x: float, y_top: float, w: float, h: float, fill: float | str) -> str:
     fill_s = f"rgba(255,255,255,{fill})" if isinstance(fill, float) else fill
     return (
         f'<rect x="{x:.1f}" y="{y_top:.1f}" width="{max(w, h):.1f}" height="{h:.1f}" rx="{h / 2:.1f}" fill="{fill_s}"/>'
-    )
-
-
-def _right_scrim(w: float, h: float) -> str:
-    """The right half's horizontal scrim, the old mask's curve stop-sampled:
-    alpha = clip((x-0.42)/0.22)^1.5 * 0.76, saturating from x = 0.64 (the
-    gradient's pad spread holds the last stop to the right edge)."""
-    x0, x1 = 0.42 * w, 0.64 * w
-    stops = "".join(
-        f'<stop offset="{t:.2f}" stop-color="{SCRIM}" stop-opacity="{0.76 * t**1.5:.3f}"/>'
-        for t in (i / 10 for i in range(11))
-    )
-    return (
-        f'<linearGradient id="scrimR" gradientUnits="userSpaceOnUse" x1="{x0:.1f}" y1="0" x2="{x1:.1f}" y2="0">'
-        f"{stops}</linearGradient>"
-        f'<rect x="{x0:.1f}" y="0" width="{w - x0:.1f}" height="{h:.1f}" fill="url(#scrimR)"/>'
     )
 
 
@@ -256,7 +240,6 @@ def render_infographic(layout: RepoLayout, platform: str = DEFAULT_PLATFORM, mod
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
         f'<image x="0" y="0" width="{W}" height="{H}" preserveAspectRatio="none" href="{_bg_data_uri(bg_path)}"/>'
-        + _right_scrim(W, H)
         + _corner_scrim(W, H)
         + "".join(parts)
         + "</svg>"
