@@ -25,7 +25,6 @@ impl and only overrides ``forward``.
 from __future__ import annotations
 
 import dataclasses
-import os
 
 import torch
 
@@ -128,12 +127,11 @@ def build_impl_class() -> type:
                 # decode/verify read the packed rows through the same
                 # byte-blind gather, the t5 kernel's e2m3 path consumes the
                 # scratch. Enabled by kv-cache-dtype fp6_e2m3 (the stock ctor
-                # accept-list is widened by the qwen4-qsa-fp6 patch); the
-                # MJOLNIR_QSA_FP6 env is the legacy alias.
+                # accept-list is widened by the qwen4-qsa-fp6 patch).
                 self._name = getattr(layer, "layer_name", None) or ""
                 self._fp6: dict | None = None
                 dtype = self.kv_cache_dtype
-                if dtype == "fp6_e2m3" or (os.environ.get("MJOLNIR_QSA_FP6") and dtype in ("fp8", "fp8_e4m3")):
+                if dtype == "fp6_e2m3":
                     self._fp6 = self._fp6_state(layer)
 
             # ---- helpers ----------------------------------------------------
