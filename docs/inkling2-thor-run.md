@@ -11,7 +11,7 @@ Every experiment ran to a verdict with artifacts; nothing was parked without a n
 
 | piece | state |
 |---|---|
-| image | `narandill/mjolnir-vllm:v0.35.0rc0.dev-b11` (the `b`-line: the gate-widen + tune + bmmarch + FI-moj + ctas-pow2 + humming110 + ll120, all inert-or-kept) |
+| image | **`narandill/mjolnir-vllm:v0.35.0rc0.dev-b12`** — the post-lean, post-CR build (the production patch set only; the plain-boot smoke 19.7902 / 52.0 eager, the keep-state confirmed) |
 | serving config | `configs/thinkingmachines/Inkling-2-Mini/NVFP4` (+ the `.env` sidecar: `VLLM_USE_BREAKABLE_CUDAGRAPH=1`) |
 | attention | the model's own Triton sm90-path kernels, eager-inside-piecewise-graphs by design |
 | MoE | the Humming select-variant (inkling's `moe_sm90` experts) on the NVFP4 checkpoint |
@@ -89,7 +89,8 @@ the peaks hold. TTFT @128K ≈ 40 s = the no-cache context build (128K ÷ 3394 t
 
 The recipe's depths (524K) exceed this config's 262K `max-model-len` — the comparison is
 peak-vs-peak by construction. Raising the cap is a memory-budget decision, not a perf one
-(262K ≈ 25.6 GB KV at the current util).
+(262K = **26.8 GiB KV measured** — `verify kv-cache-size` `20261123-112643`: the
+44.8 GiB pool / 438,082 tokens / 1.67× concurrency; the phase-2 estimate was 25.6).
 
 ### Versus the stock vLLM config (the plain image boot)
 
@@ -131,4 +132,7 @@ low-M trio (the band-floor + the eager-tail cut) = 19.70 plain-boot** — cumula
 - the images: `dev` → `a1` → `b2`…`b11` (the b-line = the patch vehicles; **b11 = the ship**)
 - the e2e: `benchmarks/history.jsonl` (the 18-cell record); the profiles: `benchmarks/staging/verify/profile/`
 
-*Parked 2026-11-23 at `cf276d3`+ — the loop resumes from the ledger's roster or a fresh research round.*
+*Parked 2026-11-23 — the final CR pass: 7 shoulds fixed (`a2a1e46`…), the post-lean
+ship build `b12` smoked green (19.7902 / 52.0 eager, the KV provenance landed);
+the review: `task/wiki/reviews/inkling2-nightly-final.md`. The loop resumes from
+the ledger's roster or a fresh research round.*

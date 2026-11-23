@@ -41,7 +41,8 @@ dtype: bfloat16
 # ── Capacity (the recipe's latency shape; the verified Thor data point is
 # 524288 ctx @ gpu-memory-utilization 0.65, upstream PR #69169 — raise both
 # on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.80 = the
-# dedicated-box validation shape under the 105G host-OOM cap (262K needs ~25.6 GiB of KV on top of the
+# dedicated-box validation shape under the 105G host-OOM cap (262K needs ~26.8 GiB of KV on top of the — measured, `verify kv-cache-size`
+# 20261123-112643: the 44.8 GiB pool / 438,082 tokens / 1.67x concurrency
 # ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
 # setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
 max-model-len: 262144
