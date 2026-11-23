@@ -262,24 +262,30 @@ def _is_tied(lm_head, model) -> bool:
 
 
 def _patch_dspark_fp8_head() -> None:
-    """Teach the Inkling2 DSpark drafter the fp8-swapped head.
+    """Teach the Inkling2 model the fp8-swapped head.
 
-    The drafter aliases the target's ``lm_head`` and consumes it raw:
-    ``compute_base_logits`` runs the declared-bf16 reference GEMM on
-    ``.weight`` and ``refresh_derived_weights`` folds the markov head from
-    the same tensor. Once ``install_fp8_head`` frees that data, both read an
-    empty (0,) tensor — the size-mismatch boot failure. Both consumers are
-    re-pointed at the fp8 copy, self-gating on the emptied weight so a bf16 /
-    tied head takes the original path unchanged; the fold dequantizes
-    transiently (a one-time ~2.6 GiB spike at attach, freed with it)."""
+    The drafter aliases the target's ``lm_head`` and every consumer reads it
+    raw: ``compute_base_logits`` runs the declared-bf16 reference GEMM on
+    ``.weight``, ``refresh_derived_weights`` folds the markov head from the
+    same tensor, and — the subtle one — the target's own head projection
+    never reaches ``quant_method`` at all: inkling runs ``head_dtype=fp32``,
+    and the logits processor's non-native-dtype branch casts ``.weight``
+    itself, raising ``only supported for an unquantized lm_head`` for any
+    custom method. Once ``install_fp8_head`` frees the bf16 data, all three
+    read an empty (0,) tensor. Each consumer is re-pointed at the fp8 copy,
+    self-gating on the emptied weight so a bf16 / tied head takes the
+    original path unchanged; the fold dequantizes transiently (a one-time
+    ~2.6 GiB spike at attach, freed with it)."""
     try:
         from vllm.models.inkling2.nvidia.dspark import Inkling2DSparkModel
+        from vllm.models.inkling2.nvidia.model import Inkling2LogitsProcessor
     except Exception:  # noqa: BLE001 - not an inkling model
         return
     if getattr(Inkling2DSparkModel, "_mjolnir_fp8_head", False):
         return
     orig_logits = Inkling2DSparkModel.compute_base_logits
     orig_refresh = Inkling2DSparkModel.refresh_derived_weights
+    orig_apply_head = Inkling2LogitsProcessor._apply_head
 
     def _swapped(lm_head) -> bool:
         return bool(getattr(lm_head, "_mjolnir_fp8", False)) and lm_head.weight.numel() == 0
@@ -301,10 +307,24 @@ def _patch_dspark_fp8_head() -> None:
         finally:
             self.lm_head.weight.data = torch.empty(0, dtype=w.dtype, device=w.device)
 
+    def _apply_head(self, lm_head, hidden_states, embedding_bias):
+        if not _swapped(lm_head):
+            return orig_apply_head(self, lm_head, hidden_states, embedding_bias)
+        qm = lm_head.quant_method
+        # head_dtype parity with the fp32 path below: the projection lands in
+        # the head dtype (fp32 on inkling), the softcaps assume it.
+        out = fp8_linear(hidden_states, qm.w8, qm.scale)
+        if self.head_dtype is not None and self.head_dtype != out.dtype:
+            out = out.to(self.head_dtype)
+        if embedding_bias is not None:
+            out = out + embedding_bias.to(out.dtype)
+        return out
+
     Inkling2DSparkModel.compute_base_logits = compute_base_logits
     Inkling2DSparkModel.refresh_derived_weights = refresh_derived_weights
+    Inkling2LogitsProcessor._apply_head = _apply_head
     Inkling2DSparkModel._mjolnir_fp8_head = True
-    _log.info("Mjolnir lm_head fp8: Inkling2 DSpark drafter patched for the fp8 head")
+    _log.info("Mjolnir lm_head fp8: Inkling2 drafter + head projection patched for the fp8 head")
 
 
 def install_fp8_head(lm_head, model=None) -> bool:
