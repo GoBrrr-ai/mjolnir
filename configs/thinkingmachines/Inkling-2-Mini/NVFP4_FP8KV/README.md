@@ -29,6 +29,15 @@ Availability: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its defau
 Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_FP8KV).
 
 ## Benchmarks
+### End to end (NVFP4_FP8KV, 1 request · 128K context)
+
+
+| metric | `NVFP4_FP8KV` |
+|---|--:|
+| decode (t/s) | 35.7 |
+| prefill (t/s) | 1,620 |
+| TTFT (ms) | 82,314 |
+| ITL (ms) | 28.5 |
 
 <details>
 <summary>Model quality (per suite)</summary>
