@@ -181,6 +181,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "key_cache.dtype != q.dtype",
         ),
     ],
+    "thor inkling2 sm110 tune knobs": [
+        # the frozen overrides; a drop silently strands the A/B env
+        (
+            "models/inkling2/nvidia/ops/attention_sm90.py",
+            "MJOLNIR_INKLING2_BLOCK_N",
+        ),
+    ],
     "thor inkling2 sm100-kernel gate widen": [
         # the env escape + the 110 branch; a revert to the bare family(100)
         # return silently demotes Thor to the sm90 paths again

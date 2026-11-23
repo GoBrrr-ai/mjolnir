@@ -1,0 +1,28 @@
+diff --git a/vllm/models/inkling2/nvidia/ops/attention_sm90.py b/vllm/models/inkling2/nvidia/ops/attention_sm90.py
+@@ -17,6 +17,14 @@
+ import torch
+ 
+ from vllm.triton_utils import tl, triton
++
++import os
++
++# [thor] sm110 tuning overrides (E5): frozen at import, None = the stock
++# sm90 expressions below. The sweep harness rebinds these directly.
++_TUNE_BLOCK_N = int(os.environ['MJOLNIR_INKLING2_BLOCK_N']) if os.environ.get('MJOLNIR_INKLING2_BLOCK_N') else None
++_TUNE_WARPS = int(os.environ['MJOLNIR_INKLING2_WARPS']) if os.environ.get('MJOLNIR_INKLING2_WARPS') else None
++_TUNE_STAGES = int(os.environ['MJOLNIR_INKLING2_STAGES']) if os.environ.get('MJOLNIR_INKLING2_STAGES') else None
+ 
+ # The query tile of tml_fa4 that shears the relative logits.
+ _SHEAR_TILE = tl.constexpr(128)
+@@ -337,7 +345,7 @@
+         DRAFT=draft,
+         MODE=mode,
+         BLOCK_M=block_m,
+-        BLOCK_N=64 if block_m >= 128 else 128 if block_m <= 32 else 64,
+-        num_warps=8 if block_m >= 128 else 4,
+-        num_stages=2,
+-    )
++        BLOCK_N=_TUNE_BLOCK_N if _TUNE_BLOCK_N is not None else (64 if block_m >= 128 else 128 if block_m <= 32 else 64),
++        num_warps=_TUNE_WARPS if _TUNE_WARPS is not None else (8 if block_m >= 128 else 4),
++        num_stages=_TUNE_STAGES if _TUNE_STAGES is not None else 2,
++    )
