@@ -185,7 +185,7 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         # a drop reverts the low-M linear to plain F.linear on 110
         (
             "models/inkling2/nvidia/ops/ll_gemm_sm120.py",
-            "MJOLNIR_INKLING2_LL120",
+            "MJOLNIR_INKLING2_NO_LL120",
         ),
     ],
     "thor inkling2 humming110 tiles opt-in": [
