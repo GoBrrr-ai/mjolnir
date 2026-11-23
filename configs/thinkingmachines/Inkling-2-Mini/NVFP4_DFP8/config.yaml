@@ -1,0 +1,85 @@
+# NVFP4 — the Inkling 2 Mini reference serving config on Thor (sm_110).
+#
+# The checkpoint IS the native quant (ModelOpt): routed experts NVFP4 in
+# layers 0-19 / MXFP8 in 20-23; attention, routers, attention-residual
+# queries, loop controllers and the lm_head BF16/FP32 — served as shipped,
+# via the nightly's own Inkling2 stack (image narandill/mjolnir-vllm
+# v0.35.0rc0.dev, the 2026-11-22 nightly; the first with Inkling 2, #69028).
+#
+# Thor-specific notes (see docs/faq/inkling2.md for the full analysis):
+#   - the model owns its attention (Inkling2AttentionBackend: fused
+#     rel-bias/sink decode kernel + FA4-with-sheared-bias or the sm90
+#     kernel for prefill) — no --attention-backend override, the Mjolnir
+#     decode kernel does not plug into this model
+#   - the image's thor-inkling2-sm110-conv-mix patch routes the per-layer
+#     conv/mix through the torch-compose fallback: the nightly wheel's
+#     prebuilt inkling2 kernels carry no sm_110 cubins yet (upstream
+#     #69167); MJOLNIR_INKLING2_CONV_MIX_NATIVE=1 flips to the native
+#     path once the base carries them
+#   - CUDA graphs: the model defaults to breakable/piecewise capture
+#     (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) but the image's
+#     global VLLM_USE_BREAKABLE_CUDAGRAPH=0 forces FULL_DECODE_ONLY — the
+#     sidecar env file carries VLLM_USE_BREAKABLE_CUDAGRAPH=1 for every
+#     serve/bench (an explicit --env still wins). The fused attention
+#     breaks eager by design; the GEMM/MoE mass stays captured. The DSpark
+#     drafter graphs at the c1 policy (N=256 -> graph, N=1 -> eager
+#     min-batch); measured 128K: 21.77 -> 20.00 ms/token, acceptance 0.611.
+#   - KV cache: bf16. Upstream gates the Inkling2 cache dtype to
+#     auto/bfloat16 off SM12x (fp8 is SM120+; fp6/fp8 KV would need
+#     inkling-kernel work — phase 2, see the FAQ)
+#
+# Shape: 26B total / 3.5B active looped MoE — 24 physical layers, the core
+# (6-17) run three times with shared weights = 48 layer visits/token; 128
+# experts top-8; 20 sliding-window + 4 full-attention layers, 24Q/8KV hd128.
+# The DSpark drafter ships IN the checkpoint (mtp.safetensors) — no draft
+# model override, unlike the Qwen3.8 cross-checkpoint DSpark configs.
+model: thinkingmachines/Inkling-2-Mini
+served-model-name: thinkingmachines/Inkling-2-Mini
+
+dtype: bfloat16
+
+# ── Capacity (the recipe's latency shape; the verified Thor data point is
+# 524288 ctx @ gpu-memory-utilization 0.65, upstream PR #69169 — raise both
+# on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.80 = the
+# dedicated-box validation shape under the 105G host-OOM cap (262K needs ~25.6 GiB of KV on top of the
+# ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
+# setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
+max-model-len: 262144
+max-num-seqs: 256
+max-num-batched-tokens: 8192
+gpu-memory-utilization: 0.80
+
+# ── Attention / multimodal ────────────────────────────────────────────────
+# The vision tower runs on the stock backend selection; TORCH_SDPA is the
+# house sm_110 ViT workaround (the Qwen3.8 PTX crash, vLLM #38411 — the
+# same class of tower; revisit if the nightly's ViT path is healthy).
+mm-encoder-attn-backend: TORCH_SDPA
+
+# ── Speculative Decoding — the checkpoint's own DSpark drafter, K=7 ───────
+# The trained block is 7 (the drafter's markov head is recurrent, so other
+# K work — `verify spec` sweeps once the stage learns this model; the
+# recipe pins 7). probabilistic over greedy: measured ~23% faster in
+# RadixArk's eval (the Qwen3.8 DSpark configs' finding). The drafter's KV
+# stays bf16 (its own backend pick; the SM12x fp8-target note does not
+# apply — the target cache is bf16 here anyway).
+# enable_adaptive_verification is asserted OFF inside the inkling
+# speculator — do not enable it.
+speculative-config:
+  method: dspark
+  num_speculative_tokens: 7
+  draft_sample_method: probabilistic
+  # E9b: the drafter's lm_head copy quantized to fp8 (per-row weight /
+  # per-token act scales) - 7 draft-head GEMMs/token at the 64K draft vocab
+  # become the cheap kind. The target verifies with its own head, so only
+  # the acceptance length can move; watch it in the A/B.
+  draft_lm_head_quantization: fp8
+
+# ── Parsers (the `inkling` pair, in the nightly) ──────────────────────────
+enable-auto-tool-choice: true
+tool-call-parser: inkling
+reasoning-parser: inkling
+
+# ── Caching ───────────────────────────────────────────────────────────────
+# Prefix caching and chunked prefill run through the model's own
+# KV/conv-state cache managers (48 KV + 48 conv-state caches); the
+# upstream defaults are on — left unset deliberately.
