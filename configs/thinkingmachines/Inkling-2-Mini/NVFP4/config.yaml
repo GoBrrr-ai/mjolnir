@@ -43,12 +43,15 @@ dtype: bfloat16
 # on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.80 = the
 # dedicated-box validation shape under the 105G host-OOM cap (262K needs ~26.8 GiB of KV on top of the — measured, `verify kv-cache-size`
 # 20261123-112643: the 44.8 GiB pool / 438,082 tokens / 1.67x concurrency
+# 20261123-1728 (0.92): 54.40 GiB / 556,137 tokens / 2.12x — consumed 51.9
+# slim; the 0.87+seqs10 interlude's 71.0 consumed was a one-off. 0.95 = the
+# final notch: the extender's own free-derivative walls at ~57.4 GiB / ~2.25x.
 # ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
 # setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
 max-model-len: 262144
 max-num-seqs: 256
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.80
+gpu-memory-utilization: 0.95
 
 # ── Attention / multimodal ────────────────────────────────────────────────
 # The vision tower runs on the stock backend selection; TORCH_SDPA is the
