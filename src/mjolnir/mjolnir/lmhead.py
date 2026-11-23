@@ -394,10 +394,17 @@ def install_fp8_linears(model) -> int:
     own path; every layer passes the same self-test as the head before it is
     touched, and the bf16 original is freed (the fp8 copy is the only
     consumer once loaded)."""
+    from vllm.model_executor.layers.linear import LinearBase
+
     n = 0
     for name, mod in model.named_modules():
         qm = getattr(mod, "quant_method", None)
         w = getattr(mod, "weight", None)
+        if not isinstance(mod, LinearBase):
+            # embeddings carry a quant_method and a big 2-D weight too, but
+            # their forward is a lookup on `.weight` - fp8-ing one emptied the
+            # shared embed and killed the boot ('weight' must be 2-D)
+            continue
         if qm is None or w is None or w.ndim != 2 or w.numel() < _MTP_FP8_MIN_NUMEL:
             continue
         if w.dtype not in (torch.bfloat16, torch.float16):
