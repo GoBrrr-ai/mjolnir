@@ -33,10 +33,10 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | `NVFP4` |
 |---|--:|
-| decode (t/s) | 32.9 |
-| prefill (t/s) | 3,394 |
-| TTFT (ms) | 40,368 |
-| ITL (ms) | 30.8 |
+| decode (t/s) | 31.7 |
+| prefill (t/s) | 3,309 |
+| TTFT (ms) | 40,390 |
+| ITL (ms) | 32.2 |
 
 <details>
 <summary>Speculative decoding</summary>
