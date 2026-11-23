@@ -108,6 +108,9 @@ PATCH_ORDER = [
     "thor-inkling2-tune-sm110.patch",
     # E7: the sm100-MoE JIT arch list widened to 110 (the gate-ON boot kill)
     "thor-inkling2-bmmarch-sm110.patch",
+    # 69288 cherry-pick: expert_plan pow2-buckets max_ctas off the sm100 path
+    # (the Triton MAX_CTAS constexpr churn -> per-length recompiles)
+    "thor-inkling2-ctas-pow2.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
