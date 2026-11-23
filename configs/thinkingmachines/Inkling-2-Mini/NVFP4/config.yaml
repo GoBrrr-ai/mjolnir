@@ -49,7 +49,7 @@ dtype: bfloat16
 # ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
 # setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
 max-model-len: 204800
-max-num-seqs: 256
+max-num-seqs: 8
 max-num-batched-tokens: 8192
 gpu-memory-utilization: 0.95
 
