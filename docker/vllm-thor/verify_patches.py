@@ -181,6 +181,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "key_cache.dtype != q.dtype",
         ),
     ],
+    "thor inkling2 ll120 gate widen": [
+        # a drop reverts the low-M linear to plain F.linear on 110
+        (
+            "models/inkling2/nvidia/ops/ll_gemm_sm120.py",
+            "MJOLNIR_INKLING2_LL120",
+        ),
+    ],
     "thor inkling2 humming110 tiles opt-in": [
         # a drop strands the E11 env arm at the stock select-route
         (

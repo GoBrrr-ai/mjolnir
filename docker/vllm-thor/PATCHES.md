@@ -1,3 +1,5 @@
+
+| `thor-inkling2-ll120gate.patch` | [#69168](https://github.com/vllm-project/vllm/pull/69168) (merged-in-pin, family(120)-gated) | **E10: the low-M GEMM trio gates → 110.** `use_sm12x_bf16_ll_gemm`/`use_qkv_bmm` tails env-widened (`MJOLNIR_INKLING2_LL120`): 110's low-M linear leaves plain `F.linear` for the Triton split-K/blend path (the M-shape checks self-gate). GB10 cross-check: blend 2.2×/conv 5.8× transfer at the bandwidth class, qkv ~flat. Ref ITL −6.5…7.5 %. Inert env-off. |
 \n|  |# vLLM Thor PR Patches
 
 Eighteen vLLM-side patches (**eighteen** files under `patches/` carry them; two

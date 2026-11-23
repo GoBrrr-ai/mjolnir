@@ -113,6 +113,8 @@ PATCH_ORDER = [
     "thor-inkling2-ctas-pow2.patch",
     # E11: the NVFP4-tiles humming variant opt-in on sm_110 (3 sites, env)
     "thor-inkling2-humming110.patch",
+    # E10: the #69168 low-M GEMM trio gates widened to 110 (env opt-in)
+    "thor-inkling2-ll120gate.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
