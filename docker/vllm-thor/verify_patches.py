@@ -181,6 +181,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "key_cache.dtype != q.dtype",
         ),
     ],
+    "thor inkling2 trtllm-bmm arch widen": [
+        # a revert silently re-kills the gate-ON boot at the MoE load
+        (
+            "models/inkling2/nvidia/ops/trtllm_bmm.py",
+            "[10, 11]",
+        ),
+    ],
     "thor inkling2 sm110 tune knobs": [
         # the frozen overrides; a drop silently strands the A/B env
         (

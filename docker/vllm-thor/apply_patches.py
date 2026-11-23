@@ -106,6 +106,8 @@ PATCH_ORDER = [
     "thor-inkling2-sm100gate-sm110.patch",
     # E5: sm110 tuning overrides for the sm90-path launch constants
     "thor-inkling2-tune-sm110.patch",
+    # E7: the sm100-MoE JIT arch list widened to 110 (the gate-ON boot kill)
+    "thor-inkling2-bmmarch-sm110.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch

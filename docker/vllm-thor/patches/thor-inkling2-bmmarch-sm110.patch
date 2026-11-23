@@ -1,0 +1,13 @@
+diff --git a/vllm/models/inkling2/nvidia/ops/trtllm_bmm.py b/vllm/models/inkling2/nvidia/ops/trtllm_bmm.py
+@@ -53,7 +53,10 @@
+         [_SOURCE],
+         extra_cuda_cflags=flags
+         + current_compilation_context.get_nvcc_flags_list(
+-            supported_major_versions=[10]
++            # [thor] sm_110 carries the tcgen05 family; the sm100-MoE JIT
++            # compiles per-arch (E7: the gate-ON boot died here on the
++            # empty [10]-filtered arch table). Inert on stock paths.
++            supported_major_versions=[10, 11],
+         ),
+         extra_ldflags=[str(moe.get_library_path())],
+         extra_include_paths=moe.extra_include_dirs,
