@@ -48,7 +48,7 @@ dtype: bfloat16
 # final notch: the extender's own free-derivative walls at ~57.4 GiB / ~2.25x.
 # ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
 # setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
-max-model-len: 262144
+max-model-len: 204800
 max-num-seqs: 256
 max-num-batched-tokens: 8192
 gpu-memory-utilization: 0.95
