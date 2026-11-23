@@ -1,0 +1,12 @@
+diff --git a/flashinfer/jit/fused_moe.py b/flashinfer/jit/fused_moe.py
+@@ -396,7 +396,9 @@
+     if nvcc_flags is None:
+         # currently only support Blackwell (SM107 compiles as sm100f)
+         nvcc_flags = current_compilation_context.get_nvcc_flags_list(
+-            supported_major_versions=[10, 12],
++            # [thor] +11: the sm100-gen MoE JIT is arch-generic; the major
++            # filter starved sm_110 (E7: the gate-ON boot's kill site).
++            supported_major_versions=[10, 11, 12],
+             map_sm107_to_100f=True,
+         )
+ 

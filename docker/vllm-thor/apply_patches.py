@@ -203,6 +203,9 @@ FLASHINFER_PATCH_ORDER = [
     # majors include 11 upstream -- no hunk). The 0.33-era
     # fi-cutedsl-moe-sm110.patch is retired (its paths are gone).
     "fi-cutedsl-moe-sm110-0.34.patch",
+    # E7: the sm100-gen MoE JIT's major filter starved 110 (the gate-ON boot
+    # kill at get_nvcc_flags_list); the trtllm-gen source compiles per-arch.
+    "thor-fi-sm100moe-arch-sm110.patch",
 ]
 
 

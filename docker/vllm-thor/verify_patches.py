@@ -404,6 +404,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
+    "thor FI sm100-gen MoE: the nvcc major filter admits 11 (E7)": [
+        # a revert re-kills the gate-ON boot at the MoE JIT flags
+        (
+            "jit/fused_moe.py",
+            "supported_major_versions=[10, 11, 12]",
+        ),
+    ],
     "thor sm110 CuTe DSL MoE: the 0.34 wrappers admit family 11 (THOR_SM110_CUTEDSL_MOE)": [
         # The 0.34 port (fi-cutedsl-moe-sm110-0.34.patch): one sentinel per
         # changed gate line. The moe_utils majors include 11 upstream.
