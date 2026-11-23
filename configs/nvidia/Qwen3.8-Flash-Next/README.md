@@ -14,10 +14,10 @@ format) on each platform.
 
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
-| [`NVFP4_SFP8`](NVFP4_SFP8/README.md) | QSA + FP8 side layers and hyperconnections | ❌ | — | — |
+| [`NVFP4_SFP8`](NVFP4_SFP8/README.md) | QSA + FP8 side layers and hyperconnections | ✅ | — | — |
 
 
-- `NVFP4_SFP8` on thor: ❌ kv-cache-dtype 'fp8_e4m3' is not in the availability table — known dtypes: bf16, fp6_e2m3, fp8, int4, int8, nvfp4.
+- `NVFP4_SFP8` on thor: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 
 
 ## Quickstart

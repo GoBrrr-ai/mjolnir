@@ -24,7 +24,7 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 ```bash
 mjolnir serve up --config NVFP4_SFP8
 ```
-Availability: ❌ kv-cache-dtype 'fp8_e4m3' is not in the availability table — known dtypes: bf16, fp6_e2m3, fp8, int4, int8, nvfp4.
+Availability: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 
 Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjolnir/#config=NVFP4_SFP8).
 

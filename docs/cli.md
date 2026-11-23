@@ -826,6 +826,7 @@ Profile a decode workload per config (torch profiler): graph replays, eager kern
 | `--image` | vLLM image (default: the active one, see `mjolnir image`) |  |
 | `--dry-run` | print the docker commands, run nothing | off |
 | `--timeout` | seconds before a step is given up | `1800.0` |
+| `--serve-env` | extra serve container env KEY=VALUE, repeatable, last-wins (e.g. VLLM_USE_BREAKABLE_CUDAGRAPH=0) |  |
 | `--save` / `--no-save` | write the raw result JSON | --save |
 
 

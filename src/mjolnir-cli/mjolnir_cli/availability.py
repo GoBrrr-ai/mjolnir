@@ -147,6 +147,11 @@ WEIGHTS_AVAILABILITY: dict[str, dict[str, Availability]] = {
 }
 
 # ── KV cache: dtype × backend class × platform (quants.md §2) ────────────────
+
+# vLLM's canonical dtype spellings → the table's class keys (the table keys
+# the class; a config may pin the exact dtype — e.g. the qwen4-exp SFP8's
+# kv-cache-dtype: fp8_e4m3).
+_DTYPE_ALIASES = {"fp8_e4m3": "fp8", "fp8_e5m2": "fp8"}
 # Only servable combinations are rows; an absent (backend, platform) cell means
 # the combination cannot be served and kv_state composes its why from _KV_WHYS.
 
@@ -331,6 +336,7 @@ def kv_state(dtype: str, backend: str, platform: str) -> Availability:
     whose backend class has no cell there returns ``UNAVAILABLE`` with the
     dtype-level why (the transplanted cycle-2 string — no trailing period,
     embedded verbatim in serve-validation errors)."""
+    dtype = _DTYPE_ALIASES.get(dtype, dtype)
     row = KV_AVAILABILITY.get(dtype)
     if row is None:
         return Availability(
