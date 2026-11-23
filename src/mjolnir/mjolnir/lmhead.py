@@ -418,8 +418,15 @@ def install_fp8_linears(model) -> int:
             continue
         mod.quant_method = Fp8HeadMethod(qm, w8, scale)
         mod._mjolnir_fp8_linear = True
-        w.data = torch.empty(0, dtype=w.dtype, device=w.device)
-        torch.cuda.empty_cache()
+        if type(model).__module__.startswith("vllm.models.inkling2"):
+            # the inkling draft's own forward reads `.weight` raw via
+            # ops/linear.linear (dspark.py:285->318) - the emptied tensor is
+            # 'weight must be 2-D' there; keep bf16 until the raw path is
+            # fp8-plumbed (the copies idle, harmless)
+            pass
+        else:
+            w.data = torch.empty(0, dtype=w.dtype, device=w.device)
+            torch.cuda.empty_cache()
         n += 1
         _log.info("Mjolnir mtp fp8: %s %s e4m3 per-row, self-test %.4f", name, tuple(w8.shape), err)
     return n
