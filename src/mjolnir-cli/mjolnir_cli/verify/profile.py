@@ -204,6 +204,7 @@ def stage_profile(
     model: str | None = None,
     restart: bool = False,
     timeout: float = 1800.0,
+    serve_env: tuple[str, ...] = (),
 ) -> dict:
     from mjolnir_cli.verify.kvcache import _legs
     from mjolnir_cli.verify.spec import spec_override, stream_one
@@ -215,6 +216,7 @@ def stage_profile(
         "concurrency": concurrency,
         "requests": requests,
         "max_tokens": max_tokens,
+        "serve_env": list(serve_env),
     }
     rows, cases = [], []
     if dockerctl.container_running() and not restart and not ctx.runner.dry_run:
@@ -246,14 +248,14 @@ def stage_profile(
             serve_args += ("--speculative-config", override)
         ctx.out(f"   ▸ {point}  ({s.image})")
         if ctx.runner.dry_run:
-            dockerctl.serve_up(s, wait=False, dry_run=True, serve_args=serve_args)
+            dockerctl.serve_up(s, wait=False, dry_run=True, serve_args=serve_args, extra_env=serve_env)
             continue
         log = ctx.logdir / "profile" / f"{point}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         err, summary = None, None
         try:
             host_dir.mkdir(parents=True, exist_ok=True)
-            dockerctl.serve_up(s, wait=True, wait_timeout_s=timeout, serve_args=serve_args)
+            dockerctl.serve_up(s, wait=True, wait_timeout_s=timeout, serve_args=serve_args, extra_env=serve_env)
             root = s.base_url.rsplit("/v1", 1)[0]
             for _ in range(2):  # warm-up at the same shape: compiles, graphs, allocator
                 stream_one(s.base_url, s.served_model, prompt, 32)

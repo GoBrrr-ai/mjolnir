@@ -37,7 +37,8 @@ RUNTIME_ENV = (
     # the inkling stack: the model defaults to breakable/piecewise CUDA
     # graphs (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) — without
     # this the engine overrides to FULL_DECODE_ONLY and ~58 kernels/token
-    # run eager. Inert for every other model on these legs.
+    # run eager. Inert for every other model on these legs. Serve-side env
+    # overrides go through `verify profile --serve-env` (E6, last-wins).
     "-e",
     "VLLM_USE_BREAKABLE_CUDAGRAPH=1",
 )

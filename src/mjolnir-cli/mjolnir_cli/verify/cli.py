@@ -674,6 +674,11 @@ def profile(
     image: str | None = IMAGE,
     dry_run: bool = DRY,
     timeout: float = typer.Option(1800.0, "--timeout"),
+    serve_env: list[str] = typer.Option(
+        [],
+        "--serve-env",
+        help="extra serve container env KEY=VALUE, repeatable, last-wins (e.g. VLLM_USE_BREAKABLE_CUDAGRAPH=0)",
+    ),
     save: bool = SAVE,
 ):
     """Profile a decode workload per config (torch profiler): graph replays, eager kernels, GPU idle, top kernels."""
@@ -687,6 +692,7 @@ def profile(
         "model": model,
         "restart": restart,
         "timeout": timeout,
+        "serve_env": tuple(serve_env),
     }
     _run(
         "profile",
