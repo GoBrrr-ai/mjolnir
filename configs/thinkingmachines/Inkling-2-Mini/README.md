@@ -1,6 +1,6 @@
 # Inkling-2-Mini
 
-`thinkingmachines/Inkling-2-Mini` — served as `thinkingmachines/Inkling-2-Mini` — with 2
+`thinkingmachines/Inkling-2-Mini` — served as `thinkingmachines/Inkling-2-Mini` — with 3
 serving configs in `configs/thinkingmachines/Inkling-2-Mini/`. Everything on this page is
 derived from the config tree and the raw results; there is no hand-written
 model prose (decision 7).
@@ -15,10 +15,12 @@ format) on each platform.
 | config | backend | thor | spark | orin |
 |---|---|---|---|---|
 | [`NVFP4`](NVFP4/README.md) | FlashInfer | ✅ | — | — |
+| [`NVFP4_FP8KV`](NVFP4_FP8KV/README.md) | NVFP4_FP8KV | ✅ | — | — |
 | [`NVFP4_LMH8`](NVFP4_LMH8/README.md) | NVFP4_LMH8 | ✅ | — | — |
 
 
 - `NVFP4` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
+- `NVFP4_FP8KV` on thor: ✅ The Mjolnir kernel reads e4m3 KV natively on thor as its default dtype.
 - `NVFP4_LMH8` on thor: ✅ BF16 (and fp16) KV is the unquantized baseline: every backend class serves it wherever that backend itself runs.
 
 

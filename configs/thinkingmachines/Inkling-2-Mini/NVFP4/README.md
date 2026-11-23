@@ -10,11 +10,11 @@ this page derives from the committed raw data ([history](../../../../benchmarks/
 |---|---|
 | Checkpoint | `thinkingmachines/Inkling-2-Mini` |
 | Format | FlashInfer |
-| Max context | 256K |
-| Max concurrency | 256 |
+| Max context | 200K |
+| Max concurrency | 8 |
 | Prefill chunk | 8K |
 | Spec decode | DSPARK ×7 |
-| GPU memory util | 0.80 |
+| GPU memory util | 0.95 |
 | Parsing | inkling / inkling |
 
 ## Serve
