@@ -149,7 +149,7 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         ),
         (
             "models/inkling2/nvidia/attention.py",
-            'MJOLNIR_INKLING2_FA4_REL',
+            "MJOLNIR_INKLING2_FA4_REL",
         ),
         (
             "models/inkling2/nvidia/attention.py",
@@ -162,7 +162,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "MJOLNIR_INKLING2_FA4_REL",
         ),
     ],
-
     "thor inkling2 ll120 gate widen": [
         # a drop reverts the low-M linear to plain F.linear on 110
         (
@@ -170,11 +169,25 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "MJOLNIR_INKLING2_NO_LL120",
         ),
     ],
-
-
-
-
-
+    "thor inkling2 fp8-KV on sm_110 (MJOLNIR_INKLING2_FP8KV)": [
+        # the gate arm + its env escape -- a partial apply (the arm without
+        # the env, or vice versa) is still behaviorally complete, but the
+        # pair is the contract; the units-scale path itself is stock.
+        (
+            "models/inkling2/nvidia/attention.py",
+            "is_device_capability_family(110)",
+        ),
+        (
+            "models/inkling2/nvidia/attention.py",
+            "MJOLNIR_INKLING2_FP8KV",
+        ),
+        # the tml path is same-dtype; the fp8 cache converts on the FA4
+        # entry (the decode triton reads fp8 natively)
+        (
+            "models/inkling2/nvidia/ops/attention.py",
+            "key_cache.dtype != q.dtype",
+        ),
+    ],
     "thor inkling2 decode split-cap on sm_110": [
         # the /4 denominator -- the pair with the ncu evidence in the fp8kv
         # history; a silent revert to /8 is the failure this guards
@@ -376,7 +389,6 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
-
     "thor sm110 CuTe DSL MoE: the 0.34 wrappers admit family 11 (THOR_SM110_CUTEDSL_MOE)": [
         # The 0.34 port (fi-cutedsl-moe-sm110-0.34.patch): one sentinel per
         # changed gate line. The moe_utils majors include 11 upstream.

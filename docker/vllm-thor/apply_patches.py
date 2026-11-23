@@ -95,6 +95,12 @@ PATCH_ORDER = [
     # Triton-sm90 fallback is the only stock path on Thor). Env-off via
     # MJOLNIR_INKLING2_FA4_REL=0. Same file family, order-independent.
     "thor-inkling2-fa4-rel-sm110.patch",
+    # ...and the unit-scale E4M3 KV cache on sm_110 (the model's fp8 path is
+    # complete and arch-generic; only the dtype gate is SM120-ary). Same file
+    # as the fa4-rel patch, disjoint hunks. Env-off MJOLNIR_INKLING2_FP8KV=0.
+    # Revived 2026-11-23: the capacity regime (pool-bound at 262K) flips the
+    # E4 step trade; config NVFP4_FP8KV.
+    "thor-inkling2-fp8kv-sm110.patch",
     # ...and the decode split-budget on Thor (the /8 denominator is tuned for
     # 100+-SM parts; the ncu repro shows 15% occupancy on the verify shape).
     "thor-inkling2-splitcap-sm110.patch",

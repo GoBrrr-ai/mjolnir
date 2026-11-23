@@ -1,4 +1,5 @@
-# NVFP4_FP8KV — NVFP4 with the unit-scale fp8 (e4m3) KV cache on sm_110.
+# NVFP4_FP8KV — NVFP4 with the unit-scale fp8 (e4m3) KV cache on sm_110
+# (the bf16 NVFP4 config's sibling: same serving shape, the KV dtype differs).
 #
 # The checkpoint IS the native quant (ModelOpt): routed experts NVFP4 in
 # layers 0-19 / MXFP8 in 20-23; attention, routers, attention-residual
@@ -28,7 +29,8 @@
 #     arch-generic; thor-inkling2-fp8kv-sm110.patch widens the stock SM120
 #     dtype gate to sm_110 (env-off MJOLNIR_INKLING2_FP8KV=0). Halves the
 #     KV read — the decode window is attention-bound at depth (M0: 23.5% of
-#     the step at 128K, the top kernel).
+#     the step at 128K, the top kernel). Revived 2026-11-23: the capacity
+#     regime (pool-bound 2.12x@262K) flips the E4 step trade; ~1.8x tokens.
 #
 # Shape: 26B total / 3.5B active looped MoE — 24 physical layers, the core
 # (6-17) run three times with shared weights = 48 layer visits/token; 128
@@ -39,18 +41,24 @@ model: thinkingmachines/Inkling-2-Mini
 served-model-name: thinkingmachines/Inkling-2-Mini
 
 dtype: bfloat16
+
+# the cache: unit-scale e4m3 (the patch's gate accepts fp8/fp8_e4m3 on 110)
 kv-cache-dtype: fp8_e4m3
 
 # ── Capacity (the recipe's latency shape; the verified Thor data point is
 # 524288 ctx @ gpu-memory-utilization 0.65, upstream PR #69169 — raise both
 # on a dedicated box). 262144 = the recipe's 128GB-class cap. 0.80 = the
-# dedicated-box validation shape under the 105G host-OOM cap (262K needs ~25.6 GiB of KV on top of the
+# dedicated-box validation shape under the 105G host-OOM cap (262K needs ~26.8 GiB of KV on top of the — measured, `verify kv-cache-size`
+# 20261123-112643: the 44.8 GiB pool / 438,082 tokens / 1.67x concurrency
+# 20261123-1728 (0.92): 54.40 GiB / 556,137 tokens / 2.12x — consumed 51.9
+# slim; the 0.87+seqs10 interlude's 71.0 consumed was a one-off. 0.95 = the
+# final notch: the extender's own free-derivative walls at ~57.4 GiB / ~2.25x.
 # ~22 GiB of weights + activation/cudagraph pools; 0.45 — the shared-GPU
 # setting when the Qwen3.8 server lives beside it — fits only ~16K ctx).
 max-model-len: 262144
 max-num-seqs: 256
 max-num-batched-tokens: 8192
-gpu-memory-utilization: 0.80
+gpu-memory-utilization: 0.95
 
 # ── Attention / multimodal ────────────────────────────────────────────────
 # The vision tower runs on the stock backend selection; TORCH_SDPA is the
