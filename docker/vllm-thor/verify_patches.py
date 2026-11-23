@@ -162,25 +162,7 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "MJOLNIR_INKLING2_FA4_REL",
         ),
     ],
-    "thor inkling2 fp8-KV on sm_110 (MJOLNIR_INKLING2_FP8KV)": [
-        # the gate arm + its env escape -- a partial apply (the arm without
-        # the env, or vice versa) is still behaviorally complete, but the
-        # pair is the contract; the units-scale path itself is stock.
-        (
-            "models/inkling2/nvidia/attention.py",
-            "is_device_capability_family(110)",
-        ),
-        (
-            "models/inkling2/nvidia/attention.py",
-            "MJOLNIR_INKLING2_FP8KV",
-        ),
-        # the tml path is same-dtype; the fp8 cache converts on the FA4
-        # entry (the decode triton reads fp8 natively)
-        (
-            "models/inkling2/nvidia/ops/attention.py",
-            "key_cache.dtype != q.dtype",
-        ),
-    ],
+
     "thor inkling2 ll120 gate widen": [
         # a drop reverts the low-M linear to plain F.linear on 110
         (
@@ -188,42 +170,11 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "MJOLNIR_INKLING2_NO_LL120",
         ),
     ],
-    "thor inkling2 humming110 tiles opt-in": [
-        # a drop strands the E11 env arm at the stock select-route
-        (
-            "models/inkling2/nvidia/moe.py",
-            "MJOLNIR_INKLING2_HUMMING",
-        ),
-    ],
-    "thor inkling2 69288 ctas pow2": [
-        # a drop resurrects the per-prompt-length MoE recompile churn
-        (
-            "models/inkling2/nvidia/ops/trtllm_bmm.py",
-            "1 << (max_ctas - 1).bit_length()",
-        ),
-    ],
-    "thor inkling2 trtllm-bmm arch widen": [
-        # a revert silently re-kills the gate-ON boot at the MoE load
-        (
-            "models/inkling2/nvidia/ops/trtllm_bmm.py",
-            "[10, 11]",
-        ),
-    ],
-    "thor inkling2 sm110 tune knobs": [
-        # the frozen overrides; a drop silently strands the A/B env
-        (
-            "models/inkling2/nvidia/ops/attention_sm90.py",
-            "MJOLNIR_INKLING2_BLOCK_N",
-        ),
-    ],
-    "thor inkling2 sm100-kernel gate widen": [
-        # the env escape + the 110 branch; a revert to the bare family(100)
-        # return silently demotes Thor to the sm90 paths again
-        (
-            "models/inkling2/nvidia/ops/__init__.py",
-            "MJOLNIR_INKLING2_SM100_KERNELS",
-        ),
-    ],
+
+
+
+
+
     "thor inkling2 decode split-cap on sm_110": [
         # the /4 denominator -- the pair with the ncu evidence in the fp8kv
         # history; a silent revert to /8 is the failure this guards
@@ -425,13 +376,7 @@ FIXES: dict[str, list[tuple[str, str]]] = {
 # The flashinfer-side hunk is verified by verify_flashinfer() (separate root:
 # the installed flashinfer site-packages, not the vllm package).
 FLASHINFER_FIXES: dict[str, list[tuple[str, str]]] = {
-    "thor FI sm100-gen MoE: the nvcc major filter admits 11 (E7)": [
-        # a revert re-kills the gate-ON boot at the MoE JIT flags
-        (
-            "jit/fused_moe.py",
-            "supported_major_versions=[10, 11, 12]",
-        ),
-    ],
+
     "thor sm110 CuTe DSL MoE: the 0.34 wrappers admit family 11 (THOR_SM110_CUTEDSL_MOE)": [
         # The 0.34 port (fi-cutedsl-moe-sm110-0.34.patch): one sentinel per
         # changed gate line. The moe_utils majors include 11 upstream.

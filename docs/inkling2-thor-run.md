@@ -18,8 +18,7 @@ Every experiment ran to a verdict with artifacts; nothing was parked without a n
 | spec | DSpark K=7 (the checkpoint's invariant), acceptance 0.611 / 2.33 tokens-step |
 | graphs | piecewise-breakable, 51 captured segments, 162 replays + 52.0 eager kernels/token |
 
-### The patch inventory (all registered, sentineled, `PATCHES.md`)
-
+### The patch inventory (all registered, sentineled, `PATCHES.md`; **post-cleanup: 22+2 sentinels — the no-op experiments' patches stripped to git history, this table is the archaeology**)
 | patch | origin | verdict | default |
 |---|---|---|---|
 | `thor-inkling2-fp8kv` | Thor | fp8-KV +15.7 % step — **parked-negative** | off (the variant config) |

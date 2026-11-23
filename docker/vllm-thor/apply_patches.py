@@ -95,25 +95,13 @@ PATCH_ORDER = [
     # Triton-sm90 fallback is the only stock path on Thor). Env-off via
     # MJOLNIR_INKLING2_FA4_REL=0. Same file family, order-independent.
     "thor-inkling2-fa4-rel-sm110.patch",
-    # ...and the unit-scale E4M3 KV cache on sm_110 (the model's fp8 path is
-    # complete and arch-generic; only the dtype gate is SM120-ary). Same file
-    # as the fa4-rel patch, disjoint hunks. Env-off MJOLNIR_INKLING2_FP8KV=0.
-    "thor-inkling2-fp8kv-sm110.patch",
     # ...and the decode split-budget on Thor (the /8 denominator is tuned for
     # 100+-SM parts; the ncu repro shows 15% occupancy on the verify shape).
     "thor-inkling2-splitcap-sm110.patch",
-    # the sm100 family gate widen: upstream tcgen05/tml kernels on sm_110
-    "thor-inkling2-sm100gate-sm110.patch",
-    # E5: sm110 tuning overrides for the sm90-path launch constants
-    "thor-inkling2-tune-sm110.patch",
-    # E7: the sm100-MoE JIT arch list widened to 110 (the gate-ON boot kill)
-    "thor-inkling2-bmmarch-sm110.patch",
-    # 69288 cherry-pick: expert_plan pow2-buckets max_ctas off the sm100 path
-    # (the Triton MAX_CTAS constexpr churn -> per-length recompiles)
-    "thor-inkling2-ctas-pow2.patch",
-    # E11: the NVFP4-tiles humming variant opt-in on sm_110 (3 sites, env)
-    "thor-inkling2-humming110.patch",
-    # E10: the #69168 low-M GEMM trio gates widened to 110 (env opt-in)
+    # E10 KEPT: the #69168 low-M GEMM trio gates widened to 110 (default-on,
+    # the escape MJOLNIR_INKLING2_NO_LL120). The run-record:
+    # docs/inkling2-thor-run.md; the parked experiments' patches live in
+    # the loop ledger / git history.
     "thor-inkling2-ll120gate.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
@@ -210,9 +198,6 @@ FLASHINFER_PATCH_ORDER = [
     # majors include 11 upstream -- no hunk). The 0.33-era
     # fi-cutedsl-moe-sm110.patch is retired (its paths are gone).
     "fi-cutedsl-moe-sm110-0.34.patch",
-    # E7: the sm100-gen MoE JIT's major filter starved 110 (the gate-ON boot
-    # kill at get_nvcc_flags_list); the trtllm-gen source compiles per-arch.
-    "thor-fi-sm100moe-arch-sm110.patch",
 ]
 
 
