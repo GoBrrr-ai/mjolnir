@@ -32,12 +32,19 @@ Every experiment ran to a verdict with artifacts; nothing was parked without a n
 | `thor-inkling2-humming110` | Thor (the #68761 variant) | the tiles-humming on 110: boots, 20.4368 in-band n1 — **wash-opt-in** | opt-in `MJOLNIR_INKLING2_HUMMING` |
 | **`thor-inkling2-ll120gate`** | #69168 port | **KEPT default-ON**: the low-M trio on 110 — **19.7815 ms/token, the matrix's best; the eager tail 52.7→52.0** | on; escape `MJOLNIR_INKLING2_NO_LL120` |
 
-### The env-matrix (the opt-ins, all default-inert unless noted)
+### The env-matrix
 
-`VLLM_USE_BREAKABLE_CUDAGRAPH=1` (the sidecar, **the kept directive**) ·
-`MJOLNIR_INKLING2_SM100_KERNELS` · `MJOLNIR_INKLING2_{BLOCK_N,WARPS,STAGES}` ·
-`MJOLNIR_INKLING2_HUMMING` · `MJOLNIR_INKLING2_NO_LL120` (the escape) ·
-`MJOLNIR_INKLING2_STOCK_GATE` (the E1-era alias, superseded)
+**Live on the shipped image:** `VLLM_USE_BREAKABLE_CUDAGRAPH=1` (the sidecar, **the kept
+directive**) · `MJOLNIR_INKLING2_NO_LL120` (the E10 escape — any non-empty value reverts
+the low-M trio to `F.linear`) · `MJOLNIR_INKLING2_CONV_MIX_NATIVE` and
+`MJOLNIR_INKLING2_FA4_REL` (the phase-era fallback knobs, live in their patches).
+
+**Historical (the experiments' envs; the patches were stripped in the lean — setting any
+is a no-op on `b11`+):** `MJOLNIR_INKLING2_SM100_KERNELS` ·
+`MJOLNIR_INKLING2_{BLOCK_N,WARPS,STAGES}` · `MJOLNIR_INKLING2_HUMMING` ·
+`MJOLNIR_INKLING2_STOCK_GATE` · `MJOLNIR_INKLING2_LL120` (superseded by the default-on
+flip) · `MJOLNIR_INKLING2_FP8KV`. The diffs live in git history; the verdicts in the
+experiment table below.
 
 ## The performance
 
