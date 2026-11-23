@@ -181,6 +181,13 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "key_cache.dtype != q.dtype",
         ),
     ],
+    "thor inkling2 humming110 tiles opt-in": [
+        # a drop strands the E11 env arm at the stock select-route
+        (
+            "models/inkling2/nvidia/moe.py",
+            "MJOLNIR_INKLING2_HUMMING",
+        ),
+    ],
     "thor inkling2 69288 ctas pow2": [
         # a drop resurrects the per-prompt-length MoE recompile churn
         (

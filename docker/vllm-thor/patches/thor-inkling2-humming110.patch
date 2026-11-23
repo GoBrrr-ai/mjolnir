@@ -1,0 +1,42 @@
+diff --git a/vllm/models/inkling2/nvidia/moe.py b/vllm/models/inkling2/nvidia/moe.py
+@@ -9,6 +9,8 @@
+ 
+ from collections.abc import Callable, Sequence
+ from typing import Literal, Protocol
++
++import os
+ 
+ import torch
+ from torch import nn
+@@ -150,8 +152,12 @@
+         self.sm100 = use_sm100_kernels()
+         self.sm120 = current_platform.is_device_capability_family(120)
+         vllm_config = get_current_vllm_config_or_none()
++        # [thor] E11: the NVFP4-tiles humming variant, opt-in on sm_110
++        # (the select-variant already runs there; this is the plan/tiles
++        # route). Upstream gates the ctor at family(120) only.
++        _humming_opt = self.sm120 or os.environ.get('MJOLNIR_INKLING2_HUMMING')
+         self.humming_nvfp4 = (
+-            self.sm120
++            _humming_opt
+             and self.nvfp4
+             and vllm_config is not None
+             and vllm_config.kernel_config.moe_backend == "humming"
+@@ -274,7 +280,7 @@
+         Without `reduce`, returns the local expert rows and `src2dst` for
+         the consumer to combine and reduce, or pushes their combine to the
+         token shard owners."""
+-        if self.sm100 or self.sm120:
++        if self.sm100 or self.sm120 or self.humming_nvfp4:
+             src2dst, gammas, rows, tiles = routing
+             gate_up = self._gemm(quantized, "w13", tiles, plan, 0)
+             m = plan.max_ctas
+@@ -382,7 +388,7 @@
+         is_padding = None
+         if envs.VLLM_MOE_SKIP_PADDING and is_forward_context_available():
+             is_padding = get_forward_context().is_padding
+-        if not (experts.sm100 or experts.sm120):
++        if not (experts.sm100 or experts.sm120 or experts.humming_nvfp4):
+             selected = select_experts(
+                 x,
+                 gate.weight,

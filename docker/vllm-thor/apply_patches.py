@@ -111,6 +111,8 @@ PATCH_ORDER = [
     # 69288 cherry-pick: expert_plan pow2-buckets max_ctas off the sm100 path
     # (the Triton MAX_CTAS constexpr churn -> per-length recompiles)
     "thor-inkling2-ctas-pow2.patch",
+    # E11: the NVFP4-tiles humming variant opt-in on sm_110 (3 sites, env)
+    "thor-inkling2-humming110.patch",
     # The Mjolnir attention backend name: adds AttentionBackendEnum.MJOLNIR
     # (-> mjolnir.backend.MjolnirAttentionBackend, the mjolnir-kernel
     # package) to v1/attention/backends/registry.py, which no other patch
