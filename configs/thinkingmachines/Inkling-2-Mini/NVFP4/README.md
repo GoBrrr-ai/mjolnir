@@ -68,4 +68,22 @@ official vLLM · FlashInfer fp8, 1 request: best with **4 drafts** — 25.8 t/s 
 </details><br />
 </details>
 
+<details>
+<summary>Model quality (per suite)</summary>
+
+| suite | score |
+|---|--:|
+| Tool calls | 87.0 |
+| Hard Mode | 85.7 |
+
+<details>
+<summary>How the % and × here are calculated</summary>
+
+- **Score** = points ÷ maximum points × 100, each scenario 2 (pass), 1 (partial) or 0 (fail); GSM8K / MMLU = accuracy in %; IFEval = prompt-level accuracy in %.
+- **(±)** = this row's score − the baseline row's score, in percentage **points**, not a relative change: 86.5 vs 88.0 is −1.5 points (a relative change would be −1.7%).
+- **n** = runs averaged (`--trials`); **completion** = the share of scenarios the endpoint answered — compare rows only at equal completion.
+
+</details><br />
+</details>
+
 The per-stage kernel numbers — findings, charts and raw provenance — live in the [Jetson AGX Thor kernel case study](../../../../docs/platforms/thor/README.md#-kernel), one chapter per verify stage.

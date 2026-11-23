@@ -79,6 +79,17 @@ the profile-stage comparisons below ~2 % are unresolvable at n1; the e2e cell-me
 \* the deep-c2/c4 means carry pool-pressure runs (the 59 %-KV at c2 → the thrash at c4);
 the peaks hold. TTFT @128K ≈ 40 s = the no-cache context build (128K ÷ 3394 tok/s ✓).
 
+### The b12 re-bench (`bench perf`, 15 cells ≤32K, 2026-11-23; pp2048/tg128 exact-tg, 6 samples/cell)
+
+Per-cell **parity with the a1 record** at every overlapping (depth, c) — the ship state survives the
+loop+lean unchanged. The deep-c shape is confirmed as the config's own, not a regression:
+c4 d32K 17.7 t/s / 124 ms itl (a1: 17.6 / 124.9 — loose end 4 stands). The one delta:
+**d32K c1 39.1 → 44.5 t/s (+14 %, cross-run)** — the E10 direction at the low-M shape, above the
+±10 % long-L drift band. And c1 decode is depth-flat: 41.2 → 44.5 t/s d0→32K, the peak holding
+54–60 t/s throughout; concurrency scaling decays with depth (c4/c1 aggregate 2.5×@0 → 0.40×@32K).
+
+raw: `benchmarks/staging/perf-20261123T123446Z` (+1 `history.jsonl` row, the b12 key)
+
 ### Versus the upstream serving recipe
 
 | metric | the recipe (524K-context box) | this run (the 262K config cap) |
@@ -99,6 +110,19 @@ submodules nor, pre-env, breakable graphs): ~20.2 ms/token-class with 64 graph-r
 58+ eager kernels/token. The kept delta-stack on top: **piecewise (−8.1 %) + the ll120
 low-M trio (the band-floor + the eager-tail cut) = 19.70 plain-boot** — cumulatively
 **≈ −9.5 %** vs the stock-boot class, with the spec/pd counters healthy throughout.
+
+## The quality (`bench accuracy`, 2026-11-23)
+
+**87/100** — 168/194 pts, **79 pass / 10 partial / 8 fail** over 97 scenarios (★★★★ Good).
+Tool calls **87.0 %** · Hard Mode **85.7 %** (48/56) · completion 100 %.
+Leg: `NVFP4` on `b12` (FlashInfer, bf16 head) · tool-eval-bench `v2.8.1.dev1+gb60e2f00`, `--hardmode --seed 42`, timeout 600.
+
+The 8 fails: TC-44 tool_choice=none (309 s) · TC-51 goal-level planning · TC-58 fake system message ·
+TC-63 accumulating constraints (173 s) · TC-68 schema-violation resistance · TC-88 preserved reasoning
+across follow-ups (134 s) · TC-92 tenant isolation · TC-94 content-routing — the three longest-duration
+scenarios plus five short instruction-precise ones; no capability column below 67 % (Autonomous Planning).
+
+artifact: `benchmarks/raw/accuracy/20261123-125540/accuracy.json` (+ the per-leg `mjolnir-NVFP4/`)
 
 ## The closed fronts (the loop, E1–E11)
 
@@ -129,10 +153,13 @@ low-M trio (the band-floor + the eager-tail cut) = 19.70 plain-boot** — cumula
 - the loop ledger: `task/thor/inkling2-loop.md` (+ `inkling2-loop/`: the sweeps, the E2/E3 evidence, the probe outputs)
 - the phase-2: `task/thor/inkling2-phase2/m0-profile.md`, `task/thor/plans/plan-inkling2-mjolnir-phase2.md`
 - the research: `task/wiki/sources/inkling2-thor-perf-levers.md` (r1) / `…levers-r2.md`
-- the images: `dev` → `a1` → `b2`…`b11` (the b-line = the patch vehicles; **b11 = the ship**)
-- the e2e: `benchmarks/history.jsonl` (the 18-cell record); the profiles: `benchmarks/staging/verify/profile/`
+- the images: `dev` → `a1` → `b2`…`b12` (the b-line = the patch vehicles; **b12 = the ship** — the post-lean, post-CR build)
+- the e2e: `benchmarks/history.jsonl` (the 18-cell a1 record + the 15-cell b12 re-bench); the profiles: `benchmarks/staging/verify/profile/`
+- the closing bench: perf `benchmarks/staging/perf-20261123T123446Z`; accuracy `benchmarks/raw/accuracy/20261123-125540/`
 
 *Parked 2026-11-23 — the final CR pass: 7 shoulds fixed (`a2a1e46`…), the post-lean
 ship build `b12` smoked green (19.7902 / 52.0 eager, the KV provenance landed);
-the review: `task/wiki/reviews/inkling2-nightly-final.md`. The loop resumes from
+the review: `task/wiki/reviews/inkling2-nightly-final.md`. The closing bench landed same-day —
+`bench perf` 15 cells (a1-parity, the d32K-c1 E10 signature) and `bench accuracy` 87/100 —
+**the run is closed**. The loop resumes from
 the ledger's roster or a fresh research round.*
