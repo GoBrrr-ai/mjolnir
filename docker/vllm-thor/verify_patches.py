@@ -381,6 +381,12 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "output = torch.ops.vllm.thor_mm_mxfp8_tactic(",
         ),
     ],
+    # #64145 cherry: the depth knob exists and the scheduler loop consumes it
+    # (a config-only land would silently keep depth-2 behavior)
+    "thor async-scheduling-depth (#64145 cherry)": [
+        ("config/scheduler.py", "async_scheduling_depth"),
+        ("v1/core/sched/scheduler.py", "async_scheduling_depth"),
+    ],
 }
 
 

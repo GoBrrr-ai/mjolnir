@@ -187,6 +187,16 @@ PATCH_ORDER = [
     # FlashInfer CUTLASS MXFP8 tactic pin by M bucket (MJOLNIR_MXFP8_TACTIC):
     # model_executor/kernels/linear/mxfp8/flashinfer.py, no other patch.
     "thor-mxfp8-tactic-sm110.patch",
+    # #64145 cherry (post-pin 2026-11-19, +222/-34 runtime-stripped to +82/-22):
+    # --async-scheduling-depth N - keeps N-1 scheduler steps in flight; the
+    # host round-trip (output proc/sched/input prep) hides under the GPU step.
+    # Upstream: +53% c1 tok/s w/ DSpark-7 (885->1359 across depth 2-6, TP8
+    # GB300 - expect the low end at TP1). Flag-gated, default 2 = the old
+    # behavior; the run-doc's async-scheduling wash was the depth-2 arm.
+    # Touches v1/core/sched/{scheduler,async_scheduler,output}.py, config,
+    # arg_utils, engine/core, request, the fault sentinel + adaptive
+    # verification - no model/attention files, order-independent.
+    "thor-async-sched-depth.patch",
 ]
 
 # Patches that land in the installed *flashinfer* package (a separate
