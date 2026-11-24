@@ -41,7 +41,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import types
 
 import torch
 
@@ -884,6 +883,14 @@ def _lm_heads(model) -> list:
     return out
 
 
+class _PlainHead(torch.nn.Module):
+    """The VT's private sliced head as a real Module: the drafter's lm_head slot is a registered child, and torch's setattr rejects non-Module assigns."""
+
+    def __init__(self, weight: torch.Tensor) -> None:
+        super().__init__()
+        self.weight = torch.nn.Parameter(weight, requires_grad=False)
+
+
 def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -> bool:
     """VT for the inkling DSpark drafter: no head of its own (has_own_lm_head False, it drafts via the target's head and a bare-weight GEMM), so the generic installer's logits_processor contract cannot hold. Instead: a PRIVATE row-sliced bf16 head (stock GEMM and markov fold run K-wide, untouched) + the framework's draft_id_to_target_id, with the dspark speculator's reduced-vocab scatter armed to match (the per-step path guards on the index, so a post-load arm sticks; markov-fuse interplay = one for the boot smoke). Runs before the fp8 walk: bf16 source."""
     src = getattr(draft, "lm_head", None)
@@ -898,9 +905,7 @@ def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -
         return False
     w = src.weight.data
     idx = torch.tensor(sorted(set(pad_vocab(ids, size, w.shape[0]))), dtype=torch.long, device=w.device)
-    draft.lm_head = types.SimpleNamespace(
-        weight=torch.nn.Parameter(w.index_select(0, idx).contiguous(), requires_grad=False), quant_method=None
-    )
+    draft.lm_head = _PlainHead(w.index_select(0, idx).contiguous())
     draft.draft_id_to_target_id = idx
     draft._mjolnir_draft_vocab = int(idx.numel())
     if (

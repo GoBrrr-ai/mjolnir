@@ -119,6 +119,7 @@ exclude = [
     "src/mjolnir/mjolnir/arch/thor/decode.py",
     "src/mjolnir/mjolnir/arch/thor/call.py",
     "src/mjolnir/mjolnir/arch/orin/mma.py",
+    "src/mjolnir/mjolnir/lmhead.py",
     "docs/platforms/**/*.md",
     "docker/vllm-thor/PATCHES.md",
     "configs/**/README.md",
