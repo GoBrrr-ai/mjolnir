@@ -80,6 +80,12 @@ speculative-config:
   method: dspark
   num_speculative_tokens: 7
   draft_sample_method: probabilistic
+  # pinned: the draft KV cache. Without it the draft inherits the target's
+  # --kv-cache-dtype (speculative.py: "When None, the draft inherits...") —
+  # today the same fp8_e4m3, by accident of the champion's target dtype. The
+  # pin makes the draft-cache contract explicit and immune to target-dtype
+  # changes; the inkling BF16 pin is sm120-only and does not bind sm110.
+  kv_cache_dtype: fp8_e4m3
 
 # ── Parsers (the `inkling` pair, in the nightly) ──────────────────────────
 enable-auto-tool-choice: true
