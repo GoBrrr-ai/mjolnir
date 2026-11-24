@@ -34,10 +34,10 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | `NVFP4_FP8KV` |
 |---|--:|
-| decode (t/s) | 38.1 |
-| prefill (t/s) | 1,626 |
-| TTFT (ms) | 82,045 |
-| ITL (ms) | 26.7 |
+| decode (t/s) | 38.7 |
+| prefill (t/s) | 1,621 |
+| TTFT (ms) | 82,279 |
+| ITL (ms) | 25.9 |
 
 <details>
 <summary>Model quality (per suite)</summary>
