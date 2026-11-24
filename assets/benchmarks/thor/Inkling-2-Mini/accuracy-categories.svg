@@ -329,16 +329,16 @@ L 1070.974 61.7975
     <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="508.405375" y="201.479273" transform="rotate(-0 508.405375 201.479273)">100</text>
    </g>
    <g id="text_43">
-    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="567.623125" y="201.479273" transform="rotate(-0 567.623125 201.479273)">70</text>
+    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="567.623125" y="201.479273" transform="rotate(-0 567.623125 201.479273)">90</text>
    </g>
    <g id="text_44">
-    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="626.840875" y="201.479273" transform="rotate(-0 626.840875 201.479273)">80</text>
+    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="626.840875" y="201.479273" transform="rotate(-0 626.840875 201.479273)">85</text>
    </g>
    <g id="text_45">
     <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="686.058625" y="201.479273" transform="rotate(-0 686.058625 201.479273)">100</text>
    </g>
    <g id="text_46">
-    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="745.276375" y="201.479273" transform="rotate(-0 745.276375 201.479273)">81</text>
+    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="745.276375" y="201.479273" transform="rotate(-0 745.276375 201.479273)">85</text>
    </g>
    <g id="text_47">
     <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="804.494125" y="201.479273" transform="rotate(-0 804.494125 201.479273)">88</text>
@@ -353,7 +353,7 @@ L 1070.974 61.7975
     <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="982.147375" y="201.479273" transform="rotate(-0 982.147375 201.479273)">75</text>
    </g>
    <g id="text_51">
-    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="1041.365125" y="201.479273" transform="rotate(-0 1041.365125 201.479273)">86</text>
+    <text style="font-size: 9.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #e6edf3" x="1041.365125" y="201.479273" transform="rotate(-0 1041.365125 201.479273)">82</text>
    </g>
    <g id="text_52">
     <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; fill: #8b949e" transform="translate(123.49 41.714208)">cell = share of points, % · green = on par with Inkling-2-Mini, Mjolnir image, FlashInfer, bf16 KV (at most 5 points behind, or ahead)</text>
@@ -364,7 +364,7 @@ L 1070.974 61.7975
    </g>
   </g>
   <g id="text_54">
-   <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #8b949e" x="9.11" y="282.096172" transform="rotate(-0 9.11 282.096172)">mjolnir bench accuracy · tool-eval-bench b60e2f0 · runs 20261123-125540, 20261123-200711</text>
+   <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #8b949e" x="9.11" y="282.096172" transform="rotate(-0 9.11 282.096172)">mjolnir bench accuracy · tool-eval-bench b60e2f0 · runs 20261123-125540, 20261124-133048</text>
   </g>
   <g id="text_55">
    <text style="font-size: 8px; font-family: 'DejaVu Sans Mono', 'Bitstream Vera Sans Mono', 'Computer Modern Typewriter', 'Andale Mono', 'Nimbus Mono L', 'Courier New', 'Courier', 'Fixed', 'Terminal', monospace; text-anchor: end; fill: #8b949e" x="1070.974" y="281.71625" transform="rotate(-0 1070.974 281.71625)">MJOLNIR · Jetson AGX Thor · sm_110</text>

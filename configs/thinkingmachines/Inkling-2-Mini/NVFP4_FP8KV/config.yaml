@@ -59,6 +59,7 @@ max-model-len: 204800
 max-num-seqs: 8
 max-num-batched-tokens: 8192
 gpu-memory-utilization: 0.95
+enable-logging-iteration-details: true
 
 # ── Attention / multimodal ────────────────────────────────────────────────
 # The vision tower runs on the stock backend selection; TORCH_SDPA is the

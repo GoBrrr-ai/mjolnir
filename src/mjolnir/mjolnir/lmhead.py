@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import types
 
 import torch
 
@@ -883,6 +884,44 @@ def _lm_heads(model) -> list:
     return out
 
 
+def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -> bool:
+    """VT for the inkling DSpark drafter: no head of its own (has_own_lm_head False, it drafts via the target's head and a bare-weight GEMM), so the generic installer's logits_processor contract cannot hold. Instead: a PRIVATE row-sliced bf16 head (stock GEMM and markov fold run K-wide, untouched) + the framework's draft_id_to_target_id, with the dspark speculator's reduced-vocab scatter armed to match (the per-step path guards on the index, so a post-load arm sticks; markov-fuse interplay = one for the boot smoke). Runs before the fp8 walk: bf16 source."""
+    src = getattr(draft, "lm_head", None)
+    if (
+        src is None
+        or getattr(src, "weight", None) is None
+        or src.weight.numel() == 0
+        or getattr(src, "quant_method", None) is not None
+    ):
+        _log.warning("Mjolnir draft vocab: no plain drafter head to slice; left as is")
+        return False
+    w = src.weight.data
+    idx = torch.tensor(sorted(set(pad_vocab(ids, size, w.shape[0]))), dtype=torch.long, device=w.device)
+    draft.lm_head = types.SimpleNamespace(
+        weight=torch.nn.Parameter(w.index_select(0, idx).contiguous(), requires_grad=False), quant_method=None
+    )
+    draft.draft_id_to_target_id = idx
+    draft._mjolnir_draft_vocab = int(idx.numel())
+    if (
+        spec is not None
+        and getattr(spec, "use_draft_logits", False)
+        and getattr(spec, "_d2t_scatter_index", None) is None
+    ):
+        # the load-time arm skipped us (our attr lands post-load); build the
+        # exact buffers the dspark speculator would have (speculator.py:166)
+        spec._d2t_scatter_index = torch.arange(idx.shape[0], device=idx.device) + idx
+        spec._draft_scatter_buf = torch.full(
+            (spec.max_num_reqs, spec.vocab_size),
+            float("-inf"),
+            dtype=spec.draft_logits_spec(spec.vllm_config)[0],
+            device=spec.device,
+        )
+    _log.info(
+        "Mjolnir draft vocab: inkling DSpark private head %d/%d rows, d2t armed", int(idx.numel()), int(w.shape[0])
+    )
+    return True
+
+
 def after_load(runner) -> None:
     """Apply the opted-in experiments to a loaded GPU model runner."""
     target = getattr(runner, "model", None)
@@ -896,7 +935,11 @@ def after_load(runner) -> None:
     elif vocab_path and draft is not None:  # before fp8 may free the bf16 weight
         try:
             size = int(os.environ.get(ENV_DRAFT_VOCAB_SIZE, "0") or 0) or None
-            install_draft_vocab(draft, load_vocab(vocab_path), size)
+            ids = load_vocab(vocab_path)
+            if type(draft).__name__ == "Inkling2DSparkModel":
+                _install_dspark_draft_vocab(draft, spec, ids, size)
+            else:
+                install_draft_vocab(draft, ids, size)
         except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
             _log.warning("Mjolnir draft vocab: not installed (%r)", e)
     elif vocab_path:

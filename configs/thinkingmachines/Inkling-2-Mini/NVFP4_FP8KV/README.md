@@ -34,18 +34,18 @@ Explore the numbers in [the interactive charts](https://GoBrrr-ai.github.io/mjol
 
 | metric | `NVFP4_FP8KV` |
 |---|--:|
-| decode (t/s) | 38.7 |
-| prefill (t/s) | 1,621 |
-| TTFT (ms) | 82,279 |
-| ITL (ms) | 25.9 |
+| decode (t/s) | 36.0 |
+| prefill (t/s) | 1,618 |
+| TTFT (ms) | 82,428 |
+| ITL (ms) | 28.4 |
 
 <details>
 <summary>Model quality (per suite)</summary>
 
 | suite | score |
 |---|--:|
-| Tool calls | 86.2 |
-| Hard Mode | 85.7 |
+| Tool calls | 89.1 |
+| Hard Mode | 82.1 |
 
 <details>
 <summary>How the % and × here are calculated</summary>
