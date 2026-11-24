@@ -891,6 +891,40 @@ class _PlainHead(torch.nn.Module):
         self.weight = torch.nn.Parameter(weight, requires_grad=False)
 
 
+def _patch_dspark_loader() -> None:
+    """Wrap the dspark model loader so the VT attr lands DURING load: the
+    speculator's own reduced-vocab arm (speculator.py, right after the loader
+    returns) then sees the K-wide world natively - the draft-logits cache, the
+    gumbel warmup shapes and the markov-fuse decision all consistent. The
+    post-load after_load path stays as the idempotent belt."""
+    try:
+        from vllm.v1.worker.gpu.spec_decode.dspark import speculator as spec_mod
+        from vllm.v1.worker.gpu.spec_decode.dspark import utils as dspark_utils
+    except Exception:  # noqa: BLE001 - not a vLLM with the dspark proposer
+        return
+    if getattr(dspark_utils, "_mjolnir_vt_wrapped", False):
+        return
+
+    orig = dspark_utils.load_dspark_model
+
+    def load_dspark_model(target_model, vllm_config, **kw):
+        model = orig(target_model, vllm_config, **kw)
+        vocab_path = os.environ.get(ENV_DRAFT_VOCAB, "").strip()
+        if vocab_path and type(model).__name__ == "Inkling2DSparkModel":
+            try:
+                size = int(os.environ.get(ENV_DRAFT_VOCAB_SIZE, "0") or 0) or None
+                _install_dspark_draft_vocab(model, None, load_vocab(vocab_path), size)
+            except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+                _log.warning("Mjolnir draft vocab: not installed at load (%r)", e)
+        return model
+
+    dspark_utils.load_dspark_model = load_dspark_model
+    # the speculator imported the name at module import; rebind its copy too
+    spec_mod.load_dspark_model = load_dspark_model
+    dspark_utils._mjolnir_vt_wrapped = True
+    _log.info("Mjolnir draft vocab: the dspark loader wrapped for the load-time VT")
+
+
 def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -> bool:
     """VT for the inkling DSpark drafter: no head of its own (has_own_lm_head False, it drafts via the target's head and a bare-weight GEMM), so the generic installer's logits_processor contract cannot hold. Instead: a PRIVATE row-sliced bf16 head (stock GEMM and markov fold run K-wide, untouched) + the framework's draft_id_to_target_id, with the dspark speculator's reduced-vocab scatter armed to match (the per-step path guards on the index, so a post-load arm sticks; markov-fuse interplay = one for the boot smoke). Runs before the fp8 walk: bf16 source."""
     src = getattr(draft, "lm_head", None)
@@ -908,6 +942,9 @@ def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -
     draft.lm_head = _PlainHead(w.index_select(0, idx).contiguous())
     draft.draft_id_to_target_id = idx
     draft._mjolnir_draft_vocab = int(idx.numel())
+    if getattr(draft, "_mjolnir_vt_done", False):
+        return True
+    draft._mjolnir_vt_done = True
     if (
         spec is not None
         and getattr(spec, "use_draft_logits", False)
@@ -999,3 +1036,4 @@ def install_hooks() -> None:
 
     cls.load_model = load_model
     cls._mjolnir_lmhead_hooked = True
+    _patch_dspark_loader()
