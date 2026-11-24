@@ -938,30 +938,36 @@ def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -
         _log.warning("Mjolnir draft vocab: no plain drafter head to slice; left as is")
         return False
     w = src.weight.data
-    idx = torch.tensor(sorted(set(pad_vocab(ids, size, w.shape[0]))), dtype=torch.long, device=w.device)
-    draft.lm_head = _PlainHead(w.index_select(0, idx).contiguous())
-    draft.draft_id_to_target_id = idx
-    draft._mjolnir_draft_vocab = int(idx.numel())
-    if getattr(draft, "_mjolnir_vt_done", False):
-        return True
-    draft._mjolnir_vt_done = True
+    if not getattr(draft, "_mjolnir_vt_done", False):
+        idx = torch.tensor(sorted(set(pad_vocab(ids, size, w.shape[0]))), dtype=torch.long, device=w.device)
+        draft.lm_head = _PlainHead(w.index_select(0, idx).contiguous())
+        # the framework consumes d2t as an OFFSET: the stock arm builds the
+        # scatter index as arange + d2t (= absolute target columns) and the
+        # rejection maps target = draft + d2t[draft]
+        draft.draft_id_to_target_id = idx - torch.arange(idx.shape[0], dtype=idx.dtype, device=idx.device)
+        draft._mjolnir_draft_vocab = int(idx.numel())
+        draft._mjolnir_vt_done = True
+        _log.info("Mjolnir draft vocab: inkling DSpark private head %d/%d rows", int(idx.numel()), int(w.shape[0]))
     if (
         spec is not None
         and getattr(spec, "use_draft_logits", False)
         and getattr(spec, "_d2t_scatter_index", None) is None
     ):
-        # the load-time arm skipped us (our attr lands post-load); build the
-        # exact buffers the dspark speculator would have (speculator.py:166)
-        spec._d2t_scatter_index = torch.arange(idx.shape[0], device=idx.device) + idx
+        # the inkling speculator override replaces load_draft_model WITHOUT
+        # super(), so the base arm (dspark speculator.py:166) never runs on
+        # inkling: build the exact same buffers here, idempotent on the
+        # None check. Without it the gumbel samples private-head ROW indexes
+        # that inkling's identity map consumes as target ids - the b24
+        # acceptance crater (2.513 -> 1.526 tokens/step, ITL 25.4 -> 43.5 ms).
+        d2t = draft.draft_id_to_target_id
+        spec._d2t_scatter_index = torch.arange(d2t.shape[0], device=d2t.device) + d2t
         spec._draft_scatter_buf = torch.full(
             (spec.max_num_reqs, spec.vocab_size),
             float("-inf"),
             dtype=spec.draft_logits_spec(spec.vllm_config)[0],
             device=spec.device,
         )
-    _log.info(
-        "Mjolnir draft vocab: inkling DSpark private head %d/%d rows, d2t armed", int(idx.numel()), int(w.shape[0])
-    )
+        _log.info("Mjolnir draft vocab: d2t scatter armed, %d target columns", int(d2t.shape[0]))
     return True
 
 
