@@ -887,11 +887,12 @@ def _lm_heads(model) -> list:
 def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -> bool:
     """VT for the inkling DSpark drafter: no head of its own (has_own_lm_head False, it drafts via the target's head and a bare-weight GEMM), so the generic installer's logits_processor contract cannot hold. Instead: a PRIVATE row-sliced bf16 head (stock GEMM and markov fold run K-wide, untouched) + the framework's draft_id_to_target_id, with the dspark speculator's reduced-vocab scatter armed to match (the per-step path guards on the index, so a post-load arm sticks; markov-fuse interplay = one for the boot smoke). Runs before the fp8 walk: bf16 source."""
     src = getattr(draft, "lm_head", None)
+    qm = getattr(src, "quant_method", None) if src is not None else None
     if (
         src is None
         or getattr(src, "weight", None) is None
         or src.weight.numel() == 0
-        or getattr(src, "quant_method", None) is not None
+        or (qm is not None and "Unquantized" not in type(qm).__name__)
     ):
         _log.warning("Mjolnir draft vocab: no plain drafter head to slice; left as is")
         return False
