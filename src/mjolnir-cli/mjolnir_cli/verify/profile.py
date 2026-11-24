@@ -236,7 +236,7 @@ def stage_profile(
             {
                 "profiler": "torch",
                 "torch_profiler_dir": f"/data/cache/{sub}",
-                "torch_profiler_with_stack": False,
+                "torch_profiler_with_stack": True,
                 "torch_profiler_use_gzip": True,
                 "torch_profiler_dump_cuda_time_total": False,
                 "ignore_frontend": True,
