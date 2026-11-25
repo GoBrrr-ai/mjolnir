@@ -37,6 +37,9 @@
 # experts top-8; 20 sliding-window + 4 full-attention layers, 24Q/8KV hd128.
 # The DSpark drafter ships IN the checkpoint (mtp.safetensors) — no draft
 # model override, unlike the Qwen3.8 cross-checkpoint DSpark configs.
+# ── Env switches (the `.env` sidecar next to this file, `mjolnir serve` loads it)
+# MJOLNIR_LM_HEAD=fp8 — the fp8 lm_head ('LMH8' in the old record names); moved
+# here from the image ENV default — this dir is self-contained now.
 model: thinkingmachines/Inkling-2-Mini
 served-model-name: thinkingmachines/Inkling-2-Mini
 
