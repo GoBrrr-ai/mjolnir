@@ -116,9 +116,13 @@ def vllm_version(repo: Path) -> str:
     cfg = re.search(
         r'^VLLM_VERSION\s*=\s*"([^"]+)"', (repo / "src/mjolnir-cli/mjolnir_cli/config.py").read_text(), re.MULTILINE
     )
-    dock = re.search(
-        r"^ARG BASE_IMAGE=vllm/vllm-openai:v([0-9.]+)", (repo / "docker/vllm-thor/Dockerfile").read_text(), re.MULTILINE
-    )
+    dockerfile = (repo / "docker/vllm-thor/Dockerfile").read_text()
+    # the ARG pins either the release tag (vX.Y.Z…) or the nightly
+    # (nightly-<sha>) — the nightly's version lives in the header comment,
+    # the same fallback docker-image.yml's tag step applies
+    dock = re.search(r"^ARG BASE_IMAGE=vllm/vllm-openai:v([0-9.]+)", dockerfile, re.MULTILINE)
+    if dock is None:
+        dock = re.search(r"^#\s+vllm (\S+)", dockerfile, re.MULTILINE)
     if not cfg or not dock:
         raise SystemExit("cannot read VLLM_VERSION (config.py) or BASE_IMAGE (Dockerfile)")
     if cfg.group(1) != dock.group(1):
