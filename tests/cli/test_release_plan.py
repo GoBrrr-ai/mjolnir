@@ -268,3 +268,15 @@ def test_notes_annotate_a_re_release_with_no_changes(repo):
     assert "| [mjolnir-cli](https://pypi.org/project/mjolnir-cli/) | **0.2.1** |" in text
     assert "### mjolnir-kernel" not in text  # no empty group for the re-released kernel
     assert "- ships mjolnir-kernel 0.1.1" in _section(text, "### image v0.31.0")
+
+
+def test_nightly_pin_plans_from_the_header_comment(repo):
+    _commit(
+        repo,
+        "docker/vllm-thor/Dockerfile",
+        "#   vllm 0.35.0rc0.dev  — the 2026-11-22 nightly, image self-version\n"
+        "ARG BASE_IMAGE=vllm/vllm-openai:nightly-647a76866b4559a74e27d1c6b55fbffe85c07ce4\n",
+    )
+    _commit(repo, "src/mjolnir-cli/mjolnir_cli/config.py", 'VLLM_VERSION = "0.35.0rc0.dev"\n')
+    p = rp.plan(repo, "patch", "changed", DAY)
+    assert p["vllm"] == "0.35.0rc0.dev"
