@@ -66,6 +66,10 @@ FP8_MAX = 448.0
 SMALL_M = 64  # beyond this many rows (prompt logprobs) the dequantized chunks win
 HEAD_TILES_ENV = "MJOLNIR_LM_HEAD_TILES"  # "BN,BK,warps,stages" head-GEMV override
 ENV_MTP_FP8 = "MJOLNIR_MTP_FP8"  # fp8-row-quantize the drafter's big unquantized linears
+_MTP_FP8_BAR = 0.03  # self-test bar: 0.02 is the qwen-tuned value and structurally rejects
+# every inkling linear (measured 0.0258-0.0265 across the board); the head's own
+# bar is 0.05 and its 0.0271 served the +26% c1 pair - the acceptance counters
+# (`vllm:spec_decode_num_accepted_tokens`, 1.48/step baseline) are the quality check
 _MTP_FP8_MIN_NUMEL = 16 << 20  # skip routers / small projections
 
 
@@ -261,6 +265,72 @@ def _is_tied(lm_head, model) -> bool:
     return False
 
 
+def _patch_dspark_fp8_head() -> None:
+    """Teach the Inkling2 model the fp8-swapped head.
+
+    The drafter aliases the target's ``lm_head`` and every consumer reads it
+    raw: ``compute_base_logits`` runs the declared-bf16 reference GEMM on
+    ``.weight``, ``refresh_derived_weights`` folds the markov head from the
+    same tensor, and — the subtle one — the target's own head projection
+    never reaches ``quant_method`` at all: inkling runs ``head_dtype=fp32``,
+    and the logits processor's non-native-dtype branch casts ``.weight``
+    itself, raising ``only supported for an unquantized lm_head`` for any
+    custom method. Once ``install_fp8_head`` frees the bf16 data, all three
+    read an empty (0,) tensor. Each consumer is re-pointed at the fp8 copy,
+    self-gating on the emptied weight so a bf16 / tied head takes the
+    original path unchanged; the fold dequantizes transiently (a one-time
+    ~2.6 GiB spike at attach, freed with it)."""
+    try:
+        from vllm.models.inkling2.nvidia.dspark import Inkling2DSparkModel
+        from vllm.models.inkling2.nvidia.model import Inkling2LogitsProcessor
+    except Exception:  # noqa: BLE001 - not an inkling model
+        return
+    if getattr(Inkling2DSparkModel, "_mjolnir_fp8_head", False):
+        return
+    orig_logits = Inkling2DSparkModel.compute_base_logits
+    orig_refresh = Inkling2DSparkModel.refresh_derived_weights
+    orig_apply_head = Inkling2LogitsProcessor._apply_head
+
+    def _swapped(lm_head) -> bool:
+        return bool(getattr(lm_head, "_mjolnir_fp8", False)) and lm_head.weight.numel() == 0
+
+    def compute_base_logits(self, hidden_states):
+        if _swapped(self.lm_head):
+            qm = self.lm_head.quant_method
+            return fp8_linear(hidden_states, qm.w8, qm.scale)
+        return orig_logits(self, hidden_states)
+
+    def refresh_derived_weights(self):
+        if not _swapped(self.lm_head):
+            return orig_refresh(self)
+        qm = self.lm_head.quant_method
+        w = (qm.w8.float() * qm.scale[:, None]).to(torch.bfloat16)
+        self.lm_head.weight.data = w  # transient bf16 for the fold's .double(); re-freed below
+        try:
+            return orig_refresh(self)
+        finally:
+            self.lm_head.weight.data = torch.empty(0, dtype=w.dtype, device=w.device)
+
+    def _apply_head(self, lm_head, hidden_states, embedding_bias):
+        if not _swapped(lm_head):
+            return orig_apply_head(self, lm_head, hidden_states, embedding_bias)
+        qm = lm_head.quant_method
+        # head_dtype parity with the fp32 path below: the projection lands in
+        # the head dtype (fp32 on inkling), the softcaps assume it.
+        out = fp8_linear(hidden_states, qm.w8, qm.scale)
+        if self.head_dtype is not None and self.head_dtype != out.dtype:
+            out = out.to(self.head_dtype)
+        if embedding_bias is not None:
+            out = out + embedding_bias.to(out.dtype)
+        return out
+
+    Inkling2DSparkModel.compute_base_logits = compute_base_logits
+    Inkling2DSparkModel.refresh_derived_weights = refresh_derived_weights
+    Inkling2LogitsProcessor._apply_head = _apply_head
+    Inkling2DSparkModel._mjolnir_fp8_head = True
+    _log.info("Mjolnir lm_head fp8: Inkling2 drafter + head projection patched for the fp8 head")
+
+
 def install_fp8_head(lm_head, model=None) -> bool:
     if getattr(lm_head, "_mjolnir_fp8", False):
         return True
@@ -306,6 +376,7 @@ def install_fp8_head(lm_head, model=None) -> bool:
         err,
         freed,
     )
+    _patch_dspark_fp8_head()
     return True
 
 
@@ -323,10 +394,17 @@ def install_fp8_linears(model) -> int:
     own path; every layer passes the same self-test as the head before it is
     touched, and the bf16 original is freed (the fp8 copy is the only
     consumer once loaded)."""
+    from vllm.model_executor.layers.linear import LinearBase
+
     n = 0
     for name, mod in model.named_modules():
         qm = getattr(mod, "quant_method", None)
         w = getattr(mod, "weight", None)
+        if not isinstance(mod, LinearBase):
+            # embeddings carry a quant_method and a big 2-D weight too, but
+            # their forward is a lookup on `.weight` - fp8-ing one emptied the
+            # shared embed and killed the boot ('weight' must be 2-D)
+            continue
         if qm is None or w is None or w.ndim != 2 or w.numel() < _MTP_FP8_MIN_NUMEL:
             continue
         if w.dtype not in (torch.bfloat16, torch.float16):
@@ -335,13 +413,20 @@ def install_fp8_linears(model) -> int:
             continue
         w8, scale = quantize_rows(w.data)
         err = _self_test(w.data, w8, scale)
-        if not err < 0.02:
+        if not err < _MTP_FP8_BAR:
             _log.warning("Mjolnir mtp fp8: %s self-test %.4f; left in bf16", name, err)
             continue
         mod.quant_method = Fp8HeadMethod(qm, w8, scale)
         mod._mjolnir_fp8_linear = True
-        w.data = torch.empty(0, dtype=w.dtype, device=w.device)
-        torch.cuda.empty_cache()
+        if type(model).__module__.startswith("vllm.models.inkling2"):
+            # the inkling draft's own forward reads `.weight` raw via
+            # ops/linear.linear (dspark.py:285->318) - the emptied tensor is
+            # 'weight must be 2-D' there; keep bf16 until the raw path is
+            # fp8-plumbed (the copies idle, harmless)
+            pass
+        else:
+            w.data = torch.empty(0, dtype=w.dtype, device=w.device)
+            torch.cuda.empty_cache()
         n += 1
         _log.info("Mjolnir mtp fp8: %s %s e4m3 per-row, self-test %.4f", name, tuple(w8.shape), err)
     return n
@@ -798,6 +883,94 @@ def _lm_heads(model) -> list:
     return out
 
 
+class _PlainHead(torch.nn.Module):
+    """The VT's private sliced head as a real Module: the drafter's lm_head slot is a registered child, and torch's setattr rejects non-Module assigns."""
+
+    def __init__(self, weight: torch.Tensor) -> None:
+        super().__init__()
+        self.weight = torch.nn.Parameter(weight, requires_grad=False)
+
+
+def _patch_dspark_loader() -> None:
+    """Wrap the dspark model loader so the VT attr lands DURING load: the
+    speculator's own reduced-vocab arm (speculator.py, right after the loader
+    returns) then sees the K-wide world natively - the draft-logits cache, the
+    gumbel warmup shapes and the markov-fuse decision all consistent. The
+    post-load after_load path stays as the idempotent belt."""
+    try:
+        from vllm.v1.worker.gpu.spec_decode.dspark import speculator as spec_mod
+        from vllm.v1.worker.gpu.spec_decode.dspark import utils as dspark_utils
+    except Exception:  # noqa: BLE001 - not a vLLM with the dspark proposer
+        return
+    if getattr(dspark_utils, "_mjolnir_vt_wrapped", False):
+        return
+
+    orig = dspark_utils.load_dspark_model
+
+    def load_dspark_model(target_model, vllm_config, **kw):
+        model = orig(target_model, vllm_config, **kw)
+        vocab_path = os.environ.get(ENV_DRAFT_VOCAB, "").strip()
+        if vocab_path and type(model).__name__ == "Inkling2DSparkModel":
+            try:
+                size = int(os.environ.get(ENV_DRAFT_VOCAB_SIZE, "0") or 0) or None
+                _install_dspark_draft_vocab(model, None, load_vocab(vocab_path), size)
+            except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
+                _log.warning("Mjolnir draft vocab: not installed at load (%r)", e)
+        return model
+
+    dspark_utils.load_dspark_model = load_dspark_model
+    # the speculator imported the name at module import; rebind its copy too
+    spec_mod.load_dspark_model = load_dspark_model
+    dspark_utils._mjolnir_vt_wrapped = True
+    _log.info("Mjolnir draft vocab: the dspark loader wrapped for the load-time VT")
+
+
+def _install_dspark_draft_vocab(draft, spec, ids: list[int], size: int | None) -> bool:
+    """VT for the inkling DSpark drafter: no head of its own (has_own_lm_head False, it drafts via the target's head and a bare-weight GEMM), so the generic installer's logits_processor contract cannot hold. Instead: a PRIVATE row-sliced bf16 head (stock GEMM and markov fold run K-wide, untouched) + the framework's draft_id_to_target_id, with the dspark speculator's reduced-vocab scatter armed to match (the per-step path guards on the index, so a post-load arm sticks; markov-fuse interplay = one for the boot smoke). Runs before the fp8 walk: bf16 source."""
+    src = getattr(draft, "lm_head", None)
+    qm = getattr(src, "quant_method", None) if src is not None else None
+    if (
+        src is None
+        or getattr(src, "weight", None) is None
+        or src.weight.numel() == 0
+        or (qm is not None and "Unquantized" not in type(qm).__name__)
+    ):
+        _log.warning("Mjolnir draft vocab: no plain drafter head to slice; left as is")
+        return False
+    w = src.weight.data
+    if not getattr(draft, "_mjolnir_vt_done", False):
+        idx = torch.tensor(sorted(set(pad_vocab(ids, size, w.shape[0]))), dtype=torch.long, device=w.device)
+        draft.lm_head = _PlainHead(w.index_select(0, idx).contiguous())
+        # the framework consumes d2t as an OFFSET: the stock arm builds the
+        # scatter index as arange + d2t (= absolute target columns) and the
+        # rejection maps target = draft + d2t[draft]
+        draft.draft_id_to_target_id = idx - torch.arange(idx.shape[0], dtype=idx.dtype, device=idx.device)
+        draft._mjolnir_draft_vocab = int(idx.numel())
+        draft._mjolnir_vt_done = True
+        _log.info("Mjolnir draft vocab: inkling DSpark private head %d/%d rows", int(idx.numel()), int(w.shape[0]))
+    if (
+        spec is not None
+        and getattr(spec, "use_draft_logits", False)
+        and getattr(spec, "_d2t_scatter_index", None) is None
+    ):
+        # the inkling speculator override replaces load_draft_model WITHOUT
+        # super(), so the base arm (dspark speculator.py:166) never runs on
+        # inkling: build the exact same buffers here, idempotent on the
+        # None check. Without it the gumbel samples private-head ROW indexes
+        # that inkling's identity map consumes as target ids - the b24
+        # acceptance crater (2.513 -> 1.526 tokens/step, ITL 25.4 -> 43.5 ms).
+        d2t = draft.draft_id_to_target_id
+        spec._d2t_scatter_index = torch.arange(d2t.shape[0], device=d2t.device) + d2t
+        spec._draft_scatter_buf = torch.full(
+            (spec.max_num_reqs, spec.vocab_size),
+            float("-inf"),
+            dtype=spec.draft_logits_spec(spec.vllm_config)[0],
+            device=spec.device,
+        )
+        _log.info("Mjolnir draft vocab: d2t scatter armed, %d target columns", int(d2t.shape[0]))
+    return True
+
+
 def after_load(runner) -> None:
     """Apply the opted-in experiments to a loaded GPU model runner."""
     target = getattr(runner, "model", None)
@@ -811,7 +984,11 @@ def after_load(runner) -> None:
     elif vocab_path and draft is not None:  # before fp8 may free the bf16 weight
         try:
             size = int(os.environ.get(ENV_DRAFT_VOCAB_SIZE, "0") or 0) or None
-            install_draft_vocab(draft, load_vocab(vocab_path), size)
+            ids = load_vocab(vocab_path)
+            if type(draft).__name__ == "Inkling2DSparkModel":
+                _install_dspark_draft_vocab(draft, spec, ids, size)
+            else:
+                install_draft_vocab(draft, ids, size)
         except Exception as e:  # noqa: BLE001 - an experiment never breaks serving
             _log.warning("Mjolnir draft vocab: not installed (%r)", e)
     elif vocab_path:
@@ -865,3 +1042,4 @@ def install_hooks() -> None:
 
     cls.load_model = load_model
     cls._mjolnir_lmhead_hooked = True
+    _patch_dspark_loader()

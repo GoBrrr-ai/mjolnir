@@ -55,7 +55,6 @@ linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — t
 # is_quantized_kv_cache), so the FP8 KV requirement is already met. No change.
 kv-cache-dtype: fp8   # NVFP4 KV isn't available on SM110 for this arch; FP8 matches the checkpoint's own design (NVFP4 weights, FP8 KV)
 kv-cache-dtype-skip-layers: sliding_window
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 # No global `block-size` and no `mamba-block-size` — same as NVFP4. The FA4 hd256

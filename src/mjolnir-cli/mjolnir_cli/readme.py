@@ -185,8 +185,9 @@ def _findings(stage: str, doc: dict) -> list[str]:
             counts: dict[str, int] = {}
             for w in winners.values():
                 counts[w] = counts.get(w, 0) + 1
-            top = max(counts, key=lambda w: counts[w])
-            out.append(f"Fastest variant at the most context lengths: **`{top}`** ({counts[top]} of {len(Ls)}).")
+            if counts:
+                top = max(counts, key=lambda w: counts[w])
+                out.append(f"Fastest variant at the most context lengths: **`{top}`** ({counts[top]} of {len(Ls)}).")
             geo = {s["label"]: results.geomean(results.speedup(by["fi"], s).values()) for s in variants}
             geo = {k: v for k, v in geo.items() if v}
             if geo:
@@ -431,7 +432,7 @@ def collect_context(
     if sweep:
         by = results.series_by_id(sweep)
         ours = by.get("mjolnir") or by.get("mjolnir-fp8")
-        if ours and "fi" in by:
+        if ours and "fi" in by and results.speedup(by["fi"], ours):
             ctx.has_sweep = True
             ctx.sweep_run = sweep["run_id"]
             sp = results.speedup(by["fi"], ours)

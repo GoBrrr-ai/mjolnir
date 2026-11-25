@@ -32,7 +32,7 @@ index 9b556c9a0..685b95d32 100755
          # Rebased query offsets for TRTLLM prefill. Persistent because a FULL
          # CUDA graph can capture this path (e.g. a draft-model prefill whose
          # uniform query length exceeds reorder_batch_threshold) and keeps the
-@@ -1601,6 +1624,10 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
+@@ -1789,6 +1789,10 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
          num_reqs = common_attn_metadata.num_reqs
          num_actual_tokens = common_attn_metadata.num_actual_tokens
          causal = common_attn_metadata.causal
@@ -40,9 +40,9 @@ index 9b556c9a0..685b95d32 100755
 +        # loop can re-derive the decode KV plan in place between steps.
 +        self._draft_seq_lens_gpu = common_attn_metadata.seq_lens
 +        self._draft_block_table = common_attn_metadata.block_table_tensor
-         route_decode = causal or self.use_xqa
-         if route_decode:
-             num_decodes, num_prefills, num_decode_tokens, num_prefill_tokens = (
+         dynamic_causal = isinstance(causal, torch.Tensor)
+         assert not dynamic_causal or self.vllm_config.diffusion_config is not None
+         # Defensive: no mixed-causal model passes multimodal ranges yet.
 @@ -2060,8 +2087,48 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                  attn_metadata.decode = FIDecode(wrapper=decode_wrapper)
          return attn_metadata

@@ -121,47 +121,79 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "# THOR_SM110_FA4_PROBE",
         ),
     ],
-    "thor sm110 FA4 hd256 FP8-KV: probe-gated hd256 kernel policy grant": [
-        # Kernel-file sentinel (N-1): the descale-load helper is absent from
-        # the pristine kernel and present post-patch, so a partial apply that
-        # lands the fa_utils policy hunks but misses the kernel fold hunks
-        # must fail the build (the probe sentinels alone cannot catch that).
-        # Path is relative to the vllm package root (like every other
-        # sentinel here), so no leading ``vllm/``.
+    # Retired at the 0.35.0rc0.dev nightly bump (2026-11-22), base-covered:
+    # the hd256 fwd grew a native DescaleTensors path and the fa_utils
+    # hd256 reject site (_fa4_hd256_fallback_reason) is gone; the
+    # head-size-blind FP8 grant above admits hd256 on a probed sm_110 too
+    # (the probe exercises the hd128 shape — the hd256+FP8 combination
+    # itself is validated by the e2e legs, not a one-shot probe).
+    "thor inkling2 sm110 conv/mix: torch-compose fallback until the sm_110 cubins land": [
+        # The gate widening + the env override, in the one file the patch
+        # touches. The env knob is the "used, not just defined" half: the
+        # native path stays reachable once the base carries sm_110 cubins.
         (
-            "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
-            "_load_effective_descales",
-        ),
-        # The hd256 probe definition — present only after this patch.
-        # The marker occurs exactly once in fa_utils.py (the comment
-        # block above the probe definition).
-        (
-            "v1/attention/backends/fa_utils.py",
-            "# THOR_SM110_FA4_HD256_FP8_PROBE",
+            "models/inkling2/nvidia/ops/conv_mix.py",
+            "# THOR_INKLING2_CONV_MIX:",
         ),
         (
-            "v1/attention/backends/fa_utils.py",
-            "def _thor_fa4_hd256_fp8kv_probe",
+            "models/inkling2/nvidia/ops/conv_mix.py",
+            'os.environ.get("MJOLNIR_INKLING2_CONV_MIX_NATIVE", "0") != "1"',
         ),
-        # The quantized-KV reject relaxation in
-        # _fa4_hd256_fallback_reason — the "used, not just defined"
-        # sentinel: the grant must be wired into the reject site, not
-        # merely defined in the probe (a partial apply that lands the
-        # probe without the relaxation would leave an explicit-FA4
-        # block-128 FP8-KV hd256 config downgraded to FA2, so it must
-        # fail the build).
+    ],
+    "thor inkling2 FA4 rel-attention on sm_110 (THOR_INKLING2_FA4_REL)": [
+        # the gate helper + both call sites (the warmup registration and
+        # the prefill branch) -- the env knob is the escape hatch
         (
-            "v1/attention/backends/fa_utils.py",
-            "# THOR_SM110_FA4_HD256_FP8:",
+            "models/inkling2/nvidia/attention.py",
+            "def _thor_fa4_rel() -> bool:",
         ),
-        # The gate term's consumer site — a head_dim=256 request must
-        # be backed by the hd256 probe (a partial apply that leaves the
-        # family(110) term backed by the hd128 probe only would admit
-        # an hd256 model without validating the hd256 kernel, so it
-        # must fail the build).
         (
-            "v1/attention/backends/fa_utils.py",
-            "_thor_fa4_hd256_fp8kv_probe()\n            if uses_fa4_hd256_kernel",
+            "models/inkling2/nvidia/attention.py",
+            "MJOLNIR_INKLING2_FA4_REL",
+        ),
+        (
+            "models/inkling2/nvidia/attention.py",
+            "_thor_fa4_rel() and not self.fp8_kv",
+        ),
+        # the vision encoder rides the same gate (its stock else-branch is
+        # the FA2/FA3 ext wheel, dead on sm_110)
+        (
+            "models/inkling2/nvidia/vision.py",
+            "MJOLNIR_INKLING2_FA4_REL",
+        ),
+    ],
+    "thor inkling2 ll120 gate widen": [
+        # a drop reverts the low-M linear to plain F.linear on 110
+        (
+            "models/inkling2/nvidia/ops/ll_gemm_sm120.py",
+            "MJOLNIR_INKLING2_NO_LL120",
+        ),
+    ],
+    "thor inkling2 fp8-KV on sm_110 (MJOLNIR_INKLING2_FP8KV)": [
+        # the gate arm + its env escape -- a partial apply (the arm without
+        # the env, or vice versa) is still behaviorally complete, but the
+        # pair is the contract; the units-scale path itself is stock.
+        (
+            "models/inkling2/nvidia/attention.py",
+            "is_device_capability_family(110)",
+        ),
+        (
+            "models/inkling2/nvidia/attention.py",
+            "MJOLNIR_INKLING2_FP8KV",
+        ),
+        # the tml path is same-dtype; the fp8 cache converts on the FA4
+        # entry (the decode triton reads fp8 natively)
+        (
+            "models/inkling2/nvidia/ops/attention.py",
+            "key_cache.dtype != q.dtype",
+        ),
+    ],
+    "thor inkling2 decode split-cap on sm_110": [
+        # the /4 denominator -- the pair with the ncu evidence in the fp8kv
+        # history; a silent revert to /8 is the failure this guards
+        (
+            "models/inkling2/nvidia/ops/attention.py",
+            "num_sms // 4",
         ),
     ],
     "thor Mjolnir attention backend: AttentionBackendEnum.MJOLNIR": [
@@ -182,6 +214,10 @@ FIXES: dict[str, list[tuple[str, str]]] = {
         (
             "v1/attention/backends/fa_utils.py",
             "elif vllm_config is not None and _mjolnir_wants_fa4(vllm_config):\n            fa_version = 4",
+        ),
+        (
+            "v1/attention/backends/fa_utils.py",
+            "MJOLNIR_FA2_ON_SM110",
         ),
     ],
     "thor sm110 draft-CG gate: shape-gated draft cudagraph replay (c1 fix)": [
@@ -244,17 +280,8 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "p.is_device_capability_family(110))  # THOR_SM110_CUTEDSL_MOE",
         ),
     ],
-    "64739 safetensors shards listed in an index subdirectory (tensors/)": [
-        (
-            "model_executor/model_loader/weight_utils.py",
-            "def get_safetensors_files_in_index(",
-        ),
-        # used by the loader's glob fallback, not just defined
-        (
-            "model_executor/model_loader/default_loader.py",
-            "index_files = get_safetensors_files_in_index(hf_folder, index_file)",
-        ),
-    ],
+    # Retired at the 0.35.0rc0.dev nightly bump (2026-11-22): base-covered
+    # (both hunks skip as already applied on the nightly wheel).
     "thor qwen4 PLE disk: slot-pool cache in front of the disk table (THOR_QWEN4_PLE_DISK)": [
         (
             "models/qwen4_exp/nvidia/ngram_embedding.py",
@@ -354,6 +381,9 @@ FIXES: dict[str, list[tuple[str, str]]] = {
             "output = torch.ops.vllm.thor_mm_mxfp8_tactic(",
         ),
     ],
+    # #64145: the pin's config side ships the knob; the runtime half was
+    # RETIRED with the cherry (see apply_patches) -- no sentinel until a
+    # re-derived port lands.
 }
 
 

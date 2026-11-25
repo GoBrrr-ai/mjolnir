@@ -7,11 +7,12 @@
 # envs at serve time (the Thor pins in ENV below are the build default).
 #
 # BUILD CONTEXT = THE REPO ROOT (the image installs src/mjolnir):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.34.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.35.0rc0.dev .
 #   (or: mjolnir image build)
 #
 # Image tags follow the upstream vLLM version this overlays (BASE_IMAGE below):
-# vllm/vllm-openai:v0.34.0 -> narandill/mjolnir-vllm:v0.34.0 (+ :v0.34.0-<sha>).
+# base tag -> narandill/mjolnir-vllm:<same> (+ :<tag>-<sha>); a nightly base pins
+# vllm/vllm-openai:nightly-<sha> and versions as v<next>.0rc0.dev (CI fallback).
 # .github/workflows/docker-image.yml derives the tag from BASE_IMAGE.
 #
 # This is a SMALL OVERLAY, not a from-source build. It takes the official
@@ -47,12 +48,19 @@
 # already merged is skipped, not re-applied.
 #
 # Verified against base:
-#   vllm 0.34.0  (vllm/vllm-openai:v0.34.0, tag 62d4bc3c7, released 2026-11)
-#   flashinfer-python / flashinfer-cubin 0.7.3
-#   torch 2.14.0+cu130 (Triton 3.8.0); vllm-flash-attn pin d8dca8f06c74
+#   vllm 0.35.0rc0.dev  — the 2026-11-22 nightly, image self-version
+#     0.34.0rc1.dev1133+g647a76866 (setuptools-scm off the v0.34.0 tag;
+#     main is the 0.35 train — the Inkling 2 Mini base, #69028 merged
+#     2026-11-21, v0.35.0 unreleased)
+#   flashinfer-python / flashinfer-cubin 0.7.4  (0.7.3 -> 0.7.4 at this bump;
+#     the fi-* patches re-anchored with offsets, verified by the build gate)
+#   torch 2.14.0+cu130 (Triton 3.8.0); the vllm_flash_attn pin wheel moved —
+#     the hd256 fwd gained a native DescaleTensors path and lost the
+#     dedicated sm100_hd256_2cta_fmha_forward.py (two patches retired, see
+#     PATCHES.md)
 #
 # Build (on Thor or any arm64 builder; repo-root context):
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.34.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.35.0rc0.dev .
 #
 # Base image lineage: vllm/vllm-openai (aarch64, CUDA 13.0, Ubuntu 24.04,
 # Python 3.12). JetPack 7.x on Thor ships CUDA 13.0, so the runtime driver
@@ -60,18 +68,19 @@
 # CUDA 13.0 only and the `-ubuntu2404` suffix tag is gone: the plain
 # version tag IS the ubuntu2404 aarch64 build.)
 
-ARG BASE_IMAGE=vllm/vllm-openai:v0.34.0
-# Pinned digest so the default build is reproducible: the release
-# multi-arch INDEX (arm64 leaf e40eb98263fa…, published 2026-11-16
-# 22:23 UTC; tag sha 62d4bc3c7). While this ARG holds a value it WINS
-# over BASE_IMAGE — override THIS one (or empty it) to float.
-ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:20fdb089454afbb324efa4110a2c025ff7b27cc1a086e07aa580b18df8ad1ce1
+ARG BASE_IMAGE=vllm/vllm-openai:nightly-647a76866b4559a74e27d1c6b55fbffe85c07ce4
+# Pinned digest so the default build is reproducible: the NIGHTLY's arm64
+# leaf (published 2026-11-22; vllm 0.35.0rc0.dev1133+g647a76866 — the first
+# nightly carrying the Inkling 2 Mini support, #69028 merged 2026-11-21).
+# While this ARG holds a value it WINS over BASE_IMAGE — override THIS one
+# (or empty it) to float.
+ARG BASE_IMAGE_DIGEST=vllm/vllm-openai@sha256:135d65d5db70272271d40f4bd438f10b6fe2eb78a7df3d2c80b947243f33c804
 
 FROM ${BASE_IMAGE_DIGEST:-${BASE_IMAGE}}
 
 ARG MJOLNIR_REVISION=unknown
 LABEL org.opencontainers.image.title="Mjolnir — vLLM for Jetson AGX Thor (sm_110)" \
-        org.opencontainers.image.description="vllm-openai v0.34.0 aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
+        org.opencontainers.image.description="vllm-openai nightly (0.35.0rc0.dev, 2026-11-22) aarch64 overlay: the Mjolnir decode-attention kernel (--attention-backend MJOLNIR) + hand-adapted vLLM PR fixes + Thor sm_110 patches (docker/vllm-thor/PATCHES.md)" \
         org.opencontainers.image.source="https://github.com/thor-arena/mjolnir" \
         org.opencontainers.image.revision="${MJOLNIR_REVISION}" \
         org.opencontainers.image.licenses="Apache-2.0 AND BSD-3-Clause"
@@ -93,6 +102,7 @@ RUN apt-get update && \
 ENV TORCH_CUDA_ARCH_LIST=11.0a \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     FLASHINFER_CUDA_ARCH_LIST=11.0a \
+    MJOLNIR_LM_HEAD=fp8 \
     LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # ── Apply the hand-adapted PR fixes to the installed vllm package ───────────
@@ -156,7 +166,6 @@ touched = [
     "v1/attention/backends/fa_utils.py",
     "v1/attention/backends/registry.py",
     "vllm_flash_attn/cute/interface.py",
-    "vllm_flash_attn/cute/sm100_hd256_2cta_fmha_forward.py",
     "models/qwen4_exp/nvidia/model.py",
     "models/qwen4_exp/nvidia/qsa.py",
     # the Qwen3.8-Flash-Next stack
@@ -165,6 +174,10 @@ touched = [
     "models/qwen4_exp/nvidia/ngram_embedding.py",
     "models/qwen4_exp/nvidia/mtp.py",
     "models/qwen4_exp/nvidia/hyperconnection.py",
+    # the Inkling 2 sm_110 conv/mix fallback + the FA4 rel-attention gate
+    "models/inkling2/nvidia/ops/conv_mix.py",
+    "models/inkling2/nvidia/attention.py",
+    "models/inkling2/nvidia/vision.py",
     "model_executor/kernels/linear/mxfp8/flashinfer.py",
 ]
 for rel in touched:
@@ -243,7 +256,7 @@ RUN cp -r /opt/vllm-patches/patches /usr/share/doc/mjolnir/patches
 RUN rm -rf /opt/vllm-patches && true
 
 # ── Build ──────────────────────────────────────────────────────────────────
-#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.34.0 .
+#   docker build -f docker/vllm-thor/Dockerfile -t narandill/mjolnir-vllm:v0.35.0rc0.dev .
 #
 # This is a thin overlay: the heavy lifting (CUDA kernels for SM 11.0a) comes
 # from the prebuilt wheel in the base image. The first server launch pays a

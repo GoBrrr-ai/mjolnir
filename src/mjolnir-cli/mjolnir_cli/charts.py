@@ -53,7 +53,7 @@ def chart_speedup(data: dict, mode: Mode):
     if not doc:
         return None
     by = results.series_by_id(doc)
-    if "fi" not in by:
+    if "fi" not in by or not results.point_map(by["fi"]):
         return None
     plt = _plt()
     fig, ax = plt.subplots(figsize=(12.5, 5.6))
@@ -239,7 +239,7 @@ def chart_hnd(data: dict, mode: Mode):
     if not doc:
         return None
     by = results.series_by_id(doc)
-    if "fi" not in by:
+    if "fi" not in by or not results.point_map(by["fi"]):
         return None
     plt = _plt()
     fig, ax = plt.subplots(figsize=(12.5, 5.2))

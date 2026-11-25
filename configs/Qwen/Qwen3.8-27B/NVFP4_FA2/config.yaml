@@ -41,7 +41,6 @@ linear-backend: auto                  # do NOT hardcode flashinfer-cutlass — t
 # ── KV Cache ─────────────────────────────────────────────────────────────
 kv-cache-dtype: auto   # bf16: FlashAttention 2 has no fp8 KV path
 kv-cache-dtype-skip-layers: sliding_window
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 

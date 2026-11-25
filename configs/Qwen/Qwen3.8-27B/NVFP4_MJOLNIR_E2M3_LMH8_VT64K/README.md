@@ -67,21 +67,6 @@ Mjolnir · fp6 KV + fp8 lm_head + 64K draft vocab, 1 request: best with **6 draf
 </details>
 
 <details>
-<summary>KV capacity</summary>
-
-**Mjolnir · fp6 e2m3 KV + fp8 lm_head + 64K draft vocab**: **2,608,065 tokens**, 12.7 requests at the full 200K context (vLLM's own estimate).
-
-<details>
-<summary>How the % and × here are calculated</summary>
-
-- **KV tokens** and KV memory come from vLLM's own startup log ("GPU KV cache size", "Available KV cache memory") for the same model and memory budget.
-- **vs first** = this row's KV tokens ÷ the first row's (`1.33×` = 33% more tokens).
-- **fits @ L** = ⌊KV tokens ÷ (L + 2,048 prompt + 128 generated)⌋ — whole requests of the e2e bench's shape that fit at once (`max-num-seqs` ignored).
-
-</details><br />
-</details>
-
-<details>
 <summary>Model quality (per suite)</summary>
 
 | suite | score |

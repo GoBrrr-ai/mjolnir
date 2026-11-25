@@ -45,7 +45,6 @@ kv-cache-dtype: fp8   # NVFP4 KV isn't available on SM110 for this arch; FP8 mat
 # its non-causal block attention then runs on any backend, and the KV it holds
 # is small (5 layers, 8 KV heads).
 kv-cache-dtype-skip-layers: ["sliding_window", "64", "65", "66", "67", "68"]
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 

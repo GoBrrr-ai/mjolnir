@@ -222,6 +222,11 @@ def test_kv_state_on_an_unknown_dtype_is_unavailable_naming_the_dtypes():
         assert known in cell.why, known
 
 
+def test_kv_state_aliases_vllms_canonical_fp8_spellings():
+    for spelling in ("fp8_e4m3", "fp8_e5m2"):
+        assert kv_state(spelling, FLASHINFER, THOR) == kv_state("fp8", FLASHINFER, THOR)
+
+
 def test_kv_state_on_an_unknown_platform_is_unavailable_naming_the_platforms():
     cell = kv_state("fp8", FLASHINFER, "bogus")
     assert cell.state == UNAVAILABLE

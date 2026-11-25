@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/attention/backends/fa_utils.py b/vllm/v1/attention/backends/fa_utils.py
-index e3e90ec..293d802 100644
+index 89e668d..fd6ad10 100644
 --- a/vllm/v1/attention/backends/fa_utils.py
 +++ b/vllm/v1/attention/backends/fa_utils.py
 @@ -1,6 +1,7 @@
@@ -10,9 +10,9 @@ index e3e90ec..293d802 100644
  from typing import Any
  
  import vllm.envs as envs
-@@ -13,6 +14,38 @@ logger = init_logger(__name__)
- # The dedicated hd256 kernel requires one 128-token page per tile.
- FA4_HD256_PAGE_SIZE = 128
+@@ -9,6 +10,39 @@ from vllm.platforms import current_platform
+ 
+ logger = init_logger(__name__)
  
 +# THOR MJOLNIR: the Mjolnir backend (AttentionBackendEnum.MJOLNIR, or CUSTOM
 +# mapped to it by the mjolnir-kernel plugin) runs decode steps itself and
@@ -46,23 +46,34 @@ index e3e90ec..293d802 100644
 +        and current_platform.is_device_capability_family(110)
 +    )
 +
++
  # Track whether upstream flash-attn is available on ROCm.
  # Set during module initialization and never modified afterwards.
  # This module-level flag avoids repeated import attempts and ensures
-@@ -115,6 +148,8 @@ def get_flash_attn_version(
-             and vllm_config.attention_config.flash_attn_version is not None
+@@ -109,6 +143,18 @@ def get_flash_attn_version(
          ):
              fa_version = vllm_config.attention_config.flash_attn_version
+ 
 +        elif vllm_config is not None and _mjolnir_wants_fa4(vllm_config):
 +            fa_version = 4
- 
++        elif (
++            device_capability.major == 11
++            and is_fa_version_supported(4)
++            and os.environ.get("MJOLNIR_FA2_ON_SM110", "0") != "1"
++        ):
++            # THOR: stock has no sm_110 branch and falls to FA2, whose ext
++            # wheels carry sm_80/sm_90a cubins only (FA2's PTX also needs a
++            # newer driver JIT than 580/CUDA-13.0 accepts). FA4 is the
++            # runtime-compiled path on Thor (cuteDSL, sm_110a).
++            fa_version = 4
          # 3. fallback for unsupported combinations
          if device_capability.major >= 10 and fa_version == 3:
+             logger.warning_once(
 diff --git a/vllm/v1/attention/backends/registry.py b/vllm/v1/attention/backends/registry.py
-index 093a536..ddfbd97 100644
+index 42113e6..463eb54 100644
 --- a/vllm/v1/attention/backends/registry.py
 +++ b/vllm/v1/attention/backends/registry.py
-@@ -164,6 +164,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
+@@ -171,6 +171,14 @@ class AttentionBackendEnum(Enum, metaclass=_AttentionBackendEnumMeta):
          "vllm.v1.attention.backends.rocm_octave_attn.RocmOctaveAttentionBackend"
      )
      ULTRAQUANT = "vllm.v1.attention.backends.ultraquant_attn.UltraQuantAttentionBackend"

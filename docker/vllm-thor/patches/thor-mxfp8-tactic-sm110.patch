@@ -51,10 +51,10 @@ diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model
 +            return mm_mxfp8(
 +                A, B, A_scale, B_scale, out_dtype=out_dtype, backend="cutlass"
 +            )
-+        from flashinfer.gemm.gemm_base import DEFAULT_WORKSPACE_SIZE, _get_cache_buf
++        from flashinfer.gemm.gemm_base import DEFAULT_WORKSPACE_SIZE, _get_stream_cache_buf  # _get_cache_buf pre-0.7.4
 +
 +        out = torch.empty((m, B.shape[1]), device=A.device, dtype=out_dtype)
-+        workspace = _get_cache_buf("mm_mxfp8_workspace", DEFAULT_WORKSPACE_SIZE, A.device)
++        workspace = _get_stream_cache_buf("mm_mxfp8_workspace", DEFAULT_WORKSPACE_SIZE, A.device)
 +        runner = _thor_cutlass_runner(torch.cuda.get_device_capability(A.device)[0])
 +        runner.forward(
 +            [A, B, A_scale, B_scale, out_dtype, out, workspace], tactic=tactic
@@ -69,7 +69,7 @@ diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model
  
  def _check_mm_mxfp8_shape(weight_shape: tuple[int, int]) -> tuple[bool, str | None]:
      N, K = weight_shape
-@@ -107,14 +168,19 @@
+@@ -140,14 +140,19 @@ class FlashInferCutlassMxfp8LinearKernel(Mxfp8LinearKernel):
          if not weight.is_contiguous():
              weight = weight.contiguous()
  
@@ -94,6 +94,6 @@ diff --git a/vllm/model_executor/kernels/linear/mxfp8/flashinfer.py b/vllm/model
 +                out_dtype=out_dtype,
 +                backend="cutlass",
 +            )
+         if padded_n != N:
+             output = output[:, :N].contiguous()
  
-         if bias is not None:
-             output = output + bias

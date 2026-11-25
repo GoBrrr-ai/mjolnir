@@ -120,7 +120,11 @@ def _fa4_serves_fp8_kv() -> bool | None:
     elif cache_dtype not in FP8_CACHE_DTYPES:
         return True  # nothing to gate: FA reads bf16/fp16 KV on any version
     head = cfg.model_config.get_head_size()
-    return bool(flash_attn_supports_kv_cache_dtype(cache_dtype, head_size=head, supports_fa4_hd256=True))
+    # N.B. no supports_fa4_hd256: the 0.35.0rc0.dev nightly dropped the
+    # hd256-specific kwarg (and the whole _fa4_hd256_fallback_reason gate)
+    # alongside its native DescaleTensors path — the gate is head-size-blind
+    # there, exactly like the fp8kv grant below.
+    return bool(flash_attn_supports_kv_cache_dtype(cache_dtype, head_size=head))
 
 
 def _resolve_fallback() -> str:
@@ -816,11 +820,17 @@ class MjolnirAttentionBackend(_Base):  # type: ignore[misc, valid-type]
         return ours or list(base)
 
     # -- KV cache dtypes --------------------------------------------------
-    # The fallback's own list, plus fp6_e2m3 where vLLM knows the dtype (the
-    # mjolnir.kvdtype plugin registration on >= 0.33) and the fallback can
-    # read the fp8 scratch (see _fallback_serves_fp8_scratch).
-    supported_kv_cache_dtypes: ClassVar[list] = list(getattr(_Base, "supported_kv_cache_dtypes", [])) + (
-        list(FP6_CACHE_DTYPES) if _fallback_serves_fp8_scratch() else []
+    # fp8/e4m3 (the kernel's own) + the fallback's list, plus fp6_e2m3 where
+    # vLLM knows the dtype (the mjolnir.kvdtype plugin registration on
+    # >= 0.33) and the fallback can read the fp8 scratch. The fp8 entries
+    # are explicit: the 0.35.0rc0.dev nightly's AttentionBackend base list
+    # is auto/float16/bfloat16 only, and its new validate_configuration
+    # silently falls back to the auto selection when the named backend
+    # rejects the run's dtype.
+    supported_kv_cache_dtypes: ClassVar[list] = (
+        list(FP8_CACHE_DTYPES)
+        + [d for d in getattr(_Base, "supported_kv_cache_dtypes", []) if d not in FP8_CACHE_DTYPES]
+        + (list(FP6_CACHE_DTYPES) if _fallback_serves_fp8_scratch() else [])
     )
 
     @classmethod

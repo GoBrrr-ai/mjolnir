@@ -13,6 +13,7 @@ or upstream PR/issue anchors cited inline.
 | [`kernel/`](platforms/thor/kernel/) | **The kernel case study** — how Mjolnir works and why, one measured feature per chapter (layout, KV formats, accuracy, ring, prefetch, PDL, flag A/Bs, profiles). Rendered from the raw results; the index is the [platform page's `## Kernel` section](platforms/thor/README.md#-kernel). |
 | [`methodology/`](methodology/) | **The measurement discipline** — the clean-window gate, ncu vs wall clock, noise bands, provenance. Read before publishing a number. |
 | [`faq/`](faq/) | **Task guides for the `mjolnir` CLI** — serve, verify, A/B, new model configs, base-image bumps, autoresearch. Start at [`faq/index.md`](faq/index.md). |
+| [`inkling2-thor-run.md`](inkling2-thor-run.md) | **The Inkling-2-Mini × Thor run record** — the nightly port, the phase-2 ladder, the 11-experiment loop; the perf ladder vs the stock config and the serving recipe, the patch inventory, the park state. |
 | [`../research/`](../research/) | The **autoresearch** loop: program, agents, ledgers of every experiment. |
 
 ## Suggested reading order

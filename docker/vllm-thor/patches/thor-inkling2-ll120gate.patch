@@ -1,0 +1,40 @@
+diff --git a/vllm/models/inkling2/nvidia/ops/ll_gemm_sm120.py b/vllm/models/inkling2/nvidia/ops/ll_gemm_sm120.py
+@@ -4,6 +4,7 @@
+ deterministic split-K for narrow outputs, and a grouped q/k/v projection."""
+ 
+ import functools
++import os
+ from typing import NamedTuple
+ 
+ import torch
+@@ -252,7 +253,14 @@
+         and x_q.shape == x_k.shape == x_v.shape
+         and x_q.dtype == x_k.dtype == x_v.dtype == w.dtype == torch.bfloat16
+         and x_q.stride(1) == x_k.stride(1) == x_v.stride(1) == w.stride(1) == 1
+-        and current_platform.is_device_capability_family(120)
++        and (
++            current_platform.is_device_capability_family(120)
++            # [thor] E10 KEPT: the #69168 low-M trio default-ON on sm_110
++            # (the step 19.78, the matrix's best; the eager 52.7->52.0).
++            # Escape: MJOLNIR_INKLING2_NO_LL120 set non-empty (the =0
++            # string is truthy - use any value, e.g. =1).
++            or not os.environ.get('MJOLNIR_INKLING2_NO_LL120')
++        )
+     )
+ 
+ 
+@@ -358,5 +366,12 @@
+                 and bias.stride(0) == 1
+             )
+         )
+-        and current_platform.is_device_capability_family(120)
+-    )
++        and (
++            current_platform.is_device_capability_family(120)
++            # [thor] E10 KEPT: the #69168 low-M trio default-ON on sm_110
++            # (the step 19.78, the matrix's best; the eager 52.7->52.0).
++            # Escape: MJOLNIR_INKLING2_NO_LL120 set non-empty (the =0
++            # string is truthy - use any value, e.g. =1).
++            or not os.environ.get('MJOLNIR_INKLING2_NO_LL120')
++        )
++    )

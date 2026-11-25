@@ -95,8 +95,9 @@ def quant_role(role: str, platform: str = DEFAULT_PLATFORM) -> str:
 # for these constants; they are re-exported here for every existing consumer.
 # The literal VLLM_VERSION line below is grepped by docker-image.yml (`sed
 # 's/^VLLM_VERSION = "..."'`) to sync with the Dockerfile's BASE_IMAGE — keep
-# it equal to the record's vllm_version (tests pin both sides).
-VLLM_VERSION = "0.34.0"
+# the value comment-free and equal to the record's vllm_version (tests pin
+# both sides). The 2026-11-22 nightly; see the Dockerfile header.
+VLLM_VERSION = "0.35.0rc0.dev"
 _thor = REGISTRY[DEFAULT_PLATFORM]
 IMAGE_REPO = _thor.image_repo
 DEFAULT_IMAGE = _thor.default_image

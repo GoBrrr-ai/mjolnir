@@ -40,7 +40,6 @@ linear-backend: auto
 # no calibration file.
 kv-cache-dtype: fp8
 kv-cache-dtype-skip-layers: sliding_window
-mamba-cache-mode: align
 mamba-cache-dtype: bfloat16
 mamba-ssm-cache-dtype: bfloat16
 

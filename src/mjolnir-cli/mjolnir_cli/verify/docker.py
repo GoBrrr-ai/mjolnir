@@ -27,6 +27,23 @@ DRIVERS_DIR = Path(__file__).resolve().parent.parent / "drivers"
 NCU_HOME_DEFAULT = "/opt/nvidia/nsight-compute/2025.3.0"
 
 
+# The runtime requirement skip, mirrored from dockerctl's BASE_ENV: the
+# nightly images declare a CUDA the host driver's metadata table may trail
+# (580.00/CUDA 13.0 vs the CUDA 13.2 nightlies) and container create fails
+# despite the cu130 wheel inside running fine.
+RUNTIME_ENV = (
+    "-e",
+    "NVIDIA_DISABLE_REQUIRE=1",
+    # the inkling stack: the model defaults to breakable/piecewise CUDA
+    # graphs (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) — without
+    # this the engine overrides to FULL_DECODE_ONLY and ~58 kernels/token
+    # run eager. Inert for every other model on these legs. Serve-side env
+    # overrides go through `verify profile --serve-env` (E6, last-wins).
+    "-e",
+    "VLLM_USE_BREAKABLE_CUDAGRAPH=1",
+)
+
+
 def resolve_ncu_home() -> str:
     """The host's Nsight Compute install: ``$NCU_HOME`` wins; else the newest
     versioned dir under ``/opt/nvidia/nsight-compute`` that carries the ncu
@@ -176,7 +193,7 @@ class Runner:
 
     def harness(self, log: Path, q: str, args: list[str] | str, timeout: float | None = None) -> tuple[int, str]:
         name = self._name("mjolnir-verify")
-        argv = ["docker", "run", "--rm", "--name", name, "--gpus", "all", "--entrypoint", "python3"]
+        argv = ["docker", "run", "--rm", "--name", name, "--gpus", "all", *RUNTIME_ENV, "--entrypoint", "python3"]
         argv += [*self._overlay(), self.image, *self.harness_args(q, args)]
         rc = self._run(argv, log, name, timeout)
         return rc, log.read_text(errors="replace") if log.exists() else ""
@@ -255,6 +272,7 @@ class Runner:
             name,
             "--gpus",
             "all",
+            *RUNTIME_ENV,
             "--network",
             "host",
             "--security-opt",
@@ -306,6 +324,7 @@ class Runner:
             name,
             "--gpus",
             "all",
+            *RUNTIME_ENV,
             "--entrypoint",
             "python3",
             "-v",
@@ -413,6 +432,7 @@ class Runner:
             name,
             "--gpus",
             "all",
+            *RUNTIME_ENV,
             "--ipc=host",
             "--entrypoint",
             "bash",
@@ -429,6 +449,13 @@ class Runner:
             f"HF_TOKEN={os.environ.get('HF_TOKEN', '')}",
             "-e",
             "TMPDIR=/tmp",
+            # The nightly images may declare a newer CUDA than the host
+            # driver's metadata table (the 0.35.0rc0.dev nightlies: CUDA
+            # 13.2 on a 580.00/CUDA 13.0 Thor) — the runtime's requirement
+            # check then refuses to create the container. Same skip the
+            # serve path carries (dockerctl BASE_ENV).
+            "-e",
+            "NVIDIA_DISABLE_REQUIRE=1",
             # The arch-sensitive JIT envs follow the platform (the same
             # override build_run_args makes): the kernel compiles for the
             # device this container runs on, and any Triton/Inductor paths

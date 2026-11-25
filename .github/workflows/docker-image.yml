@@ -74,6 +74,11 @@ jobs:
         run: |
           set -euo pipefail
           base=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+[^ -]*).*/\1/p' docker/vllm-thor/Dockerfile)
+          # nightly base (vllm/vllm-openai:nightly-<sha>): the pinned dev
+          # version lives in the "Verified against base" header instead
+          # ("#   vllm 0.34.0rc1.dev…+g<sha>  (the … nightly …")) — the
+          # dev train between releases; the +g<sha> local tail is dropped.
+          [ -n "$base" ] || base=$(sed -nE 's/^#   vllm (0\.3[0-9]\.[0-9][^ +]*).*/\1/p' docker/vllm-thor/Dockerfile | head -1)
           [ -n "$base" ] || { echo "::error::cannot parse BASE_IMAGE vLLM version from the Dockerfile"; exit 1; }
           cli=$(sed -nE 's/^VLLM_VERSION = "([^"]+)"/\1/p' src/mjolnir-cli/mjolnir_cli/config.py)
           [ "$base" = "$cli" ] || { echo "::error::Dockerfile vLLM $base != mjolnir_cli VLLM_VERSION $cli (bump both)"; exit 1; }

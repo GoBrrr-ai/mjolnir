@@ -297,12 +297,23 @@ jobs:
       - name: thor-mjolnir-attention-backend.patch applies to the base vLLM
         run: |
           set -euo pipefail
-          v=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:v([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' docker/vllm-thor/Dockerfile)
-          git clone -q --depth 1 --branch "v${v}" --filter=blob:none --sparse https://github.com/vllm-project/vllm.git "$RUNNER_TEMP/vllm"
-          git -C "$RUNNER_TEMP/vllm" sparse-checkout set vllm/v1/attention/backends
-          cd "$RUNNER_TEMP/vllm"
+          # The base ref from the Dockerfile ARG: a release tag (vX.Y.Z) or the
+          # nightly-<sha> pin — the nightly form carries the upstream commit
+          # itself, so the patch checks against the exact pinned tree.
+          ref=$(sed -nE 's/^ARG BASE_IMAGE=vllm\/vllm-openai:(v[0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9a-f]{40}).*/\1/p' docker/vllm-thor/Dockerfile)
+          ref=${ref#nightly-}   # the nightly-sha pin → the bare commit; the tag form untouched
+          if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            mkdir -p "$RUNNER_TEMP/vllm" && cd "$RUNNER_TEMP/vllm"
+            git init -q && git remote add origin https://github.com/vllm-project/vllm
+            git fetch -q --depth 1 --filter=blob:none origin "$ref"
+            git checkout -q FETCH_HEAD
+          else
+            git clone -q --depth 1 --branch "v${ref#v}" --filter=blob:none https://github.com/vllm-project/vllm "$RUNNER_TEMP/vllm"
+            cd "$RUNNER_TEMP/vllm"
+          fi
+          git sparse-checkout set vllm/v1/attention/backends
           git apply --check "$GITHUB_WORKSPACE/docker/vllm-thor/patches/thor-mjolnir-attention-backend.patch"
-          echo "applies to vLLM v${v}"
+          echo "applies to vLLM ${ref}"
 
   # The only check branch protection should require: a PR's stages skip when
   # out of scope (see filter), and a skipped required check blocks the merge —

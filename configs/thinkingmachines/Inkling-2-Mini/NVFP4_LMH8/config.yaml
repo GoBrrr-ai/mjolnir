@@ -1,0 +1,51 @@
+# NVFP4_LMH8 — NVFP4 plus the fp8 lm_head (MJOLNIR_LM_HEAD=fp8 via the .env
+# sidecar — create `.env` beside this file with the single line
+#   MJOLNIR_LM_HEAD=fp8
+# env sidecars are user-managed on this box): the 200058x2304 BF16 head
+# requantized to e4m3 per row at load,
+# the Triton fp8-weight GEMM for the verify and every decode logits pass
+# (mjolnir.lmhead; the bf16 copy is freed — untied head, ~0.46 GB back to
+# the KV cache).
+#
+# VERIFY AT FIRST SERVE (untested on Thor): the Inkling2 head is reached
+# through the model's own `_apply_head` override (a low-M projection path
+# with an fp32 accumulate on SM12x) on top of the stock ParallelLMHead —
+# the mjolnir.lmhead hook wraps the module's apply, and the final
+# `final_logit_softcapping 30.0` is a LogitsProcessor post-op downstream of
+# the GEMM, so the swap should compose. Watch the first logits for NaNs and
+# the load log for the fp8-head line; `mjolnir bench accuracy` is the
+# quality gate.
+#
+# Everything else mirrors NVFP4 (see that file for the Thor notes): same
+# serving shape, same native DSpark drafter, same inkling parsers. The
+# VocabTrim draft knob (MJOLNIR_DRAFT_VOCAB) does NOT apply here — the
+# DSpark drafter's base logits GEMM is a separate code path (phase 2).
+model: thinkingmachines/Inkling-2-Mini
+served-model-name: thinkingmachines/Inkling-2-Mini
+
+dtype: bfloat16
+
+max-model-len: 204800
+max-num-seqs: 8
+max-num-batched-tokens: 8192
+gpu-memory-utilization: 0.95
+
+mm-encoder-attn-backend: TORCH_SDPA
+
+speculative-config:
+  method: dspark
+  num_speculative_tokens: 7
+  draft_sample_method: probabilistic
+
+enable-auto-tool-choice: true
+tool-call-parser: inkling
+reasoning-parser: inkling
+
+#   - CUDA graphs: the model defaults to breakable/piecewise capture
+#     (upstream DEFAULT_BREAKABLE_CUDAGRAPH_ARCHITECTURES) but the image's
+#     global VLLM_USE_BREAKABLE_CUDAGRAPH=0 forces FULL_DECODE_ONLY — the
+#     sidecar env file carries VLLM_USE_BREAKABLE_CUDAGRAPH=1 for every
+#     serve/bench (an explicit --env still wins). The fused attention
+#     breaks eager by design; the GEMM/MoE mass stays captured. The DSpark
+#     drafter graphs at the c1 policy (N=256 -> graph, N=1 -> eager
+#     min-batch); measured 128K: 21.77 -> 20.00 ms/token, acceptance 0.611.

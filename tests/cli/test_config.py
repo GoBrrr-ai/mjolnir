@@ -275,9 +275,9 @@ def test_image_constants_track_the_pinned_base():
     # thor record and move together with it (the image build's own gate pins
     # them to the Dockerfile's BASE_IMAGE — see docker-image.yml).
     assert config.IMAGE_REPO == "narandill/mjolnir-vllm"
-    assert config.VLLM_VERSION == "0.34.0"
-    assert config.DEFAULT_IMAGE == "narandill/mjolnir-vllm:v0.34.0"
-    assert config.STOCK_IMAGE == "vllm/vllm-openai:v0.34.0"
+    assert config.VLLM_VERSION == "0.35.0rc0.dev"
+    assert config.DEFAULT_IMAGE == "narandill/mjolnir-vllm:v0.35.0rc0.dev"
+    assert config.STOCK_IMAGE == "vllm/vllm-openai:nightly-647a76866b4559a74e27d1c6b55fbffe85c07ce4"
 
 
 def test_config_reexports_the_platform_record_helpers():

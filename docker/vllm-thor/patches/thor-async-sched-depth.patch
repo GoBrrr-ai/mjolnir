@@ -1,0 +1,369 @@
+diff --git a/tests/test_config.py b/tests/test_config.py
+index fe9db3da868b..541d7453ff9a 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -1648,6 +1648,35 @@ def test_async_scheduling_with_pipeline_parallelism_is_allowed():
+     assert cfg.scheduler_config.async_scheduling is True
+ 
+ 
++@pytest.mark.parametrize(
++    ("pp", "depth", "expected"), [(1, 2, 2), (1, 6, 6), (2, 2, 3), (2, 4, 5)]
++)
++def test_async_scheduling_depth_sets_concurrent_batches(pp, depth, expected):
++    """Async scheduling keeps `async_scheduling_depth` steps in flight, plus one
++    per extra pipeline stage; the default depth 2 keeps the previous count."""
++    cfg = VllmConfig(
++        scheduler_config=SchedulerConfig(
++            max_model_len=8192,
++            is_encoder_decoder=False,
++            async_scheduling=True,
++            async_scheduling_depth=depth,
++        ),
++        parallel_config=ParallelConfig(
++            pipeline_parallel_size=pp,
++            distributed_executor_backend="mp",
++            nnodes=pp,
++        ),
++    )
++    assert cfg.max_concurrent_batches == expected
++
++
++def test_async_scheduling_depth_below_two_is_rejected():
++    with pytest.raises(ValidationError):
++        SchedulerConfig(
++            max_model_len=8192, is_encoder_decoder=False, async_scheduling_depth=1
++        )
++
++
+ def test_data_parallel_rpc_port_has_fixed_default():
+     assert ParallelConfig().data_parallel_rpc_port == 29550
+ 
+diff --git a/vllm/config/scheduler.py b/vllm/config/scheduler.py
+index f29994fc0b74..510327fc398e 100644
+--- a/vllm/config/scheduler.py
++++ b/vllm/config/scheduler.py
+@@ -272,6 +272,15 @@ class SchedulerConfig:
+     avoid gaps in GPU utilization, leading to better latency and throughput.
+     """
+ 
++    async_scheduling_depth: int = Field(default=2, ge=2)
++    """Steps in flight with async scheduling: the step on the GPU plus
++    `async_scheduling_depth - 1` steps scheduled ahead of it (per pipeline
++    stage beyond the first). The default 2 overlaps one step's host work
++    (output processing, scheduling, input preparation) with the next step's GPU
++    work. A deeper queue helps when the host round trip is longer than a GPU
++    step, as in low-batch decode across nodes with speculative decoding.
++    Ignored without async scheduling."""
++
+     stream_interval: int = Field(default=1, ge=1)
+     """The interval (or buffer size) for streaming in terms of token length.
+     A smaller value (1) makes streaming smoother by sending each token immediately,
+diff --git a/vllm/config/vllm.py b/vllm/config/vllm.py
+index b063268dc907..17cad11e209d 100644
+--- a/vllm/config/vllm.py
++++ b/vllm/config/vllm.py
+@@ -648,7 +648,7 @@ def max_concurrent_batches(self) -> int:
+         # Async scheduling requires 2 concurrent batches to overlap.
+         pp_size = self.parallel_config.pipeline_parallel_size
+         if self.scheduler_config.async_scheduling:
+-            return pp_size + 1
++            return pp_size + self.scheduler_config.async_scheduling_depth - 1
+         return pp_size
+ 
+     @property
+diff --git a/vllm/engine/arg_utils.py b/vllm/engine/arg_utils.py
+index aee4cb7cad09..d98ea6dfbd35 100644
+--- a/vllm/engine/arg_utils.py
++++ b/vllm/engine/arg_utils.py
+@@ -841,6 +841,7 @@ class EngineArgs:
+     """Custom logitproc types"""
+ 
+     async_scheduling: bool | None = SchedulerConfig.async_scheduling
++    async_scheduling_depth: int = SchedulerConfig.async_scheduling_depth
+ 
+     stream_interval: int = SchedulerConfig.stream_interval
+ 
+@@ -1834,6 +1835,9 @@ def add_cli_args(parser: FlexibleArgumentParser) -> FlexibleArgumentParser:
+         scheduler_group.add_argument(
+             "--async-scheduling", **scheduler_kwargs["async_scheduling"]
+         )
++        scheduler_group.add_argument(
++            "--async-scheduling-depth", **scheduler_kwargs["async_scheduling_depth"]
++        )
+         scheduler_group.add_argument(
+             "--stream-interval", **scheduler_kwargs["stream_interval"]
+         )
+@@ -2716,6 +2720,7 @@ def create_engine_config(
+             cache_aware_admission_threshold=self.cache_aware_admission_threshold,
+             disable_hybrid_kv_cache_manager=self.disable_hybrid_kv_cache_manager,
+             async_scheduling=self.async_scheduling,
++            async_scheduling_depth=self.async_scheduling_depth,
+             stream_interval=self.stream_interval,
+         )
+ 
+diff --git a/vllm/v1/core/sched/async_scheduler.py b/vllm/v1/core/sched/async_scheduler.py
+index 1762f4de3810..142c82e84c91 100644
+--- a/vllm/v1/core/sched/async_scheduler.py
++++ b/vllm/v1/core/sched/async_scheduler.py
+@@ -45,6 +45,7 @@ def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
+             request.num_output_placeholders += (
+                 self.num_sampled_tokens_per_step + cur_num_spec_tokens
+             )
++            request.num_output_placeholder_steps += 1
+             # Add placeholders for the new draft/spec tokens.
+             # We will update the actual spec token ids in the worker process.
+             request.spec_token_ids = spec_token_placeholders
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index 21f2eb656d8b..8a3e5e4401bf 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -342,6 +342,12 @@ def make_empty(cls) -> "SchedulerOutput":
+             free_encoder_mm_hashes=[],
+         )
+ 
++    def shares_requests_with(self, other: "SchedulerOutput") -> bool:
++        """Whether any request is scheduled in both this step and `other`."""
++        return not self.num_scheduled_tokens.keys().isdisjoint(
++            other.num_scheduled_tokens
++        )
++
+ 
+ @dataclass(slots=True)
+ class GrammarOutput:
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index f3e5a8f39644..56076e429c0a 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -544,12 +544,18 @@ def _drafts_unused(
+         # step that samples. This step samples one.
+         min_num_output_tokens = request.num_output_tokens + 1
+         if request.num_output_placeholders > 0:
+-            # Async scheduling: a step that samples is still in flight, and it
+-            # adds one more.
+-            min_num_output_tokens += 1
++            # Async scheduling: steps that sample are still in flight.
++            min_num_output_tokens += self._min_in_flight_output_tokens(request)
+         # Reaching max_tokens finishes the request, so no step verifies the drafts.
+         return min_num_output_tokens >= request.max_tokens
+ 
++    def _min_in_flight_output_tokens(self, request: Request) -> int:
++        """Min output tokens added by in-flight steps, even if all drafts are
++        rejected. At least one, for diffusion (no bonus token per step)."""
++        return max(
++            1, request.num_output_placeholder_steps * self.num_sampled_tokens_per_step
++        )
++
+     def _mamba_block_aligned_split(
+         self,
+         request: Request,
+@@ -788,16 +794,16 @@ def schedule(self, throttle_prefills: bool = False) -> SchedulerOutput:
+ 
+             if (
+                 request.num_output_placeholders > 0
+-                # This is (num_computed_tokens + 1) - (num_output_placeholders - 1).
+-                # Since output placeholders are also included in the computed tokens
+-                # count, we subtract (num_output_placeholders - 1) to remove any draft
+-                # tokens, so that we can be sure no further steps are needed even if
+-                # they are all rejected.
+-                and request.num_computed_tokens + 2 - request.num_output_placeholders
++                # Placeholders are included in num_computed_tokens; subtract them
++                # and add the tokens in-flight steps are sure to produce, so no
++                # further steps are needed even if all drafts are rejected.
++                and request.num_computed_tokens
++                + (1 + self._min_in_flight_output_tokens(request))
++                - request.num_output_placeholders
+                 >= request.num_prompt_tokens + request.max_tokens
+             ):
+                 # Async scheduling: Avoid scheduling an extra step when we are sure that
+-                # the previous step has reached request.max_tokens. We don't schedule
++                # the in-flight steps reach request.max_tokens. We don't schedule
+                 # partial draft tokens since this prevents uniform decode optimizations.
+                 req_index += 1
+                 continue
+@@ -1870,6 +1876,7 @@ def _preempt_request(
+         )
+         request.num_stale_output_tokens = request.num_in_flight_tokens
+         request.num_output_placeholders = 0
++        request.num_output_placeholder_steps = 0
+         request.num_preemptions += 1
+         if self.log_stats:
+             self._num_preempted_reqs += 1
+@@ -2396,6 +2403,11 @@ def update_from_output(
+             scheduled_spec_token_ids = (
+                 scheduler_output.scheduled_spec_decode_tokens.get(req_id)
+             )
++            if (not output_is_stale and request.num_output_placeholder_steps > 0) and (
++                generated_token_ids or scheduled_spec_token_ids
++            ):
++                # Not a prefill chunk, so this step added placeholders.
++                request.num_output_placeholder_steps -= 1
+             if scheduled_spec_token_ids and (
+                 generated_token_ids or self.num_sampled_tokens_per_step == 0
+             ):
+@@ -2873,6 +2885,7 @@ def _handle_stopped_request(self, request: Request) -> bool:
+         request.drop_stale_output = True
+         request.num_stale_output_tokens = request.num_in_flight_tokens
+         request.num_output_placeholders = 0
++        request.num_output_placeholder_steps = 0
+ 
+         while request.streaming_queue:
+             update = request.streaming_queue.popleft()
+diff --git a/vllm/v1/engine/core.py b/vllm/v1/engine/core.py
+index 402ccac2776d..58960d302abd 100644
+--- a/vllm/v1/engine/core.py
++++ b/vllm/v1/engine/core.py
+@@ -234,6 +234,8 @@ def __init__(
+         if self.batch_queue_size > 1:
+             logger.debug("Batch queue is enabled with size %d", self.batch_queue_size)
+             self.batch_queue = deque(maxlen=self.batch_queue_size)
++        # Step awaiting prior outputs before sampling (see step_with_batch_queue).
++        self.deferred_step: tuple[SchedulerOutput, Future[Any]] | None = None
+ 
+         self.is_mm_encoder_only = vllm_config.is_mm_encoder_only
+         self.is_pooling_model = vllm_config.model_config.runner_type == "pooling"
+@@ -773,8 +775,8 @@ def step_with_batch_queue(
+         assert len(batch_queue) < self.batch_queue_size
+ 
+         model_executed = False
+-        deferred_scheduler_output = None
+-        if self.scheduler.has_requests():
++        # Workers need a deferred step's sample_tokens() before the next step.
++        if self.deferred_step is None and self.scheduler.has_requests():
+             scheduler_output = self.scheduler.schedule(self._should_throttle_prefills())
+             with self.log_error_detail(scheduler_output):
+                 exec_future = self.model_executor.execute_model(
+@@ -805,11 +807,11 @@ def step_with_batch_queue(
+                         grammar_output, non_block=True
+                     )
+                 else:
+-                    # We need to defer sampling until we have processed the model output
+-                    # from the prior step.
+-                    deferred_scheduler_output = scheduler_output
++                    # We need to defer sampling until we have processed the model
++                    # outputs from the prior steps.
++                    self.deferred_step = (scheduler_output, exec_future)
+ 
+-            if not deferred_scheduler_output:
++            if self.deferred_step is None:
+                 # Add this step's future to the queue.
+                 batch_queue.appendleft((future, scheduler_output, exec_future))
+                 if len(batch_queue) < self.batch_queue_size and (
+@@ -848,7 +850,13 @@ def step_with_batch_queue(
+         # NOTE(nick): We can either handle the deferred tasks here or save
+         # in a field and do it immediately once step_with_batch_queue is
+         # re-called. The latter slightly favors TTFT over TPOT/throughput.
+-        if deferred_scheduler_output:
++        # With async scheduling depth > 2, wait until no queued step shares a
++        # request with the deferred one.
++        if self.deferred_step is not None and not any(
++            so.shares_requests_with(self.deferred_step[0]) for _, so, _ in batch_queue
++        ):
++            deferred_scheduler_output, exec_future = self.deferred_step
++            self.deferred_step = None
+             # Update the deferred scheduler output before computing its grammar
+             # bitmask.
+             if deferred_scheduler_output.has_structured_output_spec_decode:
+diff --git a/vllm/v1/fault_tolerance/engine_core_sentinel.py b/vllm/v1/fault_tolerance/engine_core_sentinel.py
+index cefe60984db4..87115edd6466 100644
+--- a/vllm/v1/fault_tolerance/engine_core_sentinel.py
++++ b/vllm/v1/fault_tolerance/engine_core_sentinel.py
+@@ -225,6 +225,8 @@ def _drain_batch_queue(self) -> None:
+                 ModelRunnerOutput.with_kv_conn_output_only(kv_connector_output),
+             )
+         engine.batch_queue.clear()
++        # Its sampling is never requested, and while set no step is scheduled.
++        engine.deferred_step = None
+ 
+     def _clear_contaminated_blocks(self) -> None:
+         """Evict KV blocks possibly contaminated by the failed step."""
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index 59799fdd66aa..0dce5e1b7040 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -170,6 +170,8 @@ def __init__(
+ 
+         # Used in async scheduling.
+         self.num_output_placeholders = 0
++        # In-flight steps that added to num_output_placeholders.
++        self.num_output_placeholder_steps = 0
+         # Tokens of output in flight when the request was preempted: delivered
+         # on return, but must not mutate the reset counters.
+         self.num_stale_output_tokens = 0
+diff --git a/vllm/v1/worker/gpu/spec_decode/adaptive_verification.py b/vllm/v1/worker/gpu/spec_decode/adaptive_verification.py
+index e180ff879a1c..27afecaab48e 100644
+--- a/vllm/v1/worker/gpu/spec_decode/adaptive_verification.py
++++ b/vllm/v1/worker/gpu/spec_decode/adaptive_verification.py
+@@ -232,6 +232,7 @@ def __init__(
+         num_bonus_tokens: int,
+         max_total_logits: int,
+         copy_admitted_drafts_to_host: bool = False,
++        max_concurrent_batches: int = 2,
+     ):
+         self.req_states = req_states
+         self.num_speculative_steps = req_states.num_speculative_steps
+@@ -273,7 +274,9 @@ def __init__(
+             )
+             self._admitted_drafts_event = torch.Event(blocking=True, device=device)
+ 
+-        # Two D2H slots preserve stale inputs for budget selection.
++        # A ring of D2H slots, one per in-flight step, preserves stale inputs for
++        # budget selection; budgets read the oldest, so its copy rarely blocks.
++        num_slots = max(2, max_concurrent_batches)
+         self._stale_confidences = [
+             CpuGpuBuffer(
+                 max_num_reqs,
+@@ -281,12 +284,13 @@ def __init__(
+                 dtype=torch.float32,
+                 device=device,
+             )
+-            for _ in range(2)
++            for _ in range(num_slots)
+         ]
+         self._copy_events = [
+-            torch.Event(blocking=True, device=device) for _ in range(2)
++            torch.Event(blocking=True, device=device) for _ in range(num_slots)
+         ]
+-        self._pending_resets: list[int] = []
++        # Per slot, rows of requests added since its last copy was issued.
++        self._pending_resets: list[list[int]] = [[] for _ in range(num_slots)]
+         self._stale_idx = 0
+         for slot in self._stale_confidences:
+             slot.np.fill(1.0)
+@@ -301,7 +305,9 @@ def warmup_budget_kernel(self) -> None:
+ 
+     def add_request(self, req_idx: int) -> None:
+         self._stale_confidences[self._stale_idx].np[req_idx].fill(1.0)
+-        self._pending_resets.append(req_idx)
++        for i, resets in enumerate(self._pending_resets):
++            if i != self._stale_idx:
++                resets.append(req_idx)
+         self._confidence_probs[req_idx].fill_(1.0)
+ 
+     def batches_to_profile(self, capture_sizes: list[int]) -> Iterator[dict[str, int]]:
+@@ -378,14 +384,14 @@ def record_confidences(
+         """Publish this step's raw confidences for the ranking kernel and start
+         copying them to the CPU, where a later step's budget reads them."""
+         num_reqs = input_batch.num_reqs
+-        ready_idx = self._stale_idx ^ 1
++        ready_idx = (self._stale_idx + 1) % len(self._stale_confidences)
+         with gpu_sync_allowed():
+             self._copy_events[ready_idx].synchronize()
+-        if self._pending_resets:
+-            self._stale_confidences[ready_idx].np[self._pending_resets] = 1.0
+-            self._pending_resets.clear()
+-        # Last step's copy has landed: budgets read it, this step overwrites the
+-        # slot they were reading before.
++        if resets := self._pending_resets[ready_idx]:
++            self._stale_confidences[ready_idx].np[resets] = 1.0
++            resets.clear()
++        # The oldest step's copy has landed: budgets read it, this step
++        # overwrites the slot they were reading before.
+         self._stale_idx, write_idx = ready_idx, self._stale_idx
+ 
+         self._confidence_probs[input_batch.idx_mapping] = confidence_probs[:num_reqs]
+@@ -649,4 +655,5 @@ def maybe_create_adaptive_verification_manager(
+         num_bonus_tokens,
+         max_total_logits=max_total_logits,
+         copy_admitted_drafts_to_host=copy_admitted_drafts_to_host,
++        max_concurrent_batches=vllm_config.max_concurrent_batches,
+     )
